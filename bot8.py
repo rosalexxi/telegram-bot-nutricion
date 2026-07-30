@@ -35,7 +35,7 @@ user_states = {}
 # ==========================================
 # CONFIGURACIÓN DE GOOGLE SHEETS (GSPREAD)
 # ==========================================
-SPREADSHEET_NAME = "Registro_Nutricional_Bot"
+SPREADSHEET_KEY = "19je2itfFPZqs2YMZcs_MTa7m0ejw_ZuBn_VwVwKCjf4"
 
 def get_gspread_client():
     """Autentica y retorna el cliente de gspread usando variables de entorno o archivo local."""
@@ -405,7 +405,7 @@ async def guardar_en_google_sheets(user_id: int, fecha_str: str) -> str:
 
     try:
         client = get_gspread_client()
-        spreadsheet = client.open(SPREADSHEET_NAME)
+        spreadsheet = client.open_by_key(SPREADSHEET_KEY)
         worksheet = obtener_o_crear_hoja_usuario(spreadsheet, user_id)
 
         rows_to_append = []
@@ -445,7 +445,7 @@ async def guardar_en_google_sheets(user_id: int, fecha_str: str) -> str:
         user_pending_data.pop(user_id, None)
         user_states.pop(user_id, None)
 
-        return f"💾 ¡Guardado correctamente en tu Google Sheets (`{SPREADSHEET_NAME}`) para la fecha *{fecha_str}*!"
+        return f"💾 ¡Guardado correctamente en tu Google Sheets para la fecha *{fecha_str}*!"
 
     except Exception as e:
         return f"❌ Error al guardar en Google Sheets: {str(e)}"
@@ -645,7 +645,7 @@ async def resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         client = get_gspread_client()
-        spreadsheet = client.open(SPREADSHEET_NAME)
+        spreadsheet = client.open_by_key(SPREADSHEET_KEY)
         worksheet = obtener_o_crear_hoja_usuario(spreadsheet, user_id)
         
         data = worksheet.get_all_records()
@@ -717,4 +717,5 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(button_handler))
 
     print(f"🚀 Bot conectado a Google Sheets. Modelo: {MODELO_GROQ}")
-    app.run_polling()
+    # drop_pending_updates=True evita conflictos de conexiones duplicadas
+    app.run_polling(drop_pending_updates=True)
