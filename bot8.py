@@ -483,8 +483,12 @@ async def render_confirmation_screen(msg_or_query, context):
             InlineKeyboardButton("🌙 Cena", callback_data="mom_Cena")
         ])
         
+    # AQUÍ ESTÁ EL CAMBIO: Botones de Cambiar Fecha, Anular y Guardar
     keyboard.append([
-        InlineKeyboardButton("📅 Cambiar Fecha", callback_data="cambiar_fecha_confirm"),
+        InlineKeyboardButton("📅 Cambiar Fecha", callback_data="cambiar_fecha_confirm")
+    ])
+    keyboard.append([
+        InlineKeyboardButton("❌ Anular", callback_data="cancel_entry"),
         InlineKeyboardButton("✅ Guardar Todo", callback_data="confirm_save")
     ])
 
@@ -513,12 +517,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         guardar_en_sheets(user_id, items, fecha, momento, tipo)
         await query.edit_message_text(f"✅ ¡Guardado con éxito en Google Sheets!\n📅 Fecha: `{fecha}`", parse_mode="Markdown")
 
+    elif data == "cancel_entry":
+        # Limpiamos variables pendientes
+        context.user_data.pop('pending_items', None)
+        context.user_data.pop('pending_tipo', None)
+        context.user_data.pop('pending_fecha', None)
+        context.user_data.pop('pending_momento', None)
+        await query.edit_message_text("🚫 **Registro anulado.** No se guardó nada.", parse_mode="Markdown")
+
     elif data.startswith("mom_"):
         context.user_data['pending_momento'] = data.split("_")[1]
         await render_confirmation_screen(query, context)
 
     elif data == "cambiar_fecha_confirm":
-        await query.edit_message_text("✍️ Escribí la fecha en formato **AAAA-MM-DD** (ej: `2026-03-30`):", parse_mode="Markdown")
+        await query.edit_message_text("✍️ Escribí la fecha en formato **AAAA-MM-DD** (ej: `2026-07-30`):", parse_mode="Markdown")
         context.user_data['esperando_fecha'] = True
 
     elif data == "diario_hoy":
@@ -530,7 +542,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await consultar_diario_fecha(update, context, ayer_str)
         
     elif data == "diario_otrodia":
-        await query.edit_message_text("✍️ Escribí la fecha a consultar en formato **AAAA-MM-DD** (ej: `2026-03-25`):", parse_mode="Markdown")
+        await query.edit_message_text("✍️ Escribí la fecha a consultar en formato **AAAA-MM-DD** (ej: `2026-07-25`):", parse_mode="Markdown")
         context.user_data['esperando_fecha_diario'] = True
 
 async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -543,7 +555,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             msg = await update.message.reply_text("Actualizando...")
             await render_confirmation_screen(msg, context)
         else:
-            await update.message.reply_text("❌ Formato incorrecto. Mandalo como `AAAA-MM-DD` (ej: `2026-03-30`).")
+            await update.message.reply_text("❌ Formato incorrecto. Mandalo como `AAAA-MM-DD` (ej: `2026-07-30`).")
         return
 
     if context.user_data.get('esperando_fecha_diario'):
@@ -551,7 +563,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             context.user_data['esperando_fecha_diario'] = False
             await consultar_diario_fecha(update, context, text)
         else:
-            await update.message.reply_text("❌ Formato incorrecto. Mandalo como `AAAA-MM-DD` (ej: `2026-03-25`).")
+            await update.message.reply_text("❌ Formato incorrecto. Mandalo como `AAAA-MM-DD` (ej: `2026-07-25`).")
         return
 
     await handle_message(update, context)
@@ -623,7 +635,6 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
             
         dias_cnt = max(len(fechas_unicas), 1)
         
-        # TOTAL MES: Ingesta pura en consumidas, ejercicio en quemadas y balance restando ambos
         table_data.append([
             "TOTAL MES",
             f"{tot_c_in:.1f} kcal",
@@ -635,7 +646,6 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
             f"{tot_f:.1f} g"
         ])
         
-        # PROM. DIARIO: Promedio de ingesta pura sin descontar ejercicio
         table_data.append([
             "PROM. DIARIO",
             f"{(tot_c_in / dias_cnt):.1f} kcal",
@@ -707,7 +717,6 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
         dias_tot = max(df['Fecha'].nunique() if not df.empty else 1, 1)
         gasto_basal_actividad = metabol['get'] * dias_tot
         
-        # Descuento metabólico correcto
         balance_real = tot_c_in - (gasto_basal_actividad + tot_c_out)
         cambio_peso_kg = balance_real / 7700
 
