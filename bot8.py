@@ -569,7 +569,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
     perfil = obtener_perfil(user_id)
     metabol = calcular_metabolismo(perfil)
     
-    df_comida = df[df.get('Tipo', 'Comida') == 'Comida'] if not df.empty and 'Tipo' in df.columns else df
+    df_comida = df[df['Tipo'] == 'Comida'] if not df.empty and 'Tipo' in df.columns else df
     dias = df_comida['Fecha'].nunique() if not df_comida.empty and 'Fecha' in df_comida.columns else 0
     
     tot_cal = df_comida['Calorias'].sum() if not df_comida.empty and 'Calorias' in df_comida.columns else 0
@@ -610,7 +610,7 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     story.append(Spacer(1, 10))
 
     if not df.empty and 'Fecha' in df.columns:
-        df_comidas = df[df.get('Tipo', 'Comida') == 'Comida']
+        df_comidas = df[df['Tipo'] == 'Comida'] if 'Tipo' in df.columns else df
         df_diario = df_comidas.groupby('Fecha').agg({
             'Calorias': 'sum',
             'Proteinas': 'sum',
@@ -653,8 +653,8 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     story.append(Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str} (Hoja 2: Análisis y Balance)</b>", title_style))
     story.append(Spacer(1, 10))
 
-    df_comida = df[df.get('Tipo', 'Comida') == 'Comida'] if not df.empty and 'Tipo' in df.columns else df
-    df_ejercicio = df[df.get('Tipo', 'Comida') == 'Ejercicio'] if not df.empty and 'Tipo' in df.columns else pd.DataFrame()
+    df_comida = df[df['Tipo'] == 'Comida'] if not df.empty and 'Tipo' in df.columns else df
+    df_ejercicio = df[df['Tipo'] == 'Ejercicio'] if not df.empty and 'Tipo' in df.columns else pd.DataFrame()
 
     dias_count = df_comida['Fecha'].nunique() if not df_comida.empty and 'Fecha' in df_comida.columns else 1
     dias_count = max(dias_count, 1)
