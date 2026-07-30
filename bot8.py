@@ -7,7 +7,7 @@ from datetime import datetime, date
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-import openai
+from groq import Groq
 from dotenv import load_dotenv
 import httpx
 from flask import Flask, request, jsonify, render_template_string
@@ -34,11 +34,11 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GOOGLE_SHEETS_KEY_PATH = os.getenv("GOOGLE_SHEETS_KEY_PATH", "credentials.json")
 SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "Registro_Nutricional")
 
-client_ai = openai.OpenAI(api_key=OPENAI_API_KEY)
+client_ai = Groq(api_key=GROQ_API_KEY)
 
 # ==========================================
 # SERVIDOR FLASK CON WEB APP INTERACTIVA
@@ -266,7 +266,7 @@ def api_consultar():
         return jsonify({'error': 'Consulta vacía'}), 400
     
     try:
-        res = analizar_con_gpt(query)
+        res = analizar_con_groq(query)
         return jsonify(res)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -460,10 +460,10 @@ async def cancel_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Operación cancelada.")
     return ConversationHandler.END
 
-# --- PROCESAMIENTO CON GPT ---
-def analizar_con_gpt(prompt_text, image_bytes=None):
+# --- PROCESAMIENTO CON GROQ ---
+def analizar_con_groq(prompt_text):
     system_prompt = (
-        "Sos un nutricionista y experto en análisis de alimentos. Tu tarea es analizar el texto o la imagen dada y extraer los ítems.\n"
+        "Sos un nutricionista y experto en análisis de alimentos. Tu tarea es analizar el texto dado y extraer los ítems.\n"
         "Debes responder ÚNICA Y EXCLUSIVAMENTE con un JSON válido con la siguiente estructura:\n"
         "{\n"
         '  "items": [\n'
@@ -475,23 +475,13 @@ def analizar_con_gpt(prompt_text, image_bytes=None):
         "Si no se especifica fibra o macros, estimálos razonablemente."
     )
     
-    messages = [{"role": "system", "content": system_prompt}]
-    
-    if image_bytes:
-        import base64
-        base64_image = base64.b64encode(image_bytes).decode('utf-8')
-        messages.append({
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt_text or "Analiza esta comida/ejercicio:"},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-            ]
-        })
-    else:
-        messages.append({"role": "user", "content": prompt_text})
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt_text}
+    ]
         
     response = client_ai.chat.completions.create(
-        model="gpt-4o-mini",
+        model="llama-3.3-70b-versatile",
         messages=messages,
         temperature=0.2,
         response_format={"type": "json_object"}
@@ -504,7 +494,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("⏳ Analizando tu registro...")
     
     try:
-        data = analizar_con_gpt(user_text)
+        data = analizar_con_groq(user_text)
         items = data.get("items", [])
         tipo = data.get("tipo", "Comida")
         
@@ -539,50 +529,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(txt_res, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
     except Exception as e:
         await msg.edit_text(f"❌ Ocurrió un error al procesar el mensaje: {e}")
-
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = await update.message.reply_text("📸 Analizando la imagen enviada...")
-    
-    try:
-        photo_file = await update.message.photo[-1].get_file()
-        photo_bytes = await photo_file.download_as_bytearray()
-        
-        caption = update.message.caption or ""
-        data = analizar_con_gpt(caption, bytes(photo_bytes))
-        items = data.get("items", [])
-        tipo = data.get("tipo", "Comida")
-        
-        if not items:
-            await msg.edit_text("No pude reconocer ningún alimento o ejercicio en la foto.")
-            return
-
-        context.user_data['pending_items'] = items
-        context.user_data['pending_tipo'] = tipo
-        
-        txt_res = f"🍽️ **Reconocimiento de Alimento:**\n\n"
-        tot_c = tot_p = tot_g = tot_h = tot_f = 0
-        keyboard = []
-        
-        for idx, item in enumerate(items):
-            c = item.get('calorias', 0)
-            p = item.get('proteinas', 0)
-            g = item.get('grasas', 0)
-            h = item.get('carbohidratos', 0)
-            f = item.get('fibras', 0)
-            tot_c += c; tot_p += p; tot_g += g; tot_h += h; tot_f += f
-            
-            txt_res += f"• **{item['alimento']}**:\n  └ {c} kcal | P: {p}g | G: {g}g | H: {h}g | Fib: {f}g\n"
-            keyboard.append([InlineKeyboardButton(f"✏️ Editar {item['alimento']}", callback_data=f"edit_{idx}")])
-            
-        txt_res += f"\n🔥 **Totales:** {tot_c} kcal\n💪 Prot: {tot_p}g | 🥑 Grasas: {tot_g}g | 🍞 Carb: {tot_h}g | 🌾 Fib: {tot_f}g\n"
-        txt_res += "\n¿Deseas confirmar este registro?"
-        
-        keyboard.append([InlineKeyboardButton("✅ Confirmar", callback_data="confirm_save")])
-        keyboard.append([InlineKeyboardButton("❌ Descartar", callback_data="cancel_save")])
-        
-        await msg.edit_text(txt_res, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
-    except Exception as e:
-        await msg.edit_text(f"❌ Error procesando la foto: {e}")
 
 # --- MANEJO DE EDICIÓN Y CONFIRMACIÓN ---
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -626,7 +572,7 @@ async def receive_food_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if idx is not None and idx < len(items):
         item_previo = items[idx]
         prompt = f"El alimento detectado era '{item_previo['alimento']}' ({item_previo['calorias']} kcal). El usuario corrigió diciendo: '{text}'. Actualiza los datos manteniendo los campos no modificados."
-        res = analizar_con_gpt(prompt)
+        res = analizar_con_groq(prompt)
         new_items = res.get("items", [])
         if new_items:
             items[idx] = new_items[0]
@@ -826,10 +772,9 @@ def main():
     app_bot.add_handler(CallbackQueryHandler(callback_pdf, pattern="^generate_pdf$"))
     app_bot.add_handler(CallbackQueryHandler(callback_handler, pattern="^(confirm_save|cancel_save)$"))
     
-    app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("🚀 Bot iniciado correctamente...")
+    print("🚀 Bot iniciado correctamente con Groq...")
     app_bot.run_polling()
 
 if __name__ == "__main__":
