@@ -80,8 +80,8 @@ def get_or_create_worksheet(spreadsheet, title):
         return spreadsheet.worksheet(title)
     except gspread.WorksheetNotFound:
         if title.startswith("User_"):
-            ws = spreadsheet.add_worksheet(title=title, rows="500", cols="12")
-            ws.append_row(["User_ID", "Fecha", "Tipo", "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)"])
+            ws = spreadsheet.add_worksheet(title=title, rows="500", cols="10")
+            ws.append_row(["Fecha", "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)"])
             return ws
         elif title.startswith("Perfil"):
             ws = spreadsheet.add_worksheet(title=title, rows="100", cols="8")
@@ -101,10 +101,9 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
 
     rows = []
     for item in items:
+        # Se guarda únicamente el esquema de 9 columnas acordado
         rows.append([
-            str(user_id),
             fecha,
-            tipo,
             momento,
             item.get("alimento", "Desconocido"),
             float(item.get("peso", 0)),
@@ -133,19 +132,19 @@ def obtener_datos_mes(user_id, mes_str):
         
         df = pd.DataFrame(records)
         
-        # Mapeo universal de columnas
+        # Mapeo flexible de columnas para compatibilidad
         col_map = {}
         for c in df.columns:
-            c_lower = c.lower()
+            c_lower = str(c).lower()
             if 'fecha' in c_lower: col_map[c] = 'Fecha'
             elif 'momento' in c_lower or 'actividad' in c_lower: col_map[c] = 'Momento'
             elif 'alimento' in c_lower or 'detalle' in c_lower: col_map[c] = 'Alimento'
+            elif 'peso' in c_lower: col_map[c] = 'Peso'
             elif 'calor' in c_lower: col_map[c] = 'Calorias'
             elif 'prote' in c_lower: col_map[c] = 'Proteinas'
             elif 'grasa' in c_lower: col_map[c] = 'Grasas'
             elif 'hidrat' in c_lower or 'carbo' in c_lower: col_map[c] = 'Carbohidratos'
             elif 'fibra' in c_lower: col_map[c] = 'Fibras'
-            elif 'tipo' in c_lower: col_map[c] = 'Tipo'
 
         df = df.rename(columns=col_map)
         
@@ -153,7 +152,7 @@ def obtener_datos_mes(user_id, mes_str):
             df['Fecha'] = df['Fecha'].astype(str)
             df = df[df['Fecha'].str.startswith(mes_str)]
             
-            for col in ['Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
+            for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
                 else:
@@ -225,7 +224,7 @@ def calcular_metabolismo(perfil):
         else:
             tmb = (10 * peso) + (6.25 * altura) - (5 * edad) - 161
             
-        get_val = tmb * 1.2  # Factor de actividad sedentaria / diario base
+        get_val = tmb * 1.2  # GET Estimado
         return {"tmb": round(tmb, 1), "get": round(get_val, 1)}
     except:
         return None
@@ -245,7 +244,6 @@ def analizar_con_groq(prompt_text):
         "}"
     )
     
-    # Modelo ultrarrápido y confiable para Texto
     response = client_ai.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
@@ -270,7 +268,6 @@ def analizar_imagen_con_groq(image_bytes):
         "}"
     )
     
-    # Exclusivo para imágenes (Qwen Vision)
     response = client_ai.chat.completions.create(
         model="qwen/qwen3.6-27b",
         messages=[
@@ -288,7 +285,7 @@ def analizar_imagen_con_groq(image_bytes):
     return json.loads(response.choices[0].message.content)
 
 # ==========================================
-# COMANDOS BÁSICOS
+# COMANDOS BÁSICOS Y DIARIO AGRUPADO
 # ==========================================
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
@@ -326,10 +323,23 @@ async def consultar_diario_fecha(update: Update, context: ContextTypes.DEFAULT_T
         return
         
     df_fecha = df[df['Fecha'] == fecha_target]
+    
+    # Agrupación por Momento/Actividad
+    agrupado = df_fecha.groupby('Momento').agg({
+        'Alimento': lambda x: ', '.join(x.astype(str)),
+        'Peso': 'sum',
+        'Calorias': 'sum',
+        'Proteinas': 'sum',
+        'Grasas': 'sum',
+        'Carbohidratos': 'sum',
+        'Fibras': 'sum'
+    }).reset_index()
+
     res = f"📅 **Diario del día ({fecha_target}):**\n\n"
     tot_c = tot_p = tot_g = tot_h = tot_f = 0
     
-    for _, r in df_fecha.iterrows():
+    for _, r in agrupado.iterrows():
+        p_gr = float(r.get('Peso', 0))
         c = float(r.get('Calorias', 0))
         p = float(r.get('Proteinas', 0))
         g = float(r.get('Grasas', 0))
@@ -337,7 +347,7 @@ async def consultar_diario_fecha(update: Update, context: ContextTypes.DEFAULT_T
         f = float(r.get('Fibras', 0))
         
         tot_c += c; tot_p += p; tot_g += g; tot_h += h; tot_f += f
-        res += f"• [{r.get('Momento', 'General')}] **{r.get('Alimento', 'Ítem')}**\n"
+        res += f"• [{r.get('Momento', 'General')}] **{r.get('Alimento', 'Ítem')}** ({p_gr:.0f}g)\n"
         res += f"  └ {c:.0f} kcal | P: {p:.1f}g | G: {g:.1f}g | H: {h:.1f}g | Fib: {f:.1f}g\n"
         
     res += f"\n🔥 **Totales:** {tot_c:.0f} kcal\n"
@@ -407,6 +417,7 @@ async def render_confirmation_screen(msg_or_query, context):
     tot_c = tot_p = tot_g = tot_h = tot_f = 0
     
     for item in items:
+        p_gr = float(item.get('peso', 0))
         c = float(item.get('calorias', 0))
         p = float(item.get('proteinas', 0))
         g = float(item.get('grasas', 0))
@@ -414,7 +425,7 @@ async def render_confirmation_screen(msg_or_query, context):
         f = float(item.get('fibras', 0))
         tot_c += c; tot_p += p; tot_g += g; tot_h += h; tot_f += f
         
-        txt_res += f"• **{item['alimento']}**:\n"
+        txt_res += f"• **{item['alimento']}** ({p_gr:.0f}g):\n"
         if tipo == "Comida":
             txt_res += f"  └ {c:.0f} kcal | P: {p:.1f}g | G: {g:.1f}g | H: {h:.1f}g | Fib: {f:.1f}g\n"
         else:
@@ -424,7 +435,6 @@ async def render_confirmation_screen(msg_or_query, context):
 
     keyboard = []
     
-    # Teclado de Selección de Momento (Solo en Comidas)
     if tipo == "Comida":
         keyboard.append([
             InlineKeyboardButton("🌅 Desayuno", callback_data="mom_Desayuno"),
@@ -436,14 +446,12 @@ async def render_confirmation_screen(msg_or_query, context):
             InlineKeyboardButton("🍏 Colación", callback_data="mom_Colación")
         ])
     
-    # Teclado de Fechas (Para Comida y Ejercicio)
     keyboard.append([
         InlineKeyboardButton("📅 Hoy", callback_data="fec_hoy"),
         InlineKeyboardButton("⏮️ Ayer", callback_data="fec_ayer"),
         InlineKeyboardButton("📆 Otro Día", callback_data="fec_otrodia")
     ])
     
-    # Botones de Acción Final
     keyboard.append([
         InlineKeyboardButton("✏️ Modificar", callback_data="edit_manual"),
         InlineKeyboardButton("✅ Confirmar Guardado", callback_data="confirm_save"),
@@ -482,7 +490,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['waiting_for'] = 'custom_date'
         
     elif data == "edit_manual":
-        await query.message.reply_text("✏️ Escribí el texto corregido del alimento/ejercicio y sus valores (ej: *'1 ensalada césar 350 kcal 20g proteina'*):", parse_mode="Markdown")
+        await query.message.reply_text("✏️ Escribí el texto corregido del alimento/ejercicio y sus valores (ej: *'150g ensalada césar 350 kcal 20g proteina'*):", parse_mode="Markdown")
         context.user_data['waiting_for'] = 'edit_text'
 
     elif data == "diario_hoy":
@@ -547,7 +555,7 @@ async def handle_custom_inputs(update: Update, context: ContextTypes.DEFAULT_TYP
         await handle_message(update, context)
 
 # ==========================================
-# REPORTES Y PDF EN 2 HOJAS COMPLETAS
+# REPORTES Y PDF CON FORMATO ESPECÍFICO
 # ==========================================
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mes_actual = date.today().strftime("%Y-%m")
@@ -569,7 +577,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
     perfil = obtener_perfil(user_id)
     metabol = calcular_metabolismo(perfil)
     
-    df_comida = df[df['Tipo'] == 'Comida'] if not df.empty and 'Tipo' in df.columns else df
+    df_comida = df[df['Momento'] != 'Ejercicio'] if not df.empty and 'Momento' in df.columns else df
     dias = df_comida['Fecha'].nunique() if not df_comida.empty and 'Fecha' in df_comida.columns else 0
     
     tot_cal = df_comida['Calorias'].sum() if not df_comida.empty and 'Calorias' in df_comida.columns else 0
@@ -587,60 +595,108 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         resumen_text += f"⚡ GET Gasto Total Est.: {metabol['get']} kcal/día\n"
     
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📄 Descargar PDF (2 Hojas Completo)", callback_data=f"genpdf_{mes_str}")]
+        [InlineKeyboardButton("📄 Descargar PDF Completo", callback_data=f"genpdf_{mes_str}")]
     ])
     
     await query.edit_message_text(resumen_text, parse_mode="Markdown", reply_markup=keyboard)
 
 def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=20, leftMargin=20, topMargin=30, bottomMargin=30)
     styles = getSampleStyleSheet()
     
-    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#1E3A8A'), spaceAfter=10)
-    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#2563EB'), spaceAfter=8)
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=9, leading=13)
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=8)
+    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#2563EB'), spaceAfter=6)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=12)
 
     story = []
 
     # ----------------------------------------------------
-    # HOJA 1: RESUMEN DIARIO PASO A PASO
+    # HOJA 1: RESUMEN CON ESTRUCTURA DEL DOCUMENTO SOLICITADO
     # ----------------------------------------------------
-    story.append(Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str} (Hoja 1: Desglose Diario)</b>", title_style))
+    story.append(Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str}</b>", title_style))
+    story.append(Paragraph(f"Usuario Telegram ID: {user_id}", body_style))
     story.append(Spacer(1, 10))
 
     if not df.empty and 'Fecha' in df.columns:
-        df_comidas = df[df['Tipo'] == 'Comida'] if 'Tipo' in df.columns else df
-        df_diario = df_comidas.groupby('Fecha').agg({
-            'Calorias': 'sum',
-            'Proteinas': 'sum',
-            'Grasas': 'sum',
-            'Carbohidratos': 'sum',
-            'Fibras': 'sum'
-        }).reset_index().sort_values('Fecha')
-
-        table_data = [["Fecha", "Kcal Ingesta", "Prot (g)", "Grasas (g)", "Carb (g)", "Fibras (g)"]]
-        for _, r in df_diario.iterrows():
+        # Separación entre Comida y Ejercicio según la columna 'Momento'
+        df['Es_Ejercicio'] = df['Momento'].astype(str).str.lower() == 'ejercicio'
+        
+        # Agrupación por Fecha
+        fechas_unicas = df['Fecha'].unique()
+        table_data = [["Fecha", "Cal. Consumid.", "Cal. Quemad.", "Bal. Neto", "Prot (g)", "Grasas (g)", "Carbs (g)", "Fibras (g)"]]
+        
+        tot_c_in = tot_c_out = tot_p = tot_g = tot_h = tot_f = 0
+        
+        for f in sorted(fechas_unicas):
+            sub = df[df['Fecha'] == f]
+            comidas = sub[~sub['Es_Ejercicio']]
+            ejercicios = sub[sub['Es_Ejercicio']]
+            
+            c_in = comidas['Calorias'].sum()
+            c_out = ejercicios['Calorias'].sum()
+            bal_neto = c_in - c_out
+            
+            p = comidas['Proteinas'].sum()
+            g = comidas['Grasas'].sum()
+            h = comidas['Carbohidratos'].sum()
+            fib = comidas['Fibras'].sum()
+            
+            tot_c_in += c_in
+            tot_c_out += c_out
+            tot_p += p
+            tot_g += g
+            tot_h += h
+            tot_f += fib
+            
             table_data.append([
-                str(r['Fecha']),
-                f"{r['Calorias']:.0f}",
-                f"{r['Proteinas']:.1f}",
-                f"{r['Grasas']:.1f}",
-                f"{r['Carbohidratos']:.1f}",
-                f"{r['Fibras']:.1f}"
+                str(f),
+                f"{c_in:.1f} kcal" if c_in > 0 else "0 kcal",
+                f"{c_out:.1f} kcal" if c_out > 0 else "0 kcal",
+                f"{bal_neto:.1f} kcal",
+                f"{p:.1f} g",
+                f"{g:.1f} g",
+                f"{h:.1f} g",
+                f"{fib:.1f} g"
             ])
             
-        t = Table(table_data, colWidths=[80, 80, 70, 70, 70, 70])
+        # Filas de Totales y Promedios
+        dias_cnt = max(len(fechas_unicas), 1)
+        table_data.append([
+            "TOTAL MES",
+            f"{tot_c_in:.1f} kcal",
+            f"{tot_c_out:.1f} kcal",
+            f"{(tot_c_in - tot_c_out):.1f} kcal",
+            f"{tot_p:.1f} g",
+            f"{tot_g:.1f} g",
+            f"{tot_h:.1f} g",
+            f"{tot_f:.1f} g"
+        ])
+        
+        table_data.append([
+            "PROM. DIARIO",
+            f"{(tot_c_in/dias_cnt):.1f} kcal",
+            f"{(tot_c_out/dias_cnt):.1f} kcal",
+            f"{((tot_c_in - tot_c_out)/dias_cnt):.1f} kcal",
+            f"{(tot_p/dias_cnt):.1f} g",
+            f"{(tot_g/dias_cnt):.1f} g",
+            f"{(tot_h/dias_cnt):.1f} g",
+            f"{(tot_f/dias_cnt):.1f} g"
+        ])
+            
+        t = Table(table_data, colWidths=[65, 75, 75, 75, 55, 55, 55, 55])
         t.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1E3A8A')),
             ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
             ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0,0), (-1,0), 8),
-            ('BOTTOMPADDING', (0,0), (-1,0), 5),
-            ('BACKGROUND', (0,1), (-1,-1), colors.HexColor('#F8FAFC')),
+            ('FONTSIZE', (0,0), (-1,-1), 7.5),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+            ('TOPPADDING', (0,0), (-1,-1), 4),
+            ('BACKGROUND', (0,1), (-1,-3), colors.HexColor('#F8FAFC')),
+            ('BACKGROUND', (0,-2), (-1,-1), colors.HexColor('#E2E8F0')),
+            ('FONTNAME', (0,-2), (-1,-1), 'Helvetica-Bold'),
             ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
-            ('FONTSIZE', (0,1), (-1,-1), 8),
         ]))
         story.append(t)
 
@@ -648,75 +704,69 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     story.append(PageBreak())
 
     # ----------------------------------------------------
-    # HOJA 2: TOTALES, PROMEDIOS Y ESTIMACIÓN METABÓLICA
+    # HOJA 2: ANÁLISIS METABÓLICO Y ESTIMACIÓN CORPORAL
     # ----------------------------------------------------
-    story.append(Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str} (Hoja 2: Análisis y Balance)</b>", title_style))
+    story.append(Paragraph("<b>Análisis Metabólico y Estimación Corporal</b>", title_style))
     story.append(Spacer(1, 10))
 
-    df_comida = df[df['Tipo'] == 'Comida'] if not df.empty and 'Tipo' in df.columns else df
-    df_ejercicio = df[df['Tipo'] == 'Ejercicio'] if not df.empty and 'Tipo' in df.columns else pd.DataFrame()
-
-    dias_count = df_comida['Fecha'].nunique() if not df_comida.empty and 'Fecha' in df_comida.columns else 1
-    dias_count = max(dias_count, 1)
-
-    tot_cal = df_comida['Calorias'].sum() if not df_comida.empty else 0
-    tot_prot = df_comida['Proteinas'].sum() if not df_comida.empty else 0
-    tot_gras = df_comida['Grasas'].sum() if not df_comida.empty else 0
-    tot_carb = df_comida['Carbohidratos'].sum() if not df_comida.empty else 0
-    tot_ejercicio = df_ejercicio['Calorias'].sum() if not df_ejercicio.empty else 0
-
-    prom_cal = tot_cal / dias_count
-    prom_prot = tot_prot / dias_count
-    prom_gras = tot_gras / dias_count
-    prom_carb = tot_carb / dias_count
-
-    story.append(Paragraph("<b>1. Totales Acumulados y Promedios Diarios</b>", sub_style))
-    
-    summary_data = [
-        ["Métrica", "Total Mensual", "Promedio Diario"],
-        ["Calorías Ingeridas", f"{tot_cal:.0f} kcal", f"{prom_cal:.0f} kcal/día"],
-        ["Proteínas", f"{tot_prot:.1f} g", f"{prom_prot:.1f} g/día"],
-        ["Grasas", f"{tot_gras:.1f} g", f"{prom_gras:.1f} g/día"],
-        ["Carbohidratos", f"{tot_carb:.1f} g", f"{prom_carb:.1f} g/día"],
-        ["Gasto Ejercicio Reg.", f"{tot_ejercicio:.0f} kcal", f"{(tot_ejercicio/dias_count):.0f} kcal/día"]
-    ]
-    
-    ts = Table(summary_data, colWidths=[150, 150, 150])
-    ts.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2563EB')),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
-        ('FONTSIZE', (0,0), (-1,-1), 9),
-    ]))
-    story.append(ts)
-    story.append(Spacer(1, 15))
-
-    story.append(Paragraph("<b>2. Estimación de Cambio de Peso Corporal</b>", sub_style))
-    
     if perfil and metabol:
         p_sexo = perfil.get('Sexo', perfil.get('sexo', 'N/A'))
         p_edad = perfil.get('Edad', perfil.get('edad', 'N/A'))
         p_peso = perfil.get('Peso_kg', perfil.get('peso', 'N/A'))
         p_altura = perfil.get('Altura_cm', perfil.get('altura', 'N/A'))
+        p_ocup = perfil.get('Ocupacion', perfil.get('ocupacion', 'N/A'))
         
-        gasto_basal_actividad = metabol['get'] * dias_count
-        gasto_total_con_ejercicio = gasto_basal_actividad + tot_ejercicio
-        balance = tot_cal - gasto_total_con_ejercicio
-        cambio_peso = balance / 7700  # 7700 kcal equivalen aprox a 1 kg de grasa
+        info_perfil = [
+            ["Dato Fisiológico", "Valor Registrado"],
+            ["Sexo", str(p_sexo)],
+            ["Edad", f"{p_edad} años"],
+            ["Peso", f"{p_peso} kg"],
+            ["Altura", f"{p_altura} cm"],
+            ["Ocupación / Actividad", str(p_ocup)],
+            ["Metabolismo Basal (TMB)", f"{metabol['tmb']} kcal / día"],
+            ["Gasto Energético Conservador (GET)", f"{metabol['get']} kcal / día"]
+        ]
+        
+        t_perfil = Table(info_perfil, colWidths=[200, 250])
+        t_perfil.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2563EB')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+            ('FONTSIZE', (0,0), (-1,-1), 8.5),
+        ]))
+        story.append(t_perfil)
+        story.append(Spacer(1, 15))
 
-        info_meta = (
-            f"• <b>Perfil del Usuario:</b> {p_sexo} | {p_edad} años | {p_peso} kg | {p_altura} cm<br/>"
-            f"• <b>Tasa Metabólica Basal (TMB):</b> {metabol['tmb']} kcal/día<br/>"
-            f"• <b>Gasto Base + Actividad Diaria:</b> {gasto_basal_actividad:.0f} kcal ({dias_count} días)<br/>"
-            f"• <b>Gasto Extra por Ejercicio:</b> {tot_ejercicio:.0f} kcal<br/>"
-            f"• <b>GASTO TOTAL ESTIMADO:</b> {gasto_total_con_ejercicio:.0f} kcal<br/>"
-            f"• <b>INGESTA TOTAL CONSUMIDA:</b> {tot_cal:.0f} kcal<br/><br/>"
-            f"🔥 <b>BALANCE CALÓRICO NETO:</b> {balance:+.0f} kcal<br/>"
-            f"⚖️ <b>VARIACIÓN ESTIMADA DE PESO:</b> <b>{cambio_peso:+.2f} kg</b>"
-        )
-        story.append(Paragraph(info_meta, body_style))
+        story.append(Paragraph("<b>Resumen de Balance y Cambio Corporal Estimado:</b>", sub_style))
+        
+        dias_tot = max(df['Fecha'].nunique() if not df.empty else 1, 1)
+        gasto_basal_actividad = metabol['get'] * dias_tot
+        balance_real = tot_c_in - (gasto_basal_actividad + tot_c_out)
+        cambio_peso_kg = balance_real / 7700  # Aprox. 7700 kcal por kg de grasa
+
+        info_balance = [
+            ["Concepto", "Valor Mensual"],
+            ["Total Calorías Consumidas (Comidas)", f"{tot_c_in:.1f} kcal"],
+            [f"Total Gasto Basal + Ocupación (GET) ({dias_tot} días)", f"-{gasto_basal_actividad:.1f} kcal"],
+            ["Total Ejercicio Extra Registrado", f"-{tot_c_out:.1f} kcal"],
+            ["BALANCE CALÓRICO NETO REAL", f"{balance_real:+.1f} kcal"],
+            ["CAMBIO ESTIMADO DE PESO", f"{cambio_peso_kg:+.2f} kg ({cambio_peso_kg*1000:+.1f} g)"]
+        ]
+        
+        t_bal = Table(info_balance, colWidths=[250, 200])
+        t_bal.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1E3A8A')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('FONTNAME', (0,-2), (-1,-1), 'Helvetica-Bold'),
+            ('BACKGROUND', (0,-2), (-1,-1), colors.HexColor('#E2E8F0')),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+            ('FONTSIZE', (0,0), (-1,-1), 8.5),
+        ]))
+        story.append(t_bal)
     else:
         story.append(Paragraph("<i>No se pudo calcular la estimación metabólica porque no se ha completado el /perfil del usuario.</i>", body_style))
 
@@ -729,7 +779,7 @@ async def callback_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data.startswith("genpdf_"):
         mes_str = query.data.replace("genpdf_", "")
         await query.answer("Generando PDF...")
-        await query.message.reply_text(f"📄 Generando PDF en 2 hojas para {mes_str}...")
+        await query.message.reply_text(f"📄 Generando PDF para {mes_str}...")
         
         user_id = query.from_user.id
         df = obtener_datos_mes(user_id, mes_str)
@@ -740,8 +790,8 @@ async def callback_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await query.message.reply_document(
             document=pdf_bytes,
-            filename=f"Reporte_Nutricional_{mes_str}.pdf",
-            caption=f"📄 Reporte Completo de 2 Hojas ({mes_str})."
+            filename=f"Resumen_Nutricional_{mes_str}.pdf",
+            caption=f"📄 Reporte Nutricional Mensual ({mes_str})."
         )
 
 # ==========================================
