@@ -58,24 +58,39 @@ def keep_alive():
     t.start()
 
 # ==========================================
+# FUNCIÓN AUXILIAR DE LIMPIEZA DE NÚMEROS
+# ==========================================
+def parse_float(val):
+    """ Convierte cualquier valor (string con coma, entero, float) a float seguro. """
+    if val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    val_str = str(val).strip().replace(',', '.')
+    try:
+        return float(val_str)
+    except ValueError:
+        return 0.0
+
+# ==========================================
 # LÓGICA DE HORARIO Y FECHA AUTOMÁTICA
 # ==========================================
 def obtener_momento_y_fecha_auto():
     ahora = datetime.now()
-    hora = ahora.time()
-    fecha_obj = ahora.date()
+    hora = me = ahora.time()
+    fecha_obj = me = ahora.date()
     
     # De 00:00 a 02:00 pertenece a la cena del día anterior
-    if time(0, 0) <= hora < time(2, 0):
+    if time(0, 0) <= me < time(2, 0):
         fecha_obj = fecha_obj - timedelta(days=1)
         momento = "Cena"
-    elif time(6, 0) <= hora < time(10, 0):
+    elif time(6, 0) <= me < time(10, 0):
         momento = "Desayuno"
-    elif time(10, 0) <= hora < time(12, 0):
+    elif time(10, 0) <= me < time(12, 0):
         momento = "Colación"
-    elif time(12, 0) <= hora < time(15, 0):
+    elif time(12, 0) <= me < time(15, 0):
         momento = "Almuerzo"
-    elif time(15, 0) <= hora < time(20, 0):
+    elif time(15, 0) <= me < time(20, 0):
         momento = "Merienda"
     else: # 20:00 a 23:59
         momento = "Cena"
@@ -130,12 +145,12 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
             fecha,
             momento,
             item.get("alimento", "Desconocido"),
-            float(item.get("peso", 0)),
-            float(item.get("calorias", 0)),
-            float(item.get("proteinas", 0)),
-            float(item.get("grasas", 0)),
-            float(item.get("carbohidratos", 0)),
-            float(item.get("fibras", 0))
+            parse_float(item.get("peso", 0)),
+            parse_float(item.get("calorias", 0)),
+            parse_float(item.get("proteinas", 0)),
+            parse_float(item.get("grasas", 0)),
+            parse_float(item.get("carbohidratos", 0)),
+            parse_float(item.get("fibras", 0))
         ])
     if rows:
         ws.append_rows(rows)
@@ -175,9 +190,11 @@ def obtener_datos_mes(user_id, mes_str):
             df['Fecha'] = df['Fecha'].astype(str)
             df = df[df['Fecha'].str.startswith(mes_str)]
             
+            # PARSEO SEGURO REEMPLAZANDO COMAS POR PUNTOS
             for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
                 if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                    df[col] = df[col].astype(str).str.replace(',', '.', regex=False)
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
                 else:
                     df[col] = 0.0
                     
@@ -217,11 +234,11 @@ def guardar_perfil(user_id, perfil_dict):
     
     row_data = [
         mes_actual,
-        perfil_dict.get("edad", ""),
+        parse_float(perfil_dict.get("edad", 0)),
         perfil_dict.get("sexo", ""),
-        perfil_dict.get("peso", ""),
-        perfil_dict.get("altura", ""),
-        perfil_dict.get("cintura", ""),
+        parse_float(perfil_dict.get("peso", 0)),
+        parse_float(perfil_dict.get("altura", 0)),
+        parse_float(perfil_dict.get("cintura", 0)),
         perfil_dict.get("ocupacion", ""),
         datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     ]
@@ -231,10 +248,10 @@ def calcular_metabolismo(perfil):
     if not perfil:
         return None
     try:
-        edad = float(perfil.get("Edad", perfil.get("edad", 0)))
+        edad = parse_float(perfil.get("Edad", perfil.get("edad", 0)))
         sexo = str(perfil.get("Sexo", perfil.get("sexo", "M"))).upper()
-        peso = float(perfil.get("Peso_kg", perfil.get("peso", 0)))
-        altura = float(perfil.get("Altura_cm", perfil.get("altura", 0)))
+        peso = parse_float(perfil.get("Peso_kg", perfil.get("peso", 0)))
+        altura = parse_float(perfil.get("Altura_cm", perfil.get("altura", 0)))
         
         if sexo == "M":
             tmb = (10 * peso) + (6.25 * altura) - (5 * edad) + 5
@@ -252,6 +269,7 @@ def calcular_metabolismo(perfil):
 def analizar_con_groq(prompt_text):
     system_prompt = (
         "Sos un nutricionista y entrenador experto. Analizá el texto del usuario.\n"
+        "REGLA CRÍTICA DE NUMEROS: Usá SIEMPRE el punto (.) como separador decimal (ej: 7.5 en lugar de 7,5).\n"
         "Si detectás actividad física o ejercicio, las calorías DEBEN tener signo negativo (ej: -300.0).\n"
         "Devolvé EXCLUSIVAMENTE un JSON válido con este formato:\n"
         "{\n"
@@ -277,6 +295,7 @@ def analizar_imagen_con_groq(image_bytes):
     base64_image = base64.b64encode(image_bytes).decode('utf-8')
     system_prompt = (
         "Identifica los alimentos o la comida en esta imagen y estima sus nutrientes y peso aproximado.\n"
+        "REGLA CRÍTICA DE NUMEROS: Usá SIEMPRE el punto (.) como separador decimal (ej: 7.5 en lugar de 7,5).\n"
         "Devolvé EXCLUSIVAMENTE un JSON válido con esta estructura:\n"
         "{\n"
         '  "items": [\n'
@@ -356,12 +375,12 @@ async def consultar_diario_fecha(update: Update, context: ContextTypes.DEFAULT_T
     tot_c = tot_p = tot_g = tot_h = tot_f = 0
     
     for _, r in agrupado.iterrows():
-        p_gr = float(r.get('Peso', 0))
-        c = float(r.get('Calorias', 0))
-        p = float(r.get('Proteinas', 0))
-        g = float(r.get('Grasas', 0))
-        h = float(r.get('Carbohidratos', 0))
-        f = float(r.get('Fibras', 0))
+        p_gr = parse_float(r.get('Peso', 0))
+        c = parse_float(r.get('Calorias', 0))
+        p = parse_float(r.get('Proteinas', 0))
+        g = parse_float(r.get('Grasas', 0))
+        h = parse_float(r.get('Carbohidratos', 0))
+        f = parse_float(r.get('Fibras', 0))
         
         tot_c += c; tot_p += p; tot_g += g; tot_h += h; tot_f += f
         res += f"• [{r.get('Momento', 'General')}] **{r.get('Alimento', 'Ítem')}** ({p_gr:.0f}g)\n"
@@ -440,7 +459,7 @@ async def procesar_y_mostrar_confirmacion(data, msg, context):
 async def render_confirmation_screen(msg_or_query, context):
     items = context.user_data.get('pending_items', [])
     tipo = context.user_data.get('pending_tipo', 'Comida')
-    fecha = context.user_data.get('pending_fecha', date.today().strftime("%Y-%m"))
+    fecha = context.user_data.get('pending_fecha', date.today().strftime("%Y-%m-%d"))
     momento = context.user_data.get('pending_momento', 'Almuerzo')
 
     txt_res = f"📝 **Confirmación ({tipo}):**\n"
@@ -453,12 +472,12 @@ async def render_confirmation_screen(msg_or_query, context):
     tot_c = tot_p = tot_g = tot_h = tot_f = 0
     
     for idx, item in enumerate(items):
-        p_gr = float(item.get('peso', 0))
-        c = float(item.get('calorias', 0))
-        p = float(item.get('proteinas', 0))
-        g = float(item.get('grasas', 0))
-        h = float(item.get('carbohidratos', 0))
-        f = float(item.get('fibras', 0))
+        p_gr = parse_float(item.get('peso', 0))
+        c = parse_float(item.get('calorias', 0))
+        p = parse_float(item.get('proteinas', 0))
+        g = parse_float(item.get('grasas', 0))
+        h = parse_float(item.get('carbohidratos', 0))
+        f = parse_float(item.get('fibras', 0))
         tot_c += c; tot_p += p; tot_g += g; tot_h += h; tot_f += f
         
         txt_res += f"**{idx+1}. {item['alimento']}** ({p_gr:.0f}g):\n"
@@ -592,7 +611,6 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     tot_c_out = 0.0
 
     if not df.empty and 'Fecha' in df.columns:
-        # SEPARACIÓN MATEMÁTICA: Si la caloría es < 0, es Ejercicio/Gasto
         df['Es_Ejercicio'] = df['Calorias'] < 0
         
         fechas_unicas = sorted(df['Fecha'].unique())
