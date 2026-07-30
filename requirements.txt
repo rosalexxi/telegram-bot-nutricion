@@ -6,3 +6,5 @@ python-dotenv>=1.0.0
 requests>=2.0.0
 httpx>=0.20.0
 weasyprint>=60.0
+gspread
+google-auth
