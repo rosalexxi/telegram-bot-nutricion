@@ -1,0 +1,8 @@
+python-telegram-bot>=20.0
+openai>=1.0.0
+pandas>=2.0.0
+openpyxl>=3.0.0
+python-dotenv>=1.0.0
+requests>=2.0.0
+httpx>=0.20.0
+weasyprint>=60.0
