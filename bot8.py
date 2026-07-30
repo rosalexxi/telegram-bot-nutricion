@@ -308,7 +308,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "👋 **¡Hola! Bienvenido a tu Bot de Registro Nutricional.**\n\n"
         "📌 **¿Qué podés hacer?**\n"
-        "• Escribí o mandá fotos de tus comidas.\n"
+        "• Escribí, mandá notas de voz o fotos de tus comidas.\n"
         "• Registrá actividad física (ej: *'Entrenamiento gym 45 min 300 kcal'*).\n\n"
         "📌 **Comandos:**\n"
         "• /diario - Ver lo registrado (Hoy, Ayer o Buscar fecha)\n"
@@ -375,7 +375,7 @@ async def consultar_diario_fecha(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text(res, parse_mode="Markdown")
 
 # ==========================================
-# INTERFACING Y MODIFICACIÓN INDIVIDUAL DE ÍTEMS
+# HANDLERS DE MENSAJES (TEXTO, FOTO, VOZ)
 # ==========================================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
@@ -395,6 +395,29 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await procesar_y_mostrar_confirmacion(data, msg, context)
     except Exception as e:
         await msg.edit_text(f"❌ Error al analizar la imagen: {e}")
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = await update.message.reply_text("🎙️ Escuchando nota de voz...")
+    try:
+        voice_file = await update.message.voice.get_file()
+        voice_bytes = await voice_file.download_as_bytearray()
+        
+        audio_buffer = io.BytesIO(voice_bytes)
+        audio_buffer.name = "audio.ogg"
+
+        transcription = client_ai.audio.transcriptions.create(
+            model="whisper-large-v3-turbo",
+            file=audio_buffer,
+            language="es"
+        )
+        
+        texto_transcripto = transcription.text
+        await msg.edit_text(f"🗣️ *Transcripción:* \"{texto_transcripto}\"\n⏳ Analizando...", parse_mode="Markdown")
+        
+        data = analizar_con_groq(texto_transcripto)
+        await procesar_y_mostrar_confirmacion(data, msg, context)
+    except Exception as e:
+        await msg.edit_text(f"❌ Error al procesar el audio: {e}")
 
 async def procesar_y_mostrar_confirmacion(data, msg, context):
     items = data.get("items", [])
@@ -456,186 +479,86 @@ async def render_confirmation_screen(msg_or_query, context):
         keyboard.append([
             InlineKeyboardButton("🌅 Desayuno", callback_data="mom_Desayuno"),
             InlineKeyboardButton("☀️ Almuerzo", callback_data="mom_Almuerzo"),
-            InlineKeyboardButton("🌆 Merienda", callback_data="mom_Merienda")
+            InlineKeyboardButton("☕ Merienda", callback_data="mom_Merienda"),
+            InlineKeyboardButton("🌙 Cena", callback_data="mom_Cena")
         ])
-        keyboard.append([
-            InlineKeyboardButton("🌙 Cena", callback_data="mom_Cena"),
-            InlineKeyboardButton("🍏 Colación", callback_data="mom_Colación")
-        ])
-    
+        
     keyboard.append([
-        InlineKeyboardButton("📅 Hoy", callback_data="fec_hoy"),
-        InlineKeyboardButton("⏮️ Ayer", callback_data="fec_ayer"),
-        InlineKeyboardButton("📆 Otro Día", callback_data="fec_otrodia")
-    ])
-    
-    keyboard.append([
-        InlineKeyboardButton("✅ Confirmar Guardado", callback_data="confirm_save"),
-        InlineKeyboardButton("❌ Descartar", callback_data="cancel_save")
+        InlineKeyboardButton("📅 Cambiar Fecha", callback_data="cambiar_fecha_confirm"),
+        InlineKeyboardButton("✅ Guardar Todo", callback_data="confirm_save")
     ])
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    markup = InlineKeyboardMarkup(keyboard)
 
-    if hasattr(msg_or_query, 'edit_text'):
-        await msg_or_query.edit_text(txt_res, parse_mode="Markdown", reply_markup=reply_markup)
+    if hasattr(msg_or_query, 'edit_message_text'):
+        await msg_or_query.edit_message_text(txt_res, reply_markup=markup, parse_mode="Markdown")
     else:
-        await msg_or_query.edit_message_text(txt_res, parse_mode="Markdown", reply_markup=reply_markup)
+        await msg_or_query.edit_text(txt_res, reply_markup=markup, parse_mode="Markdown")
 
 # ==========================================
-# CALLBACK HANDLER
+# CALLBACKS DE BOTONES EN TELEGRAM
 # ==========================================
-async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
-    
-    if data.startswith("mom_"):
+
+    if data == "confirm_save":
+        user_id = query.from_user.id
+        items = context.user_data.get('pending_items', [])
+        tipo = context.user_data.get('pending_tipo', 'Comida')
+        fecha = context.user_data.get('pending_fecha', date.today().strftime("%Y-%m-%d"))
+        momento = context.user_data.get('pending_momento', 'Almuerzo')
+
+        guardar_en_sheets(user_id, items, fecha, momento, tipo)
+        await query.edit_message_text(f"✅ ¡Guardado con éxito en Google Sheets!\n📅 Fecha: `{fecha}`", parse_mode="Markdown")
+
+    elif data.startswith("mom_"):
         context.user_data['pending_momento'] = data.split("_")[1]
         await render_confirmation_screen(query, context)
-        
-    elif data == "fec_hoy":
-        context.user_data['pending_fecha'] = date.today().strftime("%Y-%m-%d")
-        await render_confirmation_screen(query, context)
-        
-    elif data == "fec_ayer":
-        context.user_data['pending_fecha'] = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
-        await render_confirmation_screen(query, context)
 
-    elif data == "fec_otrodia":
-        await query.message.reply_text("📆 Ingresá la fecha en formato `YYYY-MM-DD`:", parse_mode="Markdown")
-        context.user_data['waiting_for'] = 'custom_date'
-
-    elif data.startswith("edit_item_"):
-        idx = int(data.split("_")[2])
-        context.user_data['editing_item_idx'] = idx
-        context.user_data['waiting_for'] = 'edit_item_text'
-        item = context.user_data['pending_items'][idx]
-        await query.message.reply_text(
-            f"✏️ Modificando ítem #{idx+1} (**{item['alimento']}**).\n"
-            f"Ingresá la **nueva descripción y peso** (ej: *'180g bife de chorizo'*):",
-            parse_mode="Markdown"
-        )
+    elif data == "cambiar_fecha_confirm":
+        await query.edit_message_text("✍️ Escribí la fecha en formato **AAAA-MM-DD** (ej: `2026-03-30`):", parse_mode="Markdown")
+        context.user_data['esperando_fecha'] = True
 
     elif data == "diario_hoy":
-        await consultar_diario_fecha(update, context, date.today().strftime("%Y-%m-%d"))
-
+        hoy_str = date.today().strftime("%Y-%m-%d")
+        await consultar_diario_fecha(update, context, hoy_str)
+        
     elif data == "diario_ayer":
-        await consultar_diario_fecha(update, context, (date.today() - timedelta(days=1)).strftime("%Y-%m-%d"))
-
+        ayer_str = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+        await consultar_diario_fecha(update, context, ayer_str)
+        
     elif data == "diario_otrodia":
-        await query.message.reply_text("📆 Ingresá la fecha a consultar (`YYYY-MM-DD`):", parse_mode="Markdown")
-        context.user_data['waiting_for'] = 'diario_custom_date'
+        await query.edit_message_text("✍️ Escribí la fecha a consultar en formato **AAAA-MM-DD** (ej: `2026-03-25`):", parse_mode="Markdown")
+        context.user_data['esperando_fecha_diario'] = True
 
-    elif data.startswith("resumen_mes_"):
-        mes = data.replace("resumen_mes_", "")
-        await mostrar_resumen_mes(update, context, mes)
-        
-    elif data == "confirm_save":
-        items = context.user_data.get('pending_items', [])
-        fecha = context.user_data.get('pending_fecha', date.today().strftime("%Y-%m-%d"))
-        momento = context.user_data.get('pending_momento', 'General')
-        tipo = context.user_data.get('pending_tipo', 'Comida')
-        user_id = query.from_user.id
-        
-        if items:
-            guardar_en_sheets(user_id, items, fecha, momento, tipo)
-            await query.edit_message_text(f"✅ **¡Guardado Exitosamente!**\n\n📅 Fecha: `{fecha}`\n🍽️ Momento/Actividad: `{momento}`", parse_mode="Markdown")
-            context.user_data.clear()
-        else:
-            await query.edit_message_text("No había elementos para guardar.")
-            
-    elif data == "cancel_save":
-        context.user_data.clear()
-        await query.edit_message_text("❌ Registro cancelado.")
-
-async def handle_custom_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    waiting = context.user_data.get('waiting_for')
+async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-
-    if waiting == 'custom_date':
+    
+    if context.user_data.get('esperando_fecha'):
         if re.match(r'^\d{4}-\d{2}-\d{2}$', text):
             context.user_data['pending_fecha'] = text
-            context.user_data.pop('waiting_for', None)
-            msg = await update.message.reply_text("✅ Fecha actualizada.")
+            context.user_data['esperando_fecha'] = False
+            msg = await update.message.reply_text("Actualizando...")
             await render_confirmation_screen(msg, context)
         else:
-            await update.message.reply_text("⚠️ Formato inválido. Debe ser `YYYY-MM-DD`.")
+            await update.message.reply_text("❌ Formato incorrecto. Mandalo como `AAAA-MM-DD` (ej: `2026-03-30`).")
+        return
 
-    elif waiting == 'diario_custom_date':
+    if context.user_data.get('esperando_fecha_diario'):
         if re.match(r'^\d{4}-\d{2}-\d{2}$', text):
-            context.user_data.pop('waiting_for', None)
+            context.user_data['esperando_fecha_diario'] = False
             await consultar_diario_fecha(update, context, text)
         else:
-            await update.message.reply_text("⚠️ Formato inválido. Debe ser `YYYY-MM-DD`.")
+            await update.message.reply_text("❌ Formato incorrecto. Mandalo como `AAAA-MM-DD` (ej: `2026-03-25`).")
+        return
 
-    elif waiting == 'edit_item_text':
-        idx = context.user_data.get('editing_item_idx')
-        msg = await update.message.reply_text("⏳ Recalculando ítem por texto con IA...")
-        context.user_data.pop('waiting_for', None)
-        
-        try:
-            nuevo_analisis = analizar_con_groq(text)
-            nuevos_items = nuevo_analisis.get("items", [])
-            if nuevos_items:
-                context.user_data['pending_items'][idx] = nuevos_items[0]
-            await msg.edit_text("✅ Ítem actualizado.")
-            await render_confirmation_screen(msg, context)
-        except Exception as e:
-            await msg.edit_text(f"❌ Error al recalcular ítem: {e}")
-
-    else:
-        await handle_message(update, context)
+    await handle_message(update, context)
 
 # ==========================================
-# REPORTES Y GENERACIÓN DE PDF COMPLETO
+# GENERACIÓN DE PDF
 # ==========================================
-async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    mes_actual = date.today().strftime("%Y-%m")
-    mes_anterior = (date.today().replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
-    
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton(f"📅 Este Mes ({mes_actual})", callback_data=f"resumen_mes_{mes_actual}"),
-            InlineKeyboardButton(f"⏮️ Mes Anterior ({mes_anterior})", callback_data=f"resumen_mes_{mes_anterior}")
-        ]
-    ])
-    await update.message.reply_text("📊 Seleccioná el período a consultar:", reply_markup=keyboard)
-
-async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE, mes_str):
-    query = update.callback_query
-    user_id = query.from_user.id
-    
-    df = obtener_datos_mes(user_id, mes_str)
-    perfil = obtener_perfil(user_id)
-    metabol = calcular_metabolismo(perfil)
-    
-    # Ingesta real (excluyendo actividad física)
-    df_comida = df[df['Momento'] != 'Ejercicio'] if not df.empty and 'Momento' in df.columns else df
-    dias = df_comida['Fecha'].nunique() if not df_comida.empty and 'Fecha' in df_comida.columns else 0
-    
-    tot_cal_ingest = df_comida['Calorias'].sum() if not df_comida.empty and 'Calorias' in df_comida.columns else 0
-    tot_prot = df_comida['Proteinas'].sum() if not df_comida.empty and 'Proteinas' in df_comida.columns else 0
-    tot_gras = df_comida['Grasas'].sum() if not df_comida.empty and 'Grasas' in df_comida.columns else 0
-    tot_carb = df_comida['Carbohidratos'].sum() if not df_comida.empty and 'Carbohidratos' in df_comida.columns else 0
-    
-    prom_ingest = tot_cal_ingest / max(dias, 1)
-
-    resumen_text = f"📊 **Resumen Mensual ({mes_str})**\n\n"
-    resumen_text += f"📅 Días registrados: {dias}\n"
-    resumen_text += f"🥗 Ingesta Total Real: {tot_cal_ingest:.0f} kcal\n"
-    resumen_text += f"🍽️ Promedio Diario Ingerido: {prom_ingest:.0f} kcal/día\n"
-    resumen_text += f"💪 Prot: {tot_prot:.0f}g | 🥑 Grasas: {tot_gras:.0f}g | 🍞 Carb: {tot_carb:.0f}g\n\n"
-    
-    if perfil and metabol:
-        resumen_text += f"🔥 TMB Basal: {metabol['tmb']} kcal/día\n"
-        resumen_text += f"⚡ GET Gasto Total Est.: {metabol['get']} kcal/día\n"
-    
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📄 Descargar PDF Completo", callback_data=f"genpdf_{mes_str}")]
-    ])
-    
-    await query.edit_message_text(resumen_text, parse_mode="Markdown", reply_markup=keyboard)
-
 def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=20, leftMargin=20, topMargin=30, bottomMargin=30)
@@ -654,33 +577,31 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     story.append(Paragraph(f"Usuario Telegram ID: {user_id}", body_style))
     story.append(Spacer(1, 10))
 
+    tot_c_in = 0.0
+    tot_c_out = 0.0
+
     if not df.empty and 'Fecha' in df.columns:
         df['Es_Ejercicio'] = df['Momento'].astype(str).str.lower() == 'ejercicio'
         
         fechas_unicas = sorted(df['Fecha'].unique())
         table_data = [["Fecha", "Cal. Consumid.", "Cal. Quemad.", "Bal. Neto", "Prot (g)", "Grasas (g)", "Carbs (g)", "Fibras (g)"]]
         
-        tot_c_in = tot_c_out = tot_p = tot_g = tot_h = tot_f = 0
+        tot_p = tot_g = tot_h = tot_f = 0.0
         
- for f in fechas_unicas:
+        for f in fechas_unicas:
             sub = df[df['Fecha'] == f]
             comidas = sub[~sub['Es_Ejercicio']]
             ejercicios = sub[sub['Es_Ejercicio']]
             
-            # Ingesta pura (solo valores positivos de comida)
-            c_in = comidas['Calorias'].sum()      
+            c_in = comidas['Calorias'].abs().sum() if not comidas.empty else 0.0
+            c_out = ejercicios['Calorias'].abs().sum() if not ejercicios.empty else 0.0
             
-            # Calorías quemadas por ejercicio (nos aseguramos de que se reflejen como valor positivo para la columna, o negativo según prefieras mostrarlo, pero la columna pedía quemadas)
-            # Como en tu excel el ejercicio puede estar en negativo o positivo, tomamos su valor absoluto para la columna "Cal. Quemad." o sumamos directo.
-            c_out = abs(ejercicios['Calorias'].sum())    
+            bal_neto = c_in - c_out                     # Balance Neto del día
             
-            # Balance neto diario: Ingesta menos ejercicio
-            bal_neto = c_in - c_out               
-            
-            p = comidas['Proteinas'].sum()
-            g = comidas['Grasas'].sum()
-            h = comidas['Carbohidratos'].sum()
-            fib = comidas['Fibras'].sum()
+            p = comidas['Proteinas'].sum() if not comidas.empty else 0.0
+            g = comidas['Grasas'].sum() if not comidas.empty else 0.0
+            h = comidas['Carbohidratos'].sum() if not comidas.empty else 0.0
+            fib = comidas['Fibras'].sum() if not comidas.empty else 0.0
             
             tot_c_in += c_in
             tot_c_out += c_out
@@ -702,7 +623,7 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
             
         dias_cnt = max(len(fechas_unicas), 1)
         
-        # TOTAL MES: Ingesta pura, Ejercicio en negativo, y Balance Neto
+        # TOTAL MES: Ingesta pura en consumidas, ejercicio en quemadas y balance restando ambos
         table_data.append([
             "TOTAL MES",
             f"{tot_c_in:.1f} kcal",
@@ -714,7 +635,7 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
             f"{tot_f:.1f} g"
         ])
         
-        # PROM. DIARIO: Promedio de ingesta real SIN descontar el ejercicio
+        # PROM. DIARIO: Promedio de ingesta pura sin descontar ejercicio
         table_data.append([
             "PROM. DIARIO",
             f"{(tot_c_in / dias_cnt):.1f} kcal",
@@ -786,7 +707,7 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
         dias_tot = max(df['Fecha'].nunique() if not df.empty else 1, 1)
         gasto_basal_actividad = metabol['get'] * dias_tot
         
-        # Aquí sí restamos el gasto basal y la actividad física de la ingesta total real
+        # Descuento metabólico correcto
         balance_real = tot_c_in - (gasto_basal_actividad + tot_c_out)
         cambio_peso_kg = balance_real / 7700
 
@@ -818,88 +739,93 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     buffer.seek(0)
     return buffer
 
-async def callback_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    if query.data.startswith("genpdf_"):
-        mes_str = query.data.replace("genpdf_", "")
-        await query.answer("Generando PDF...")
-        await query.message.reply_text(f"📄 Generando PDF para {mes_str}...")
+async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    mes_actual = date.today().strftime("%Y-%m")
+    
+    msg = await update.message.reply_text("📊 Generando el informe PDF...")
+    
+    df = obtener_datos_mes(user_id, mes_actual)
+    perfil = obtener_perfil(user_id)
+    metabol = calcular_metabolismo(perfil)
+    
+    if df.empty:
+        await msg.edit_text("❌ No hay datos guardados en este mes para generar el PDF.")
+        return
         
-        user_id = query.from_user.id
-        df = obtener_datos_mes(user_id, mes_str)
-        perfil = obtener_perfil(user_id)
-        metabol = calcular_metabolismo(perfil)
-        
-        pdf_bytes = generar_pdf_bytes(user_id, mes_str, df, perfil, metabol)
-        
-        await query.message.reply_document(
-            document=pdf_bytes,
-            filename=f"Resumen_Nutricional_{mes_str}.pdf",
-            caption=f"📄 Reporte Nutricional Mensual ({mes_str})."
-        )
+    pdf_buffer = generar_pdf_bytes(user_id, mes_actual, df, perfil, metabol)
+    
+    await update.message.reply_document(
+        document=pdf_buffer,
+        filename=f"Reporte_Nutricional_{mes_actual}.pdf",
+        caption=f"📈 **Reporte Nutricional Mensual ({mes_actual})**"
+    )
+    await msg.delete()
 
 # ==========================================
-# CONVERSACIÓN /PERFIL
+# CONVERSACIÓN Y CONFIGURACIÓN DE PERFIL
 # ==========================================
 async def start_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📐 Configuración de perfil.\n\nIngresá tu **edad** en años:", parse_mode="Markdown")
+    await update.message.reply_text("⚙️ **Configuración de Perfil Corporal**\n\n1️⃣ ¿Cuál es tu **edad**? (ej: 28)")
     return EDAD
 
 async def set_edad(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['p_edad'] = update.message.text.strip()
-    await update.message.reply_text("👤 Ingresá tu **sexo** (`M` / `F`):", parse_mode="Markdown")
+    context.user_data['perfil_edad'] = update.message.text.strip()
+    await update.message.reply_text("2️⃣ ¿Cuál es tu **sexo**? (M / F)")
     return SEXO
 
 async def set_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['p_sexo'] = update.message.text.strip().upper()
-    await update.message.reply_text("⚖️ Ingresá tu **peso en kg** (ej: `75.5`):", parse_mode="Markdown")
+    context.user_data['perfil_sexo'] = update.message.text.strip().upper()
+    await update.message.reply_text("3️⃣ ¿Cuál es tu **peso actual** en kg? (ej: 75.5)")
     return PESO
 
 async def set_peso(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['p_peso'] = update.message.text.strip()
-    await update.message.reply_text("📏 Ingresá tu **altura en cm** (ej: `170`):", parse_mode="Markdown")
+    context.user_data['perfil_peso'] = update.message.text.strip()
+    await update.message.reply_text("4️⃣ ¿Cuál es tu **altura** en cm? (ej: 175)")
     return ALTURA
 
 async def set_altura(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['p_altura'] = update.message.text.strip()
-    await update.message.reply_text("📐 Ingresá la medida de tu **cintura en cm**:", parse_mode="Markdown")
+    context.user_data['perfil_altura'] = update.message.text.strip()
+    await update.message.reply_text("5️⃣ ¿Cuál es la medida de tu **cintura** en cm? (opcional, si no tenés respondé 0):")
     return CINTURA
 
 async def set_cintura(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['p_cintura'] = update.message.text.strip()
-    await update.message.reply_text("💼 Ingresá tu **ocupación / actividad principal**:", parse_mode="Markdown")
+    context.user_data['perfil_cintura'] = update.message.text.strip()
+    await update.message.reply_text("6️⃣ ¿Cuál es tu **ocupación o nivel de actividad diario habitual**? (ej: 'Trabajo de oficina sentado', 'Mozo de pie', 'Construcción')")
     return OCUPACION
 
 async def set_ocupacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['p_ocupacion'] = update.message.text.strip()
+    context.user_data['perfil_ocupacion'] = update.message.text.strip()
     user_id = update.effective_user.id
     
-    perfil = {
-        "edad": context.user_data.get('p_edad'),
-        "sexo": context.user_data.get('p_sexo'),
-        "peso": context.user_data.get('p_peso'),
-        "altura": context.user_data.get('p_altura'),
-        "cintura": context.user_data.get('p_cintura'),
-        "ocupacion": context.user_data.get('p_ocupacion')
+    perfil_dict = {
+        "edad": context.user_data.get('perfil_edad'),
+        "sexo": context.user_data.get('perfil_sexo'),
+        "peso": context.user_data.get('perfil_peso'),
+        "altura": context.user_data.get('perfil_altura'),
+        "cintura": context.user_data.get('perfil_cintura'),
+        "ocupacion": context.user_data.get('perfil_ocupacion')
     }
     
-    guardar_perfil(user_id, perfil)
-    await update.message.reply_text("✅ **¡Perfil biométrico actualizado con éxito!**", parse_mode="Markdown")
+    guardar_perfil(user_id, perfil_dict)
+    
+    await update.message.reply_text("✅ **¡Perfil guardado correctamente!** Ahora tus reportes incluirán estimación metabólica.")
     return ConversationHandler.END
 
 async def cancel_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Operación cancelada.")
+    await update.message.reply_text("❌ Configuración de perfil cancelada.")
     return ConversationHandler.END
 
 # ==========================================
-# INICIO Y LISTENERS
+# MAIN Y RUN
 # ==========================================
 def main():
     keep_alive()
-    app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     
+    application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
     perfil_handler = ConversationHandler(
-        entry_points=[CommandHandler("perfil", start_perfil)],
+        entry_points=[CommandHandler('perfil', start_perfil)],
         states={
             EDAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_edad)],
             SEXO: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_sexo)],
@@ -908,22 +834,20 @@ def main():
             CINTURA: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_cintura)],
             OCUPACION: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_ocupacion)],
         },
-        fallbacks=[CommandHandler("cancelar", cancel_perfil)]
+        fallbacks=[CommandHandler('cancel', cancel_perfil)]
     )
+
+    application.add_handler(CommandHandler("start", cmd_start))
+    application.add_handler(CommandHandler("diario", cmd_diario))
+    application.add_handler(CommandHandler("resumen", cmd_resumen))
+    application.add_handler(perfil_handler)
     
-    app_bot.add_handler(CommandHandler("start", cmd_start))
-    app_bot.add_handler(CommandHandler("diario", cmd_diario))
-    app_bot.add_handler(CommandHandler("resumen", cmd_resumen))
-    app_bot.add_handler(perfil_handler)
-    
-    app_bot.add_handler(CallbackQueryHandler(callback_pdf, pattern="^genpdf_"))
-    app_bot.add_handler(CallbackQueryHandler(callback_handler, pattern="^(confirm_save|cancel_save|mom_|fec_|diario_|resumen_mes_|edit_item_)"))
-    
-    app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_inputs))
-    
-    print("🚀 Bot iniciado correctamente...")
-    app_bot.run_polling()
+    application.add_handler(CallbackQueryHandler(handle_callback))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_inputs))
+
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
