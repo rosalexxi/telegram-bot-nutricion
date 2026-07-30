@@ -65,7 +65,7 @@ def obtener_momento_y_fecha_auto():
     hora = ahora.time()
     fecha_obj = ahora.date()
     
-    # Madrugada (00:00 a 02:00): Pertenece a la cena del día anterior
+    # De 00:00 a 02:00 pertenece a la cena del día anterior
     if time(0, 0) <= hora < time(2, 0):
         fecha_obj = fecha_obj - timedelta(days=1)
         momento = "Cena"
@@ -77,7 +77,7 @@ def obtener_momento_y_fecha_auto():
         momento = "Almuerzo"
     elif time(15, 0) <= hora < time(20, 0):
         momento = "Merienda"
-    else: # De 20:00 a 23:59
+    else: # 20:00 a 23:59
         momento = "Cena"
         
     return fecha_obj.strftime("%Y-%m-%d"), momento
@@ -404,7 +404,6 @@ async def procesar_y_mostrar_confirmacion(data, msg, context):
         await msg.edit_text("No pude identificar datos claros.")
         return
 
-    # Asignación automática por horario y fecha según especificaciones
     fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
 
     context.user_data['pending_items'] = items
@@ -448,7 +447,6 @@ async def render_confirmation_screen(msg_or_query, context):
 
     keyboard = []
     
-    # Botones individuales para modificar ítem por ítem
     for idx, item in enumerate(items):
         keyboard.append([
             InlineKeyboardButton(f"✏️ Modificar #{idx+1} ({item['alimento'][:15]}...)", callback_data=f"edit_item_{idx}")
@@ -611,17 +609,21 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
     perfil = obtener_perfil(user_id)
     metabol = calcular_metabolismo(perfil)
     
+    # Ingesta real (excluyendo actividad física)
     df_comida = df[df['Momento'] != 'Ejercicio'] if not df.empty and 'Momento' in df.columns else df
     dias = df_comida['Fecha'].nunique() if not df_comida.empty and 'Fecha' in df_comida.columns else 0
     
-    tot_cal = df_comida['Calorias'].sum() if not df_comida.empty and 'Calorias' in df_comida.columns else 0
+    tot_cal_ingest = df_comida['Calorias'].sum() if not df_comida.empty and 'Calorias' in df_comida.columns else 0
     tot_prot = df_comida['Proteinas'].sum() if not df_comida.empty and 'Proteinas' in df_comida.columns else 0
     tot_gras = df_comida['Grasas'].sum() if not df_comida.empty and 'Grasas' in df_comida.columns else 0
     tot_carb = df_comida['Carbohidratos'].sum() if not df_comida.empty and 'Carbohidratos' in df_comida.columns else 0
     
+    prom_ingest = tot_cal_ingest / max(dias, 1)
+
     resumen_text = f"📊 **Resumen Mensual ({mes_str})**\n\n"
     resumen_text += f"📅 Días registrados: {dias}\n"
-    resumen_text += f"🔥 Consumo Total: {tot_cal:.0f} kcal\n"
+    resumen_text += f"🥗 Ingesta Total Real: {tot_cal_ingest:.0f} kcal\n"
+    resumen_text += f"🍽️ Promedio Diario Ingerido: {prom_ingest:.0f} kcal/día\n"
     resumen_text += f"💪 Prot: {tot_prot:.0f}g | 🥑 Grasas: {tot_gras:.0f}g | 🍞 Carb: {tot_carb:.0f}g\n\n"
     
     if perfil and metabol:
@@ -646,7 +648,7 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     story = []
 
     # ----------------------------------------------------
-    # HOJA 1: RESUMEN MENSUAL CON CALORÍAS QUEMADAS NEGATIVAS
+    # HOJA 1: RESUMEN MENSUAL
     # ----------------------------------------------------
     story.append(Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str}</b>", title_style))
     story.append(Paragraph(f"Usuario Telegram ID: {user_id}", body_style))
@@ -655,21 +657,20 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     if not df.empty and 'Fecha' in df.columns:
         df['Es_Ejercicio'] = df['Momento'].astype(str).str.lower() == 'ejercicio'
         
-        fechas_unicas = df['Fecha'].unique()
+        fechas_unicas = sorted(df['Fecha'].unique())
         table_data = [["Fecha", "Cal. Consumid.", "Cal. Quemad.", "Bal. Neto", "Prot (g)", "Grasas (g)", "Carbs (g)", "Fibras (g)"]]
         
         tot_c_in = tot_c_out = tot_p = tot_g = tot_h = tot_f = 0
         
-        for f in sorted(fechas_unicas):
+        for f in fechas_unicas:
             sub = df[df['Fecha'] == f]
             comidas = sub[~sub['Es_Ejercicio']]
             ejercicios = sub[sub['Es_Ejercicio']]
             
-            c_in = comidas['Calorias'].sum()
-            c_out = ejercicios['Calorias'].sum()
+            c_in = comidas['Calorias'].sum()      # Ingesta pura
+            c_out = ejercicios['Calorias'].sum()    # Ejercicio
             
-            # Balance Neto considerando la quema como valor negativo
-            bal_neto = c_in - c_out
+            bal_neto = c_in - c_out               # Resta únicamente en Balance Neto
             
             p = comidas['Proteinas'].sum()
             g = comidas['Grasas'].sum()
@@ -685,8 +686,8 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
             
             table_data.append([
                 str(f),
-                f"{c_in:.1f} kcal" if c_in > 0 else "0 kcal",
-                f"-{c_out:.1f} kcal" if c_out > 0 else "0 kcal",
+                f"{c_in:.1f} kcal",
+                f"-{c_out:.1f} kcal" if c_out > 0 else "0.0 kcal",
                 f"{bal_neto:.1f} kcal",
                 f"{p:.1f} g",
                 f"{g:.1f} g",
@@ -695,6 +696,8 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
             ])
             
         dias_cnt = max(len(fechas_unicas), 1)
+        
+        # TOTAL MES: Ingesta pura, Ejercicio en negativo, y Balance Neto
         table_data.append([
             "TOTAL MES",
             f"{tot_c_in:.1f} kcal",
@@ -706,15 +709,16 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
             f"{tot_f:.1f} g"
         ])
         
+        # PROM. DIARIO: Promedio de ingesta real SIN descontar el ejercicio
         table_data.append([
             "PROM. DIARIO",
-            f"{(tot_c_in/dias_cnt):.1f} kcal",
-            f"-{(tot_c_out/dias_cnt):.1f} kcal",
-            f"{((tot_c_in - tot_c_out)/dias_cnt):.1f} kcal",
-            f"{(tot_p/dias_cnt):.1f} g",
-            f"{(tot_g/dias_cnt):.1f} g",
-            f"{(tot_h/dias_cnt):.1f} g",
-            f"{(tot_f/dias_cnt):.1f} g"
+            f"{(tot_c_in / dias_cnt):.1f} kcal",
+            f"-{(tot_c_out / dias_cnt):.1f} kcal",
+            f"{((tot_c_in - tot_c_out) / dias_cnt):.1f} kcal",
+            f"{(tot_p / dias_cnt):.1f} g",
+            f"{(tot_g / dias_cnt):.1f} g",
+            f"{(tot_h / dias_cnt):.1f} g",
+            f"{(tot_f / dias_cnt):.1f} g"
         ])
             
         t = Table(table_data, colWidths=[65, 75, 75, 75, 55, 55, 55, 55])
@@ -776,12 +780,14 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
         
         dias_tot = max(df['Fecha'].nunique() if not df.empty else 1, 1)
         gasto_basal_actividad = metabol['get'] * dias_tot
+        
+        # Aquí sí restamos el gasto basal y la actividad física de la ingesta total real
         balance_real = tot_c_in - (gasto_basal_actividad + tot_c_out)
         cambio_peso_kg = balance_real / 7700
 
         info_balance = [
             ["Concepto", "Valor Mensual"],
-            ["Total Calorías Consumidas (Comidas)", f"{tot_c_in:.1f} kcal"],
+            ["Total Calorías Consumidas (Ingesta Real)", f"{tot_c_in:.1f} kcal"],
             [f"Total Gasto Basal + Ocupación (GET) ({dias_tot} días)", f"-{gasto_basal_actividad:.1f} kcal"],
             ["Total Ejercicio Extra Registrado", f"-{tot_c_out:.1f} kcal"],
             ["BALANCE CALÓRICO NETO REAL", f"{balance_real:+.1f} kcal"],
