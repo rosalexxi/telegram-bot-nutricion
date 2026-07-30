@@ -3,7 +3,7 @@ import re
 import io
 import json
 import base64
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, time
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
@@ -58,6 +58,31 @@ def keep_alive():
     t.start()
 
 # ==========================================
+# LÓGICA DE HORARIO Y FECHA AUTOMÁTICA
+# ==========================================
+def obtener_momento_y_fecha_auto():
+    ahora = datetime.now()
+    hora = ahora.time()
+    fecha_obj = ahora.date()
+    
+    # Madrugada (00:00 a 02:00): Pertenece a la cena del día anterior
+    if time(0, 0) <= hora < time(2, 0):
+        fecha_obj = fecha_obj - timedelta(days=1)
+        momento = "Cena"
+    elif time(6, 0) <= hora < time(10, 0):
+        momento = "Desayuno"
+    elif time(10, 0) <= hora < time(12, 0):
+        momento = "Colación"
+    elif time(12, 0) <= hora < time(15, 0):
+        momento = "Almuerzo"
+    elif time(15, 0) <= hora < time(20, 0):
+        momento = "Merienda"
+    else: # De 20:00 a 23:59
+        momento = "Cena"
+        
+    return fecha_obj.strftime("%Y-%m-%d"), momento
+
+# ==========================================
 # BASE DE DATOS Y GOOGLE SHEETS
 # ==========================================
 EDAD, SEXO, PESO, ALTURA, CINTURA, OCUPACION = range(6)
@@ -101,7 +126,6 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
 
     rows = []
     for item in items:
-        # Se guarda únicamente el esquema de 9 columnas acordado
         rows.append([
             fecha,
             momento,
@@ -132,7 +156,6 @@ def obtener_datos_mes(user_id, mes_str):
         
         df = pd.DataFrame(records)
         
-        # Mapeo flexible de columnas para compatibilidad
         col_map = {}
         for c in df.columns:
             c_lower = str(c).lower()
@@ -181,12 +204,6 @@ def obtener_perfil(user_id):
             return None
             
         df = pd.DataFrame(records)
-        
-        if "User_ID" in df.columns:
-            df_user = df[df["User_ID"].astype(str) == str(user_id)]
-            if not df_user.empty:
-                return df_user.iloc[-1].to_dict()
-                
         return df.iloc[-1].to_dict()
     except Exception as e:
         print(f"Error al obtener perfil: {e}")
@@ -224,7 +241,7 @@ def calcular_metabolismo(perfil):
         else:
             tmb = (10 * peso) + (6.25 * altura) - (5 * edad) - 161
             
-        get_val = tmb * 1.2  # GET Estimado
+        get_val = tmb * 1.2
         return {"tmb": round(tmb, 1), "get": round(get_val, 1)}
     except:
         return None
@@ -324,7 +341,6 @@ async def consultar_diario_fecha(update: Update, context: ContextTypes.DEFAULT_T
         
     df_fecha = df[df['Fecha'] == fecha_target]
     
-    # Agrupación por Momento/Actividad
     agrupado = df_fecha.groupby('Momento').agg({
         'Alimento': lambda x: ', '.join(x.astype(str)),
         'Peso': 'sum',
@@ -359,7 +375,7 @@ async def consultar_diario_fecha(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text(res, parse_mode="Markdown")
 
 # ==========================================
-# GESTIÓN DE INTERACCIÓN Y PANTALLA UNIFICADA
+# INTERFACING Y MODIFICACIÓN INDIVIDUAL DE ÍTEMS
 # ==========================================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
@@ -388,16 +404,13 @@ async def procesar_y_mostrar_confirmacion(data, msg, context):
         await msg.edit_text("No pude identificar datos claros.")
         return
 
+    # Asignación automática por horario y fecha según especificaciones
+    fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
+
     context.user_data['pending_items'] = items
     context.user_data['pending_tipo'] = tipo
-    if 'pending_fecha' not in context.user_data:
-        context.user_data['pending_fecha'] = date.today().strftime("%Y-%m-%d")
-    
-    if tipo == "Comida":
-        if 'pending_momento' not in context.user_data or context.user_data['pending_momento'] == "Ejercicio":
-            context.user_data['pending_momento'] = "Almuerzo"
-    else:
-        context.user_data['pending_momento'] = "Ejercicio"
+    context.user_data['pending_fecha'] = fecha_auto
+    context.user_data['pending_momento'] = momento_auto if tipo == "Comida" else "Ejercicio"
         
     await render_confirmation_screen(msg, context)
 
@@ -410,13 +423,13 @@ async def render_confirmation_screen(msg_or_query, context):
     txt_res = f"📝 **Confirmación ({tipo}):**\n"
     txt_res += f"📅 **Fecha:** `{fecha}`\n"
     if tipo == "Comida":
-        txt_res += f"🍽️ **Momento Actual:** `{momento}`\n\n"
+        txt_res += f"🍽️ **Momento:** `{momento}`\n\n"
     else:
         txt_res += f"🏃 **Tipo:** Actividad Física\n\n"
         
     tot_c = tot_p = tot_g = tot_h = tot_f = 0
     
-    for item in items:
+    for idx, item in enumerate(items):
         p_gr = float(item.get('peso', 0))
         c = float(item.get('calorias', 0))
         p = float(item.get('proteinas', 0))
@@ -425,7 +438,7 @@ async def render_confirmation_screen(msg_or_query, context):
         f = float(item.get('fibras', 0))
         tot_c += c; tot_p += p; tot_g += g; tot_h += h; tot_f += f
         
-        txt_res += f"• **{item['alimento']}** ({p_gr:.0f}g):\n"
+        txt_res += f"**{idx+1}. {item['alimento']}** ({p_gr:.0f}g):\n"
         if tipo == "Comida":
             txt_res += f"  └ {c:.0f} kcal | P: {p:.1f}g | G: {g:.1f}g | H: {h:.1f}g | Fib: {f:.1f}g\n"
         else:
@@ -435,6 +448,12 @@ async def render_confirmation_screen(msg_or_query, context):
 
     keyboard = []
     
+    # Botones individuales para modificar ítem por ítem
+    for idx, item in enumerate(items):
+        keyboard.append([
+            InlineKeyboardButton(f"✏️ Modificar #{idx+1} ({item['alimento'][:15]}...)", callback_data=f"edit_item_{idx}")
+        ])
+
     if tipo == "Comida":
         keyboard.append([
             InlineKeyboardButton("🌅 Desayuno", callback_data="mom_Desayuno"),
@@ -453,7 +472,6 @@ async def render_confirmation_screen(msg_or_query, context):
     ])
     
     keyboard.append([
-        InlineKeyboardButton("✏️ Modificar", callback_data="edit_manual"),
         InlineKeyboardButton("✅ Confirmar Guardado", callback_data="confirm_save"),
         InlineKeyboardButton("❌ Descartar", callback_data="cancel_save")
     ])
@@ -466,7 +484,7 @@ async def render_confirmation_screen(msg_or_query, context):
         await msg_or_query.edit_message_text(txt_res, parse_mode="Markdown", reply_markup=reply_markup)
 
 # ==========================================
-# CALLBACK HANDLER DE BOTONES
+# CALLBACK HANDLER
 # ==========================================
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -486,12 +504,19 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await render_confirmation_screen(query, context)
 
     elif data == "fec_otrodia":
-        await query.message.reply_text("📆 Ingresá la fecha en formato `YYYY-MM-DD` (ej: `2026-07-20`):", parse_mode="Markdown")
+        await query.message.reply_text("📆 Ingresá la fecha en formato `YYYY-MM-DD`:", parse_mode="Markdown")
         context.user_data['waiting_for'] = 'custom_date'
-        
-    elif data == "edit_manual":
-        await query.message.reply_text("✏️ Escribí el texto corregido del alimento/ejercicio y sus valores (ej: *'150g ensalada césar 350 kcal 20g proteina'*):", parse_mode="Markdown")
-        context.user_data['waiting_for'] = 'edit_text'
+
+    elif data.startswith("edit_item_"):
+        idx = int(data.split("_")[2])
+        context.user_data['editing_item_idx'] = idx
+        context.user_data['waiting_for'] = 'edit_item_text'
+        item = context.user_data['pending_items'][idx]
+        await query.message.reply_text(
+            f"✏️ Modificando ítem #{idx+1} (**{item['alimento']}**).\n"
+            f"Ingresá la **nueva descripción y peso** (ej: *'180g bife de chorizo'*):",
+            parse_mode="Markdown"
+        )
 
     elif data == "diario_hoy":
         await consultar_diario_fecha(update, context, date.today().strftime("%Y-%m-%d"))
@@ -536,26 +561,35 @@ async def handle_custom_inputs(update: Update, context: ContextTypes.DEFAULT_TYP
             msg = await update.message.reply_text("✅ Fecha actualizada.")
             await render_confirmation_screen(msg, context)
         else:
-            await update.message.reply_text("⚠️ Formato inválido. Debe ser `YYYY-MM-DD` (ej: `2026-07-28`).")
+            await update.message.reply_text("⚠️ Formato inválido. Debe ser `YYYY-MM-DD`.")
 
     elif waiting == 'diario_custom_date':
         if re.match(r'^\d{4}-\d{2}-\d{2}$', text):
             context.user_data.pop('waiting_for', None)
             await consultar_diario_fecha(update, context, text)
         else:
-            await update.message.reply_text("⚠️ Formato inválido. Debe ser `YYYY-MM-DD` (ej: `2026-07-28`).")
+            await update.message.reply_text("⚠️ Formato inválido. Debe ser `YYYY-MM-DD`.")
 
-    elif waiting == 'edit_text':
-        msg = await update.message.reply_text("⏳ Actualizando valores...")
+    elif waiting == 'edit_item_text':
+        idx = context.user_data.get('editing_item_idx')
+        msg = await update.message.reply_text("⏳ Recalculando ítem por texto con IA...")
         context.user_data.pop('waiting_for', None)
-        data = analizar_con_groq(text)
-        await procesar_y_mostrar_confirmacion(data, msg, context)
+        
+        try:
+            nuevo_analisis = analizar_con_groq(text)
+            nuevos_items = nuevo_analisis.get("items", [])
+            if nuevos_items:
+                context.user_data['pending_items'][idx] = nuevos_items[0]
+            await msg.edit_text("✅ Ítem actualizado.")
+            await render_confirmation_screen(msg, context)
+        except Exception as e:
+            await msg.edit_text(f"❌ Error al recalcular ítem: {e}")
 
     else:
         await handle_message(update, context)
 
 # ==========================================
-# REPORTES Y PDF CON FORMATO ESPECÍFICO
+# REPORTES Y GENERACIÓN DE PDF COMPLETO
 # ==========================================
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mes_actual = date.today().strftime("%Y-%m")
@@ -612,17 +646,15 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     story = []
 
     # ----------------------------------------------------
-    # HOJA 1: RESUMEN CON ESTRUCTURA DEL DOCUMENTO SOLICITADO
+    # HOJA 1: RESUMEN MENSUAL CON CALORÍAS QUEMADAS NEGATIVAS
     # ----------------------------------------------------
     story.append(Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str}</b>", title_style))
     story.append(Paragraph(f"Usuario Telegram ID: {user_id}", body_style))
     story.append(Spacer(1, 10))
 
     if not df.empty and 'Fecha' in df.columns:
-        # Separación entre Comida y Ejercicio según la columna 'Momento'
         df['Es_Ejercicio'] = df['Momento'].astype(str).str.lower() == 'ejercicio'
         
-        # Agrupación por Fecha
         fechas_unicas = df['Fecha'].unique()
         table_data = [["Fecha", "Cal. Consumid.", "Cal. Quemad.", "Bal. Neto", "Prot (g)", "Grasas (g)", "Carbs (g)", "Fibras (g)"]]
         
@@ -635,6 +667,8 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
             
             c_in = comidas['Calorias'].sum()
             c_out = ejercicios['Calorias'].sum()
+            
+            # Balance Neto considerando la quema como valor negativo
             bal_neto = c_in - c_out
             
             p = comidas['Proteinas'].sum()
@@ -652,7 +686,7 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
             table_data.append([
                 str(f),
                 f"{c_in:.1f} kcal" if c_in > 0 else "0 kcal",
-                f"{c_out:.1f} kcal" if c_out > 0 else "0 kcal",
+                f"-{c_out:.1f} kcal" if c_out > 0 else "0 kcal",
                 f"{bal_neto:.1f} kcal",
                 f"{p:.1f} g",
                 f"{g:.1f} g",
@@ -660,12 +694,11 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
                 f"{fib:.1f} g"
             ])
             
-        # Filas de Totales y Promedios
         dias_cnt = max(len(fechas_unicas), 1)
         table_data.append([
             "TOTAL MES",
             f"{tot_c_in:.1f} kcal",
-            f"{tot_c_out:.1f} kcal",
+            f"-{tot_c_out:.1f} kcal",
             f"{(tot_c_in - tot_c_out):.1f} kcal",
             f"{tot_p:.1f} g",
             f"{tot_g:.1f} g",
@@ -676,7 +709,7 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
         table_data.append([
             "PROM. DIARIO",
             f"{(tot_c_in/dias_cnt):.1f} kcal",
-            f"{(tot_c_out/dias_cnt):.1f} kcal",
+            f"-{(tot_c_out/dias_cnt):.1f} kcal",
             f"{((tot_c_in - tot_c_out)/dias_cnt):.1f} kcal",
             f"{(tot_p/dias_cnt):.1f} g",
             f"{(tot_g/dias_cnt):.1f} g",
@@ -744,7 +777,7 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
         dias_tot = max(df['Fecha'].nunique() if not df.empty else 1, 1)
         gasto_basal_actividad = metabol['get'] * dias_tot
         balance_real = tot_c_in - (gasto_basal_actividad + tot_c_out)
-        cambio_peso_kg = balance_real / 7700  # Aprox. 7700 kcal por kg de grasa
+        cambio_peso_kg = balance_real / 7700
 
         info_balance = [
             ["Concepto", "Valor Mensual"],
@@ -873,7 +906,7 @@ def main():
     app_bot.add_handler(perfil_handler)
     
     app_bot.add_handler(CallbackQueryHandler(callback_pdf, pattern="^genpdf_"))
-    app_bot.add_handler(CallbackQueryHandler(callback_handler, pattern="^(confirm_save|cancel_save|mom_|fec_|diario_|resumen_mes_|edit_manual)"))
+    app_bot.add_handler(CallbackQueryHandler(callback_handler, pattern="^(confirm_save|cancel_save|mom_|fec_|diario_|resumen_mes_|edit_item_)"))
     
     app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_inputs))
