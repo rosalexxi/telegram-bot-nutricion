@@ -1,6 +1,7 @@
 import os
 import re
 import io
+import json
 import asyncio
 from datetime import datetime, date
 import pandas as pd
@@ -9,7 +10,7 @@ from google.oauth2.service_account import Credentials
 import openai
 from dotenv import load_dotenv
 import httpx
-from flask import Flask
+from flask import Flask, request, jsonify, render_template_string
 from threading import Thread
 
 # Telegram
@@ -39,12 +40,236 @@ SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "Registro_Nutricional")
 
 client_ai = openai.OpenAI(api_key=OPENAI_API_KEY)
 
-# Server Flask para Render
+# ==========================================
+# SERVIDOR FLASK CON WEB APP INTERACTIVA
+# ==========================================
 app = Flask(__name__)
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculadora Nutricional & Estado del Bot</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --text: #0f172a;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            max-width: 600px;
+            width: 100%;
+        }
+        .card {
+            background: var(--card);
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background-color: #dcfce7;
+            color: #166534;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #22c55e;
+            border-radius: 50%;
+        }
+        h1 { font-size: 1.5rem; margin-top: 12px; margin-bottom: 8px; }
+        p { color: #64748b; font-size: 0.95rem; line-height: 1.5; }
+        .input-group {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 1rem;
+            outline: none;
+        }
+        input[type="text"]:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+        }
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover { background-color: #1d4ed8; }
+        button:disabled { background-color: #94a3b8; cursor: not-allowed; }
+        .result-box {
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid #e2e8f0;
+            display: none;
+        }
+        .macro-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 10px;
+            margin-top: 12px;
+        }
+        .macro-card {
+            background: #f1f5f9;
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .macro-val { font-size: 1.2rem; font-weight: bold; color: var(--primary); }
+        .macro-lbl { font-size: 0.75rem; color: #64748b; text-transform: uppercase; }
+        .item-list { list-style: none; padding: 0; margin-top: 12px; }
+        .item-list li {
+            padding: 8px 0;
+            border-bottom: 1px dashed #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="status-badge">
+                <div class="status-dot"></div>
+                Bot de Telegram En Línea
+            </div>
+            <h1>🔍 Consultor Nutricional Rápido</h1>
+            <p>Ingresá cualquier combinación de alimentos para consultar sus datos nutricionales estimativos de inmediato.</p>
+            
+            <div class="input-group">
+                <input type="text" id="foodInput" placeholder="Ej: Big Mac con papas medianas y cola diet">
+                <button id="searchBtn" onclick="consultarComida()">Consultar</button>
+            </div>
+
+            <div id="resultBox" class="result-box">
+                <h3>📊 Desglose Estimado</h3>
+                <ul id="itemList" class="item-list"></ul>
+                
+                <div class="macro-grid">
+                    <div class="macro-card">
+                        <div id="totalKcal" class="macro-val">0</div>
+                        <div class="macro-lbl">Calorías</div>
+                    </div>
+                    <div class="macro-card">
+                        <div id="totalProt" class="macro-val">0g</div>
+                        <div class="macro-lbl">Proteínas</div>
+                    </div>
+                    <div class="macro-card">
+                        <div id="totalGras" class="macro-val">0g</div>
+                        <div class="macro-lbl">Grasas</div>
+                    </div>
+                    <div class="macro-card">
+                        <div id="totalCarb" class="macro-val">0g</div>
+                        <div class="macro-lbl">Carbohidratos</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function consultarComida() {
+            const input = document.getElementById('foodInput').value.trim();
+            const btn = document.getElementById('searchBtn');
+            const resultBox = document.getElementById('resultBox');
+            
+            if (!input) return;
+
+            btn.disabled = true;
+            btn.innerText = "Calculando...";
+
+            try {
+                const response = await fetch('/api/consultar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: input })
+                });
+
+                const data = await response.json();
+                
+                if (data.items) {
+                    const itemList = document.getElementById('itemList');
+                    itemList.innerHTML = '';
+                    
+                    let totC = 0, totP = 0, totG = 0, totH = 0;
+                    
+                    data.items.forEach(item => {
+                        totC += item.calorias || 0;
+                        totP += item.proteinas || 0;
+                        totG += item.grasas || 0;
+                        totH += item.carbohidratos || 0;
+                        
+                        const li = document.createElement('li');
+                        li.innerHTML = `<span><b>${item.alimento}</b></span> <span>${item.calorias} kcal</span>`;
+                        itemList.appendChild(li);
+                    });
+
+                    document.getElementById('totalKcal').innerText = totC.toFixed(0);
+                    document.getElementById('totalProt').innerText = totP.toFixed(1) + 'g';
+                    document.getElementById('totalGras').innerText = totG.toFixed(1) + 'g';
+                    document.getElementById('totalCarb').innerText = totH.toFixed(1) + 'g';
+
+                    resultBox.style.display = 'block';
+                }
+            } catch (err) {
+                alert('Error al consultar los datos. Intentá nuevamente.');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Consultar";
+            }
+        }
+    </script>
+</body>
+</html>
+"""
 
 @app.route('/')
 def home():
-    return "🤖 Bot de Telegram de Nutrición - Funcionando en línea."
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route('/api/consultar', methods=['POST'])
+def api_consultar():
+    data = request.get_json()
+    query = data.get('query', '')
+    if not query:
+        return jsonify({'error': 'Consulta vacía'}), 400
+    
+    try:
+        res = analizar_con_gpt(query)
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -55,7 +280,9 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# Estados para conversaciones
+# ==========================================
+# CÓDIGO DEL BOT DE TELEGRAM
+# ==========================================
 EDAD, SEXO, PESO, ALTURA, CINTURA, OCUPACION = range(6)
 EDIT_FOOD = 10
 
@@ -64,7 +291,6 @@ def get_gspread_client():
     if os.path.exists(GOOGLE_SHEETS_KEY_PATH):
         creds = Credentials.from_service_account_file(GOOGLE_SHEETS_KEY_PATH, scopes=scopes)
     else:
-        import json
         creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
         if creds_json:
             info = json.loads(creds_json)
@@ -234,7 +460,7 @@ async def cancel_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Operación cancelada.")
     return ConversationHandler.END
 
-# --- PROCESAMIENTO DE TEXTO E IMÁGENES CON IA ---
+# --- PROCESAMIENTO CON GPT ---
 def analizar_con_gpt(prompt_text, image_bytes=None):
     system_prompt = (
         "Sos un nutricionista y experto en análisis de alimentos. Tu tarea es analizar el texto o la imagen dada y extraer los ítems.\n"
@@ -271,7 +497,6 @@ def analizar_con_gpt(prompt_text, image_bytes=None):
         response_format={"type": "json_object"}
     )
     
-    import json
     return json.loads(response.choices[0].message.content)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -388,11 +613,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await query.message.reply_text(
             f"✏️ Ingresá la corrección para **{item['alimento']}**.\n\n"
-            f"Podés cambiar el **nombre**, **peso** o **calorías** mandando un texto libre.\n"
-            f"Ejemplos:\n"
-            f"• `Pescado con salsa` (cambia el nombre)\n"
-            f"• `Pescado con salsa, 200g` (recalcula con nuevo peso)\n"
-            f"• `250 kcal` (cambia las calorías directamente)",
+            f"Escribí únicamente lo que quieras corregir (ej: `Pescado con salsa`, `150g` o `200 kcal`).",
             parse_mode="Markdown"
         )
         return EDIT_FOOD
@@ -404,15 +625,13 @@ async def receive_food_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if idx is not None and idx < len(items):
         item_previo = items[idx]
-        # Re-analizamos con GPT el ajuste del usuario manteniendo el contexto previo
-        prompt = f"El alimento detectado previamente era '{item_previo['alimento']}' ({item_previo['calorias']} kcal). El usuario corrigió diciendo: '{text}'. Genera los datos corregidos."
+        prompt = f"El alimento detectado era '{item_previo['alimento']}' ({item_previo['calorias']} kcal). El usuario corrigió diciendo: '{text}'. Actualiza los datos manteniendo los campos no modificados."
         res = analizar_con_gpt(prompt)
         new_items = res.get("items", [])
         if new_items:
             items[idx] = new_items[0]
             await update.message.reply_text(f"✏️ Actualizado: **{items[idx]['alimento']}** ({items[idx]['calorias']} kcal).", parse_mode="Markdown")
         
-    # Volvemos a mostrar el resumen actualizado con los botones
     txt_res = f"📝 **Registro Actualizado:**\n\n"
     tot_c = tot_p = tot_g = tot_h = tot_f = 0
     keyboard = []
@@ -443,37 +662,12 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
     styles = getSampleStyleSheet()
     
-    title_style = ParagraphStyle(
-        'DocTitle',
-        parent=styles['Heading1'],
-        fontSize=20,
-        textColor=colors.HexColor('#1E3A8A'),
-        spaceAfter=15
-    )
-    
-    sub_style = ParagraphStyle(
-        'SubTitle',
-        parent=styles['Heading2'],
-        fontSize=14,
-        textColor=colors.HexColor('#2563EB'),
-        spaceAfter=10
-    )
-    
-    body_style = ParagraphStyle(
-        'Body',
-        parent=styles['Normal'],
-        fontSize=10,
-        leading=14,
-        spaceAfter=6
-    )
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=20, textColor=colors.HexColor('#1E3A8A'), spaceAfter=15)
+    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=14, textColor=colors.HexColor('#2563EB'), spaceAfter=10)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=10, leading=14, spaceAfter=6)
 
-    story = []
+    story = [Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str}</b>", title_style), Spacer(1, 10)]
     
-    # Título
-    story.append(Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str}</b>", title_style))
-    story.append(Spacer(1, 10))
-    
-    # Perfil Biométrico
     if perfil and metabol:
         story.append(Paragraph("<b>1. Análisis Biométrico y Metabolismo</b>", sub_style))
         perfil_text = (
@@ -486,15 +680,12 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
         story.append(Paragraph(perfil_text, body_style))
         story.append(Spacer(1, 15))
         
-    # Consumo Mensual
     story.append(Paragraph("<b>2. Resumen de Ingesta y Balance</b>", sub_style))
     
     tot_cal = df['Calorias'].sum() if not df.empty and 'Calorias' in df.columns else 0
     tot_prot = df['Proteinas_g'].sum() if not df.empty and 'Proteinas_g' in df.columns else 0
     tot_gras = df['Grasas_g'].sum() if not df.empty and 'Grasas_g' in df.columns else 0
     tot_carb = df['Carbohidratos_g'].sum() if not df.empty and 'Carbohidratos_g' in df.columns else 0
-    
-    # Días registrados
     dias_count = df['Fecha'].nunique() if not df.empty and 'Fecha' in df.columns else 1
     
     bal_text = (
@@ -505,12 +696,11 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     story.append(Paragraph(bal_text, body_style))
     story.append(Spacer(1, 15))
     
-    # Tabla con detalle
     if not df.empty:
         story.append(Paragraph("<b>3. Desglose de Registros</b>", sub_style))
         table_data = [["Fecha", "Tipo", "Descripción", "Kcal", "Prot(g)", "Gras(g)", "Carb(g)"]]
         
-        for _, r in df.head(40).iterrows(): # Primeras 40 filas
+        for _, r in df.head(40).iterrows():
             table_data.append([
                 str(r.get("Fecha", "")),
                 str(r.get("Tipo", "Comida")),
@@ -608,7 +798,6 @@ def main():
     keep_alive()
     app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     
-    # Conversación para /perfil
     perfil_handler = ConversationHandler(
         entry_points=[CommandHandler("perfil", start_perfil)],
         states={
@@ -622,7 +811,6 @@ def main():
         fallbacks=[CommandHandler("cancelar", cancel_perfil)]
     )
     
-    # Conversación para edición de alimentos
     edit_handler = ConversationHandler(
         entry_points=[CallbackQueryHandler(callback_handler, pattern="^edit_")],
         states={
@@ -641,7 +829,7 @@ def main():
     app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("🚀 Bot iniciado correctamente en Render...")
+    print("🚀 Bot iniciado correctamente...")
     app_bot.run_polling()
 
 if __name__ == "__main__":
