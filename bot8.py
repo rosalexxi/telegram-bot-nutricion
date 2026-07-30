@@ -1,3 +1,4 @@
+import asyncio
 import base64
 from datetime import datetime, timedelta
 import json
@@ -35,7 +36,7 @@ user_pending_data = {}
 user_states = {}
 
 # ==========================================
-# CONFIGURACIÓN DE GOOGLE SHEETS (GSPREAD)
+# CONFIGURACIÓN DE GOOGLE SHEETS
 # ==========================================
 SPREADSHEET_KEY = "19je2itfFPZqs2YMZcs_MTa7m0ejw_ZuBn_VwVwKCjf4"
 
@@ -68,7 +69,7 @@ def obtener_o_crear_hoja_usuario(sheet, user_id):
 
 
 # ==========================================
-# SERVIDOR WEB FALSO PARA RENDER (PUNTO 1)
+# SERVIDOR WEB FALSO PARA RENDER
 # ==========================================
 class SimpleHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -81,24 +82,15 @@ class SimpleHandler(BaseHTTPRequestHandler):
         <head>
             <title>Bot de Nutrición Activo</title>
             <meta charset="utf-8">
-            <style>
-                body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; background-color: #f4f4f9; color: #333; }
-                h1 { color: #2e7d32; }
-                .card { background: white; padding: 20px; border-radius: 8px; display: inline-block; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-            </style>
         </head>
         <body>
-            <div class="card">
-                <h1>🤖 Bot de Telegram de Nutrición</h1>
-                <p>El servicio web y el bot se encuentran funcionando correctamente en línea.</p>
-            </div>
+            <h1>🤖 Bot de Telegram de Nutrición Funcionando</h1>
         </body>
         </html>
         """
         self.wfile.write(html_content.encode("utf-8"))
 
     def log_message(self, format, *args):
-        # Desactiva los logs molestos de cada petición HTTP en la consola
         return
 
 def run_dummy_server():
@@ -110,10 +102,6 @@ def run_dummy_server():
 # ==========================================
 # FUNCIONES AUXILIARES Y PARSEO
 # ==========================================
-
-def encode_image(image_path: str) -> str:
-    with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode("utf-8")
 
 def extract_json(text: str) -> str:
     if not text:
@@ -131,7 +119,7 @@ def extract_json(text: str) -> str:
 def parse_response_to_items(raw_text: str) -> list:
     clean_text = extract_json(raw_text)
     if not clean_text:
-        raise ValueError(f"El modelo no devolvió una respuesta utilizable.")
+        raise ValueError("El modelo no devolvió una respuesta utilizable.")
     try:
         data = json.loads(clean_text)
     except json.JSONDecodeError:
@@ -139,7 +127,7 @@ def parse_response_to_items(raw_text: str) -> list:
             fixed_text = clean_text.replace("'", '"')
             data = json.loads(fixed_text)
         except Exception:
-            raise ValueError(f"No se pudo decodificar el JSON.")
+            raise ValueError("No se pudo decodificar el JSON.")
     if isinstance(data, dict):
         for val in data.values():
             if isinstance(val, list):
@@ -167,42 +155,47 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     user_states.pop(user_id, None)
     msg_espera = await update.message.reply_text("🔍 Analizando plato con Groq...")
-    photo_file = await update.message.photo[-1].get_file()
-    photo_path = f"temp_{user_id}.jpg"
-    await photo_file.download_to_drive(photo_path)
+    
     try:
-        base64_image = encode_image(photo_path)
+        photo_file = await update.message.photo[-1].get_file()
+        image_bytes = await photo_file.download_as_bytearray()
+        base64_image = base64.b64encode(image_bytes).decode("utf-8")
+
         system_instruction = (
             "You are a strict JSON generator. Do NOT think step-by-step. "
             "Do NOT output <think> tags. Output ONLY a valid JSON object starting with '{' and ending with '}'."
         )
         prompt = """
         Analiza esta imagen e identifica sus alimentos.
-        Responde ÚNICAMENTE con un JSON en formato estricto RFC 8259.
+        Responde ÚNICAMENTE con un JSON en formato estricto RFC 8259:
         {
           "items": [
             {"alimento": "Pechuga de pollo", "peso_g": 150, "calorias": 240, "proteinas_g": 31, "grasas_g": 3.5, "hidratos_g": 0}
           ]
         }
         """
-        response = groq_client.chat.completions.create(
-            model=MODELO_GROQ,
-            messages=[
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]},
-            ],
-            temperature=0.1,
-            max_tokens=4000,
-            timeout=30.0,
-        )
+
+        def _call_groq():
+            return groq_client.chat.completions.create(
+                model=MODELO_GROQ,
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                    ]},
+                ],
+                temperature=0.1,
+                max_tokens=4000,
+                timeout=30.0,
+            )
+
+        response = await asyncio.to_thread(_call_groq)
         items = parse_response_to_items(response.choices[0].message.content)
         user_pending_data[user_id] = {"tipo": "comida", "items": items, "momento": "No especificado"}
         await mostrar_resumen_y_botones(msg_espera, user_id, es_edicion=False)
     except Exception as e:
         await msg_espera.edit_text(f"❌ Error al procesar la imagen: {str(e)}")
-    finally:
-        if os.path.exists(photo_path):
-            os.remove(photo_path)
 
 async def procesar_texto_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -218,13 +211,16 @@ async def procesar_texto_comida(update: Update, context: ContextTypes.DEFAULT_TY
     {{"items": [{{"alimento": "nombre", "peso_g": 0, "calorias": 0, "proteinas_g": 0, "grasas_g": 0, "hidratos_g": 0}}]}}
     """
     try:
-        response = groq_client.chat.completions.create(
-            model=MODELO_GROQ,
-            messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=4000,
-            timeout=30.0,
-        )
+        def _call_groq():
+            return groq_client.chat.completions.create(
+                model=MODELO_GROQ,
+                messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=4000,
+                timeout=30.0,
+            )
+
+        response = await asyncio.to_thread(_call_groq)
         items = parse_response_to_items(response.choices[0].message.content)
         user_pending_data[user_id] = {"tipo": "comida", "items": items, "momento": "No especificado"}
         await mostrar_resumen_y_botones(msg_espera, user_id, es_edicion=False)
@@ -280,13 +276,16 @@ async def handle_actividad_duracion(update: Update, context: ContextTypes.DEFAUL
     system_instruction = "You are a strict JSON generator. Do NOT think step-by-step. Output ONLY valid JSON."
     prompt = f'Actividad: "{actividad}", Duración: "{texto}". Estima calorías en JSON: {{"actividad": "{actividad}", "duracion": "{texto}", "calorias": 320}}'
     try:
-        response = groq_client.chat.completions.create(
-            model=MODELO_GROQ,
-            messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=1000,
-            timeout=30.0,
-        )
+        def _call_groq():
+            return groq_client.chat.completions.create(
+                model=MODELO_GROQ,
+                messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=1000,
+                timeout=30.0,
+            )
+
+        response = await asyncio.to_thread(_call_groq)
         act_info = json.loads(extract_json(response.choices[0].message.content))
         user_pending_data[user_id] = {
             "tipo": "actividad",
@@ -311,23 +310,26 @@ async def mostrar_confirmacion_actividad(message, user_id: int):
     else:
         await message.reply_text(reply_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
+def _sync_guardar_sheets(user_id: int, fecha_str: str, pending: dict):
+    client = get_gspread_client()
+    spreadsheet = client.open_by_key(SPREADSHEET_KEY)
+    worksheet = obtener_o_crear_hoja_usuario(spreadsheet, user_id)
+    rows_to_append = []
+    if pending["tipo"] == "comida":
+        momento = pending.get("momento", "Sin especificar")
+        for item in pending["items"]:
+            rows_to_append.append([str(user_id), fecha_str, "Comida", momento, item.get("alimento", "Desconocido"), item.get("peso_g", 0), item.get("calorias", 0), item.get("proteinas_g", 0), item.get("grasas_g", 0), item.get("hidratos_g", 0)])
+    elif pending["tipo"] == "actividad":
+        rows_to_append.append([str(user_id), fecha_str, "Actividad Física", pending["actividad"], f"Duración: {pending['duracion']}", 0, -abs(pending["calorias"]), 0, 0, 0])
+    for row in rows_to_append:
+        worksheet.append_row(row)
+
 async def guardar_en_google_sheets(user_id: int, fecha_str: str) -> str:
     pending = user_pending_data.get(user_id)
     if not pending:
         return "No hay datos pendientes."
     try:
-        client = get_gspread_client()
-        spreadsheet = client.open_by_key(SPREADSHEET_KEY)
-        worksheet = obtener_o_crear_hoja_usuario(spreadsheet, user_id)
-        rows_to_append = []
-        if pending["tipo"] == "comida":
-            momento = pending.get("momento", "Sin especificar")
-            for item in pending["items"]:
-                rows_to_append.append([str(user_id), fecha_str, "Comida", momento, item.get("alimento", "Desconocido"), item.get("peso_g", 0), item.get("calorias", 0), item.get("proteinas_g", 0), item.get("grasas_g", 0), item.get("hidratos_g", 0)])
-        elif pending["tipo"] == "actividad":
-            rows_to_append.append([str(user_id), fecha_str, "Actividad Física", pending["actividad"], f"Duración: {pending['duracion']}", 0, -abs(pending["calorias"]), 0, 0, 0])
-        for row in rows_to_append:
-            worksheet.append_row(row)
+        await asyncio.to_thread(_sync_guardar_sheets, user_id, fecha_str, pending)
         user_pending_data.pop(user_id, None)
         user_states.pop(user_id, None)
         return f"💾 ¡Guardado correctamente en tu Google Sheets para la fecha *{fecha_str}*!"
@@ -406,15 +408,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         msg_espera = await update.message.reply_text("🔄 Recalculando...")
         system_instruction = "You are a strict JSON generator. Output ONLY valid JSON."
-        prompt = f'Corrección: "{text}". Responde en JSON: {{"items": [{{"alimento": "nombre", "peso_g": 0, "calorias": 0, "proteinas_g": 0, "grasas_g": 0, "hidratos_g": 0}}]}}'
+        prompt = f'Datos actuales: {json.dumps(current_data)}. Corrección del usuario: "{text}". Ajusta los items y responde en JSON: {{"items": [{{"alimento": "nombre", "peso_g": 0, "calorias": 0, "proteinas_g": 0, "grasas_g": 0, "hidratos_g": 0}}]}}'
         try:
-            response = groq_client.chat.completions.create(
-                model=MODELO_GROQ,
-                messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=4000,
-                timeout=30.0,
-            )
+            def _call_groq():
+                return groq_client.chat.completions.create(
+                    model=MODELO_GROQ,
+                    messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    max_tokens=4000,
+                    timeout=30.0,
+                )
+
+            response = await asyncio.to_thread(_call_groq)
             user_pending_data[user_id]["items"] = parse_response_to_items(response.choices[0].message.content)
             user_states.pop(user_id, None)
             await mostrar_resumen_y_botones(msg_espera, user_id, es_edicion=True)
@@ -441,12 +446,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await procesar_texto_comida(update, context)
 
+def _sync_obtener_resumen(user_id: int):
+    client = get_gspread_client()
+    worksheet = obtener_o_crear_hoja_usuario(client.open_by_key(SPREADSHEET_KEY), user_id)
+    return worksheet.get_all_records()
+
 async def resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     try:
-        client = get_gspread_client()
-        worksheet = obtener_o_crear_hoja_usuario(client.open_by_key(SPREADSHEET_KEY), user_id)
-        data = worksheet.get_all_records()
+        data = await asyncio.to_thread(_sync_obtener_resumen, user_id)
         if not data:
             await update.message.reply_text("📉 Todavía no tenés registros.")
             return
@@ -476,12 +484,10 @@ async def resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==========================================
 
 if __name__ == "__main__":
-    # Levantar el servidor web en un hilo secundario para satisfacer a Render
     server_thread = threading.Thread(target=run_dummy_server, daemon=True)
     server_thread.start()
-    print("🌐 Servidor web falso corriendo en segundo plano para el puerto de Render.")
+    print("🌐 Servidor web corriendo en segundo plano.")
 
-    # Iniciar Telegram
     app = (
         ApplicationBuilder()
         .token(TELEGRAM_TOKEN)
@@ -499,3 +505,4 @@ if __name__ == "__main__":
 
     print(f"🚀 Bot conectado a Google Sheets. Modelo: {MODELO_GROQ}")
     app.run_polling(drop_pending_updates=True)
+
