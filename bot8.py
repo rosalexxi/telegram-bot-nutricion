@@ -252,6 +252,7 @@ def calcular_metabolismo(perfil):
 def analizar_con_groq(prompt_text):
     system_prompt = (
         "Sos un nutricionista y entrenador experto. Analizá el texto del usuario.\n"
+        "Si detectás actividad física o ejercicio, las calorías DEBEN tener signo negativo (ej: -300.0).\n"
         "Devolvé EXCLUSIVAMENTE un JSON válido con este formato:\n"
         "{\n"
         '  "items": [\n'
@@ -439,7 +440,7 @@ async def procesar_y_mostrar_confirmacion(data, msg, context):
 async def render_confirmation_screen(msg_or_query, context):
     items = context.user_data.get('pending_items', [])
     tipo = context.user_data.get('pending_tipo', 'Comida')
-    fecha = context.user_data.get('pending_fecha', date.today().strftime("%Y-%m-%d"))
+    fecha = context.user_data.get('pending_fecha', date.today().strftime("%Y-%m"))
     momento = context.user_data.get('pending_momento', 'Almuerzo')
 
     txt_res = f"📝 **Confirmación ({tipo}):**\n"
@@ -461,10 +462,10 @@ async def render_confirmation_screen(msg_or_query, context):
         tot_c += c; tot_p += p; tot_g += g; tot_h += h; tot_f += f
         
         txt_res += f"**{idx+1}. {item['alimento']}** ({p_gr:.0f}g):\n"
-        if tipo == "Comida":
+        if c >= 0:
             txt_res += f"  └ {c:.0f} kcal | P: {p:.1f}g | G: {g:.1f}g | H: {h:.1f}g | Fib: {f:.1f}g\n"
         else:
-            txt_res += f"  └ Calorías Quemadas: {c:.0f} kcal\n"
+            txt_res += f"  └ Calorías Quemadas: {abs(c):.0f} kcal\n"
         
     txt_res += f"\n🔥 **Total Calorías:** {tot_c:.0f} kcal\n"
 
@@ -483,7 +484,6 @@ async def render_confirmation_screen(msg_or_query, context):
             InlineKeyboardButton("🌙 Cena", callback_data="mom_Cena")
         ])
         
-    # AQUÍ ESTÁ EL CAMBIO: Botones de Cambiar Fecha, Anular y Guardar
     keyboard.append([
         InlineKeyboardButton("📅 Cambiar Fecha", callback_data="cambiar_fecha_confirm")
     ])
@@ -518,7 +518,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"✅ ¡Guardado con éxito en Google Sheets!\n📅 Fecha: `{fecha}`", parse_mode="Markdown")
 
     elif data == "cancel_entry":
-        # Limpiamos variables pendientes
         context.user_data.pop('pending_items', None)
         context.user_data.pop('pending_tipo', None)
         context.user_data.pop('pending_fecha', None)
@@ -593,7 +592,8 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     tot_c_out = 0.0
 
     if not df.empty and 'Fecha' in df.columns:
-        df['Es_Ejercicio'] = df['Momento'].astype(str).str.lower() == 'ejercicio'
+        # SEPARACIÓN MATEMÁTICA: Si la caloría es < 0, es Ejercicio/Gasto
+        df['Es_Ejercicio'] = df['Calorias'] < 0
         
         fechas_unicas = sorted(df['Fecha'].unique())
         table_data = [["Fecha", "Cal. Consumid.", "Cal. Quemad.", "Bal. Neto", "Prot (g)", "Grasas (g)", "Carbs (g)", "Fibras (g)"]]
@@ -602,13 +602,14 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
         
         for f in fechas_unicas:
             sub = df[df['Fecha'] == f]
+            
             comidas = sub[~sub['Es_Ejercicio']]
             ejercicios = sub[sub['Es_Ejercicio']]
             
-            c_in = comidas['Calorias'].abs().sum() if not comidas.empty else 0.0
+            c_in = comidas['Calorias'].sum() if not comidas.empty else 0.0
             c_out = ejercicios['Calorias'].abs().sum() if not ejercicios.empty else 0.0
             
-            bal_neto = c_in - c_out                     # Balance Neto del día
+            bal_neto = c_in - c_out
             
             p = comidas['Proteinas'].sum() if not comidas.empty else 0.0
             g = comidas['Grasas'].sum() if not comidas.empty else 0.0
@@ -673,7 +674,6 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
         ]))
         story.append(t)
 
-    # SALTO DE PÁGINA OBLIGATORIO
     story.append(PageBreak())
 
     # ----------------------------------------------------
