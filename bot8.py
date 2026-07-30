@@ -662,15 +662,20 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
         
         tot_c_in = tot_c_out = tot_p = tot_g = tot_h = tot_f = 0
         
-        for f in fechas_unicas:
+ for f in fechas_unicas:
             sub = df[df['Fecha'] == f]
             comidas = sub[~sub['Es_Ejercicio']]
             ejercicios = sub[sub['Es_Ejercicio']]
             
-            c_in = comidas['Calorias'].sum()      # Ingesta pura
-            c_out = ejercicios['Calorias'].sum()    # Ejercicio
+            # Ingesta pura (solo valores positivos de comida)
+            c_in = comidas['Calorias'].sum()      
             
-            bal_neto = c_in - c_out               # Resta únicamente en Balance Neto
+            # Calorías quemadas por ejercicio (nos aseguramos de que se reflejen como valor positivo para la columna, o negativo según prefieras mostrarlo, pero la columna pedía quemadas)
+            # Como en tu excel el ejercicio puede estar en negativo o positivo, tomamos su valor absoluto para la columna "Cal. Quemad." o sumamos directo.
+            c_out = abs(ejercicios['Calorias'].sum())    
+            
+            # Balance neto diario: Ingesta menos ejercicio
+            bal_neto = c_in - c_out               
             
             p = comidas['Proteinas'].sum()
             g = comidas['Grasas'].sum()
