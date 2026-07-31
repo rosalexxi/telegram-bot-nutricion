@@ -204,14 +204,10 @@ def obtener_datos_mes(user_id, mes_str):
         df = df.rename(columns=col_map)
         
         if "Fecha" in df.columns and not df.empty:
-            # Normalizar formato de fecha flexible (soporta YYYY-MM-DD y formato US/latino)
             df['Fecha_dt'] = pd.to_datetime(df['Fecha'], errors='coerce')
             df['Fecha'] = df['Fecha_dt'].dt.strftime('%Y-%m-%d').fillna(df['Fecha'].astype(str))
-            
-            # Filtrar por mes objetivo (YYYY-MM)
             df = df[df['Fecha'].str.startswith(mes_str)]
             
-            # DIVIDIR POR 1000 CADA COLUMNA NUMÉRICA RECORDADA
             for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
                 if col in df.columns:
                     df[col] = df[col].apply(parse_float_from_sheets)
@@ -243,7 +239,6 @@ def obtener_perfil(user_id):
         df = pd.DataFrame(records)
         last_rec = df.iloc[-1].to_dict()
         
-        # Convertir datos guardados x1000 de vuelta a decimales
         perfil_clean = {}
         for k, v in last_rec.items():
             k_lower = str(k).lower()
@@ -300,7 +295,7 @@ def analizar_con_groq(prompt_text):
     system_prompt = (
         "Sos un nutricionista y entrenador experto. Analizá el texto del usuario.\n"
         "REGLAS CRÍTICAS DE PARSEO:\n"
-        "1. Identifica las CANTIDADES Y UNIDADES indicadas (ej: '5 galletitas' representa 5 unidades del alimento, NO 1 solo unidad).\n"
+        "1. Identifica las CANTIDADES Y UNIDADES indicadas.\n"
         "2. Devolvé los nutrientes en GRAMOS/KCAL estándar como números flotantes puros (ej: 7.5, 42.5).\n"
         "3. Usa el punto '.' como separador decimal.\n"
         "4. Si es ejercicio/actividad física, la caloría DEBE ser negativa (ej: -300.0).\n"
@@ -362,7 +357,6 @@ def generar_pdf_instrucciones_bytes():
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
     styles = getSampleStyleSheet()
     
-    # Estilos de Marca y Tipografía Profesional
     title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=18, leading=22, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
     subtitle_style = ParagraphStyle('DocSubtitle', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#64748B'), spaceAfter=12)
     section_style = ParagraphStyle('SectionHeading', parent=styles['Heading2'], fontSize=12, leading=16, textColor=colors.HexColor('#2563EB'), spaceBefore=10, spaceAfter=6)
@@ -373,7 +367,6 @@ def generar_pdf_instrucciones_bytes():
 
     story = []
 
-    # Encabezado Principal
     story.append(Paragraph("<b>MANUAL DE USO PROFESIONAL</b>", title_style))
     story.append(Paragraph("<b>Asistente & Bot de Registro Nutricional e Inteligencia Artificial</b>", subtitle_style))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#2563EB'), spaceAfter=12))
@@ -388,12 +381,11 @@ def generar_pdf_instrucciones_bytes():
     story.append(Paragraph("<b>2. Buenas Prácticas: Marcas, Cantidades y Unidades</b>", section_style))
     story.append(Paragraph("Para evitar imprecisiones o que el sistema asuma cantidades unitarias por defecto, seguí estas pautas de ingreso:", body_style))
 
-    # MOCKUP CELULAR 1 (Simulación de Chat de Cantidades)
     mockup_data = [
         [Paragraph("📱 <b>SIMULACIÓN EN CELULAR: CÓMO INDICAR CANTIDADES</b>", ParagraphStyle('TitlePhone', parent=styles['Normal'], fontSize=9, textColor=colors.white, fontName="Helvetica-Bold"))],
         [Paragraph("❌ <b>Ingreso impreciso:</b> <i>'Comí galletitas'</i><br/>⚠️ <i>El sistema asumirá 1 sola unidad o un promedio indeterminado.</i>", cell_user)],
         [Paragraph("✅ <b>Ingreso óptimo:</b> <i>'Galletita Granix, 5 unidades'</i> o <i>'50g de galletitas Granix'</i><br/>🎯 <i>Permite calcular exactamente el gramaje y macronutrientes.</i>", cell_bot)],
-        [Paragraph("💡 <b>Tip de corrección:</b> Si querés ajustar un registro enviado, podés escribir: <i>'Corregir: eran 200g de arroz'</i> antes de presionar Guardar.", cell_user)]
+        [Paragraph("💡 <b>Tip de corrección:</b> Si querés ajustar un registro enviado, podés usar los botones individuales ✏️ Editar en la pantalla de confirmación.", cell_user)]
     ]
     t_mockup = Table(mockup_data, colWidths=[520])
     t_mockup.setStyle(TableStyle([
@@ -413,26 +405,6 @@ def generar_pdf_instrucciones_bytes():
     story.append(Paragraph("• <b>Formato de Mes para Reportes:</b> Se ingresa como <b>AAAA-MM</b> (ejemplo: <code>2026-07</code>).", body_style))
     story.append(Paragraph("• <b>Regla de Madrugada:</b> Si registrás una comida entre las <b>00:00 y las 02:00 hs</b>, el bot la asociará automáticamente a la <b>Cena del día anterior</b>.", body_style))
     story.append(Spacer(1, 8))
-
-    # MOCKUP CELULAR 2 (Simulación de Modificación de Fecha)
-    mockup_fecha = [
-        [Paragraph("📱 <b>SIMULACIÓN: CAMBIO DE FECHA Y MOMENTO</b>", ParagraphStyle('TitlePhone2', parent=styles['Normal'], fontSize=9, textColor=colors.white, fontName="Helvetica-Bold"))],
-        [Paragraph("📝 <b>Confirmación (Comida):</b><br/>📅 <b>Fecha:</b> <code>2026-07-31</code> | 🍽️ <b>Momento:</b> <code>Almuerzo</code><br/>1. Pechuga de pollo (200g) - 330 kcal", cell_bot)],
-        [Paragraph("🔘 <i>[🌅 Desayuno] [☀️ Almuerzo] [☕ Merienda] [🌙 Cena]</i><br/>🔘 <i>[📅 Cambiar Fecha]</i> 👈 <b>Presioná acá para asignar a otro día</b>", cell_user)],
-        [Paragraph("✍️ <b>Bot:</b> <i>Escribí la fecha en formato AAAA-MM-DD (ej: 2026-07-30):</i>", cell_bot)]
-    ]
-    t_fecha = Table(mockup_fecha, colWidths=[520])
-    t_fecha.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#065F46')),
-        ('BACKGROUND', (0,1), (-1,1), colors.HexColor('#F0FDF4')),
-        ('BACKGROUND', (0,2), (-1,2), colors.HexColor('#F8FAFC')),
-        ('BACKGROUND', (0,3), (-1,3), colors.HexColor('#EFF6FF')),
-        ('PADDING', (0,0), (-1,-1), 6),
-        ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#A7F3D0')),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E2E8F0')),
-    ]))
-    story.append(t_fecha)
-    story.append(Spacer(1, 10))
 
     story.append(Paragraph("<b>4. Comandos Principales de Control</b>", section_style))
     
@@ -472,7 +444,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
     
-    # Enviar PDF Instructivo
     pdf_buf = generar_pdf_instrucciones_bytes()
     await context.bot.send_document(
         chat_id=update.effective_chat.id,
@@ -669,6 +640,8 @@ async def procesar_y_mostrar_confirmacion(data, msg, context):
     context.user_data['pending_tipo'] = tipo
     context.user_data['pending_fecha'] = fecha_auto
     context.user_data['pending_momento'] = momento_auto if tipo == "Comida" else "Ejercicio"
+    context.user_data['confirm_msg_id'] = msg.message_id
+    context.user_data['chat_id'] = msg.chat_id
         
     await render_confirmation_screen(msg, context)
 
@@ -677,6 +650,15 @@ async def render_confirmation_screen(msg_or_query, context):
     tipo = context.user_data.get('pending_tipo', 'Comida')
     fecha = context.user_data.get('pending_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
     momento = context.user_data.get('pending_momento', 'Almuerzo')
+
+    if not items:
+        txt_empty = "🚫 No quedan ítems en esta confirmación."
+        markup_empty = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cerrar", callback_data="cancel_entry")]])
+        if hasattr(msg_or_query, 'edit_message_text'):
+            await msg_or_query.edit_message_text(txt_empty, reply_markup=markup_empty)
+        else:
+            await msg_or_query.edit_text(txt_empty, reply_markup=markup_empty)
+        return
 
     txt_res = f"📝 **Confirmación ({tipo}):**\n"
     txt_res += f"📅 **Fecha:** `{fecha}`\n"
@@ -687,6 +669,9 @@ async def render_confirmation_screen(msg_or_query, context):
         
     tot_c = tot_p = tot_g = tot_h = tot_f = 0.0
     
+    keyboard = []
+    
+    # 1. BOTONES DE EDICIÓN Y ELIMINACIÓN POR CADA ÍTEM
     for idx, item in enumerate(items):
         p_gr = parse_raw_val(item.get('peso', 0))
         c = parse_raw_val(item.get('calorias', 0))
@@ -701,11 +686,16 @@ async def render_confirmation_screen(msg_or_query, context):
             txt_res += f"  └ {c:.0f} kcal | P: {p:.1f}g | G: {g:.1f}g | H: {h:.1f}g | Fib: {f:.1f}g\n"
         else:
             txt_res += f"  └ Calorías Quemadas: {abs(c):.0f} kcal\n"
+            
+        # Fila de botones para este ítem específico
+        keyboard.append([
+            InlineKeyboardButton(f"✏️ Edit #{idx+1}", callback_data=f"edit_item_{idx}"),
+            InlineKeyboardButton(f"❌ Del #{idx+1}", callback_data=f"del_item_{idx}")
+        ])
         
     txt_res += f"\n🔥 **Total Calorías:** {tot_c:.0f} kcal\n"
 
-    keyboard = []
-    
+    # 2. BOTONES DE MOMENTO DE COMIDA
     if tipo == "Comida":
         keyboard.append([
             InlineKeyboardButton("🌅 Desayuno", callback_data="mom_Desayuno"),
@@ -714,6 +704,7 @@ async def render_confirmation_screen(msg_or_query, context):
             InlineKeyboardButton("🌙 Cena", callback_data="mom_Cena")
         ])
         
+    # 3. CONTROLES GENERALES
     keyboard.append([
         InlineKeyboardButton("📅 Cambiar Fecha", callback_data="cambiar_fecha_confirm")
     ])
@@ -745,6 +736,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         momento = context.user_data.get('pending_momento', 'Almuerzo')
 
         guardar_en_sheets(user_id, items, fecha, momento, tipo)
+        
+        # Limpiar estados temporales
+        context.user_data.pop('pending_items', None)
         await query.edit_message_text(f"✅ ¡Guardado con éxito en Google Sheets!\n📅 Fecha: `{fecha}`", parse_mode="Markdown")
 
     elif data == "cancel_entry":
@@ -753,6 +747,26 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop('pending_fecha', None)
         context.user_data.pop('pending_momento', None)
         await query.edit_message_text("🚫 **Registro anulado.** No se guardó nada.", parse_mode="Markdown")
+
+    elif data.startswith("edit_item_"):
+        idx = int(data.split("_")[2])
+        items = context.user_data.get('pending_items', [])
+        if idx < len(items):
+            item = items[idx]
+            context.user_data['editing_item_idx'] = idx
+            await query.edit_message_text(
+                f"✏️ **Modificando:** {item['alimento']}\n\n"
+                f"Escribí la nueva descripción/cantidad de este ítem (ej: *'150g'* o *'2 milanesas de 120g'*):",
+                parse_mode="Markdown"
+            )
+
+    elif data.startswith("del_item_"):
+        idx = int(data.split("_")[2])
+        items = context.user_data.get('pending_items', [])
+        if idx < len(items):
+            items.pop(idx)
+            context.user_data['pending_items'] = items
+            await render_confirmation_screen(query, context)
 
     elif data.startswith("mom_"):
         context.user_data['pending_momento'] = data.split("_")[1]
@@ -800,9 +814,37 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption=f"📈 **Reporte Nutricional PDF - {mes_target}**"
         )
 
+# ==========================================
+# MANEJO DE ENTRADAS DE TEXTO DE USUARIO
+# ==========================================
 async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     
+    # 1. MODIFICACIÓN DE ÍTEM INDIVIDUAL
+    if 'editing_item_idx' in context.user_data:
+        idx = context.user_data.pop('editing_item_idx')
+        items = context.user_data.get('pending_items', [])
+        
+        if idx < len(items):
+            msg = await update.message.reply_text("🔄 Recalculando ítem con IA...")
+            try:
+                # Re-analizar solo el ítem modificado
+                nombre_orig = items[idx]['alimento']
+                res = analizar_con_groq(f"{nombre_orig}: {text}")
+                new_items = res.get("items", [])
+                
+                if new_items:
+                    items[idx] = new_items[0]
+                    context.user_data['pending_items'] = items
+                await msg.delete()
+            except Exception as e:
+                await update.message.reply_text(f"❌ Error al recalcular: {e}")
+
+            msg_confirm = await update.message.reply_text("Actualizando panel...")
+            await render_confirmation_screen(msg_confirm, context)
+            return
+
+    # 2. CAMBIO DE FECHA
     if context.user_data.get('esperando_fecha'):
         if re.match(r'^\d{4}-\d{2}-\d{2}$', text):
             context.user_data['pending_fecha'] = text
@@ -813,6 +855,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("❌ Formato incorrecto. Mandalo como `AAAA-MM-DD` (ej: `2026-07-30`).")
         return
 
+    # 3. OTRO DÍA DIARIO
     if context.user_data.get('esperando_fecha_diario'):
         if re.match(r'^\d{4}-\d{2}-\d{2}$', text):
             context.user_data['esperando_fecha_diario'] = False
@@ -821,6 +864,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("❌ Formato incorrecto. Mandalo como `AAAA-MM-DD` (ej: `2026-07-25`).")
         return
 
+    # 4. OTRO MES RESUMEN
     if context.user_data.get('esperando_mes_resumen'):
         if re.match(r'^\d{4}-\d{2}$', text):
             context.user_data['esperando_mes_resumen'] = False
