@@ -147,7 +147,6 @@ def get_or_create_worksheet(spreadsheet, title):
         elif title == "Comidas_Predeterminadas":
             ws = spreadsheet.add_worksheet(title=title, rows="200", cols="8")
             ws.append_row(["Codigo", "Alimento", "Peso (g)", "Calorias (kcal)", "Proteinas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)"])
-            # Fila de ejemplo
             ws.append_row(["desayuno1", "Café con leche", 200000, 90000, 4000, 3000, 10000, 0])
             ws.append_row(["desayuno1", "Tostada pan integral", 50000, 130000, 4000, 2000, 24000, 3000])
             return ws
@@ -164,7 +163,7 @@ def buscar_comida_predeterminada(codigo_buscado):
         if not records:
             return None
 
-        # Limpiar el código ingresado por el usuario (sin barras, sin espacios, minúsculas)
+        # Limpiar el código ingresado por el usuario (sin /, sin espacios, minúsculas)
         cod_clean = re.sub(r'[^a-zA-Z0-9]', '', str(codigo_buscado)).lower()
         
         items_encontrados = []
@@ -1205,8 +1204,11 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.VOICE, handle_voice))
     
-    # Manejar comandos desconocidos o texto directo (incluye atajos predeterminados)
-    application.add_handler(MessageHandler(filters.COMMAND | filters.TEXT, handle_text_inputs))
+    # Manejar únicamente texto (excluyendo comandos oficiales)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_inputs))
+    
+    # Manejar comandos desconocidos / atajos con barra (ej: /desayuno1)
+    application.add_handler(MessageHandler(filters.COMMAND, handle_text_inputs))
 
     application.run_polling()
 
