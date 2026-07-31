@@ -65,53 +65,41 @@ def keep_alive():
 # FUNCIÓN AUXILIAR DE LIMPIEZA DE NÚMEROS
 # ==========================================
 def parse_float(val):
-    """ Convierte de forma ultrasegura cualquier tipo de dato con coma o punto a float puros. """
-    if val is None or val == "":
+    """ Convierte de forma ultrasegura cualquier tipo de dato a float sin errores de millares. """
+    if val is None:
         return 0.0
     if isinstance(val, (int, float)):
         return float(val)
-    
-    val_str = str(val).strip()
-    
-    # Si contiene tanto punto como coma (ej: 1.250,50 o 1,250.50)
-    if '.' in val_str and ',' in val_str:
-        if val_str.rfind(',') > val_str.rfind('.'):
-            val_str = val_str.replace('.', '').replace(',', '.')
-        else:
-            val_str = val_str.replace(',', '')
-    else:
-        # Reemplazar comas por puntos
-        val_str = val_str.replace(',', '.')
-        
+    val_str = str(val).strip().replace(',', '.')
     try:
         return float(val_str)
     except ValueError:
         return 0.0
 
 # ==========================================
-# LÓGICA DE HORARIO Y FECHA ARGENTINA
+# LÓGICA DE HORARIO Y FECHA ARGENTINA (CORREGIDA)
 # ==========================================
 def obtener_ahora_arg():
     return datetime.now(ARG_TZ)
 
 def obtener_momento_y_fecha_auto():
     ahora = obtener_ahora_arg()
-    hora = ahora.time()
+    hora_actual = ahora.time()
     fecha_obj = ahora.date()
     
     # De 00:00 a 02:00 pertenece a la cena del día anterior
-    if time(0, 0) <= hora < time(2, 0):
+    if time(0, 0) <= hora_actual < time(2, 0):
         fecha_obj = fecha_obj - timedelta(days=1)
         momento = "Cena"
-    elif time(2, 0) <= hora < time(10, 0):
+    elif time(6, 0) <= hora_actual < time(10, 0):
         momento = "Desayuno"
-    elif time(10, 0) <= hora < time(12, 0):
+    elif time(10, 0) <= hora_actual < time(12, 0):
         momento = "Colación"
-    elif time(12, 0) <= hora < time(15, 0):
+    elif time(12, 0) <= hora_actual < time(15, 0):
         momento = "Almuerzo"
-    elif time(15, 0) <= hora < time(20, 0):
+    elif time(15, 0) <= hora_actual < time(20, 0):
         momento = "Merienda"
-    else: # 20:00 a 23:59 (Se mantiene la fecha actual)
+    else: # 20:00 a 23:59
         momento = "Cena"
         
     return fecha_obj.strftime("%Y-%m-%d"), momento
@@ -209,7 +197,6 @@ def obtener_datos_mes(user_id, mes_str):
             df['Fecha'] = df['Fecha'].astype(str)
             df = df[df['Fecha'].str.startswith(mes_str)]
             
-            # LIMPIEZA MATEMÁTICA
             for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
                 if col in df.columns:
                     df[col] = df[col].apply(parse_float)
@@ -342,36 +329,38 @@ def analizar_imagen_con_groq(image_bytes):
     return json.loads(response.choices[0].message.content)
 
 # ==========================================
-# GENERACIÓN DE PDF DE INSTRUCCIONES (/START)
+# GENERACIÓN DE MANUAL EN PDF
 # ==========================================
-def generar_pdf_instrucciones_bytes():
+def generar_manual_pdf_bytes():
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
     styles = getSampleStyleSheet()
     
     title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#1E3A8A'), spaceAfter=10)
-    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#2563EB'), spaceBefore=8, spaceAfter=4)
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=9.5, leading=14, spaceAfter=6)
+    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#2563EB'), spaceAfter=6, spaceBefore=10)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=9.5, leading=14)
 
-    story = []
-    story.append(Paragraph("<b>Guía de Uso: Bot de Registro Nutricional</b>", title_style))
-    story.append(Paragraph("¡Bienvenido! Este bot te permite gestionar tu diario de alimentación, registro de actividad física y métricas corporales mediante Inteligencia Artificial.", body_style))
-    story.append(Spacer(1, 10))
+    story = [
+        Paragraph("<b>Manual de Uso Completo - Bot Nutricional</b>", title_style),
+        Paragraph("Guía detallada para aprovechar al máximo el registro de comidas, ejercicios y reportes.", body_style),
+        Spacer(1, 10),
+        
+        Paragraph("<b>1. Formas de Registro</b>", sub_style),
+        Paragraph("• <b>Texto libre:</b> Escribí lo que comiste (ej: <i>'2 huevos duros y 1 tostada de pan integral'</i>).", body_style),
+        Paragraph("• <b>Foto:</b> Mandá una foto directa de tu plato y la IA calculará peso, calorías y macronutrientes.", body_style),
+        Paragraph("• <b>Nota de voz:</b> Grabá un audio contando tus comidas o entrenamiento. Se transcribirá automáticamente.", body_style),
+        Paragraph("• <b>Ejercicios:</b> Anotá tus entrenamientos (ej: <i>'Caminata 45 min 200 kcal'</i>) para descontar calorías del balance.", body_style),
+        Spacer(1, 10),
 
-    story.append(Paragraph("<b>1. Formas de Registro Diario</b>", sub_style))
-    story.append(Paragraph("• <b>Texto:</b> Podés escribir lo que comiste de forma natural. Ej: <i>'Comí 200g de pechuga de pollo con 150g de arroz'</i>.", body_style))
-    story.append(Paragraph("• <b>Nota de Voz:</b> Graba un audio describiendo tus alimentos o actividad física.", body_style))
-    story.append(Paragraph("• <b>Fotografía:</b> Envía una foto clara de tu plato de comida para que la IA la analice automáticamente.", body_style))
-    story.append(Paragraph("• <b>Ejercicio:</b> Registra tus entrenamientos indicando la actividad y/o calorías quemadas. Ej: <i>'Caminata rápida 45 min 200 kcal'</i>.", body_style))
+        Paragraph("<b>2. Comandos Principales</b>", sub_style),
+        Paragraph("• <b>/diario:</b> Consultá lo registrado en el día de hoy, ayer o cualquier fecha específica.", body_style),
+        Paragraph("• <b>/resumen:</b> Accedé al informe interactivo del mes, compará meses pasados y descargá el reporte en PDF.", body_style),
+        Paragraph("• <b>/perfil:</b> Configurá tu edad, peso, altura y ocupación para calcular tu gasto calórico basal (GET).", body_style),
+        Spacer(1, 10),
 
-    story.append(Paragraph("<b>2. Principales Comandos</b>", sub_style))
-    story.append(Paragraph("• <b>/start:</b> Muestra la bienvenida y te envía este instructivo en PDF.", body_style))
-    story.append(Paragraph("• <b>/diario:</b> Consulta tus ingestas y gastos detallados (Opción Hoy, Ayer u Otro Día).", body_style))
-    story.append(Paragraph("• <b>/resumen:</b> Muestra el menú de resúmenes mensuales (Este Mes / Otro Mes) y permite generar/descargar el reporte en PDF.", body_style))
-    story.append(Paragraph("• <b>/perfil:</b> Configura tus datos corporales (edad, sexo, peso, altura, cintura, ocupación) para calcular tu Metabolismo Basal (TMB) y Gasto Energético (GET).", body_style))
-
-    story.append(Paragraph("<b>3. Confirmación de Registros</b>", sub_style))
-    story.append(Paragraph("Cada vez que envíes una comida o ejercicio, el bot te mostrará un desglose de los datos calculados. Podrás confirmar, cambiar la fecha o seleccionar el momento (Desayuno, Almuerzo, Merienda, Cena) antes de guardarlo definitivamente en tu planilla.", body_style))
+        Paragraph("<b>3. Confirmación y Modificaciones</b>", sub_style),
+        Paragraph("Antes de guardar en Google Sheets, el bot te mostrará una pantalla de confirmación donde podés seleccionar el momento del día (Desayuno, Almuerzo, Merienda, Cena) o cambiar la fecha si registrás algo pasado.", body_style)
+    ]
 
     doc.build(story)
     buffer.seek(0)
@@ -386,22 +375,15 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📌 **¿Qué podés hacer?**\n"
         "• Escribí, mandá notas de voz o fotos de tus comidas.\n"
         "• Registrá actividad física (ej: *'Caminata 45 min 200 kcal'*).\n\n"
-        "📌 **Comandos disponibles:**\n"
+        "📌 **Comandos:**\n"
         "• /diario - Ver lo registrado (Hoy, Ayer u Otro día)\n"
-        "• /resumen - Seleccionar mes para ver el informe y descargar PDF\n"
-        "• /perfil - Configurar tus datos corporales y metabólicos\n\n"
-        "📄 *Te adjuntamos la guía completa de uso en formato PDF.*"
+        "• /resumen - Informe mensual interactivo y descarga de PDF\n"
+        "• /perfil - Configurar datos corporales"
     )
-    await update.message.reply_text(msg, parse_mode="Markdown")
-    
-    # Enviar PDF Instructivo
-    pdf_buf = generar_pdf_instrucciones_bytes()
-    await context.bot.send_document(
-        chat_id=update.effective_chat.id,
-        document=pdf_buf,
-        filename="Guia_de_Uso_Bot_Nutricional.pdf",
-        caption="📄 **Guía Completa de Instrucciones de Uso**"
-    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📖 Descargar Manual de Uso (PDF)", callback_data="download_manual")]
+    ])
+    await update.message.reply_text(msg, reply_markup=keyboard, parse_mode="Markdown")
 
 async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([
@@ -464,28 +446,19 @@ async def consultar_diario_fecha(update: Update, context: ContextTypes.DEFAULT_T
 # MENÚ E INFORME RESUMEN MENSUAL
 # ==========================================
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("📅 Este Mes", callback_data="resumen_estemes"),
-            InlineKeyboardButton("📆 Otro Mes", callback_data="resumen_otromes")
-        ]
-    ])
-    await update.message.reply_text("📊 ¿Qué mes querés consultar en el resumen?", reply_markup=keyboard)
+    mes_actual = obtener_ahora_arg().strftime("%Y-%m")
+    await mostrar_resumen_pantalla(update, context, mes_actual)
 
 async def mostrar_resumen_pantalla(update: Update, context: ContextTypes.DEFAULT_TYPE, mes_str):
     user_id = update.effective_user.id
     df = obtener_datos_mes(user_id, mes_str)
     
-    keyboard_options = [
-        [
-            InlineKeyboardButton("📅 Este Mes", callback_data="resumen_estemes"),
-            InlineKeyboardButton("📆 Otro Mes", callback_data="resumen_otromes")
-        ]
-    ]
-
     if df.empty:
         msg_empty = f"📊 No hay datos registrados para el mes `{mes_str}`."
-        keyboard = InlineKeyboardMarkup(keyboard_options)
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📅 Este Mes", callback_data="resumen_estemes"),
+             InlineKeyboardButton("📆 Seleccionar Mes", callback_data="resumen_otromes")]
+        ])
         if update.callback_query:
             await update.callback_query.edit_message_text(msg_empty, reply_markup=keyboard, parse_mode="Markdown")
         else:
@@ -524,8 +497,15 @@ async def mostrar_resumen_pantalla(update: Update, context: ContextTypes.DEFAULT
         txt += f"• Balance Neto Real: `{bal_real:+.0f} kcal`\n"
         txt += f"• Cambio de peso est.: `{peso_est:+.2f} kg` ({peso_est*1000:+.0f} g)\n"
 
-    keyboard_options.append([InlineKeyboardButton("📄 Descargar PDF Completo", callback_data=f"pdf_{mes_str}")])
-    keyboard = InlineKeyboardMarkup(keyboard_options)
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📅 Este Mes", callback_data="resumen_estemes"),
+            InlineKeyboardButton("📆 Seleccionar Mes", callback_data="resumen_otromes")
+        ],
+        [
+            InlineKeyboardButton("📄 Descargar PDF Completo", callback_data=f"pdf_{mes_str}")
+        ]
+    ])
 
     if update.callback_query:
         await update.callback_query.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
@@ -659,7 +639,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data = query.data
 
-    if data == "confirm_save":
+    if data == "download_manual":
+        manual_buf = generar_manual_pdf_bytes()
+        await context.bot.send_document(
+            chat_id=query.message.chat_id,
+            document=manual_buf,
+            filename="Manual_de_Uso_Bot_Nutricional.pdf",
+            caption="📖 **Manual de Uso Completo del Bot Nutricional**"
+        )
+
+    elif data == "confirm_save":
         user_id = query.from_user.id
         items = context.user_data.get('pending_items', [])
         tipo = context.user_data.get('pending_tipo', 'Comida')
@@ -701,8 +690,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await mostrar_resumen_pantalla(update, context, mes_actual)
 
     elif data == "resumen_otromes":
-        await query.edit_message_text("✍️ Escribí el mes que querés consultar en formato **AAAA-MM** (ej: `2026-06`):", parse_mode="Markdown")
-        context.user_data['esperando_mes_resumen'] = True
+        ahora = obtener_ahora_arg()
+        keyboard = []
+        for i in range(6):
+            f_mes = ahora.date().replace(day=1) - timedelta(days=i*28)
+            mes_code = f_mes.strftime("%Y-%m")
+            mes_nombre = f_mes.strftime("%B %Y").capitalize()
+            keyboard.append([InlineKeyboardButton(f"🗓️ {mes_nombre} ({mes_code})", callback_data=f"selectmes_{mes_code}")])
+            
+        markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text("📆 **Seleccioná el mes a consultar:**", reply_markup=markup, parse_mode="Markdown")
+
+    elif data.startswith("selectmes_"):
+        mes_code = data.split("_")[1]
+        await mostrar_resumen_pantalla(update, context, mes_code)
 
     elif data.startswith("pdf_"):
         mes_target = data.split("_")[1]
@@ -743,18 +744,10 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("❌ Formato incorrecto. Mandalo como `AAAA-MM-DD` (ej: `2026-07-25`).")
         return
 
-    if context.user_data.get('esperando_mes_resumen'):
-        if re.match(r'^\d{4}-\d{2}$', text):
-            context.user_data['esperando_mes_resumen'] = False
-            await mostrar_resumen_pantalla(update, context, text)
-        else:
-            await update.message.reply_text("❌ Formato incorrecto. Mandalo como `AAAA-MM` (ej: `2026-06`).")
-        return
-
     await handle_message(update, context)
 
 # ==========================================
-# GENERACIÓN DE PDF MENSUAL
+# GENERACIÓN DE PDF
 # ==========================================
 def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     buffer = io.BytesIO()
@@ -767,7 +760,9 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
 
     story = []
 
+    # ----------------------------------------------------
     # HOJA 1: RESUMEN MENSUAL
+    # ----------------------------------------------------
     story.append(Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str}</b>", title_style))
     story.append(Paragraph(f"Usuario Telegram ID: {user_id}", body_style))
     story.append(Spacer(1, 10))
@@ -859,7 +854,9 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
 
     story.append(PageBreak())
 
+    # ----------------------------------------------------
     # HOJA 2: ANÁLISIS METABÓLICO Y ESTIMACIÓN CORPORAL
+    # ----------------------------------------------------
     story.append(Paragraph("<b>Análisis Metabólico y Estimación Corporal</b>", title_style))
     story.append(Spacer(1, 10))
 
