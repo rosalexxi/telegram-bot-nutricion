@@ -28,7 +28,7 @@ from telegram.ext import (
 # ReportLab para PDF
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 load_dotenv()
@@ -138,7 +138,7 @@ def get_or_create_worksheet(spreadsheet, title):
     except gspread.WorksheetNotFound:
         if title.startswith("User_"):
             ws = spreadsheet.add_worksheet(title=title, rows="500", cols="10")
-            ws.append_row(["Fecha", "Momento/Actividad", "Alimento/Detalle", "Peso (m-g)", "Calorías (m-kcal)", "Proteínas (mg)", "Grasas (mg)", "Hidratos (mg)", "Fibras (mg)"])
+            ws.append_row(["Fecha", "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)"])
             return ws
         elif title.startswith("Perfil"):
             ws = spreadsheet.add_worksheet(title=title, rows="100", cols="8")
@@ -299,10 +299,11 @@ def calcular_metabolismo(perfil):
 def analizar_con_groq(prompt_text):
     system_prompt = (
         "Sos un nutricionista y entrenador experto. Analizá el texto del usuario.\n"
-        "REGLAS CRÍTICAS:\n"
-        "1. Devolvé los nutrientes en GRAMOS/KCAL estándar como números flotantes puros (ej: 7.5, 42.5).\n"
-        "2. Usa el punto '.' como separador decimal.\n"
-        "3. Si es ejercicio/actividad física, la caloría DEBE ser negativa (ej: -300.0).\n"
+        "REGLAS CRÍTICAS DE PARSEO:\n"
+        "1. Identifica las CANTIDADES Y UNIDADES indicadas (ej: '5 galletitas' representa 5 unidades del alimento, NO 1 solo unidad).\n"
+        "2. Devolvé los nutrientes en GRAMOS/KCAL estándar como números flotantes puros (ej: 7.5, 42.5).\n"
+        "3. Usa el punto '.' como separador decimal.\n"
+        "4. Si es ejercicio/actividad física, la caloría DEBE ser negativa (ej: -300.0).\n"
         "Devolvé EXCLUSIVAMENTE un JSON válido con este formato:\n"
         "{\n"
         '  "items": [\n'
@@ -361,29 +362,94 @@ def generar_pdf_instrucciones_bytes():
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
     styles = getSampleStyleSheet()
     
-    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#1E3A8A'), spaceAfter=10)
-    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#2563EB'), spaceBefore=8, spaceAfter=4)
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=9.5, leading=14, spaceAfter=6)
+    # Estilos de Marca y Tipografía Profesional
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=18, leading=22, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
+    subtitle_style = ParagraphStyle('DocSubtitle', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#64748B'), spaceAfter=12)
+    section_style = ParagraphStyle('SectionHeading', parent=styles['Heading2'], fontSize=12, leading=16, textColor=colors.HexColor('#2563EB'), spaceBefore=10, spaceAfter=6)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=9, leading=13, textColor=colors.HexColor('#1E293B'), spaceAfter=6)
+    badge_style = ParagraphStyle('Badge', parent=styles['Normal'], fontSize=8.5, leading=12, textColor=colors.HexColor('#0F172A'))
+    cell_user = ParagraphStyle('CellUser', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#1E3A8A'))
+    cell_bot = ParagraphStyle('CellBot', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#065F46'))
 
     story = []
-    story.append(Paragraph("<b>Guía de Uso: Bot de Registro Nutricional</b>", title_style))
-    story.append(Paragraph("¡Bienvenido! Este bot te permite gestionar tu diario de alimentación, registro de actividad física y métricas corporales mediante Inteligencia Artificial.", body_style))
+
+    # Encabezado Principal
+    story.append(Paragraph("<b>MANUAL DE USO PROFESIONAL</b>", title_style))
+    story.append(Paragraph("<b>Asistente & Bot de Registro Nutricional e Inteligencia Artificial</b>", subtitle_style))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#2563EB'), spaceAfter=12))
+
+    story.append(Paragraph("<b>1. Métodos de Registro Diario</b>", section_style))
+    story.append(Paragraph("El bot está equipado con IA para interpretar lenguaje natural mediante tres medios directos:", body_style))
+    story.append(Paragraph("• <b>Texto Directo:</b> Describí lo ingerido de manera detallada.", body_style))
+    story.append(Paragraph("• <b>Notas de Voz:</b> Enviá un mensaje de voz describiendo tus comidas o rutinas de ejercicio.", body_style))
+    story.append(Paragraph("• <b>Fotografía:</b> Sacá una foto clara de tu plato. La IA estimará la composición nutricional.", body_style))
+    
+    story.append(Spacer(1, 8))
+    story.append(Paragraph("<b>2. Buenas Prácticas: Marcas, Cantidades y Unidades</b>", section_style))
+    story.append(Paragraph("Para evitar imprecisiones o que el sistema asuma cantidades unitarias por defecto, seguí estas pautas de ingreso:", body_style))
+
+    # MOCKUP CELULAR 1 (Simulación de Chat de Cantidades)
+    mockup_data = [
+        [Paragraph("📱 <b>SIMULACIÓN EN CELULAR: CÓMO INDICAR CANTIDADES</b>", ParagraphStyle('TitlePhone', parent=styles['Normal'], fontSize=9, textColor=colors.white, fontName="Helvetica-Bold"))],
+        [Paragraph("❌ <b>Ingreso impreciso:</b> <i>'Comí galletitas'</i><br/>⚠️ <i>El sistema asumirá 1 sola unidad o un promedio indeterminado.</i>", cell_user)],
+        [Paragraph("✅ <b>Ingreso óptimo:</b> <i>'Galletita Granix, 5 unidades'</i> o <i>'50g de galletitas Granix'</i><br/>🎯 <i>Permite calcular exactamente el gramaje y macronutrientes.</i>", cell_bot)],
+        [Paragraph("💡 <b>Tip de corrección:</b> Si querés ajustar un registro enviado, podés escribir: <i>'Corregir: eran 200g de arroz'</i> antes de presionar Guardar.", cell_user)]
+    ]
+    t_mockup = Table(mockup_data, colWidths=[520])
+    t_mockup.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1E3A8A')),
+        ('BACKGROUND', (0,1), (-1,1), colors.HexColor('#FEF2F2')),
+        ('BACKGROUND', (0,2), (-1,2), colors.HexColor('#ECFDF5')),
+        ('BACKGROUND', (0,3), (-1,3), colors.HexColor('#F8FAFC')),
+        ('PADDING', (0,0), (-1,-1), 6),
+        ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#CBD5E1')),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E2E8F0')),
+    ]))
+    story.append(t_mockup)
     story.append(Spacer(1, 10))
 
-    story.append(Paragraph("<b>1. Formas de Registro Diario</b>", sub_style))
-    story.append(Paragraph("• <b>Texto:</b> Podés escribir lo que comiste de forma natural. Ej: <i>'Comí 200g de pechuga de pollo con 150g de arroz'</i>.", body_style))
-    story.append(Paragraph("• <b>Nota de Voz:</b> Graba un audio describiendo tus alimentos o actividad física.", body_style))
-    story.append(Paragraph("• <b>Fotografía:</b> Envía una foto clara de tu plato de comida para que la IA la analice automáticamente.", body_style))
-    story.append(Paragraph("• <b>Ejercicio:</b> Registra tus entrenamientos indicando la actividad y/o calorías quemadas. Ej: <i>'Caminata rápida 45 min 200 kcal'</i>.", body_style))
+    story.append(Paragraph("<b>3. Gestión de Fechas y Registro Madrugada</b>", section_style))
+    story.append(Paragraph("• <b>Formato Estándar de Fecha:</b> Toda fecha introducida manualmente debe ser <b>AAAA-MM-DD</b> (ejemplo: <code>2026-07-30</code>).", body_style))
+    story.append(Paragraph("• <b>Formato de Mes para Reportes:</b> Se ingresa como <b>AAAA-MM</b> (ejemplo: <code>2026-07</code>).", body_style))
+    story.append(Paragraph("• <b>Regla de Madrugada:</b> Si registrás una comida entre las <b>00:00 y las 02:00 hs</b>, el bot la asociará automáticamente a la <b>Cena del día anterior</b>.", body_style))
+    story.append(Spacer(1, 8))
 
-    story.append(Paragraph("<b>2. Principales Comandos</b>", sub_style))
-    story.append(Paragraph("• <b>/start:</b> Muestra la bienvenida y te envía este instructivo en PDF.", body_style))
-    story.append(Paragraph("• <b>/diario:</b> Consulta tus ingestas y gastos detallados (Opción Hoy, Ayer u Otro Día).", body_style))
-    story.append(Paragraph("• <b>/resumen:</b> Muestra el menú de resúmenes mensuales (Este Mes / Otro Mes) y permite generar/descargar el reporte en PDF.", body_style))
-    story.append(Paragraph("• <b>/perfil:</b> Configura tus datos corporales (edad, sexo, peso, altura, cintura, ocupación) para calcular tu Metabolismo Basal (TMB) y Gasto Energético (GET).", body_style))
+    # MOCKUP CELULAR 2 (Simulación de Modificación de Fecha)
+    mockup_fecha = [
+        [Paragraph("📱 <b>SIMULACIÓN: CAMBIO DE FECHA Y MOMENTO</b>", ParagraphStyle('TitlePhone2', parent=styles['Normal'], fontSize=9, textColor=colors.white, fontName="Helvetica-Bold"))],
+        [Paragraph("📝 <b>Confirmación (Comida):</b><br/>📅 <b>Fecha:</b> <code>2026-07-31</code> | 🍽️ <b>Momento:</b> <code>Almuerzo</code><br/>1. Pechuga de pollo (200g) - 330 kcal", cell_bot)],
+        [Paragraph("🔘 <i>[🌅 Desayuno] [☀️ Almuerzo] [☕ Merienda] [🌙 Cena]</i><br/>🔘 <i>[📅 Cambiar Fecha]</i> 👈 <b>Presioná acá para asignar a otro día</b>", cell_user)],
+        [Paragraph("✍️ <b>Bot:</b> <i>Escribí la fecha en formato AAAA-MM-DD (ej: 2026-07-30):</i>", cell_bot)]
+    ]
+    t_fecha = Table(mockup_fecha, colWidths=[520])
+    t_fecha.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#065F46')),
+        ('BACKGROUND', (0,1), (-1,1), colors.HexColor('#F0FDF4')),
+        ('BACKGROUND', (0,2), (-1,2), colors.HexColor('#F8FAFC')),
+        ('BACKGROUND', (0,3), (-1,3), colors.HexColor('#EFF6FF')),
+        ('PADDING', (0,0), (-1,-1), 6),
+        ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#A7F3D0')),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E2E8F0')),
+    ]))
+    story.append(t_fecha)
+    story.append(Spacer(1, 10))
 
-    story.append(Paragraph("<b>3. Confirmación de Registros</b>", sub_style))
-    story.append(Paragraph("Cada vez que envíes una comida o ejercicio, el bot te mostrará un desglose de los datos calculados. Podrás confirmar, cambiar la fecha o seleccionar el momento (Desayuno, Almuerzo, Merienda, Cena) antes de guardarlo definitivamente en tu planilla.", body_style))
+    story.append(Paragraph("<b>4. Comandos Principales de Control</b>", section_style))
+    
+    cmd_table_data = [
+        [Paragraph("<b>Comando</b>", badge_style), Paragraph("<b>Función y Utilidad</b>", badge_style)],
+        [Paragraph("<code>/start</code>", badge_style), Paragraph("Inicia el bot y reenvía este manual instructivo en formato PDF.", badge_style)],
+        [Paragraph("<code>/diario</code>", badge_style), Paragraph("Despliega el menú de consulta diaria (Hoy, Ayer u Otro Día en formato AAAA-MM-DD).", badge_style)],
+        [Paragraph("<code>/resumen</code>", badge_style), Paragraph("Abre el balance del mes con opción de descargar el Reporte PDF completo.", badge_style)],
+        [Paragraph("<code>/perfil</code>", badge_style), Paragraph("Configura datos biométricos (edad, sexo, peso, altura, cintura, actividad) para calcular TMB y GET.", badge_style)]
+    ]
+    t_cmd = Table(cmd_table_data, colWidths=[100, 420])
+    t_cmd.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#E2E8F0')),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+        ('PADDING', (0,0), (-1,-1), 5),
+    ]))
+    story.append(t_cmd)
 
     doc.build(story)
     buffer.seek(0)
