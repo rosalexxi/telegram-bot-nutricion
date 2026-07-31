@@ -153,6 +153,28 @@ def get_or_create_worksheet(spreadsheet, title):
         else:
             return spreadsheet.add_worksheet(title=title, rows="100", cols="10")
 
+def listar_comidas_predeterminadas():
+    """ Devuelve el listado único de códigos de comidas predeterminadas registradas """
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = get_or_create_worksheet(sh, "Comidas_Predeterminadas")
+        records = ws.get_all_records()
+        if not records:
+            return "📋 No hay comidas predeterminadas registradas en la planilla."
+
+        codigos = list(dict.fromkeys([str(r.get('Codigo', '')).strip() for r in records if r.get('Codigo')]))
+        if not codigos:
+            return "📋 No se encontraron códigos de comidas guardados."
+
+        msg = "📋 **Listado de Comidas Predeterminadas Disponibles:**\n\n"
+        for cod in codigos:
+            msg += f"• `*{cod}`\n"
+        msg += "\n💡 *Para cargar una, escribí el código precedido por un asterisco (ej: `*desayuno1`).*"
+        return msg
+    except Exception as e:
+        return f"❌ Error al consultar la lista de comidas: {e}"
+
 def buscar_comida_predeterminada(codigo_buscado):
     """ Busca en la hoja Comidas_Predeterminadas si existe un atajo cargado """
     try:
@@ -163,7 +185,7 @@ def buscar_comida_predeterminada(codigo_buscado):
         if not records:
             return None
 
-        # Limpiar el código ingresado por el usuario (sin /, sin espacios, minúsculas)
+        # Limpiar el código ingresado por el usuario (quitando * o /, espacios, minúsculas)
         cod_clean = re.sub(r'[^a-zA-Z0-9]', '', str(codigo_buscado)).lower()
         
         items_encontrados = []
@@ -410,9 +432,9 @@ def generar_pdf_instrucciones_bytes():
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#2563EB'), spaceAfter=12))
 
     story.append(Paragraph("<b>1. Métodos de Registro Diario</b>", section_style))
-    story.append(Paragraph("El bot está equipado con IA para interpretar lenguaje natural y acceso directo a atajos:", body_style))
-    story.append(Paragraph("• <b>Atajos Rápidos (Sin IA):</b> Escribí o poné barra <code>/desayuno1</code> o <code>/merienda1</code> para cargar directamente de la hoja <i>Comidas_Predeterminadas</i>.", body_style))
-    story.append(Paragraph("• <b>Texto Directo:</b> Describí lo ingerido de manera detallada.", body_style))
+    story.append(Paragraph("El bot está equipado con IA para interpretar lenguaje natural y acceso directo a atajos predeterminados:", body_style))
+    story.append(Paragraph("• <b>Búsqueda Directa por Asterisco (Sin IA):</b> Anteponé un asterisco (ej: <code>*desayuno1</code>) para cargar directamente desde tu hoja <i>Comidas_Predeterminadas</i>. Escribí <code>*comidas</code> para ver la lista cargada.", body_style))
+    story.append(Paragraph("• <b>Texto Directo:</b> Describí lo ingerido de manera detallada para consulta nutricional con IA.", body_style))
     story.append(Paragraph("• <b>Notas de Voz:</b> Enviá un mensaje de voz describiendo tus comidas o rutinas de ejercicio.", body_style))
     story.append(Paragraph("• <b>Fotografía:</b> Sacá una foto clara de tu plato. La IA estimará la composición nutricional.", body_style))
     
@@ -421,10 +443,10 @@ def generar_pdf_instrucciones_bytes():
     story.append(Paragraph("Para evitar imprecisiones o que el sistema asuma cantidades unitarias por defecto, seguí estas pautas de ingreso:", body_style))
 
     mockup_data = [
-        [Paragraph("📱 <b>SIMULACIÓN EN CELULAR: CÓMO INDICAR CANTIDADES</b>", ParagraphStyle('TitlePhone', parent=styles['Normal'], fontSize=9, textColor=colors.white, fontName="Helvetica-Bold"))],
+        [Paragraph("📱 <b>SIMULACIÓN EN CELULAR: CÓMO INDICAR CANTIDADES Y ATAJOS</b>", ParagraphStyle('TitlePhone', parent=styles['Normal'], fontSize=9, textColor=colors.white, fontName="Helvetica-Bold"))],
         [Paragraph("❌ <b>Ingreso impreciso:</b> <i>'Comí galletitas'</i><br/>⚠️ <i>El sistema asumirá 1 sola unidad o un promedio indeterminado.</i>", cell_user)],
         [Paragraph("✅ <b>Ingreso óptimo:</b> <i>'Galletita Granix, 5 unidades'</i> o <i>'50g de galletitas Granix'</i><br/>🎯 <i>Permite calcular exactamente el gramaje y macronutrientes.</i>", cell_bot)],
-        [Paragraph("⚡ <b>Atajo Directo:</b> <i>'desayuno1'</i> o <i>'/desayuno1'</i><br/>🎯 <i>Carga instantáneamente la plantilla guardada en tu Excel sin pasar por la IA.</i>", cell_bot)],
+        [Paragraph("⚡ <b>Atajo Directo (Sin IA):</b> <i>'*desayuno1'</i> o <i>'*comidas'</i><br/>🎯 <i>Carga instantáneamente la plantilla guardada en tu Excel sin pasar por la IA.</i>", cell_bot)],
         [Paragraph("💡 <b>Tip de corrección:</b> Si querés ajustar un registro enviado, podés usar los botones individuales ✏️ Editar en la pantalla de confirmación.", cell_user)]
     ]
     t_mockup = Table(mockup_data, colWidths=[520])
@@ -450,13 +472,15 @@ def generar_pdf_instrucciones_bytes():
     story.append(Paragraph("<b>4. Comandos Principales de Control</b>", section_style))
     
     cmd_table_data = [
-        [Paragraph("<b>Comando</b>", badge_style), Paragraph("<b>Función y Utilidad</b>", badge_style)],
+        [Paragraph("<b>Comando / Prefijo</b>", badge_style), Paragraph("<b>Función y Utilidad</b>", badge_style)],
         [Paragraph("<code>/start</code>", badge_style), Paragraph("Inicia el bot y reenvía este manual instructivo en formato PDF.", badge_style)],
+        [Paragraph("<code>*codigo</code>", badge_style), Paragraph("Consulta directa en Excel. Carga la comida registrada con ese código exacto.", badge_style)],
+        [Paragraph("<code>*comidas</code>", badge_style), Paragraph("Lista todas las comidas predeterminadas registradas en tu planilla.", badge_style)],
         [Paragraph("<code>/diario</code>", badge_style), Paragraph("Despliega el menú de consulta diaria (Hoy, Ayer u Otro Día en formato AAAA-MM-DD).", badge_style)],
         [Paragraph("<code>/resumen</code>", badge_style), Paragraph("Abre el balance del mes con opción de descargar el Reporte PDF completo.", badge_style)],
         [Paragraph("<code>/perfil</code>", badge_style), Paragraph("Configura datos biométricos (edad, sexo, peso, altura, cintura, actividad) para calcular TMB y GET.", badge_style)]
     ]
-    t_cmd = Table(cmd_table_data, colWidths=[100, 420])
+    t_cmd = Table(cmd_table_data, colWidths=[110, 410])
     t_cmd.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#E2E8F0')),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
@@ -475,8 +499,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "👋 **¡Hola! Bienvenido a tu Bot de Registro Nutricional.**\n\n"
         "📌 **¿Qué podés hacer?**\n"
-        "• Escribí o usá comandos atajo (ej: `/desayuno1`, `/merienda1`) para cargar directamente de tus comidas guardadas.\n"
-        "• Mandá fotos o notas de voz para que la IA interprete tu comida.\n"
+        "• Usá asterisco (ej: `*desayuno1`) para cargar directamente de tus comidas guardadas.\n"
+        "• Escribí `*comidas` para ver el listado de tus comidas prediseñadas en la planilla.\n"
+        "• Mandá fotos, texto o notas de voz para que la IA interprete tu comida.\n"
         "• Registrá actividad física (ej: *'Caminata 45 min 200 kcal'*).\n\n"
         "📌 **Comandos disponibles:**\n"
         "• /diario - Ver lo registrado (Hoy, Ayer u Otro día)\n"
@@ -628,17 +653,34 @@ async def mostrar_resumen_pantalla(update: Update, context: ContextTypes.DEFAULT
 # ==========================================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text.strip()
-    msg = await update.message.reply_text("⏳ Procesando...")
     
-    # 1. VERIFICAR PRIMERO SI ES UN ATAJO PREDETERMINADO EN GOOGLE SHEETS
-    items_pred = buscar_comida_predeterminada(user_text)
-    if items_pred:
-        await msg.edit_text("⚡ Cargando desde comidas predeterminadas...")
-        data = {"items": items_pred, "tipo": "Comida"}
-        await procesar_y_mostrar_confirmacion(data, msg, context)
-        return
+    # 1. SI EMPIEZA CON '*', ES BÚSQUEDA DIRECTA / CONSULTA SIN IA
+    if user_text.startswith('*'):
+        comando = user_text[1:].strip().lower()
 
-    # 2. SI NO ES UN ATAJO, SE PROCESA CON IA
+        # Si se solicita la lista de comidas
+        if comando in ['comidas', 'lista', 'comida']:
+            msg_lista = listar_comidas_predeterminadas()
+            await update.message.reply_text(msg_lista, parse_mode="Markdown")
+            return
+
+        # Si se busca un código de comida predeterminada
+        items_pred = buscar_comida_predeterminada(comando)
+        if items_pred:
+            msg = await update.message.reply_text("⚡ Cargando desde comidas predeterminadas...")
+            data = {"items": items_pred, "tipo": "Comida"}
+            await procesar_y_mostrar_confirmacion(data, msg, context)
+            return
+        else:
+            await update.message.reply_text(
+                f"❌ No se encontró la comida con el código `*{comando}` en la planilla.\n"
+                f"Escribí `*comidas` para consultar la lista de códigos válidos.",
+                parse_mode="Markdown"
+            )
+            return
+
+    # 2. SI NO EMPIEZA CON '*', SE PROCESA CON LA IA
+    msg = await update.message.reply_text("⏳ Procesando con IA...")
     try:
         data = analizar_con_groq(user_text)
         await procesar_y_mostrar_confirmacion(data, msg, context)
@@ -670,15 +712,22 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             language="es"
         )
         
-        texto_transcripto = transcription.text
+        texto_transcripto = transcription.text.strip()
         
-        # Verificar si lo hablado coincide con una comida predeterminada
-        items_pred = buscar_comida_predeterminada(texto_transcripto)
-        if items_pred:
-            await msg.edit_text(f"🗣️ *Transcripción:* \"{texto_transcripto}\"\n⚡ Cargando combinación predeterminada...", parse_mode="Markdown")
-            data = {"items": items_pred, "tipo": "Comida"}
-            await procesar_y_mostrar_confirmacion(data, msg, context)
-            return
+        # Verificar si lo hablado incluye prefijo o atajo de comida
+        if texto_transcripto.startswith('*'):
+            comando = texto_transcripto[1:].strip().lower()
+            if comando in ['comidas', 'lista']:
+                msg_lista = listar_comidas_predeterminadas()
+                await msg.edit_text(msg_lista, parse_mode="Markdown")
+                return
+
+            items_pred = buscar_comida_predeterminada(comando)
+            if items_pred:
+                await msg.edit_text(f"🗣️ *Transcripción:* \"{texto_transcripto}\"\n⚡ Cargando combinación predeterminada...", parse_mode="Markdown")
+                data = {"items": items_pred, "tipo": "Comida"}
+                await procesar_y_mostrar_confirmacion(data, msg, context)
+                return
 
         await msg.edit_text(f"🗣️ *Transcripción:* \"{texto_transcripto}\"\n⏳ Analizando...", parse_mode="Markdown")
         data = analizar_con_groq(texto_transcripto)
@@ -1204,10 +1253,8 @@ def main():
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.VOICE, handle_voice))
     
-    # Manejar únicamente texto (excluyendo comandos oficiales)
+    # Manejar entradas de texto y comandos generales
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_inputs))
-    
-    # Manejar comandos desconocidos / atajos con barra (ej: /desayuno1)
     application.add_handler(MessageHandler(filters.COMMAND, handle_text_inputs))
 
     application.run_polling()
