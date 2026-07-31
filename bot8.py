@@ -828,9 +828,8 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if idx < len(items):
             msg = await update.message.reply_text("🔄 Recalculando ítem con IA...")
             try:
-                # Re-analizar solo el ítem modificado
-                nombre_orig = items[idx]['alimento']
-                res = analizar_con_groq(f"{nombre_orig}: {text}")
+                # Re-analizar directamente con la nueva descripción provista por el usuario
+                res = analizar_con_groq(text)
                 new_items = res.get("items", [])
                 
                 if new_items:
