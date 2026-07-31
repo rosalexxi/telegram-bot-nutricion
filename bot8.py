@@ -62,7 +62,7 @@ def keep_alive():
     t.start()
 
 # ==========================================
-# FUNCIÓN AUXILIAR DE LIMPIEZA DE NÚMEROS (DEF INITIVA Y PARSE DE FORMATO LATINO/EXCEL)
+# FUNCIÓN AUXILIAR DE LIMPIEZA DE NÚMEROS
 # ==========================================
 def parse_float(val):
     """
@@ -100,7 +100,7 @@ def obtener_ahora_arg():
 def obtener_momento_y_fecha_auto():
     ahora = obtener_ahora_arg()
     hora_actual = ahora.time()
-    fecha_obj = ahora.date()
+    fecha_obj = me_fecha = ahora.date()
     
     if time(0, 0) <= hora_actual < time(2, 0):
         fecha_obj = fecha_obj - timedelta(days=1)
@@ -286,29 +286,17 @@ def calcular_metabolismo(perfil):
 # PROCESAMIENTO CON GROQ (IA)
 # ==========================================
 def analizar_con_groq(prompt_text):
-    system_prompt = (
-        "Sos un nutricionista y entrenador experto. Analizá el texto del usuario.
-"
-        "REGLAS CRÍTICAS:
-"
-        "1. Devolvé SIEMPRE números flotantes válidos con punto decimal (ej: 7.5, 42.5).
-"
-        "2. Si es ejercicio/actividad física, la caloría DEBE ser negativa (ej: -300.0).
-"
-        "Devolvé EXCLUSIVAMENTE un JSON válido con este formato:
-"
-        "{
-"
-        '  "items": [
-'
-        '    {"alimento": "nombre", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}
-'
-        '  ],
-'
-        '  "tipo": "Comida" o "Ejercicio"
-'
-        "}"
-    )
+    system_prompt = """Sos un nutricionista y entrenador experto. Analizá el texto del usuario.
+REGLAS CRÍTICAS:
+1. Devolvé SIEMPRE números flotantes válidos con punto decimal (ej: 7.5, 42.5).
+2. Si es ejercicio/actividad física, la caloría DEBE ser negativa (ej: -300.0).
+Devolvé EXCLUSIVAMENTE un JSON válido con este formato:
+{
+  "items": [
+    {"alimento": "nombre", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}
+  ],
+  "tipo": "Comida" o "Ejercicio"
+}"""
     
     response = client_ai.chat.completions.create(
         model="llama-3.3-70b-versatile",
@@ -323,25 +311,15 @@ def analizar_con_groq(prompt_text):
 
 def analizar_imagen_con_groq(image_bytes):
     base64_image = base64.b64encode(image_bytes).decode('utf-8')
-    system_prompt = (
-        "Identifica los alimentos o la comida en esta imagen y estima sus nutrientes.
-"
-        "REGLA CRÍTICA: Devolvé únicamente números flotantes usando punto decimal (.) (ej: 7.5, 42.5).
-"
-        "Devolvé EXCLUSIVAMENTE un JSON con esta estructura:
-"
-        "{
-"
-        '  "items": [
-'
-        '    {"alimento": "nombre", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}
-'
-        '  ],
-'
-        '  "tipo": "Comida"
-'
-        "}"
-    )
+    system_prompt = """Identifica los alimentos o la comida en esta imagen y estima sus nutrientes.
+REGLA CRÍTICA: Devolvé únicamente números flotantes usando punto decimal (.) (ej: 7.5, 42.5).
+Devolvé EXCLUSIVAMENTE un JSON con esta estructura:
+{
+  "items": [
+    {"alimento": "nombre", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}
+  ],
+  "tipo": "Comida"
+}"""
     
     response = client_ai.chat.completions.create(
         model="qwen/qwen3.6-27b",
@@ -402,22 +380,13 @@ def generar_manual_pdf_bytes():
 # ==========================================
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
-        "👋 **¡Hola! Bienvenido a tu Bot de Registro Nutricional.**
-
-"
-        "📌 **¿Qué podés hacer?**
-"
-        "• Escribí, mandá notas de voz o fotos de tus comidas.
-"
-        "• Registrá actividad física (ej: *'Caminata 45 min 200 kcal'*).
-
-"
-        "📌 **Comandos:**
-"
-        "• /diario - Ver lo registrado (Hoy, Ayer u Otro día)
-"
-        "• /resumen - Informe mensual interactivo y descarga de PDF
-"
+        "👋 **¡Hola! Bienvenido a tu Bot de Registro Nutricional.**\n\n"
+        "📌 **¿Qué podés hacer?**\n"
+        "• Escribí, mandá notas de voz o fotos de tus comidas.\n"
+        "• Registrá actividad física (ej: *'Caminata 45 min 200 kcal'*).\n\n"
+        "📌 **Comandos:**\n"
+        "• /diario - Ver lo registrado (Hoy, Ayer u Otro día)\n"
+        "• /resumen - Informe mensual interactivo y descarga de PDF\n"
         "• /perfil - Configurar datos corporales"
     )
     keyboard = InlineKeyboardMarkup([
@@ -459,9 +428,7 @@ async def consultar_diario_fecha(update: Update, context: ContextTypes.DEFAULT_T
         'Fibras': 'sum'
     }).reset_index()
 
-    res = f"📅 **Diario del día ({fecha_target}):**
-
-"
+    res = f"📅 **Diario del día ({fecha_target}):**\n\n"
     tot_c = tot_p = tot_g = tot_h = tot_f = 0.0
     
     for _, r in agrupado.iterrows():
@@ -473,14 +440,10 @@ async def consultar_diario_fecha(update: Update, context: ContextTypes.DEFAULT_T
         f = parse_float(r.get('Fibras', 0))
         
         tot_c += c; tot_p += p; tot_g += g; tot_h += h; tot_f += f
-        res += f"• [{r.get('Momento', 'General')}] **{r.get('Alimento', 'Ítem')}** ({p_gr:.0f}g)
-"
-        res += f"  └ {c:.0f} kcal | P: {p:.1f}g | G: {g:.1f}g | H: {h:.1f}g | Fib: {f:.1f}g
-"
+        res += f"• [{r.get('Momento', 'General')}] **{r.get('Alimento', 'Ítem')}** ({p_gr:.0f}g)\n"
+        res += f"  └ {c:.0f} kcal | P: {p:.1f}g | G: {g:.1f}g | H: {h:.1f}g | Fib: {f:.1f}g\n"
         
-    res += f"
-🔥 **Totales:** {tot_c:.0f} kcal
-"
+    res += f"\n🔥 **Totales:** {tot_c:.0f} kcal\n"
     res += f"💪 Prot: {tot_p:.1f}g | 🥑 Grasas: {tot_g:.1f}g | 🍞 Carb: {tot_h:.1f}g | 🌾 Fib: {tot_f:.1f}g"
     
     if update.callback_query:
@@ -524,25 +487,14 @@ async def mostrar_resumen_pantalla(update: Update, context: ContextTypes.DEFAULT
 
     dias_cnt = max(df['Fecha'].nunique(), 1)
 
-    txt = f"📊 **Resumen Nutricional Mensual ({mes_str})**
-
-"
-    txt += f"🗓️ **Días con registros:** {dias_cnt}
-"
-    txt += f"📥 **Ingesta Total:** {tot_c_in:.0f} kcal (Prom: {tot_c_in/dias_cnt:.0f} kcal/día)
-"
-    txt += f"🔥 **Gasto Ejercicio:** {tot_c_out:.0f} kcal
-"
-    txt += f"⚖️ **Balance Calorías:** {tot_c_in - tot_c_out:.0f} kcal
-
-"
-    txt += "🥗 **Macronutrientes Totales:**
-"
-    txt += f"💪 Prot: {tot_p:.1f}g | 🥑 Grasas: {tot_g:.1f}g
-"
-    txt += f"🍞 Carbs: {tot_h:.1f}g | 🌾 Fibras: {tot_f:.1f}g
-
-"
+    txt = f"📊 **Resumen Nutricional Mensual ({mes_str})**\n\n"
+    txt += f"🗓️ **Días con registros:** {dias_cnt}\n"
+    txt += f"📥 **Ingesta Total:** {tot_c_in:.0f} kcal (Prom: {tot_c_in/dias_cnt:.0f} kcal/día)\n"
+    txt += f"🔥 **Gasto Ejercicio:** {tot_c_out:.0f} kcal\n"
+    txt += f"⚖️ **Balance Calorías:** {tot_c_in - tot_c_out:.0f} kcal\n\n"
+    txt += "🥗 **Macronutrientes Totales:**\n"
+    txt += f"💪 Prot: {tot_p:.1f}g | 🥑 Grasas: {tot_g:.1f}g\n"
+    txt += f"🍞 Carbs: {tot_h:.1f}g | 🌾 Fibras: {tot_f:.1f}g\n\n"
 
     perfil = obtener_perfil(user_id)
     metabol = calcular_metabolismo(perfil)
@@ -550,12 +502,9 @@ async def mostrar_resumen_pantalla(update: Update, context: ContextTypes.DEFAULT
         gasto_basal_total = metabol['get'] * dias_cnt
         bal_real = tot_c_in - (gasto_basal_total + tot_c_out)
         peso_est = bal_real / 7700
-        txt += f"📐 **Estimación Corporal:**
-"
-        txt += f"• Balance Neto Real: `{bal_real:+.0f} kcal`
-"
-        txt += f"• Cambio de peso est.: `{peso_est:+.2f} kg` ({peso_est*1000:+.0f} g)
-"
+        txt += f"📐 **Estimación Corporal:**\n"
+        txt += f"• Balance Neto Real: `{bal_real:+.0f} kcal`\n"
+        txt += f"• Cambio de peso est.: `{peso_est:+.2f} kg` ({peso_est*1000:+.0f} g)\n"
 
     keyboard = InlineKeyboardMarkup([
         [
@@ -610,8 +559,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         texto_transcripto = transcription.text
-        await msg.edit_text(f"🗣️ *Transcripción:* "{texto_transcripto}"
-⏳ Analizando...", parse_mode="Markdown")
+        await msg.edit_text(f"🗣️ *Transcripción:* \"{texto_transcripto}\"\n⏳ Analizando...", parse_mode="Markdown")
         
         data = analizar_con_groq(texto_transcripto)
         await procesar_y_mostrar_confirmacion(data, msg, context)
@@ -641,18 +589,12 @@ async def render_confirmation_screen(msg_or_query, context):
     fecha = context.user_data.get('pending_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
     momento = context.user_data.get('pending_momento', 'Almuerzo')
 
-    txt_res = f"📝 **Confirmación ({tipo}):**
-"
-    txt_res += f"📅 **Fecha:** `{fecha}`
-"
+    txt_res = f"📝 **Confirmación ({tipo}):**\n"
+    txt_res += f"📅 **Fecha:** `{fecha}`\n"
     if tipo == "Comida":
-        txt_res += f"🍽️ **Momento:** `{momento}`
-
-"
+        txt_res += f"🍽️ **Momento:** `{momento}`\n\n"
     else:
-        txt_res += f"🏃 **Tipo:** Actividad Física
-
-"
+        txt_res += f"🏃 **Tipo:** Actividad Física\n\n"
         
     tot_c = tot_p = tot_g = tot_h = tot_f = 0.0
     
@@ -665,18 +607,13 @@ async def render_confirmation_screen(msg_or_query, context):
         f = parse_float(item.get('fibras', 0))
         tot_c += c; tot_p += p; tot_g += g; tot_h += h; tot_f += f
         
-        txt_res += f"**{idx+1}. {item['alimento']}** ({p_gr:.0f}g):
-"
+        txt_res += f"**{idx+1}. {item['alimento']}** ({p_gr:.0f}g):\n"
         if c >= 0:
-            txt_res += f"  └ {c:.0f} kcal | P: {p:.1f}g | G: {g:.1f}g | H: {h:.1f}g | Fib: {f:.1f}g
-"
+            txt_res += f"  └ {c:.0f} kcal | P: {p:.1f}g | G: {g:.1f}g | H: {h:.1f}g | Fib: {f:.1f}g\n"
         else:
-            txt_res += f"  └ Calorías Quemadas: {abs(c):.0f} kcal
-"
+            txt_res += f"  └ Calorías Quemadas: {abs(c):.0f} kcal\n"
         
-    txt_res += f"
-🔥 **Total Calorías:** {tot_c:.0f} kcal
-"
+    txt_res += f"\n🔥 **Total Calorías:** {tot_c:.0f} kcal\n"
 
     keyboard = []
     
@@ -729,8 +666,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         momento = context.user_data.get('pending_momento', 'Almuerzo')
 
         guardar_en_sheets(user_id, items, fecha, momento, tipo)
-        await query.edit_message_text(f"✅ ¡Guardado con éxito en Google Sheets!
-📅 Fecha: `{fecha}`", parse_mode="Markdown")
+        await query.edit_message_text(f"✅ ¡Guardado con éxito en Google Sheets!\n📅 Fecha: `{fecha}`", parse_mode="Markdown")
 
     elif data == "cancel_entry":
         context.user_data.pop('pending_items', None)
@@ -1017,9 +953,7 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
 # CONVERSACIÓN Y CONFIGURACIÓN DE PERFIL
 # ==========================================
 async def start_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("⚙️ **Configuración de Perfil Corporal**
-
-1️⃣ ¿Cuál es tu **edad**? (ej: 28)")
+    await update.message.reply_text("⚙️ **Configuración de Perfil Corporal**\n\n1️⃣ ¿Cuál es tu **edad**? (ej: 28)")
     return EDAD
 
 async def set_edad(update: Update, context: ContextTypes.DEFAULT_TYPE):
