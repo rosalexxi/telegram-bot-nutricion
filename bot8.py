@@ -62,33 +62,66 @@ def keep_alive():
     t.start()
 
 # ==========================================
-# FUNCIÓN AUXILIAR DE LIMPIEZA DE NÚMEROS
+# SISTEMA DE TRAZABILIDAD (LOGS EN TXT)
+# ==========================================
+LOG_FILE = "log_conversion.txt"
+
+def escribir_log(mensaje):
+    """Escribe una línea en el archivo de log con marca de tiempo."""
+    timestamp = datetime.now(ARG_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    linea = f"[{timestamp}] {mensaje}\n"
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(linea)
+
+# Inicializar el archivo de log con cabecera al arrancar
+with open(LOG_FILE, "a", encoding="utf-8") as f:
+    f.write(f"\n--- INICIO DE SESIÓN DE LOGS [{datetime.now(ARG_TZ).strftime('%Y-%m-%d %H:%M:%S')}] ---\n")
+
+# ==========================================
+# FUNCIÓN AUXILIAR DE LIMPIEZA CON TRAZABILIDAD
 # ==========================================
 def parse_float(val):
     """
     Convierte cualquier formato de número de Google Sheets a float puro de Python.
-    Maneja formato latino: '1.234,56' -> 1234.56 y '12,6' -> 12.6
+    Registra paso a paso la conversión en log_conversion.txt.
     """
+    escribir_log(f"-> [INICIO CONVERSIÓN] Entrada original: '{val}' (Tipo: {type(val).__name__})")
+
     if val is None or val == "":
+        escribir_log("   [PASO 1] Valor nulo o vacío. Retorna 0.0")
         return 0.0
+        
     if isinstance(val, (int, float)):
-        return float(val)
+        res = float(val)
+        escribir_log(f"   [PASO 1] Ya es numérico. Retorna {res}")
+        return res
     
     val_str = str(val).strip().lower()
+    escribir_log(f"   [PASO 1] String preliminar limpio: '{val_str}'")
+
     for unit in ['g', 'kcal', 'kg', 'cm', ' ']:
-        val_str = val_str.replace(unit, '')
-        
+        if unit in val_str:
+            val_str = val_str.replace(unit, '')
+            escribir_log(f"   [PASO 2] Removiendo unidad '{unit}': '{val_str}'")
+
     if ',' in val_str:
-        val_str = val_str.replace('.', '')  # Chau puntos de miles
-        val_str = val_str.replace(',', '.') # Coma a punto decimal
+        escribir_log(f"   [PASO 3] Se detectó coma. Reemplazando puntos por nada y comas por punto.")
+        val_str = val_str.replace('.', '')
+        val_str = val_str.replace(',', '.')
+        escribir_log(f"   [PASO 3] Resultado post-reemplazo coma: '{val_str}'")
     else:
         if val_str.count('.') > 1:
+            escribir_log(f"   [PASO 3] Múltiples puntos detectados. Corrigiendo formato de miles.")
             partes = val_str.split('.')
             val_str = "".join(partes[:-1]) + "." + partes[-1]
+            escribir_log(f"   [PASO 3] Resultado post-puntos: '{val_str}'")
 
     try:
-        return float(val_str)
-    except ValueError:
+        resultado = float(val_str)
+        escribir_log(f"<- [ÉXITO] Conversión final a float: {resultado}\n")
+        return resultado
+    except ValueError as e:
+        escribir_log(f"<- [ERROR] Falló parseo de '{val_str}': {e}. Retorna 0.0\n")
         return 0.0
 
 # ==========================================
@@ -100,7 +133,7 @@ def obtener_ahora_arg():
 def obtener_momento_y_fecha_auto():
     ahora = obtener_ahora_arg()
     hora_actual = ahora.time()
-    fecha_obj = me_fecha = ahora.date()
+    fecha_obj = ahora.date()
     
     if time(0, 0) <= hora_actual < time(2, 0):
         fecha_obj = fecha_obj - timedelta(days=1)
@@ -211,14 +244,18 @@ def obtener_datos_mes(user_id, mes_str):
             df['Fecha'] = df['Fecha'].astype(str)
             df = df[df['Fecha'].str.startswith(mes_str)]
             
+            escribir_log(f"--- INICIO LECTURA DESDE HOJA (Mes: {mes_str}) ---")
             for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
                 if col in df.columns:
+                    escribir_log(f"Procesando columna '{col}':")
                     df[col] = df[col].apply(parse_float)
                 else:
                     df[col] = 0.0
+            escribir_log(f"--- FIN LECTURA DESDE HOJA ---\n")
                     
         return df
     except Exception as e:
+        escribir_log(f"[ERROR OBTENER DATOS] {e}")
         print(f"Error al obtener datos: {e}")
         return pd.DataFrame()
 
@@ -365,6 +402,7 @@ def generar_manual_pdf_bytes():
         Paragraph("• <b>/diario:</b> Consultá lo registrado en el día de hoy, ayer o cualquier fecha específica.", body_style),
         Paragraph("• <b>/resumen:</b> Accedé al informe interactivo del mes, compará meses pasados y descargá el reporte en PDF.", body_style),
         Paragraph("• <b>/perfil:</b> Configurá tu edad, peso, altura y ocupación para calcular tu gasto calórico basal (GET).", body_style),
+        Paragraph("• <b>/log:</b> Descargá el archivo de diagnóstico técnico (trazabilidad de datos numéricos).", body_style),
         Spacer(1, 10),
 
         Paragraph("<b>3. Confirmación y Modificaciones</b>", sub_style),
@@ -374,6 +412,20 @@ def generar_manual_pdf_bytes():
     doc.build(story)
     buffer.seek(0)
     return buffer
+
+# ==========================================
+# COMANDO DE DIAGNÓSTICO DE LOGS
+# ==========================================
+async def cmd_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Permite al usuario/administrador descargar el log de conversiones."""
+    if os.path.exists(LOG_FILE):
+        await update.message.reply_document(
+            document=open(LOG_FILE, 'rb'),
+            filename="log_conversion.txt",
+            caption="📂 **Aquí tenés el archivo de trazabilidad de conversión numérica.**"
+        )
+    else:
+        await update.message.reply_text("⚠️ Aún no se han generado registros en el archivo de logs.")
 
 # ==========================================
 # COMANDOS BÁSICOS Y DIARIO
@@ -387,7 +439,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📌 **Comandos:**\n"
         "• /diario - Ver lo registrado (Hoy, Ayer u Otro día)\n"
         "• /resumen - Informe mensual interactivo y descarga de PDF\n"
-        "• /perfil - Configurar datos corporales"
+        "• /perfil - Configurar datos corporales\n"
+        "• /log - Descargar el historial de trazabilidad de conversión"
     )
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📖 Descargar Manual de Uso (PDF)", callback_data="download_manual")]
@@ -1027,6 +1080,7 @@ def main():
     application.add_handler(CommandHandler("start", cmd_start))
     application.add_handler(CommandHandler("diario", cmd_diario))
     application.add_handler(CommandHandler("resumen", cmd_resumen))
+    application.add_handler(CommandHandler("log", cmd_log))
     application.add_handler(perfil_handler)
     
     application.add_handler(CallbackQueryHandler(handle_callback))
