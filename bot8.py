@@ -62,22 +62,25 @@ def keep_alive():
     t.start()
 
 # ==========================================
-# FUNCIÓN AUXILIAR DE LIMPIEZA DE NÚMEROS
+# FUNCIÓN AUXILIAR DE LIMPIEZA DE NÚMEROS (ULTRA REFORZADA)
 # ==========================================
 def parse_float(val):
-    """ Convierte de forma ultrasegura cualquier tipo de dato a float sin errores de millares. """
-    if val is None:
+    """ Convierte valores de Google Sheets/IA a float puro evitando multiplicaciones por miles. """
+    if val is None or val == "":
         return 0.0
     if isinstance(val, (int, float)):
         return float(val)
-    val_str = str(val).strip().replace(',', '.')
+    
+    val_str = str(val).strip().replace('g', '').replace('kcal', '').replace(' ', '')
+    val_str = val_str.replace(',', '.')
+    
     try:
         return float(val_str)
     except ValueError:
         return 0.0
 
 # ==========================================
-# LÓGICA DE HORARIO Y FECHA ARGENTINA (CORREGIDA)
+# LÓGICA DE HORARIO Y FECHA ARGENTINA
 # ==========================================
 def obtener_ahora_arg():
     return datetime.now(ARG_TZ)
@@ -275,9 +278,8 @@ def analizar_con_groq(prompt_text):
     system_prompt = (
         "Sos un nutricionista y entrenador experto. Analizá el texto del usuario.\n"
         "REGLAS CRÍTICAS:\n"
-        "1. Devolveles números flotantes puros (ej: 7.5, 42.5). NUNCA devuelvas números entre comillas como texto.\n"
-        "2. Usa el punto '.' como separador decimal.\n"
-        "3. Si es ejercicio/actividad física, la caloría DEBE ser negativa (ej: -300.0).\n"
+        "1. Devolvé SIEMPRE números flotantes válidos con punto decimal (ej: 7.5, 42.5).\n"
+        "2. Si es ejercicio/actividad física, la caloría DEBE ser negativa (ej: -300.0).\n"
         "Devolvé EXCLUSIVAMENTE un JSON válido con este formato:\n"
         "{\n"
         '  "items": [\n'
@@ -302,7 +304,7 @@ def analizar_imagen_con_groq(image_bytes):
     base64_image = base64.b64encode(image_bytes).decode('utf-8')
     system_prompt = (
         "Identifica los alimentos o la comida en esta imagen y estima sus nutrientes.\n"
-        "REGLA CRÍTICA: Devolveles números flotantes puros usando punto decimal (.) (ej: 7.5, 42.5).\n"
+        "REGLA CRÍTICA: Devolvé únicamente números flotantes usando punto decimal (.) (ej: 7.5, 42.5).\n"
         "Devolvé EXCLUSIVAMENTE un JSON con esta estructura:\n"
         "{\n"
         '  "items": [\n'
@@ -359,7 +361,7 @@ def generar_manual_pdf_bytes():
         Spacer(1, 10),
 
         Paragraph("<b>3. Confirmación y Modificaciones</b>", sub_style),
-        Paragraph("Antes de guardar en Google Sheets, el bot te mostrará una pantalla de confirmación donde podés seleccionar el momento del día (Desayuno, Almuerzo, Merienda, Cena) o cambiar la fecha si registrás algo pasado.", body_style)
+        Paragraph("Antes de guardar en Google Sheets, podés ajustar el momento del día, cambiar la fecha o hacer clic en '✏️ Editar Ítems' si preferís ajustar manualmente los datos.", body_style)
     ]
 
     doc.build(story)
@@ -617,7 +619,8 @@ async def render_confirmation_screen(msg_or_query, context):
         ])
         
     keyboard.append([
-        InlineKeyboardButton("📅 Cambiar Fecha", callback_data="cambiar_fecha_confirm")
+        InlineKeyboardButton("📅 Cambiar Fecha", callback_data="cambiar_fecha_confirm"),
+        InlineKeyboardButton("✏️ Editar Ítems", callback_data="editar_items_confirm")
     ])
     keyboard.append([
         InlineKeyboardButton("❌ Anular", callback_data="cancel_entry"),
@@ -672,6 +675,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "cambiar_fecha_confirm":
         await query.edit_message_text("✍️ Escribí la fecha en formato **AAAA-MM-DD** (ej: `2026-07-30`):", parse_mode="Markdown")
         context.user_data['esperando_fecha'] = True
+
+    elif data == "editar_items_confirm":
+        await query.edit_message_text("✍️ Escribí las correcciones (ej: *'Fueron 150g de milanesa y agregá 100g de ensalada'*):", parse_mode="Markdown")
+        context.user_data['esperando_edicion'] = True
 
     elif data == "diario_hoy":
         hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
@@ -734,6 +741,19 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await render_confirmation_screen(msg, context)
         else:
             await update.message.reply_text("❌ Formato incorrecto. Mandalo como `AAAA-MM-DD` (ej: `2026-07-30`).")
+        return
+
+    if context.user_data.get('esperando_edicion'):
+        context.user_data['esperando_edicion'] = False
+        msg = await update.message.reply_text("⏳ Re-calculando...")
+        try:
+            items_viejos = context.user_data.get('pending_items', [])
+            prompt_edit = f"Teníamos registrado esto: {json.dumps(items_viejos)}. El usuario pidió el siguiente cambio: '{text}'. Actualizá la lista de ítems."
+            data = analizar_con_groq(prompt_edit)
+            context.user_data['pending_items'] = data.get("items", items_viejos)
+            await render_confirmation_screen(msg, context)
+        except Exception as e:
+            await msg.edit_text(f"❌ Error al editar los ítems: {e}")
         return
 
     if context.user_data.get('esperando_fecha_diario'):
