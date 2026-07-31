@@ -1,3 +1,4 @@
+import asyncio
 import base64
 from datetime import datetime, timedelta
 import io
@@ -7,6 +8,7 @@ import re
 from dotenv import load_dotenv
 from openai import OpenAI
 import pandas as pd
+from PIL import Image
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -20,7 +22,7 @@ from telegram.ext import (
 # Librerías para generación de PDF
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 load_dotenv()
@@ -39,7 +41,7 @@ user_states = {}
 
 
 # ==========================================
-# FUNCIONES AUXILIARES Y PARSEO ROBUSTO
+# FUNCIONES AUXILIARES Y MANEJO DE EXCEL/PERFIL
 # ==========================================
 
 def encode_image(image_path: str) -> str:
@@ -97,8 +99,87 @@ def parse_response_to_items(raw_text: str) -> list:
     raise ValueError("El formato extraído no es válido.")
 
 
+def guardar_perfil_excel(user_id: int, datos: dict):
+    excel_file = f"registros_{user_id}.xlsx"
+    datos["Fecha_Actualizacion"] = datetime.now().strftime("%Y-%m-%d")
+    df_perfil = pd.DataFrame([datos])
+
+    if os.path.exists(excel_file):
+        with pd.ExcelWriter(excel_file, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+            df_perfil.to_excel(writer, sheet_name="Perfil", index=False)
+    else:
+        with pd.ExcelWriter(excel_file, engine="openpyxl") as writer:
+            df_perfil.to_excel(writer, sheet_name="Perfil", index=False)
+
+
+def obtener_perfil_excel(user_id: int) -> dict:
+    excel_file = f"registros_{user_id}.xlsx"
+    if not os.path.exists(excel_file):
+        return None
+    try:
+        xls = pd.ExcelFile(excel_file)
+        if "Perfil" in xls.sheet_names:
+            df_perfil = pd.read_excel(xls, sheet_name="Perfil")
+            if not df_perfil.empty:
+                return df_perfil.iloc[0].to_dict()
+    except Exception:
+        return None
+    return None
+
+
+def validar_estado_perfil(user_id: int) -> tuple[bool, str]:
+    perfil = obtener_perfil_excel(user_id)
+    if not perfil:
+        return False, "⚠️ **Perfil no configurado:** Para comenzar a ingresar comidas o ejercicios debés configurar tu perfil antropométrico.\n\nEscribí /perfil para comenzar."
+
+    fecha_act_str = perfil.get("Fecha_Actualizacion")
+    if not fecha_act_str:
+        return False, "⚠️ **Perfil incompleto:** Debés actualizar tu perfil antes de continuar.\n\nEscribí /perfil para actualizar tus datos."
+
+    try:
+        fecha_act = datetime.strptime(str(fecha_act_str), "%Y-%m-%d")
+        dias_transcurridos = (datetime.now() - fecha_act).days
+
+        if dias_transcurridos > 30:
+            return False, f"🕒 **Perfil desactualizado ({dias_transcurridos} días):** Pasó más de 1 mes desde tu último registro de peso/datos.\n\nPor favor, actualizá tus datos ejecutando /perfil para continuar cargando registros."
+    except Exception:
+        return False, "⚠️ Error al verificar la fecha del perfil. Por favor ejecutá /perfil nuevamente."
+
+    return True, ""
+
+
+def calcular_metabolismo(sexo, peso, altura, edad, ocupacion):
+    if str(sexo).upper() in ["M", "MASCULINO", "HOMBRE"]:
+        tmb = (10 * peso) + (6.25 * altura) - (5 * edad) + 5
+    else:
+        tmb = (10 * peso) + (6.25 * altura) - (5 * edad) - 161
+
+    factores = {
+        "sedentario": 1.2,
+        "comerciante": 1.375,
+        "activo": 1.55,
+        "albañil": 1.725,
+        "atleta": 1.9
+    }
+
+    factor_estandar = 1.2
+    ocupacion_lower = str(ocupacion).lower()
+    for clave, f_val in factores.items():
+        if clave in ocupacion_lower:
+            factor_estandar = f_val
+            break
+
+    # Enfoque prudente: reducción del extra de actividad al 50%
+    gasto_extra_teorico = tmb * (factor_estandar - 1.0)
+    gasto_extra_prudente = gasto_extra_teorico * 0.5
+
+    get_prudente = tmb + gasto_extra_prudente
+
+    return round(tmb, 1), round(get_prudente, 1)
+
+
 # ==========================================
-# GENERADOR DE PDF MENSUAL
+# GENERADOR DE PDF MENSUAL (2 PÁGINAS)
 # ==========================================
 
 def generar_pdf_mes(user_id: int, año: int, mes: int) -> io.BytesIO:
@@ -106,16 +187,20 @@ def generar_pdf_mes(user_id: int, año: int, mes: int) -> io.BytesIO:
     if not os.path.exists(excel_file):
         return None
 
-    df = pd.read_excel(excel_file)
+    try:
+        xls = pd.ExcelFile(excel_file)
+        if "Registros" not in xls.sheet_names:
+            return None
+        df = pd.read_excel(xls, sheet_name="Registros")
+    except Exception:
+        return None
+
     df["Fecha"] = pd.to_datetime(df["Fecha"], errors="coerce")
-    
-    # Filtrar por año y mes
     df_mes = df[(df["Fecha"].dt.year == año) & (df["Fecha"].dt.month == mes)]
 
     if df_mes.empty:
         return None
 
-    # Agrupar por día
     resumen_diario = []
     for fecha_dt, group in df_mes.groupby(df_mes["Fecha"].dt.date):
         df_comida = group[group["Tipo"] == "Comida"]
@@ -138,42 +223,30 @@ def generar_pdf_mes(user_id: int, año: int, mes: int) -> io.BytesIO:
             "Carbs": round(carb, 1),
         })
 
-    # Crear el documento PDF en memoria
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
     story = []
 
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
-        'DocTitle',
-        parent=styles['Heading1'],
-        fontSize=18,
-        leading=22,
-        textColor=colors.HexColor('#1E293B'),
-        spaceAfter=12
+        'DocTitle', parent=styles['Heading1'], fontSize=18, leading=22, textColor=colors.HexColor('#1E293B'), spaceAfter=12
     )
 
     nombre_meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
     mes_nombre = nombre_meses[mes - 1]
 
+    # Página 1: Tabla Diaria
     story.append(Paragraph(f"<b>Reporte Nutricional Mensual - {mes_nombre} {año}</b>", title_style))
     story.append(Paragraph(f"Usuario Telegram ID: {user_id}", styles['Normal']))
     story.append(Spacer(1, 15))
 
-    # Encabezados de la tabla
     data_table = [["Fecha", "Cal. Consumid.", "Cal. Quemad.", "Bal. Neto", "Prot (g)", "Grasas (g)", "Carbs (g)"]]
-
     tot_cons, tot_quem, tot_prot, tot_fat, tot_carb = 0, 0, 0, 0, 0
 
     for item in resumen_diario:
         data_table.append([
-            item["Fecha"],
-            f"{item['Consumidas']} kcal",
-            f"{item['Quemadas']} kcal",
-            f"{item['Neto']} kcal",
-            f"{item['Prot']} g",
-            f"{item['Grasas']} g",
-            f"{item['Carbs']} g"
+            item["Fecha"], f"{item['Consumidas']} kcal", f"{item['Quemadas']} kcal",
+            f"{item['Neto']} kcal", f"{item['Prot']} g", f"{item['Grasas']} g", f"{item['Carbs']} g"
         ])
         tot_cons += item["Consumidas"]
         tot_quem += item["Quemadas"]
@@ -181,18 +254,18 @@ def generar_pdf_mes(user_id: int, año: int, mes: int) -> io.BytesIO:
         tot_fat += item["Grasas"]
         tot_carb += item["Carbs"]
 
-    # Fila de totales mensuales
+    cant_dias = len(resumen_diario) if len(resumen_diario) > 0 else 1
+
     data_table.append([
-        "TOTAL MES",
-        f"{round(tot_cons, 1)} kcal",
-        f"{round(tot_quem, 1)} kcal",
-        f"{round(tot_cons - tot_quem, 1)} kcal",
-        f"{round(tot_prot, 1)} g",
-        f"{round(tot_fat, 1)} g",
-        f"{round(tot_carb, 1)} g"
+        "TOTAL MES", f"{round(tot_cons, 1)} kcal", f"{round(tot_quem, 1)} kcal",
+        f"{round(tot_cons - tot_quem, 1)} kcal", f"{round(tot_prot, 1)} g", f"{round(tot_fat, 1)} g", f"{round(tot_carb, 1)} g"
+    ])
+    data_table.append([
+        "PROM. DIARIO", f"{round(tot_cons / cant_dias, 1)} kcal", f"{round(tot_quem / cant_dias, 1)} kcal",
+        f"{round((tot_cons - tot_quem) / cant_dias, 1)} kcal", f"{round(tot_prot / cant_dias, 1)} g",
+        f"{round(tot_fat / cant_dias, 1)} g", f"{round(tot_carb / cant_dias, 1)} g"
     ])
 
-    # Estilo de la tabla
     tabla = Table(data_table, colWidths=[70, 80, 80, 75, 60, 65, 65])
     tabla.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
@@ -201,64 +274,177 @@ def generar_pdf_mes(user_id: int, año: int, mes: int) -> io.BytesIO:
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, -1), 9),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-        ('BACKGROUND', (0, 1), (-1, -2), colors.HexColor('#F8FAFC')),
+        ('BACKGROUND', (0, 1), (-1, -3), colors.HexColor('#F8FAFC')),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#E2E8F0')),
+        ('BACKGROUND', (0, -2), (-1, -2), colors.HexColor('#E2E8F0')),
+        ('FONTNAME', (0, -2), (-1, -2), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#FEF08A')),
         ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
     ]))
-
     story.append(tabla)
+
+    # Página 2: Datos Antropométricos y Estimación
+    perfil = obtener_perfil_excel(user_id)
+    if perfil:
+        story.append(PageBreak())
+        story.append(Paragraph(f"<b>Análisis Metabólico y Estimación Corporal</b>", title_style))
+        story.append(Spacer(1, 10))
+
+        sexo = perfil.get("Sexo", "M")
+        edad = int(perfil.get("Edad", 30))
+        peso = float(perfil.get("Peso_kg", 70))
+        altura = float(perfil.get("Altura_cm", 170))
+        ocupacion = str(perfil.get("Ocupacion", "Sedentario"))
+        f_act = str(perfil.get("Fecha_Actualizacion", "No registrada"))
+
+        tmb, get = calcular_metabolismo(sexo, peso, altura, edad, ocupacion)
+        gasto_basal_total_mes = get * cant_dias
+        balance_calorico_real = tot_cons - (gasto_basal_total_mes + tot_quem)
+        gramos_estimados = balance_calorico_real / 7.5
+
+        datos_perfil_table = [
+            ["Dato Fisiológico", "Valor Registrado"],
+            ["Última Actualización", f_act],
+            ["Sexo", sexo],
+            ["Edad", f"{edad} años"],
+            ["Peso", f"{peso} kg"],
+            ["Altura", f"{altura} cm"],
+            ["Ocupación / Actividad", ocupacion],
+            ["Metabolismo Basal (TMB)", f"{tmb} kcal / día"],
+            ["Gasto Energético Conservador (GET)", f"{get} kcal / día"],
+        ]
+
+        t_perfil = Table(datos_perfil_table, colWidths=[200, 250])
+        t_perfil.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0F172A')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+            ('PADDING', (0, 0), (-1, -1), 6),
+        ]))
+        story.append(t_perfil)
+        story.append(Spacer(1, 20))
+
+        story.append(Paragraph("<b>Resumen de Balance y Cambio Corporal Estimado:</b>", styles['Heading2']))
+        story.append(Spacer(1, 10))
+
+        resumen_meta_table = [
+            ["Concepto", "Valor Mensual"],
+            ["Total Calorías Consumidas (Comidas)", f"{round(tot_cons, 1)} kcal"],
+            ["Total Gasto Basal + Ocupación (GET)", f"-{round(gasto_basal_total_mes, 1)} kcal ({cant_dias} días)"],
+            ["Total Ejercicio Extra Registrado", f"-{round(tot_quem, 1)} kcal"],
+            ["BALANCE CALÓRICO NETO REAL", f"{round(balance_calorico_real, 1)} kcal"],
+            ["CAMBIO ESTIMADO DE PESO", f"{round(gramos_estimados / 1000, 2)} kg ({round(gramos_estimados, 1)} g)"]
+        ]
+
+        color_balance = colors.HexColor('#DC2626') if balance_calorico_real > 0 else colors.HexColor('#16A34A')
+        t_resumen = Table(resumen_meta_table, colWidths=[230, 220])
+        t_resumen.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E293B')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+            ('PADDING', (0, 0), (-1, -1), 6),
+            ('FONTNAME', (0, -2), (-1, -1), 'Helvetica-Bold'),
+            ('TEXTCOLOR', (1, -2), (1, -1), color_balance),
+        ]))
+        story.append(t_resumen)
+
     doc.build(story)
     buffer.seek(0)
     return buffer
 
 
 # ==========================================
-# COMANDOS Y FLUJOS
+# COMANDOS Y FLUJOS PRINCIPALES
 # ==========================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
     user_name = update.message.from_user.first_name
+    
+    es_valido, msj_error = validar_estado_perfil(user_id)
+    if not es_valido:
+        await update.message.reply_text(f"¡Hola {user_name}! 👋\n\n{msj_error}", parse_mode="Markdown")
+    else:
+        await update.message.reply_text(
+            f"¡Hola {user_name}! 👋\n\n"
+            "• Mandame foto o texto de lo que comiste para registrarlo.\n"
+            "• Escribí directamente tu ejercicio (Ej: *Caminata 45 min*).\n"
+            "• Usá /resumen para descargar tu reporte mensual en PDF.\n"
+            "• Usá /perfil para ver o actualizar tus datos.",
+            parse_mode="Markdown"
+        )
+
+
+async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    user_states[user_id] = "waiting_for_perfil_data"
+    
+    perfil_actual = obtener_perfil_excel(user_id)
+    mensaje_actual = ""
+    if perfil_actual:
+        mensaje_actual = (
+            f"📋 *Perfil actual registrado:*\n"
+            f"• ÚLTIMA ACTUALIZACIÓN: {perfil_actual.get('Fecha_Actualizacion', 'No registrada')}\n"
+            f"• Sexo: {perfil_actual.get('Sexo')}\n"
+            f"• Edad: {perfil_actual.get('Edad')} años\n"
+            f"• Peso: {perfil_actual.get('Peso_kg')} kg\n"
+            f"• Altura: {perfil_actual.get('Altura_cm')} cm\n"
+            f"• Ocupación: {perfil_actual.get('Ocupacion')}\n\n"
+            "*(Ingresá los nuevos datos a continuación para actualizar tu perfil)*\n\n"
+        )
+
     await update.message.reply_text(
-        f"¡Hola {user_name}! 👋\n\n"
-        "• Mandame foto o texto de lo que comiste para registrarlo.\n"
-        "• Escribí directamente tu ejercicio (Ej: *Caminata 45 min*, *Fútbol 1 hora*).\n"
-        "• Usá /resumen para ver el balance diario.\n"
-        "• Usá /pdf para descargar tu reporte mensual en PDF.",
+        f"{mensaje_actual}"
+        "👤 *Configuración de Perfil Nutricional*\n\n"
+        "Ingresá tus datos separados por comas en el siguiente orden:\n"
+        "`Sexo (M/F), Edad, Peso (kg), Altura (cm), Ocupación`\n\n"
+        "📌 *Ejemplo:* `M, 38, 85, 178, Comerciante`",
         parse_mode="Markdown"
     )
 
 
 async def procesar_actividad_directa(update: Update, context: ContextTypes.DEFAULT_TYPE, texto: str):
     user_id = update.message.from_user.id
-    msg_espera = await update.message.reply_text("🏃 Estimando gasto calórico...")
+    msg_espera = await update.message.reply_text("🏃 Estimando gasto calórico personalizado...")
+
+    perfil = obtener_perfil_excel(user_id) or {}
+    sexo = perfil.get("Sexo", "desconocido")
+    edad = perfil.get("Edad", 30)
+    peso = perfil.get("Peso_kg", 70)
 
     system_instruction = "You are a strict JSON generator. Do NOT think step-by-step. Do NOT output <think> tags. Output ONLY a valid JSON object."
-    prompt = f"""
-    El usuario realizó: "{texto}".
-    Interpreta actividad, duración y calorías quemadas.
-    Responde ÚNICAMENTE en JSON estricto:
-    {{"actividad": "Nombre", "duracion": "45 min", "calorias": 320}}
-    """
-    try:
-        response = groq_client.chat.completions.create(
-            model=MODELO_GROQ,
-            messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=1000,
-            timeout=30.0,
-        )
-        act_info = json.loads(extract_json(response.choices[0].message.content))
-        user_pending_data[user_id] = {
-            "tipo": "actividad",
-            "actividad": act_info.get("actividad", "Ejercicio"),
-            "duracion": act_info.get("duracion", "No especificada"),
-            "calorias": int(act_info.get("calorias", 0)),
-        }
-        user_states.pop(user_id, None)
-        await mostrar_confirmacion_actividad(msg_espera, user_id)
-    except Exception as e:
-        await msg_espera.edit_text(f"❌ Error al estimar: {str(e)}")
+    prompt = (
+        f'El usuario realizó: "{texto}".\n'
+        f'Biométricos del usuario: Sexo: {sexo}, Edad: {edad} años, Peso: {peso} kg.\n'
+        'Calcula las calorías quemadas considerando su peso corporal real.\n'
+        'Responde ÚNICAMENTE en JSON estricto: {"actividad": "Nombre", "duracion": "45 min", "calorias": 320}'
+    )
+
+    max_intentos = 3
+    for intento in range(1, max_intentos + 1):
+        try:
+            response = groq_client.chat.completions.create(
+                model=MODELO_GROQ,
+                messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": prompt}],
+                temperature=0.1, max_tokens=1000, timeout=45.0,
+            )
+            act_info = json.loads(extract_json(response.choices[0].message.content))
+            user_pending_data[user_id] = {
+                "tipo": "actividad",
+                "actividad": act_info.get("actividad", "Ejercicio"),
+                "duracion": act_info.get("duracion", "No especificada"),
+                "calorias": int(act_info.get("calorias", 0)),
+            }
+            user_states.pop(user_id, None)
+            await mostrar_confirmacion_actividad(msg_espera, user_id)
+            break
+        except Exception as e:
+            if intento < max_intentos:
+                await asyncio.sleep(2)
+            else:
+                await msg_espera.edit_text(f"❌ Error de conexión al estimar ejercicio ({type(e).__name__}). Volvé a intentarlo.")
 
 
 async def mostrar_confirmacion_actividad(message, user_id: int):
@@ -281,6 +467,12 @@ async def mostrar_confirmacion_actividad(message, user_id: int):
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
+    
+    es_valido, msj_error = validar_estado_perfil(user_id)
+    if not es_valido:
+        await update.message.reply_text(msj_error, parse_mode="Markdown")
+        return
+
     user_states.pop(user_id, None)
     msg_espera = await update.message.reply_text("🔍 Analizando plato...")
 
@@ -288,30 +480,45 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo_path = f"temp_{user_id}.jpg"
     await photo_file.download_to_drive(photo_path)
 
+    # Compresión y reducción de resolución (PIL)
     try:
-        base64_image = encode_image(photo_path)
-        system_instruction = "You are a strict JSON generator. Do NOT think step-by-step. Output ONLY a valid JSON object."
-        prompt = """
-        Analiza esta imagen e identifica sus alimentos.
-        Responde ÚNICAMENTE con JSON:
-        {"items": [{"alimento": "Pechuga", "peso_g": 150, "calorias": 240, "proteinas_g": 31, "grasas_g": 3.5, "hidratos_g": 0, "fibra_g": 0}]}
-        """
-        response = groq_client.chat.completions.create(
-            model=MODELO_GROQ,
-            messages=[
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}
-            ],
-            temperature=0.1, max_tokens=4000, timeout=30.0,
-        )
-        items = parse_response_to_items(response.choices[0].message.content)
-        user_pending_data[user_id] = {"tipo": "comida", "items": items, "momento": "No especificado"}
-        await mostrar_resumen_y_botones(msg_espera, user_id, es_edicion=False)
-    except Exception as e:
-        await msg_espera.edit_text(f"❌ Error al procesar imagen: {str(e)}")
-    finally:
-        if os.path.exists(photo_path):
-            os.remove(photo_path)
+        with Image.open(photo_path) as img:
+            img = img.convert("RGB")
+            img.thumbnail((1024, 1024))
+            img.save(photo_path, format="JPEG", quality=80, optimize=True)
+    except Exception as img_err:
+        print(f"Error comprimiendo imagen: {img_err}")
+
+    base64_image = encode_image(photo_path)
+    system_instruction = "You are a strict JSON generator. Do NOT think step-by-step. Output ONLY a valid JSON object."
+    prompt = 'Analiza esta imagen e identifica sus alimentos. Responde ÚNICAMENTE con JSON: {"items": [{"alimento": "Pechuga", "peso_g": 150, "calorias": 240, "proteinas_g": 31, "grasas_g": 3.5, "hidratos_g": 0, "fibra_g": 0}]}'
+    
+    max_intentos = 3
+    for intento in range(1, max_intentos + 1):
+        try:
+            response = groq_client.chat.completions.create(
+                model=MODELO_GROQ,
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                    ]}
+                ],
+                temperature=0.1, max_tokens=4000, timeout=45.0,
+            )
+            items = parse_response_to_items(response.choices[0].message.content)
+            user_pending_data[user_id] = {"tipo": "comida", "items": items, "momento": "No especificado"}
+            await mostrar_resumen_y_botones(msg_espera, user_id, es_edicion=False)
+            break
+        except Exception as e:
+            if intento < max_intentos:
+                await asyncio.sleep(2)
+            else:
+                await msg_espera.edit_text(f"❌ Error de conexión al procesar imagen ({type(e).__name__}). Por favor, volvé a enviarla.")
+
+    if os.path.exists(photo_path):
+        os.remove(photo_path)
 
 
 async def procesar_texto_comida(update: Update, context: ContextTypes.DEFAULT_TYPE, texto: str):
@@ -321,17 +528,23 @@ async def procesar_texto_comida(update: Update, context: ContextTypes.DEFAULT_TY
     system_instruction = "You are a strict JSON generator. Do NOT think step-by-step. Output ONLY a valid JSON object."
     prompt = f'El usuario comió: "{texto}". Responde ÚNICAMENTE con JSON: {{"items": [{{"alimento": "nombre", "peso_g": 0, "calorias": 0, "proteinas_g": 0, "grasas_g": 0, "hidratos_g": 0, "fibra_g": 0}}]}}'
 
-    try:
-        response = groq_client.chat.completions.create(
-            model=MODELO_GROQ,
-            messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": prompt}],
-            temperature=0.1, max_tokens=4000, timeout=30.0,
-        )
-        items = parse_response_to_items(response.choices[0].message.content)
-        user_pending_data[user_id] = {"tipo": "comida", "items": items, "momento": "No especificado"}
-        await mostrar_resumen_y_botones(msg_espera, user_id, es_edicion=False)
-    except Exception as e:
-        await msg_espera.edit_text(f"❌ Error al procesar texto: {str(e)}")
+    max_intentos = 3
+    for intento in range(1, max_intentos + 1):
+        try:
+            response = groq_client.chat.completions.create(
+                model=MODELO_GROQ,
+                messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": prompt}],
+                temperature=0.1, max_tokens=4000, timeout=45.0,
+            )
+            items = parse_response_to_items(response.choices[0].message.content)
+            user_pending_data[user_id] = {"tipo": "comida", "items": items, "momento": "No especificado"}
+            await mostrar_resumen_y_botones(msg_espera, user_id, es_edicion=False)
+            break
+        except Exception as e:
+            if intento < max_intentos:
+                await asyncio.sleep(2)
+            else:
+                await msg_espera.edit_text(f"❌ Error de conexión al procesar texto ({type(e).__name__}). Volvé a enviarlo.")
 
 
 async def mostrar_resumen_y_botones(message, user_id: int, es_edicion=False):
@@ -414,18 +627,25 @@ async def guardar_en_excel(user_id: int, fecha_str: str) -> str:
     df_new = pd.DataFrame(rows)
 
     if os.path.exists(excel_file):
-        df_existing = pd.read_excel(excel_file)
-        if "Usuario" in df_existing.columns:
-            df_existing = df_existing.drop(columns=["Usuario"])
-        df_final = pd.concat([df_existing, df_new], ignore_index=True)
+        xls = pd.ExcelFile(excel_file)
+        if "Registros" in xls.sheet_names:
+            df_existing = pd.read_excel(xls, sheet_name="Registros")
+            df_final = pd.concat([df_existing, df_new], ignore_index=True)
+        else:
+            df_final = df_new
     else:
         df_final = df_new
 
-    # ORDENAR AUTOMÁTICAMENTE POR FECHA CRONOLÓGICA
     df_final["Fecha_dt"] = pd.to_datetime(df_final["Fecha"], errors="coerce")
     df_final = df_final.sort_values(by="Fecha_dt", ascending=True).drop(columns=["Fecha_dt"])
 
-    df_final.to_excel(excel_file, index=False)
+    if os.path.exists(excel_file):
+        with pd.ExcelWriter(excel_file, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+            df_final.to_excel(writer, sheet_name="Registros", index=False)
+    else:
+        with pd.ExcelWriter(excel_file, engine="openpyxl") as writer:
+            df_final.to_excel(writer, sheet_name="Registros", index=False)
+
     user_pending_data.pop(user_id, None)
     user_states.pop(user_id, None)
 
@@ -433,87 +653,55 @@ async def guardar_en_excel(user_id: int, fecha_str: str) -> str:
 
 
 # ==========================================
-# RESUMEN SIMPLIFICADO Y COMANDO PDF
+# MENÚ RESUMEN Y ENVÍO DE PDF
 # ==========================================
 
 async def resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    excel_file = f"registros_{user_id}.xlsx"
-
-    if not os.path.exists(excel_file):
-        await update.message.reply_text("📉 Todavía no tenés ningún registro guardado.")
+    user_id = update.message.from_user.id if update.message else update.callback_query.from_user.id
+    
+    es_valido, msj_error = validar_estado_perfil(user_id)
+    if not es_valido:
+        await update.message.reply_text(msj_error, parse_mode="Markdown")
         return
+
+    now = datetime.now()
+    mes_actual_str = now.strftime("%Y-%m")
+    primer_dia_mes_actual = now.replace(day=1)
+    mes_pasado_dt = primer_dia_mes_actual - timedelta(days=1)
+    mes_pasado_str = mes_pasado_dt.strftime("%Y-%m")
 
     keyboard = [
-        [InlineKeyboardButton("📅 Ver Hoy", callback_data="resumen_date_hoy"), InlineKeyboardButton("📅 Ver Ayer", callback_data="resumen_date_ayer")],
-        [InlineKeyboardButton("📅 Otra fecha", callback_data="resumen_date_otra")],
-        [InlineKeyboardButton("📄 Descargar PDF Mensual", callback_data="get_pdf_mes")],
+        [
+            InlineKeyboardButton(f"📅 Mes Actual ({now.strftime('%m/%Y')})", callback_data=f"pdf_mes_{mes_actual_str}"),
+            InlineKeyboardButton(f"📅 Mes Pasado ({mes_pasado_dt.strftime('%m/%Y')})", callback_data=f"pdf_mes_{mes_pasado_str}")
+        ],
+        [InlineKeyboardButton("🗓 Otro Mes (Escribir AAAA-MM)", callback_data="pdf_mes_otro")]
     ]
-    await update.message.reply_text("📊 *¿Qué resumen querés consultar?*", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    if update.message:
+        await update.message.reply_text("📄 **¿De qué mes querés descargar el PDF?**", parse_mode="Markdown", reply_markup=reply_markup)
+    else:
+        await update.callback_query.edit_message_text("📄 **¿De qué mes querés descargar el PDF?**", parse_mode="Markdown", reply_markup=reply_markup)
 
 
-async def generar_reporte_resumen_simplificado(target_msg_or_query, user_id: int, fecha_str: str):
-    excel_file = f"registros_{user_id}.xlsx"
-
-    if not os.path.exists(excel_file):
-        msg = "📉 Todavía no tenés ningún registro guardado."
-        await (target_msg_or_query.edit_message_text(msg) if hasattr(target_msg_or_query, "edit_message_text") else target_msg_or_query.reply_text(msg))
-        return
-
-    try:
-        df = pd.read_excel(excel_file)
-        df["Fecha"] = df["Fecha"].astype(str)
-        df_dia = df[df["Fecha"] == fecha_str]
-
-        if df_dia.empty:
-            msg = f"📅 No hay registros guardados para la fecha *{fecha_str}*."
-            await (target_msg_or_query.edit_message_text(msg, parse_mode="Markdown") if hasattr(target_msg_or_query, "edit_message_text") else target_msg_or_query.reply_text(msg, parse_mode="Markdown"))
-            return
-
-        df_comida = df_dia[df_dia["Tipo"] == "Comida"]
-        df_act = df_dia[df_dia["Tipo"] == "Actividad Física"]
-
-        cal_ingresadas = df_comida["Calorías (kcal)"].sum() if not df_comida.empty else 0
-        cal_quemadas = abs(df_act["Calorías (kcal)"].sum()) if not df_act.empty else 0
-        prot = df_comida["Proteínas (g)"].sum() if not df_comida.empty else 0
-        fat = df_comida["Grasas (g)"].sum() if not df_comida.empty else 0
-        carb = df_comida["Hidratos (g)"].sum() if not df_comida.empty else 0
-
-        # RESUMEN SIMPLIFICADO SIN DESGLOSE DE ALIMENTOS INDIVIDUALES
-        msg = (
-            f"📋 *Resumen del día ({fecha_str}):*\n\n"
-            f"🔥 *Calorías Consumidas:* {round(cal_ingresadas, 1)} kcal\n"
-            f"🏃 *Calorías Quemadas:* {round(cal_quemadas, 1)} kcal\n"
-            f"⚖️ *Balance Neto:* {round(cal_ingresadas - cal_quemadas, 1)} kcal\n\n"
-            f"💪 *Proteínas:* {round(prot, 1)}g\n"
-            f"🥑 *Grasas:* {round(fat, 1)}g\n"
-            f"🍞 *Hidratos:* {round(carb, 1)}g\n"
-        )
-
-        await (target_msg_or_query.edit_message_text(msg, parse_mode="Markdown") if hasattr(target_msg_or_query, "edit_message_text") else target_msg_or_query.reply_text(msg, parse_mode="Markdown"))
-
-    except Exception as e:
-        err = f"❌ Error al consultar el resumen: {str(e)}"
-        await (target_msg_or_query.edit_message_text(err) if hasattr(target_msg_or_query, "edit_message_text") else target_msg_or_query.reply_text(err))
-
-
-async def cmd_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    now = datetime.now()
+async def enviar_pdf_usuario(target, user_id: int, año: int, mes: int):
+    msg_espera = await (target.message.reply_text(f"⏳ Generando PDF de {mes:02d}/{año}...") if hasattr(target, "message") else target.reply_text(f"⏳ Generando PDF de {mes:02d}/{año}..."))
     
-    msg_espera = await update.message.reply_text("📄 Generando PDF del mes...")
-    pdf_buffer = generar_pdf_mes(user_id, now.year, now.month)
+    pdf_buffer = generar_pdf_mes(user_id, año, mes)
 
     if pdf_buffer:
-        await update.message.reply_document(
-            document=pdf_buffer,
-            filename=f"Resumen_Nutricional_{now.year}_{now.month:02d}.pdf",
-            caption=f"📊 Acá tenés tu reporte en PDF de *{now.strftime('%B %Y')}*.",
-            parse_mode="Markdown"
-        )
+        nombre_archivo = f"Resumen_Nutricional_{año}_{mes:02d}.pdf"
+        caption = f"📊 Acá tenés tu reporte en PDF de *{mes:02d}/{año}*."
+        
+        if hasattr(target, "message"):
+            await target.message.reply_document(document=pdf_buffer, filename=nombre_archivo, caption=caption, parse_mode="Markdown")
+        else:
+            await target.reply_document(document=pdf_buffer, filename=nombre_archivo, caption=caption, parse_mode="Markdown")
+            
         await msg_espera.delete()
     else:
-        await msg_espera.edit_text("⚠️ No se encontraron registros para este mes.")
+        await msg_espera.edit_text(f"⚠️ No se encontraron registros guardados para **{mes:02d}/{año}**.")
 
 
 # ==========================================
@@ -561,30 +749,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_states[user_id] = "waiting_for_cal_edit"
         await query.message.reply_text("✏️ Escribí el nuevo valor de calorías (Ej: `310`):")
 
-    elif data.startswith("resumen_date_"):
-        opcion = data.replace("resumen_date_", "")
-        if opcion == "hoy":
-            fecha = datetime.now().strftime("%Y-%m-%d")
-            await generar_reporte_resumen_simplificado(query, user_id, fecha)
-        elif opcion == "ayer":
-            fecha = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-            await generar_reporte_resumen_simplificado(query, user_id, fecha)
-        elif opcion == "otra":
-            user_states[user_id] = "waiting_for_resumen_date"
-            await query.message.reply_text("📅 Ingresá la fecha en formato **AAAA-MM-DD** (Ej: `2026-07-28`):")
-
-    elif data == "get_pdf_mes":
-        now = datetime.now()
-        pdf_buffer = generar_pdf_mes(user_id, now.year, now.month)
-        if pdf_buffer:
-            await query.message.reply_document(
-                document=pdf_buffer,
-                filename=f"Resumen_Nutricional_{now.year}_{now.month:02d}.pdf",
-                caption=f"📊 Acá tenés tu reporte mensual en PDF.",
-                parse_mode="Markdown"
-            )
+    elif data.startswith("pdf_mes_"):
+        opcion = data.replace("pdf_mes_", "")
+        if opcion == "otro":
+            user_states[user_id] = "waiting_for_pdf_month"
+            await query.message.reply_text("🗓 Ingresá el año y mes en formato **AAAA-MM** (Ej: `2026-06`):")
         else:
-            await query.message.reply_text("⚠️ No tenés registros guardados para este mes.")
+            año, mes = map(int, opcion.split("-"))
+            await enviar_pdf_usuario(query, user_id, año, mes)
 
     elif data == "cancel_save":
         user_pending_data.pop(user_id, None)
@@ -597,6 +769,40 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = user_states.get(user_id)
     text = update.message.text
 
+    # ESTADO 1: CONFIGURACIÓN DE PERFIL
+    if state == "waiting_for_perfil_data":
+        partes = [p.strip() for p in text.split(",")]
+        if len(partes) == 5:
+            try:
+                sexo = partes[0].upper()
+                edad = int(partes[1])
+                peso = float(partes[2])
+                altura = float(partes[3])
+                ocupacion = partes[4].capitalize()
+
+                datos = {
+                    "Sexo": sexo,
+                    "Edad": edad,
+                    "Peso_kg": peso,
+                    "Altura_cm": altura,
+                    "Ocupacion": ocupacion
+                }
+                guardar_perfil_excel(user_id, datos)
+                user_states.pop(user_id, None)
+                await update.message.reply_text("✅ ¡Perfil actualizado correctamente! Ya podés continuar registrando tus comidas y ejercicios.")
+            except ValueError:
+                await update.message.reply_text("⚠️ Error en los números. Asegurate de ingresar Edad, Peso y Altura como valores numéricos.")
+        else:
+            await update.message.reply_text("⚠️ Formato incorrecto. Ingresá los 5 datos separados por coma (Ej: `M, 38, 85, 178, Comerciante`).")
+        return
+
+    # VERIFICACIÓN DE CADUCIDAD (> 30 DÍAS)
+    es_valido, msj_error = validar_estado_perfil(user_id)
+    if not es_valido:
+        await update.message.reply_text(msj_error, parse_mode="Markdown")
+        return
+
+    # ESTADOS SECUNDARIOS
     if state == "waiting_for_correction":
         current_data = user_pending_data.get(user_id, {}).get("items")
         if not current_data:
@@ -608,18 +814,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         system_instruction = "You are a strict JSON generator. Do NOT think step-by-step. Output ONLY a valid JSON object."
         prompt = f'LISTA ACTUAL: {json.dumps(current_data, ensure_ascii=False)}\nCORRECCIÓN: "{text}"\nResponde ÚNICAMENTE con el JSON actualizado.'
 
-        try:
-            response = groq_client.chat.completions.create(
-                model=MODELO_GROQ,
-                messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": prompt}],
-                temperature=0.1, max_tokens=4000, timeout=30.0,
-            )
-            updated_items = parse_response_to_items(response.choices[0].message.content)
-            user_pending_data[user_id]["items"] = updated_items
-            user_states.pop(user_id, None)
-            await mostrar_resumen_y_botones(msg_espera, user_id, es_edicion=True)
-        except Exception as e:
-            await msg_espera.edit_text(f"❌ Error al procesar corrección: {str(e)}")
+        max_intentos = 3
+        for intento in range(1, max_intentos + 1):
+            try:
+                response = groq_client.chat.completions.create(
+                    model=MODELO_GROQ,
+                    messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": prompt}],
+                    temperature=0.1, max_tokens=4000, timeout=45.0,
+                )
+                updated_items = parse_response_to_items(response.choices[0].message.content)
+                user_pending_data[user_id]["items"] = updated_items
+                user_states.pop(user_id, None)
+                await mostrar_resumen_y_botones(msg_espera, user_id, es_edicion=True)
+                break
+            except Exception as e:
+                if intento < max_intentos:
+                    await asyncio.sleep(2)
+                else:
+                    await msg_espera.edit_text(f"❌ Error al procesar corrección: {str(e)}")
 
     elif state == "waiting_for_cal_edit":
         if text.isdigit():
@@ -636,12 +848,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("⚠️ Formato inválido. Usá `AAAA-MM-DD` (Ej: `2026-07-28`).")
 
-    elif state == "waiting_for_resumen_date":
-        if re.match(r"^\d{4}-\d{2}-\d{2}$", text):
+    elif state == "waiting_for_pdf_month":
+        if re.match(r"^\d{4}-\d{2}$", text):
             user_states.pop(user_id, None)
-            await generar_reporte_resumen_simplificado(update.message, user_id, text)
+            año, mes = map(int, text.split("-"))
+            await enviar_pdf_usuario(update.message, user_id, año, mes)
         else:
-            await update.message.reply_text("⚠️ Formato inválido. Usá `AAAA-MM-DD` (Ej: `2026-07-28`).")
+            await update.message.reply_text("⚠️ Formato inválido. Usá **AAAA-MM** (Ej: `2026-05`).")
 
     else:
         keywords_actividad = [
@@ -673,11 +886,13 @@ if __name__ == "__main__":
     )
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("perfil", cmd_perfil))
     app.add_handler(CommandHandler("resumen", resumen))
-    app.add_handler(CommandHandler("pdf", cmd_pdf))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    print(f"🚀 Bot iniciado con Resumen Simplificado y Generador de PDF Mensual.")
-    app.run_polling()
+    print(f"🚀 Bot iniciado con Control de Caducidad de Perfil (30 días).")
+    
+    # Manejo de reconexión automática ante microcortes
+    app.run_polling(poll_interval=1.0, timeout=30, drop_pending_updates=True)
