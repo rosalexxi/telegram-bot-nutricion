@@ -704,10 +704,14 @@ async def render_confirmation_screen(msg_or_query, context):
             InlineKeyboardButton("🌙 Cena", callback_data="mom_Cena")
         ])
         
-    # 3. CONTROLES GENERALES
+    # 3. CONTROLES DE FECHA (SE AGREGA BOTÓN 'AYER')
     keyboard.append([
-        InlineKeyboardButton("📅 Cambiar Fecha", callback_data="cambiar_fecha_confirm")
+        InlineKeyboardButton("📅 Hoy", callback_data="fecha_hoy"),
+        InlineKeyboardButton("⏮️ Ayer", callback_data="fecha_ayer"),
+        InlineKeyboardButton("📆 Otra Fecha", callback_data="cambiar_fecha_confirm")
     ])
+
+    # 4. CONTROLES GENERALES
     keyboard.append([
         InlineKeyboardButton("❌ Anular", callback_data="cancel_entry"),
         InlineKeyboardButton("✅ Guardar Todo", callback_data="confirm_save")
@@ -770,6 +774,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("mom_"):
         context.user_data['pending_momento'] = data.split("_")[1]
+        await render_confirmation_screen(query, context)
+
+    elif data == "fecha_hoy":
+        context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+        await render_confirmation_screen(query, context)
+
+    elif data == "fecha_ayer":
+        ayer_dt = obtener_ahora_arg() - timedelta(days=1)
+        context.user_data['pending_fecha'] = ayer_dt.strftime("%Y-%m-%d")
         await render_confirmation_screen(query, context)
 
     elif data == "cambiar_fecha_confirm":
