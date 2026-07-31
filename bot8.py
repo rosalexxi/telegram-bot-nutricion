@@ -78,50 +78,38 @@ with open(LOG_FILE, "a", encoding="utf-8") as f:
     f.write(f"\n--- INICIO DE SESIÓN DE LOGS [{datetime.now(ARG_TZ).strftime('%Y-%m-%d %H:%M:%S')}] ---\n")
 
 # ==========================================
-# FUNCIÓN AUXILIAR DE LIMPIEZA CON TRAZABILIDAD
+# FUNCIÓN DE CONVERSIÓN CON TRAZABILIDAD
 # ==========================================
 def parse_float(val):
     """
-    Convierte cualquier formato de número de Google Sheets a float puro de Python.
-    Registra paso a paso la conversión en log_conversion.txt.
+    Convierte CUALQUIER valor recibido (string, int, float) a float de Python.
+    Trata la coma siempre como separador decimal e imprime cada paso en el log.
     """
-    escribir_log(f"-> [INICIO CONVERSIÓN] Entrada original: '{val}' (Tipo: {type(val).__name__})")
-
-    if val is None or val == "":
-        escribir_log("   [PASO 1] Valor nulo o vacío. Retorna 0.0")
-        return 0.0
-        
-    if isinstance(val, (int, float)):
-        res = float(val)
-        escribir_log(f"   [PASO 1] Ya es numérico. Retorna {res}")
-        return res
+    val_orig = val
     
+    if val is None or val == "":
+        escribir_log("-> [CONVERSIÓN] Entrada vacía/None -> Retorna 0.0")
+        return 0.0
+    
+    # Convertimos SIEMPRE a string primero
     val_str = str(val).strip().lower()
-    escribir_log(f"   [PASO 1] String preliminar limpio: '{val_str}'")
 
+    # Removemos unidades si vienen dentro de la celda
     for unit in ['g', 'kcal', 'kg', 'cm', ' ']:
         if unit in val_str:
             val_str = val_str.replace(unit, '')
-            escribir_log(f"   [PASO 2] Removiendo unidad '{unit}': '{val_str}'")
 
+    # Reemplazo estricto de coma decimal por punto decimal
     if ',' in val_str:
-        escribir_log(f"   [PASO 3] Se detectó coma. Reemplazando puntos por nada y comas por punto.")
-        val_str = val_str.replace('.', '')
-        val_str = val_str.replace(',', '.')
-        escribir_log(f"   [PASO 3] Resultado post-reemplazo coma: '{val_str}'")
-    else:
-        if val_str.count('.') > 1:
-            escribir_log(f"   [PASO 3] Múltiples puntos detectados. Corrigiendo formato de miles.")
-            partes = val_str.split('.')
-            val_str = "".join(partes[:-1]) + "." + partes[-1]
-            escribir_log(f"   [PASO 3] Resultado post-puntos: '{val_str}'")
+        val_str = val_str.replace('.', '')   # Elimina puntos de miles si los hubiera
+        val_str = val_str.replace(',', '.')   # Cambia la coma por punto decimal
 
     try:
         resultado = float(val_str)
-        escribir_log(f"<- [ÉXITO] Conversión final a float: {resultado}\n")
+        escribir_log(f"-> [CONVERSIÓN] Dato Original: '{val_orig}' (Tipo: {type(val_orig).__name__}) ==> Transformado a Float: {resultado}")
         return resultado
     except ValueError as e:
-        escribir_log(f"<- [ERROR] Falló parseo de '{val_str}': {e}. Retorna 0.0\n")
+        escribir_log(f"-> [ERROR CONVERSIÓN] No se pudo parsear '{val_orig}': {e}. Retorna 0.0")
         return 0.0
 
 # ==========================================
@@ -132,19 +120,19 @@ def obtener_ahora_arg():
 
 def obtener_momento_y_fecha_auto():
     ahora = obtener_ahora_arg()
-    hora_actual = ahora.time()
-    fecha_obj = ahora.date()
+    hora_actual = me = ahora.time()
+    fecha_obj = me = ahora.date()
     
-    if time(0, 0) <= hora_actual < time(2, 0):
+    if time(0, 0) <= me < time(2, 0):
         fecha_obj = fecha_obj - timedelta(days=1)
         momento = "Cena"
-    elif time(6, 0) <= hora_actual < time(10, 0):
+    elif time(6, 0) <= me < time(10, 0):
         momento = "Desayuno"
-    elif time(10, 0) <= hora_actual < time(12, 0):
+    elif time(10, 0) <= me < time(12, 0):
         momento = "Colación"
-    elif time(12, 0) <= hora_actual < time(15, 0):
+    elif time(12, 0) <= me < time(15, 0):
         momento = "Almuerzo"
-    elif time(15, 0) <= hora_actual < time(20, 0):
+    elif time(15, 0) <= me < time(20, 0):
         momento = "Merienda"
     else:
         momento = "Cena"
@@ -219,15 +207,19 @@ def obtener_datos_mes(user_id, mes_str):
         except:
             ws = sh.sheet1
 
-        records = ws.get_all_records()
+        # CLAVE CRÍTICA: FORMATTED_VALUE exige que gspread traiga el texto tal cual (ej: "1,5")
+        records = ws.get_all_records(value_render_option='FORMATTED_VALUE')
+        
         if not records:
+            escribir_log("⚠️ No se recuperaron registros de la hoja.")
             return pd.DataFrame()
         
         df = pd.DataFrame(records)
+        df.columns = [str(c).strip() for c in df.columns]
         
         col_map = {}
         for c in df.columns:
-            c_lower = str(c).lower()
+            c_lower = c.lower()
             if 'fecha' in c_lower: col_map[c] = 'Fecha'
             elif 'momento' in c_lower or 'actividad' in c_lower: col_map[c] = 'Momento'
             elif 'alimento' in c_lower or 'detalle' in c_lower: col_map[c] = 'Alimento'
@@ -240,23 +232,25 @@ def obtener_datos_mes(user_id, mes_str):
 
         df = df.rename(columns=col_map)
         
+        escribir_log(f"\n--- INICIO PROCESAMIENTO NUMÉRICO DESDE HOJA ---")
+        columnas_numericas = ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']
+        
+        for col in columnas_numericas:
+            if col in df.columns:
+                escribir_log(f"--- Procesando Columna: '{col}' ---")
+                df[col] = df[col].apply(parse_float)
+            else:
+                df[col] = 0.0
+
+        escribir_log(f"--- FIN PROCESAMIENTO NUMÉRICO ---\n")
+
         if "Fecha" in df.columns and not df.empty:
             df['Fecha'] = df['Fecha'].astype(str)
-            df = df[df['Fecha'].str.startswith(mes_str)]
-            
-            escribir_log(f"--- INICIO LECTURA DESDE HOJA (Mes: {mes_str}) ---")
-            for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
-                if col in df.columns:
-                    escribir_log(f"Procesando columna '{col}':")
-                    df[col] = df[col].apply(parse_float)
-                else:
-                    df[col] = 0.0
-            escribir_log(f"--- FIN LECTURA DESDE HOJA ---\n")
+            df = df[df['Fecha'].str.contains(mes_str)]
                     
         return df
     except Exception as e:
         escribir_log(f"[ERROR OBTENER DATOS] {e}")
-        print(f"Error al obtener datos: {e}")
         return pd.DataFrame()
 
 def obtener_perfil(user_id):
@@ -272,7 +266,7 @@ def obtener_perfil(user_id):
             except:
                 return None
                 
-        records = ws.get_all_records()
+        records = ws.get_all_records(value_render_option='FORMATTED_VALUE')
         if not records:
             return None
             
@@ -402,7 +396,7 @@ def generar_manual_pdf_bytes():
         Paragraph("• <b>/diario:</b> Consultá lo registrado en el día de hoy, ayer o cualquier fecha específica.", body_style),
         Paragraph("• <b>/resumen:</b> Accedé al informe interactivo del mes, compará meses pasados y descargá el reporte en PDF.", body_style),
         Paragraph("• <b>/perfil:</b> Configurá tu edad, peso, altura y ocupación para calcular tu gasto calórico basal (GET).", body_style),
-        Paragraph("• <b>/log:</b> Descargá el archivo de diagnóstico técnico (trazabilidad de datos numéricos).", body_style),
+        Paragraph("• <b>/log:</b> Descargá el archivo de diagnóstico técnico con el recorrido paso a paso de las conversiones.", body_style),
         Spacer(1, 10),
 
         Paragraph("<b>3. Confirmación y Modificaciones</b>", sub_style),
@@ -440,7 +434,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /diario - Ver lo registrado (Hoy, Ayer u Otro día)\n"
         "• /resumen - Informe mensual interactivo y descarga de PDF\n"
         "• /perfil - Configurar datos corporales\n"
-        "• /log - Descargar el historial de trazabilidad de conversión"
+        "• /log - Descargar historial de logs y conversiones"
     )
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📖 Descargar Manual de Uso (PDF)", callback_data="download_manual")]
@@ -760,7 +754,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ahora = obtener_ahora_arg()
         keyboard = []
         for i in range(6):
-            f_mes = ahora.date().replace(day=1) - timedelta(days=i*28)
+            f_mes = me = ahora.date().replace(day=1) - timedelta(days=i*28)
             mes_code = f_mes.strftime("%Y-%m")
             mes_nombre = f_mes.strftime("%B %Y").capitalize()
             keyboard.append([InlineKeyboardButton(f"🗓️ {mes_nombre} ({mes_code})", callback_data=f"selectmes_{mes_code}")])
