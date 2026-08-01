@@ -311,8 +311,49 @@ def obtener_datos_mes(user_id, mes_str):
         print(f"Error al obtener datos: {e}")
         return pd.DataFrame()
 
+def obtener_datos_dia(user_id, fecha_str):
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = get_or_create_worksheet(sh, f"User_{user_id}")
+
+        records = ws.get_all_records()
+        if not records:
+            return pd.DataFrame()
+        
+        df = pd.DataFrame(records)
+        col_map = {}
+        for c in df.columns:
+            c_lower = str(c).lower()
+            if 'fecha' in c_lower: col_map[c] = 'Fecha'
+            elif 'momento' in c_lower or 'actividad' in c_lower: col_map[c] = 'Momento'
+            elif 'alimento' in c_lower or 'detalle' in c_lower: col_map[c] = 'Alimento'
+            elif 'peso' in c_lower: col_map[c] = 'Peso'
+            elif 'calor' in c_lower: col_map[c] = 'Calorias'
+            elif 'prote' in c_lower: col_map[c] = 'Proteinas'
+            elif 'grasa' in c_lower: col_map[c] = 'Grasas'
+            elif 'hidrat' in c_lower or 'carbo' in c_lower: col_map[c] = 'Carbohidratos'
+            elif 'fibra' in c_lower: col_map[c] = 'Fibras'
+
+        df = df.rename(columns=col_map)
+        
+        if "Fecha" in df.columns and not df.empty:
+            df['Fecha_dt'] = pd.to_datetime(df['Fecha'], errors='coerce')
+            df['Fecha'] = df['Fecha_dt'].dt.strftime('%Y-%m-%d').fillna(df['Fecha'].astype(str))
+            df = df[df['Fecha'] == fecha_str]
+            
+            for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
+                if col in df.columns:
+                    df[col] = df[col].apply(parse_float_from_sheets)
+                else:
+                    df[col] = 0.0
+                    
+        return df
+    except Exception as e:
+        print(f"Error al obtener datos del día: {e}")
+        return pd.DataFrame()
+
 def obtener_perfil_historico(user_id, mes_str):
-    """ Busca en la hoja Perfil_{user_id} el valor biométrico correspondiente al mes del resumen. """
     try:
         gc = get_gspread_client()
         sh = gc.open(SPREADSHEET_NAME)
@@ -328,7 +369,6 @@ def obtener_perfil_historico(user_id, mes_str):
         df_mes = df[df['Mes_Anio'].astype(str) == mes_str]
         
         if df_mes.empty:
-            # Si no hay del mes exacto, busca el último registro disponible hasta ese mes
             df_mes = df[df['Mes_Anio'].astype(str) <= mes_str]
             if df_mes.empty:
                 last_rec = df.iloc[-1].to_dict()
@@ -387,7 +427,6 @@ def calcular_metabolismo(perfil):
         return None
 
 def buscar_comida_predeterminada(alimento_buscado):
-    """ Busca en la planilla un alimento exacto registrado en la columna Alimento """
     try:
         gc = get_gspread_client()
         sh = gc.open(SPREADSHEET_NAME)
@@ -474,7 +513,7 @@ def generar_recomendacion_nutricional(perfil, proms_diarios):
         return "No se pudo generar la recomendación personalizada."
 
 # ==========================================
-# GENERACIÓN DE PDFS (INSTRUCCIONES / COMIDAS / RESUMEN)
+# GENERACIÓN DE PDFS (INSTRUCCIONES / COMIDAS)
 # ==========================================
 def generar_pdf_instrucciones_bytes():
     buffer = io.BytesIO()
@@ -522,12 +561,20 @@ def generar_pdf_instrucciones_bytes():
     return buffer
 
 def generar_pdf_comidas_bytes():
+    """ 
+    PUNTO 2 CORREGIDO: Ajusta automáticamente el alto de las celdas envolviendo 
+    el texto en Paragraphs y definiendo un estilo con 'leading' adecuado.
+    """
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
     styles = getSampleStyleSheet()
     
     title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#1E3A8A'), spaceAfter=10)
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=12)
+    
+    # Estilos específicos para celdas de la tabla (Encabezado y Contenido)
+    cell_header = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.whitesmoke, fontName="Helvetica-Bold", alignment=1)
+    cell_body = ParagraphStyle('CellBody', parent=styles['Normal'], fontSize=8, leading=11, textColor=colors.HexColor('#0F172A'))
+    cell_body_center = ParagraphStyle('CellBodyCenter', parent=styles['Normal'], fontSize=8, leading=11, textColor=colors.HexColor('#0F172A'), alignment=1)
 
     story = [Paragraph("<b>Catálogo de Comidas Predeterminadas</b>", title_style)]
     
@@ -538,31 +585,35 @@ def generar_pdf_comidas_bytes():
         records = ws.get_all_records()
         
         if records:
-            table_data = [["Código", "Alimento", "Peso (g)", "Kcal", "Prot (g)", "Grasas (g)", "Carbs (g)", "Fibra (g)"]]
+            headers = ["Código", "Alimento / Detalle", "Peso (g)", "Kcal", "Prot (g)", "Grasas (g)", "Carbs (g)", "Fibra (g)"]
+            table_data = [[Paragraph(h, cell_header) for h in headers]]
+            
             for r in records:
                 table_data.append([
-                    str(r.get("Codigo", "")),
-                    str(r.get("Alimento", "")),
-                    f"{parse_float_from_sheets(r.get('Peso (g)', 0)):.0f}",
-                    f"{parse_float_from_sheets(r.get('Calorias (kcal)', 0)):.0f}",
-                    f"{parse_float_from_sheets(r.get('Proteinas (g)', 0)):.1f}",
-                    f"{parse_float_from_sheets(r.get('Grasas (g)', 0)):.1f}",
-                    f"{parse_float_from_sheets(r.get('Hidratos (g)', 0)):.1f}",
-                    f"{parse_float_from_sheets(r.get('Fibras (g)', 0)):.1f}"
+                    Paragraph(str(r.get("Codigo", "")), cell_body_center),
+                    Paragraph(str(r.get("Alimento", "")), cell_body), # Auto-wrap activo
+                    Paragraph(f"{parse_float_from_sheets(r.get('Peso (g)', 0)):.0f}", cell_body_center),
+                    Paragraph(f"{parse_float_from_sheets(r.get('Calorias (kcal)', 0)):.0f}", cell_body_center),
+                    Paragraph(f"{parse_float_from_sheets(r.get('Proteinas (g)', 0)):.1f}", cell_body_center),
+                    Paragraph(f"{parse_float_from_sheets(r.get('Grasas (g)', 0)):.1f}", cell_body_center),
+                    Paragraph(f"{parse_float_from_sheets(r.get('Hidratos (g)', 0)):.1f}", cell_body_center),
+                    Paragraph(f"{parse_float_from_sheets(r.get('Fibras (g)', 0)):.1f}", cell_body_center)
                 ])
-            t = Table(table_data, colWidths=[65, 140, 50, 50, 50, 50, 50, 50])
+            
+            # Distribución de anchos de columna adaptada al tamaño carta
+            t = Table(table_data, colWidths=[55, 160, 45, 45, 45, 45, 45, 45])
             t.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2563EB')),
-                ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
                 ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
-                ('FONTSIZE', (0,0), (-1,-1), 8),
-                ('ALIGN', (2,0), (-1,-1), 'CENTER')
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('TOPPADDING', (0,0), (-1,-1), 5),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 5),
             ]))
             story.append(t)
         else:
-            story.append(Paragraph("No hay comidas predeterminadas registradas.", body_style))
+            story.append(Paragraph("No hay comidas predeterminadas registradas.", cell_body))
     except Exception as e:
-        story.append(Paragraph(f"Error al obtener planilla: {e}", body_style))
+        story.append(Paragraph(f"Error al obtener planilla: {e}", cell_body))
 
     doc.build(story)
     buffer.seek(0)
@@ -629,37 +680,90 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # REGISTRO DE PRESIÓN ARTERIAL (/PRESION)
 # ==========================================
 async def start_presion(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip().replace('/presion', '').strip()
-    if text:
-        parts = [p.strip() for p in text.split(',')]
+    """
+    PUNTO 1 CORREGIDO: Permite procesar argumentos opcionales directamente en el comando 
+    (ej: /presion 12,75,65) o abrir la interacción conversacional.
+    """
+    args_text = update.message.text.replace('/presion', '').strip()
+    
+    if args_text:
+        parts = [p.strip() for p in args_text.replace('/', ',').split(',') if p.strip()]
         if len(parts) == 3:
             alta, baja, pul = parts[0], parts[1], parts[2]
             guardar_presion_en_sheets(update.effective_user.id, alta, baja, pul)
-            await update.message.reply_text(f"✅ **Presión registrada:** Alta: {alta} | Baja: {baja} | Pulsaciones: {pul}")
+            await update.message.reply_text(f"✅ **Presión guardada directamente:**\n• Alta: `{alta}` | Baja: `{baja}` | Pulsaciones: `{pul} bpm`", parse_mode="Markdown")
             return ConversationHandler.END
-    
+        else:
+            await update.message.reply_text("⚠️ Formato de parámetros incorrecto. Usa `/presion 12,75,65` o solo `/presion`.", parse_mode="Markdown")
+            return ConversationHandler.END
+
     await update.message.reply_text("🩺 Por favor, ingresá las 3 medidas separadas por coma (Ej: `120,80,72` para Alta, Baja y Pulsaciones):")
     return PRESION_INPUT
 
 async def set_presion_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    parts = [p.strip() for p in text.split(',')]
+    parts = [p.strip() for p in text.replace('/', ',').split(',') if p.strip()]
     if len(parts) == 3:
         alta, baja, pul = parts[0], parts[1], parts[2]
         guardar_presion_en_sheets(update.effective_user.id, alta, baja, pul)
-        await update.message.reply_text(f"✅ **Presión registrada:** Alta: {alta} | Baja: {baja} | Pulsaciones: {pul}")
+        await update.message.reply_text(f"✅ **Presión registrada:** Alta: `{alta}` | Baja: `{baja}` | Pulsaciones: `{pul} bpm`", parse_mode="Markdown")
     else:
         await update.message.reply_text("❌ Formato inválido. Deben ser 3 valores separados por coma (ej: `120,80,72`).")
     return ConversationHandler.END
 
 # ==========================================
-# MOSTRAR RESUMEN MENSUAL Y EVALUACIÓN
+# MOSTRAR REGISTRO DIARIO (/DIARIO)
+# ==========================================
+async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ PUNTO 3 CORREGIDO: Implementación activa del comando /diario """
+    user_id = update.effective_user.id
+    fecha_hoy = obtener_ahora_arg().strftime("%Y-%m-%d")
+    df = obtener_datos_dia(user_id, fecha_hoy)
+
+    if df.empty:
+        await update.message.reply_text(f"📅 No hay registros cargados para el día de hoy (`{fecha_hoy}`).", parse_mode="Markdown")
+        return
+
+    txt = f"📅 **Registro Diario ({fecha_hoy}):**\n\n"
+    tot_c = 0.0
+    tot_p = 0.0
+    tot_g = 0.0
+    tot_h = 0.0
+    tot_f = 0.0
+
+    for idx, row in df.iterrows():
+        c = row['Calorias']
+        p = row['Proteinas']
+        g = row['Grasas']
+        h = row['Carbohidratos']
+        f = row['Fibras']
+        
+        tot_c += c
+        tot_p += p
+        tot_g += g
+        tot_h += h
+        tot_f += f
+
+        txt += f"• **{row['Momento']}**: {row['Alimento']} ({row['Peso']:.0f}g) -> `{c:.0f} kcal`\n"
+
+    txt += f"\n📊 **Totales Ingeridos:**\n"
+    txt += f"• 📥 Calorías: `{tot_c:.0f} kcal`\n"
+    txt += f"• 💪 Proteínas: `{tot_p:.1f} g`\n"
+    txt += f"• 🥑 Grasas: `{tot_g:.1f} g`\n"
+    txt += f"• 🍞 Carbohidratos: `{tot_h:.1f} g`\n"
+    txt += f"• 🌾 Fibras: `{tot_f:.1f} g`\n"
+
+    await update.message.reply_text(txt, parse_mode="Markdown")
+
+# ==========================================
+# MOSTRAR RESUMEN MENSUAL (/RESUMEN)
 # ==========================================
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ PUNTO 3 CORREGIDO: Restablece e invoca el flujo de resumen mensual """
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("📅 Este Mes", callback_data="resumen_estemes"),
-            InlineKeyboardButton("📆 Otro Mes", callback_data="resumen_otromes")
+            InlineKeyboardButton("📆 Mes Anterior", callback_data="resumen_mesanterior")
         ]
     ])
     await update.message.reply_text("📊 ¿Qué mes querés consultar en el resumen?", reply_markup=keyboard)
@@ -669,7 +773,11 @@ async def mostrar_resumen_pantalla(update: Update, context: ContextTypes.DEFAULT
     df = obtener_datos_mes(user_id, mes_str)
     
     if df.empty:
-        await update.message.reply_text(f"📊 No hay datos registrados para el mes `{mes_str}`.", parse_mode="Markdown")
+        msg = f"📊 No hay datos registrados para el mes `{mes_str}`."
+        if update.callback_query:
+            await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(msg, parse_mode="Markdown")
         return
 
     df['Es_Ejercicio'] = df['Calorias'] < 0
@@ -745,7 +853,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await procesar_y_mostrar_confirmacion(data, msg, context)
         return
 
-    # Si no está en predeterminadas y parece comando o no existe
+    # Si no está en predeterminadas y parece comando no existente
     if user_text.startswith('/') or user_text.startswith('*'):
         await update.message.reply_text("❌ Comando o alimento no reconocido. Revisa la lista con /comidas.")
         return
@@ -809,7 +917,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         guardar_en_sheets(user_id, items, fecha, momento, tipo)
         context.user_data.pop('pending_items', None)
-        await query.edit_message_text(f"✅ ¡Guardado en Google Sheets con exito!")
+        await query.edit_message_text("✅ ¡Guardado en Google Sheets con éxito!")
 
     elif data == "cancel_entry":
         context.user_data.pop('pending_items', None)
@@ -818,6 +926,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "resumen_estemes":
         mes_actual = obtener_ahora_arg().strftime("%Y-%m")
         await mostrar_resumen_pantalla(update, context, mes_actual)
+
+    elif data == "resumen_mesanterior":
+        hace_un_mes = obtener_ahora_arg().replace(day=1) - timedelta(days=1)
+        mes_anterior = hace_un_mes.strftime("%Y-%m")
+        await mostrar_resumen_pantalla(update, context, mes_anterior)
 
 # ==========================================
 # CONFIGURACIÓN DE PERFIL CORPORAL
@@ -899,6 +1012,7 @@ def main():
 
     application.add_handler(CommandHandler("start", cmd_start))
     application.add_handler(CommandHandler("comidas", cmd_comidas))
+    application.add_handler(CommandHandler("diario", cmd_diario))
     application.add_handler(CommandHandler("resumen", cmd_resumen))
     application.add_handler(perfil_handler)
     application.add_handler(presion_handler)
