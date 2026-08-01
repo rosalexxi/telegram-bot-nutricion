@@ -12,3 +12,4 @@ reportlab
 flask
 pytz
 pillow
+gunicorn
