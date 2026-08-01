@@ -453,7 +453,7 @@ def generar_pdf_comidas_bytes(plantillas):
         
         for p in plantillas:
             table_data.append([
-                Paragraph(str(p.get("Nombre", "")), body_style),
+                Paragraph(str(p.get("Detalle") or p.get("Alimento") or p.get("Descripcion") or p.get("Nombre", "")), body_style),
                 Paragraph(str(p.get("Momento", "")), body_style),
                 Paragraph(f"{p.get('Peso', 0):.1f}", body_style),
                 Paragraph(f"{p.get('Calorias', 0):.1f}", body_style),
@@ -507,7 +507,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     tot_fibr = 0.0
 
     if not df_mes.empty:
-        # Procesamiento fecha por fecha discriminando consumos (+) de quemados (-)
         fechas_unicas = sorted(df_mes['Fecha'].unique())
         dias_con_registro = len(fechas_unicas)
 
@@ -728,7 +727,8 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     txt = "📋 **Listado de Comidas Predeterminadas:**\n\n"
     for p in plantillas:
-        txt += f"• **{p.get('Nombre')}** ({p.get('Momento')}): `{p.get('Calorias'):.0f} kcal` | `{p.get('Peso'):.0f}g`\n"
+        nombre_display = p.get('Detalle') or p.get('Alimento') or p.get('Descripcion') or p.get('Nombre')
+        txt += f"• **{nombre_display}** ({p.get('Momento')}): `{p.get('Calorias'):.0f} kcal` | `{p.get('Peso'):.0f}g`\n"
 
     txt += "\n📄 Te adjuntamos el archivo en PDF a continuación."
     await update.message.reply_text(txt, parse_mode="Markdown")
@@ -916,8 +916,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if coincidencia:
         fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
+        
+        # Se busca prioritariamente la descripción completa en la plantilla
+        # (campos 'Detalle', 'Alimento', 'Descripcion' o similar) y si no existe, se usa 'Nombre'
+        alimento_descripcion = (
+            coincidencia.get("Detalle") or 
+            coincidencia.get("Alimento") or 
+            coincidencia.get("Descripcion") or 
+            coincidencia.get("Nombre")
+        )
+        
         item = {
-            "alimento": coincidencia.get("Nombre"),
+            "alimento": alimento_descripcion,
             "peso": parse_raw_val(coincidencia.get("Peso")),
             "calorias": parse_raw_val(coincidencia.get("Calorias")),
             "proteinas": parse_raw_val(coincidencia.get("Proteinas")),
