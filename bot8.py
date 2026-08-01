@@ -928,7 +928,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['pending_items'] = [item]
         context.user_data['pending_tipo'] = "Comida"
         context.user_data['pending_fecha'] = fecha_auto
-        context.user_data['pending_momento'] = coincidencia.get("Momento", momento_auto)
+        context.user_data['pending_momento'] = momento_auto
         
         msg = await update.message.reply_text("🔍 Plantilla localizada con éxito...")
         await render_confirmation_screen(msg, context)
