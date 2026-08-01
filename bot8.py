@@ -74,12 +74,14 @@ def parse_raw_val(val):
         return 0.0
 
 def to_sheet_int(val):
+    """Multiplica por 1000 y redondea a entero antes de guardar en la hoja."""
     num = parse_raw_val(val)
     return int(round(num * 1000))
 
 def parse_float_from_sheets(val):
+    """Siempre divide por 1000.0 los valores leídos de la hoja."""
     num = parse_raw_val(val)
-    return num / 1000.0 if num > 5000 else num
+    return num / 1000.0
 
 def obtener_ahora_arg():
     return datetime.now(ARG_TZ)
@@ -189,7 +191,13 @@ def guardar_presion_en_sheets(user_id, alta, baja, pulsaciones):
     sh = gc.open(SPREADSHEET_NAME)
     ws = get_or_create_worksheet(sh, f"Presion_{user_id}")
     ahora = obtener_ahora_arg()
-    ws.append_row([ahora.strftime("%Y-%m-%d %H:%M:%S"), ahora.strftime("%Y-%m-%d"), alta, baja, pulsaciones])
+    ws.append_row([
+        ahora.strftime("%Y-%m-%d %H:%M:%S"), 
+        ahora.strftime("%Y-%m-%d"), 
+        to_sheet_int(alta), 
+        to_sheet_int(baja), 
+        to_sheet_int(pulsaciones)
+    ])
 
 def guardar_perfil_en_sheets(user_id, edad, peso, altura, genero="masculino", ocupacion="Sedentario", mes=None):
     gc = get_gspread_client()
@@ -198,8 +206,16 @@ def guardar_perfil_en_sheets(user_id, edad, peso, altura, genero="masculino", oc
     ahora = obtener_ahora_arg()
     if not mes:
         mes = ahora.strftime("%Y-%m")
-    # Guardar manteniendo valores numéricos reales (sin multiplicar por 1000)
-    ws.append_row([edad, peso, altura, genero, ocupacion, mes, ahora.strftime("%Y-%m-%d %H:%M:%S")])
+    
+    ws.append_row([
+        to_sheet_int(edad), 
+        to_sheet_int(peso), 
+        to_sheet_int(altura), 
+        genero, 
+        ocupacion, 
+        mes, 
+        ahora.strftime("%Y-%m-%d %H:%M:%S")
+    ])
 
 def obtener_perfil_usuario(user_id):
     try:
@@ -209,7 +225,15 @@ def obtener_perfil_usuario(user_id):
         records = ws.get_all_records()
         if not records:
             return None
-        return records[-1] # Devolver la última actualización
+        
+        perfil = records[-1] # Devolver la última actualización
+        
+        # Convertir/Dividir por 1000 los campos numéricos del perfil
+        for key in ['Edad', 'Peso', 'Altura']:
+            if key in perfil:
+                perfil[key] = parse_float_from_sheets(perfil[key])
+                
+        return perfil
     except Exception:
         return None
 
@@ -239,6 +263,7 @@ def obtener_datos_usuario(user_id):
         df = df.rename(columns=col_map)
         if "Fecha" in df.columns and not df.empty:
             df['Fecha'] = df['Fecha'].astype(str).str.strip()
+            # Dividir por 1000 todos los campos nutricionales
             for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
                 if col in df.columns:
                     df[col] = df[col].apply(parse_float_from_sheets)
@@ -257,7 +282,14 @@ def obtener_datos_presion(user_id):
         records = ws.get_all_records()
         if not records:
             return pd.DataFrame()
-        return pd.DataFrame(records)
+        
+        df = pd.DataFrame(records)
+        # Dividir por 1000 las lecturas numéricas de presión y pulsaciones
+        for col in ['Alta', 'Baja', 'Pulsaciones']:
+            if col in df.columns:
+                df[col] = df[col].apply(parse_float_from_sheets)
+                
+        return df
     except Exception:
         return pd.DataFrame()
 
@@ -266,7 +298,15 @@ def obtener_plantillas_comidas():
         gc = get_gspread_client()
         sh = gc.open(SPREADSHEET_NAME)
         ws = get_or_create_worksheet(sh, "Plantillas_Comidas")
-        return ws.get_all_records()
+        records = ws.get_all_records()
+        
+        # Opcional: Si las plantillas en la hoja también vienen multiplicadas por 1000
+        for p in records:
+            for k in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
+                if k in p:
+                    p[k] = parse_float_from_sheets(p[k])
+                    
+        return records
     except Exception:
         return []
 
@@ -380,7 +420,6 @@ def generar_pdf_comidas_bytes(plantillas):
     if not plantillas:
         story.append(Paragraph("No hay comidas predeterminadas cargadas en la hoja 'Plantillas_Comidas'.", body_style))
     else:
-        # Celdas con auto-height mediante Paragraph para evitar superposición
         table_data = [[
             Paragraph("Nombre", header_style), 
             Paragraph("Momento", header_style), 
@@ -396,12 +435,12 @@ def generar_pdf_comidas_bytes(plantillas):
             table_data.append([
                 Paragraph(str(p.get("Nombre", "")), body_style),
                 Paragraph(str(p.get("Momento", "")), body_style),
-                Paragraph(str(p.get("Peso", "")), body_style),
-                Paragraph(str(p.get("Calorias", "")), body_style),
-                Paragraph(str(p.get("Proteinas", "")), body_style),
-                Paragraph(str(p.get("Grasas", "")), body_style),
-                Paragraph(str(p.get("Carbohidratos", "")), body_style),
-                Paragraph(str(p.get("Fibras", "")), body_style)
+                Paragraph(f"{p.get('Peso', 0):.1f}", body_style),
+                Paragraph(f"{p.get('Calorias', 0):.1f}", body_style),
+                Paragraph(f"{p.get('Proteinas', 0):.1f}", body_style),
+                Paragraph(f"{p.get('Grasas', 0):.1f}", body_style),
+                Paragraph(f"{p.get('Carbohidratos', 0):.1f}", body_style),
+                Paragraph(f"{p.get('Fibras', 0):.1f}", body_style)
             ])
         
         t = Table(table_data, colWidths=[140, 75, 45, 50, 50, 50, 50, 45])
@@ -460,7 +499,7 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
 
         for _, row in df_grouped.iterrows():
             c_cons = float(row['Calorias'])
-            c_quem = 0.0 # Ejercicio extra registrado si aplica
+            c_quem = 0.0
             b_neto = c_cons - c_quem
             prot = float(row['Proteinas'])
             gras = float(row['Grasas'])
@@ -679,7 +718,7 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     txt = "📋 **Listado de Comidas Predeterminadas:**\n\n"
     for p in plantillas:
-        txt += f"• **{p.get('Nombre')}** ({p.get('Momento')}): `{p.get('Calorias')} kcal` | `{p.get('Peso')}g`\n"
+        txt += f"• **{p.get('Nombre')}** ({p.get('Momento')}): `{p.get('Calorias'):.0f} kcal` | `{p.get('Peso'):.0f}g`\n"
 
     txt += "\n📄 Te adjuntamos el archivo en PDF a continuación."
     await update.message.reply_text(txt, parse_mode="Markdown")
@@ -1073,8 +1112,8 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     if not df_presion.empty:
         df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
         if not df_p_mes.empty:
-            alta_prom = df_p_mes['Alta'].apply(parse_raw_val).mean()
-            baja_prom = df_p_mes['Baja'].apply(parse_raw_val).mean()
+            alta_prom = df_p_mes['Alta'].mean()
+            baja_prom = df_p_mes['Baja'].mean()
             txt += f"\n🩺 **Presión Promedio:** `{alta_prom:.0f}/{baja_prom:.0f} mmHg`\n"
 
     resumen_para_ia = f"Mes: {mes_str}, Dias activos: {dias_activos}, Promedios reales: Kcal={prom_kcal:.0f}, Prot={prom_prot:.1f}g, Gras={prom_gras:.1f}g, Carb={prom_carb:.1f}g, Fibr={prom_fibr:.1f}g. GET estimado: {get_val:.0f} kcal"
