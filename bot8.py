@@ -110,7 +110,8 @@ def obtener_momento_y_fecha_auto():
     
 def calcular_tmb_y_get(peso, altura, edad, genero="masculino", actividad="sedentario"):
     # Harris-Benedict revisada
-    if genero.lower() in ["femenino", "f", "mujer"]:
+    genero_str = str(genero).lower()
+    if genero_str in ["femenino", "f", "mujer"]:
         tmb = 655 + (9.6 * peso) + (1.8 * altura) - (4.7 * edad)
     else:
         tmb = 66 + (13.7 * peso) + (5 * altura) - (6.8 * edad)
@@ -118,6 +119,7 @@ def calcular_tmb_y_get(peso, altura, edad, genero="masculino", actividad="sedent
     # Factores de actividad
     factores = {
         "sedentario": 1.2,
+        "jubilado": 1.2,
         "ligero": 1.375,
         "moderado": 1.55,
         "intenso": 1.725
@@ -156,7 +158,7 @@ def get_or_create_worksheet(spreadsheet, title):
             return ws
         elif title.startswith("Perfil_"):
             ws = spreadsheet.add_worksheet(title=title, rows="100", cols="7")
-            ws.append_row(["Edad", "Peso", "Altura", "Sexo", "Ocupacion", "Mes", "Fecha_Actualizacion"])
+            ws.append_row(["EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "MES", "Fecha_Actualizacion"])
             return ws
         elif title == "Plantillas_Comidas":
             ws = spreadsheet.add_worksheet(title=title, rows="100", cols="8")
@@ -211,13 +213,13 @@ def guardar_perfil_en_sheets(user_id, edad, peso, altura, genero="masculino", oc
         to_sheet_int(edad), 
         to_sheet_int(peso), 
         to_sheet_int(altura), 
-        genero, 
-        ocupacion, 
-        mes, 
+        str(genero), 
+        str(ocupacion), 
+        str(mes), 
         ahora.strftime("%Y-%m-%d %H:%M:%S")
     ])
 
-def obtener_perfil_usuario(user_id):
+def obtener_perfil_usuario(user_id, mes_target=None):
     try:
         gc = get_gspread_client()
         sh = gc.open(SPREADSHEET_NAME)
@@ -226,15 +228,37 @@ def obtener_perfil_usuario(user_id):
         if not records:
             return None
         
-        perfil = records[-1] # Devolver la última actualización
+        # Buscar la fila correspondiente al mes consultado (o la última si no hay coincidencia)
+        perfil_raw = None
+        if mes_target:
+            for r in reversed(records):
+                m_val = str(r.get('MES', r.get('Mes', ''))).strip()
+                if m_val == mes_target:
+                    perfil_raw = r
+                    break
         
-        # Convertir/Dividir por 1000 los campos numéricos del perfil
-        for key in ['Edad', 'Peso', 'Altura']:
-            if key in perfil:
-                perfil[key] = parse_float_from_sheets(perfil[key])
-                
+        if not perfil_raw:
+            perfil_raw = records[-1] # Tomar la última actualización disponible
+        
+        perfil = {}
+        for k, v in perfil_raw.items():
+            k_upper = str(k).strip().upper()
+            if k_upper == 'EDAD':
+                perfil['Edad'] = parse_float_from_sheets(v)
+            elif k_upper == 'PESO':
+                perfil['Peso'] = parse_float_from_sheets(v)
+            elif k_upper == 'ALTURA':
+                perfil['Altura'] = parse_float_from_sheets(v)
+            elif k_upper in ['GENERO', 'SEXO']:
+                perfil['Sexo'] = str(v)
+            elif k_upper == 'OCUPACION':
+                perfil['Ocupacion'] = str(v)
+            elif k_upper == 'MES':
+                perfil['Mes'] = str(v)
+
         return perfil
-    except Exception:
+    except Exception as e:
+        print(f"Error obteniendo perfil del usuario {user_id}: {e}")
         return None
 
 def obtener_datos_usuario(user_id):
@@ -284,7 +308,6 @@ def obtener_datos_presion(user_id):
             return pd.DataFrame()
         
         df = pd.DataFrame(records)
-        # Dividir por 1000 las lecturas numéricas de presión y pulsaciones
         for col in ['Alta', 'Baja', 'Pulsaciones']:
             if col in df.columns:
                 df[col] = df[col].apply(parse_float_from_sheets)
@@ -300,7 +323,6 @@ def obtener_plantillas_comidas():
         ws = get_or_create_worksheet(sh, "Plantillas_Comidas")
         records = ws.get_all_records()
         
-        # Opcional: Si las plantillas en la hoja también vienen multiplicadas por 1000
         for p in records:
             for k in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
                 if k in p:
@@ -373,7 +395,7 @@ def obtener_recomendacion_ia(resumen_texto):
         return "Mantené una dieta equilibrada rica en fibra y agua, ajustando las porciones según tu actividad diaria."
 
 # ==========================================
-# GENERADORES DE PDF (MODIFICADOS Y AJUSTADOS)
+# GENERADORES DE PDF
 # ==========================================
 def generar_pdf_instrucciones_bytes():
     buffer = io.BytesIO()
@@ -573,7 +595,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     
     tmb, get_val = calcular_tmb_y_get(peso, altura, edad, genero, actividad)
 
-    # Tabla Datos Fisiológicos
     table_bio = [
         [Paragraph("<b>Dato Fisiológico</b>", header_style), Paragraph("<b>Valor Registrado</b>", header_style)],
         [Paragraph("Sexo", body_style), Paragraph(genero, body_style)],
@@ -593,14 +614,12 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(t_bio)
     story.append(Spacer(1, 12))
 
-    # Comparativa y Cambio Corporal
     story.append(Paragraph("<b>Resumen de Balance y Cambio Corporal Estimado:</b>", sub_style))
     dias_activos = df_mes['Fecha'].nunique() if not df_mes.empty else 1
     get_total = get_val * dias_activos
     bal_calorico = tot_cons - get_total - tot_quem
     cambio_peso_kg = bal_calorico / 7700.0
 
-    # Macro recomendados estimados (por peso)
     prot_rec = peso * 1.5
     gras_rec = (get_val * 0.25) / 9.0
     carb_rec = (get_val * 0.50) / 4.0
@@ -648,21 +667,18 @@ async def render_confirmation_screen(msg_or_query, context):
 
     keyboard = []
     
-    # Fila 1: Selección de Momento
     m_buttons = []
     for m in ["Desayuno", "Almuerzo", "Merienda", "Cena"]:
         mark = "✅ " if m.lower() == momento.lower() else ""
         m_buttons.append(InlineKeyboardButton(f"{mark}{m}", callback_data=f"set_m_{m}"))
     keyboard.append(m_buttons)
 
-    # Filas de Items
     for idx, item in enumerate(items):
         keyboard.append([
             InlineKeyboardButton(f"Item #{idx+1}", callback_data="noop"),
             InlineKeyboardButton("🗑️ Anular", callback_data=f"del_item_{idx}")
         ])
 
-    # Fila de Días
     hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
     ayer_str = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
     mark_hoy = "✅ " if fecha == hoy_str else ""
@@ -675,7 +691,6 @@ async def render_confirmation_screen(msg_or_query, context):
         InlineKeyboardButton(f"{mark_otro}Otro Día", callback_data="set_d_otro")
     ])
 
-    # Fila final
     keyboard.append([
         InlineKeyboardButton("🗑️ ELIMINAR TODO", callback_data="cancel_entry"),
         InlineKeyboardButton("💾 GUARDAR", callback_data="confirm_save")
@@ -738,19 +753,19 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parts = [p.strip() for p in raw_text.replace('/', ',').replace(' ', ',').split(',') if p.strip()]
         if len(parts) >= 3:
             try:
-                edad = int(parts[0])
+                edad = float(parts[0].replace(',', '.'))
                 peso = float(parts[1].replace(',', '.'))
                 altura = float(parts[2].replace(',', '.'))
                 genero = parts[3] if len(parts) > 3 else "masculino"
-                ocupacion = parts[4] if len(parts) > 4 else "Sedentario"
+                ocupacion = parts[4] if len(parts) > 4 else "Jubilado"
                 mes = parts[5] if len(parts) > 5 else obtener_ahora_arg().strftime("%Y-%m")
 
                 guardar_perfil_en_sheets(user_id, edad, peso, altura, genero, ocupacion, mes)
                 tmb, get_val = calcular_tmb_y_get(peso, altura, edad, genero, ocupacion)
                 await update.message.reply_text(
                     f"✅ **Perfil actualizado correctamente:**\n"
-                    f"• Edad: `{edad}` años\n• Peso: `{peso}` kg\n• Altura: `{altura}` cm\n"
-                    f"• Genero: `{genero}` | Ocupación: `{ocupacion}`\n"
+                    f"• Edad: `{edad:.0f}` años\n• Peso: `{peso:.1f}` kg\n• Altura: `{altura:.1f}` cm\n"
+                    f"• Género: `{genero}` | Ocupación: `{ocupacion}`\n"
                     f"• Mes: `{mes}`\n"
                     f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
                     f"• **GET Estimado:** `{get_val:.0f} kcal/día`",
@@ -761,30 +776,30 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ Error en los datos ingresados. Asegurate de usar números válidos.")
                 return
 
-    perfil = obtener_perfil_usuario(user_id)
+    ahora_mes = obtener_ahora_arg().strftime("%Y-%m")
+    perfil = obtener_perfil_usuario(user_id, mes_target=ahora_mes)
     if perfil:
         peso = parse_raw_val(perfil.get('Peso'))
         altura = parse_raw_val(perfil.get('Altura'))
         edad = parse_raw_val(perfil.get('Edad'))
         genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino')))
-        ocupacion = str(perfil.get('Ocupacion', 'Sedentario'))
-        mes = str(perfil.get('Mes', obtener_ahora_arg().strftime("%Y-%m")))
+        ocupacion = str(perfil.get('Ocupacion', 'Jubilado'))
+        mes = str(perfil.get('Mes', ahora_mes))
 
         tmb, get_val = calcular_tmb_y_get(peso, altura, edad, genero, ocupacion)
         txt = (
-            f"👤 **Perfil Biométrico Actual:**\n\n"
+            f"👤 **Perfil Biométrico Actual ({mes}):**\n\n"
             f"• Edad: `{edad:.0f}` años\n"
             f"• Peso: `{peso:.1f}` kg\n"
             f"• Altura: `{altura:.1f}` cm\n"
-            f"• Genero: `{genero}`\n"
+            f"• Género: `{genero}`\n"
             f"• Ocupación: `{ocupacion}`\n"
-            f"• Mes: `{mes}`\n"
             f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
             f"• **GET Estimado:** `{get_val:.0f} kcal/día`\n\n"
-            f"Para actualizar tus datos envía:\n`/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION, MES`\n(Ej: `/perfil 64, 110, 172, M, Sedentario, 2026-08`)"
+            f"Para actualizar tus datos envía:\n`/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION, MES`\n(Ej: `/perfil 66, 112, 172, M, Jubilado, 2026-08`)"
         )
     else:
-        txt = "👤 **Perfil no registrado.** Para ingresar tus datos biométricos usá:\n`/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION, MES`\n(Ej: `/perfil 64, 110, 172, M, Sedentario, 2026-08`)"
+        txt = "👤 **Perfil no registrado.** Para ingresar tus datos biométricos usá:\n`/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION, MES`\n(Ej: `/perfil 66, 112, 172, M, Jubilado, 2026-08`)"
 
     await update.message.reply_text(txt, parse_mode="Markdown")
 
@@ -860,7 +875,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.strip()
 
-    # Procesar fecha ingresada manualmente para Diario o Confirmación
     if context.user_data.get('awaiting_diario_date'):
         context.user_data['awaiting_diario_date'] = False
         await mostrar_diario_fecha(update, user_id, raw_text)
@@ -877,7 +891,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await render_confirmation_screen(update.message, context)
         return
 
-    # 1. EVALUACIÓN DE COMANDOS EXPLÍCITOS
     if raw_text.startswith('/'):
         cmd = raw_text.split()[0].lower()
         if cmd == '/presion':
@@ -896,11 +909,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Comando no reconocido.")
         return
 
-    # 2. EVALUACIÓN DE PLANTILLAS Y PLANTILLA DIRECTA (*DESAYUNO, ETC)
     plantillas = obtener_plantillas_comidas()
     clean_text = raw_text.replace('*', '').strip().upper()
 
-    # Buscar coincidencia exacta con nombre de plantilla
     coincidencia = None
     if plantillas:
         for p in plantillas:
@@ -928,12 +939,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await render_confirmation_screen(msg, context)
         return
 
-    # SI EMPIEZA CON * Y NO SE ENCONTRÓ EN EL EXCEL, SE DESCARTA EL INGRESO
     if raw_text.startswith('*'):
         await update.message.reply_text(f"❌ La plantilla `{raw_text}` no fue encontrada en Excel. Registro descartado.", parse_mode="Markdown")
         return
 
-    # 3. PROCESAR CON IA SI NO FUE PLANTILLA
     msg = await update.message.reply_text("⏳ Analizando alimento con IA...")
     try:
         data = analizar_con_groq(raw_text)
@@ -1047,7 +1056,7 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
 
 async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     df = obtener_datos_usuario(user_id)
-    perfil = obtener_perfil_usuario(user_id)
+    perfil = obtener_perfil_usuario(user_id, mes_target=mes_str)
     df_presion = obtener_datos_presion(user_id)
 
     if df.empty:
@@ -1089,7 +1098,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         altura = parse_raw_val(perfil.get('Altura'))
         edad = parse_raw_val(perfil.get('Edad'))
         genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino')))
-        actividad = str(perfil.get('Ocupacion', 'sedentario'))
+        actividad = str(perfil.get('Ocupacion', 'Jubilado'))
         tmb_val, get_val = calcular_tmb_y_get(peso, altura, edad, genero, actividad)
 
     txt = f"📊 **Resumen Mensual Completo ({mes_str}):**\n\n"
@@ -1131,7 +1140,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
 
 async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
     df = obtener_datos_usuario(user_id)
-    perfil = obtener_perfil_usuario(user_id)
+    perfil = obtener_perfil_usuario(user_id, mes_target=mes_str)
     df_presion = obtener_datos_presion(user_id)
     
     df_mes = df[df['Fecha'].str.startswith(mes_str)] if not df.empty else pd.DataFrame()
@@ -1142,7 +1151,7 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         altura = parse_raw_val(perfil.get('Altura'))
         edad = parse_raw_val(perfil.get('Edad'))
         genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino')))
-        actividad = str(perfil.get('Ocupacion', 'sedentario'))
+        actividad = str(perfil.get('Ocupacion', 'Jubilado'))
         tmb_val, _ = calcular_tmb_y_get(peso, altura, edad, genero, actividad)
 
     rec_ia = obtener_recomendacion_ia(f"Resumen del mes {mes_str} para usuario {user_id}")
@@ -1162,12 +1171,10 @@ def main():
     if not TELEGRAM_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN no configurado en variables de entorno.")
 
-    # Iniciar Flask en hilo separado para Render
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
 
-    # Iniciar bot de Telegram
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     application.add_handler(CommandHandler("start", cmd_start))
