@@ -3,6 +3,7 @@ import re
 import io
 import json
 import base64
+import threading
 from datetime import datetime, date, timedelta, time
 import pytz
 import pandas as pd
@@ -38,9 +39,22 @@ GOOGLE_SHEETS_KEY_PATH = os.getenv("GOOGLE_SHEETS_KEY_PATH", "credentials.json")
 SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "Registro_Nutricional_Bot")
 
 ARG_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
-client_ai = Groq(api_key=GROQ_API_KEY)
 
+if GROQ_API_KEY:
+    client_ai = Groq(api_key=GROQ_API_KEY)
+else:
+    client_ai = None
+
+# Servidor Flask para Web Service en Render
 app = Flask(__name__)
+
+@app.route('/')
+def health_check():
+    return "Bot Nutricional activo y funcionando.", 200
+
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
 
 # Estados para ConversationHandler si se requieren entradas directas
 EDIT_ITEM, SELECT_DATE_DIARIO, SELECT_DATE_COMIDA = range(3)
@@ -190,6 +204,8 @@ def obtener_datos_usuario(user_id):
 # PROCESAMIENTO IA (TEXTO, VOZ Y FOTO)
 # ==========================================
 def analizar_con_groq(prompt_text):
+    if not client_ai:
+        raise Exception("GROQ_API_KEY no está configurada correctamente.")
     system_prompt = (
         "Sos un nutricionista experto. Analizá el texto ingresado.\n"
         "Devolvé EXCLUSIVAMENTE un JSON con este formato:\n"
@@ -212,6 +228,8 @@ def analizar_con_groq(prompt_text):
     return json.loads(response.choices[0].message.content)
 
 def analizar_imagen_con_groq(base64_image):
+    if not client_ai:
+        raise Exception("GROQ_API_KEY no está configurada correctamente.")
     prompt = "Analizá esta imagen de comida/plato. Identificá los alimentos, estimá sus pesos en gramos y nutrientes. Respondé ÚNICAMENTE en formato JSON con la clave 'items' conteniendo alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras."
     response = client_ai.chat.completions.create(
         model="qwen/qwen3.6-27b",
@@ -397,7 +415,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw_text = update.message.text.strip()
     
-    # Limpieza de asteriscos para evitar rebote de plantillas formateadas (*DESAYUNO, etc.)
+    # Limpieza de asteriscos para evitar rebote de plantillas formateadas
     clean_text = raw_text.replace('*', '').strip()
 
     # Evaluación de comando estricto
@@ -548,6 +566,15 @@ async def mostrar_resumen_mes(query, user_id, mes_str):
 # MAIN
 # ==========================================
 def main():
+    if not TELEGRAM_TOKEN:
+        raise ValueError("TELEGRAM_BOT_TOKEN no configurado en variables de entorno.")
+
+    # Iniciar Flask en hilo separado para Render
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+
+    # Iniciar bot de Telegram
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     application.add_handler(CommandHandler("start", cmd_start))
