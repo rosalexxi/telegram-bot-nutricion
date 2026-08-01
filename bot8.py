@@ -228,7 +228,6 @@ def obtener_perfil_usuario(user_id, mes_target=None):
         if not records:
             return None
         
-        # Buscar la fila correspondiente al mes consultado (o la última si no hay coincidencia)
         perfil_raw = None
         if mes_target:
             for r in reversed(records):
@@ -238,7 +237,7 @@ def obtener_perfil_usuario(user_id, mes_target=None):
                     break
         
         if not perfil_raw:
-            perfil_raw = records[-1] # Tomar la última actualización disponible
+            perfil_raw = records[-1]
         
         perfil = {}
         for k, v in perfil_raw.items():
@@ -287,7 +286,6 @@ def obtener_datos_usuario(user_id):
         df = df.rename(columns=col_map)
         if "Fecha" in df.columns and not df.empty:
             df['Fecha'] = df['Fecha'].astype(str).str.strip()
-            # Dividir por 1000 todos los campos nutricionales
             for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
                 if col in df.columns:
                     df[col] = df[col].apply(parse_float_from_sheets)
@@ -509,24 +507,21 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     tot_fibr = 0.0
 
     if not df_mes.empty:
-        df_grouped = df_mes.groupby('Fecha').agg({
-            'Calorias': 'sum',
-            'Proteinas': 'sum',
-            'Grasas': 'sum',
-            'Carbohidratos': 'sum',
-            'Fibras': 'sum'
-        }).reset_index()
+        # Procesamiento fecha por fecha discriminando consumos (+) de quemados (-)
+        fechas_unicas = sorted(df_mes['Fecha'].unique())
+        dias_con_registro = len(fechas_unicas)
 
-        dias_con_registro = len(df_grouped)
-
-        for _, row in df_grouped.iterrows():
-            c_cons = float(row['Calorias'])
-            c_quem = 0.0
+        for f in fechas_unicas:
+            sub = df_mes[df_mes['Fecha'] == f]
+            
+            c_cons = sub[sub['Calorias'] > 0]['Calorias'].sum()
+            c_quem = abs(sub[sub['Calorias'] < 0]['Calorias'].sum())
             b_neto = c_cons - c_quem
-            prot = float(row['Proteinas'])
-            gras = float(row['Grasas'])
-            carb = float(row['Carbohidratos'])
-            fibr = float(row['Fibras'])
+            
+            prot = float(sub['Proteinas'].sum())
+            gras = float(sub['Grasas'].sum())
+            carb = float(sub['Carbohidratos'].sum())
+            fibr = float(sub['Fibras'].sum())
 
             tot_cons += c_cons
             tot_quem += c_quem
@@ -536,7 +531,7 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
             tot_fibr += fibr
 
             table_data_h1.append([
-                Paragraph(str(row['Fecha']), body_style),
+                Paragraph(str(f), body_style),
                 Paragraph(f"{c_cons:.1f} kcal", body_style),
                 Paragraph(f"{c_quem:.1f} kcal", body_style),
                 Paragraph(f"{b_neto:.1f} kcal", body_style),
@@ -714,7 +709,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /presion: Registrar mediciones de presión arterial (sistólica, diastólica y pulsaciones).\n"
         "• /diario: Consultar consumos del día u otra fecha.\n"
         "• /resumen: Obtener el resumen mensual con cálculo histórico de TMB, promedio de presión y recomendaciones de IA.\n"
-        "• /perfil: Actualizar datos biométricos corporales.\n\n"
+        "• /perfil: Actualizar o consultar datos biométricos corporales.\n\n"
         "📄 Te adjuntamos el manual de instrucciones actualizado en PDF."
     )
     await update.message.reply_text(msg)
@@ -1044,10 +1039,18 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
             txt = f"📅 No hay registros para la fecha `{fecha_str}`."
         else:
             txt = f"📅 **Registro del día {fecha_str}:**\n\n"
-            total_kcal = df_filtrado['Calorias'].sum()
+            
+            c_cons = df_filtrado[df_filtrado['Calorias'] > 0]['Calorias'].sum()
+            c_quem = abs(df_filtrado[df_filtrado['Calorias'] < 0]['Calorias'].sum())
+            b_neto = c_cons - c_quem
+            
             for _, r in df_filtrado.iterrows():
-                txt += f"• **{r.get('Momento','Comida')}**: {r.get('Alimento','Item')} ({r.get('Peso',0):.0f}g) -> `{r.get('Calorias',0):.0f} kcal`\n"
-            txt += f"\n🔥 **Total Calorías:** `{total_kcal:.0f} kcal`"
+                cal_val = r.get('Calorias', 0)
+                txt += f"• **{r.get('Momento','Comida')}**: {r.get('Alimento','Item')} ({r.get('Peso',0):.0f}g) -> `{cal_val:.0f} kcal`\n"
+            
+            txt += f"\n📥 **Consumidas:** `{c_cons:.0f} kcal`"
+            txt += f"\n🔥 **Quemadas:** `{c_quem:.0f} kcal`"
+            txt += f"\n⚖️ **Balance Neto:** `{b_neto:.0f} kcal`"
 
     if hasattr(query_or_update, 'edit_message_text'):
         await query_or_update.edit_message_text(txt, parse_mode="Markdown")
@@ -1079,13 +1082,19 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     dias_activos = df_mes['Fecha'].nunique()
     dias_div = dias_activos if dias_activos > 0 else 1
 
-    total_kcal = df_mes['Calorias'].sum()
+    total_cons = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()
+    total_quem = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())
+    total_neto = total_cons - total_quem
+
     total_prot = df_mes['Proteinas'].sum()
     total_gras = df_mes['Grasas'].sum()
     total_carb = df_mes['Carbohidratos'].sum()
     total_fibr = df_mes['Fibras'].sum()
 
-    prom_kcal = total_kcal / dias_div
+    prom_cons = total_cons / dias_div
+    prom_quem = total_quem / dias_div
+    prom_neto = total_neto / dias_div
+
     prom_prot = total_prot / dias_div
     prom_gras = total_gras / dias_div
     prom_carb = total_carb / dias_div
@@ -1104,12 +1113,14 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     txt = f"📊 **Resumen Mensual Completo ({mes_str}):**\n\n"
     txt += f"• **Días registrados:** `{dias_activos}`\n"
     txt += f"• **Totales del mes:**\n"
-    txt += f"  - Calorías: `{total_kcal:.0f} kcal`\n"
+    txt += f"  - Consumidas: `{total_cons:.0f} kcal` | Quemadas: `{total_quem:.0f} kcal`\n"
+    txt += f"  - Balance Neto: `{total_neto:.0f} kcal`\n"
     txt += f"  - Proteínas: `{total_prot:.1f} g` | Grasas: `{total_gras:.1f} g`\n"
     txt += f"  - Carbohidratos: `{total_carb:.1f} g` | Fibras: `{total_fibr:.1f} g`\n\n"
 
     txt += f"📈 **Promedios Diarios:**\n"
-    txt += f"  - Calorías: `{prom_kcal:.0f} kcal/día`\n"
+    txt += f"  - Consumidas: `{prom_cons:.0f} kcal/día` | Quemadas: `{prom_quem:.0f} kcal/día`\n"
+    txt += f"  - Balance Neto: `{prom_neto:.0f} kcal/día`\n"
     txt += f"  - Proteínas: `{prom_prot:.1f} g` | Grasas: `{prom_gras:.1f} g`\n"
     txt += f"  - Carbohidratos: `{prom_carb:.1f} g` | Fibras: `{prom_fibr:.1f} g`\n\n"
     
@@ -1125,7 +1136,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             baja_prom = df_p_mes['Baja'].mean()
             txt += f"\n🩺 **Presión Promedio:** `{alta_prom:.0f}/{baja_prom:.0f} mmHg`\n"
 
-    resumen_para_ia = f"Mes: {mes_str}, Dias activos: {dias_activos}, Promedios reales: Kcal={prom_kcal:.0f}, Prot={prom_prot:.1f}g, Gras={prom_gras:.1f}g, Carb={prom_carb:.1f}g, Fibr={prom_fibr:.1f}g. GET estimado: {get_val:.0f} kcal"
+    resumen_para_ia = f"Mes: {mes_str}, Dias activos: {dias_activos}, Promedios reales: Kcal Consumidas={prom_cons:.0f}, Kcal Quemadas={prom_quem:.0f}, Netas={prom_neto:.0f}, Prot={prom_prot:.1f}g, Gras={prom_gras:.1f}g, Carb={prom_carb:.1f}g, Fibr={prom_fibr:.1f}g. GET estimado: {get_val:.0f} kcal"
     rec_ia = obtener_recomendacion_ia(resumen_para_ia)
     txt += f"\n💡 **Recomendación IA:**\n_{rec_ia}_"
 
