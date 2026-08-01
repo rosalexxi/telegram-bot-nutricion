@@ -86,30 +86,29 @@ def obtener_ahora_arg():
 
 def obtener_momento_y_fecha_auto():
     ahora = obtener_ahora_arg()
-    hora = ahora.time()
-    fecha_obj = ahora.date()
-    
-    if time(0, 0) <= hora < time(2, 0):
-        fecha_obj = fecha_obj - timedelta(days=1)
-        momento = "Cena"
-    elif time(2, 0) <= hora < time(10, 0):
-        momento = "Desayuno"
-    elif time(10, 0) <= hora < time(12, 0):
-        momento = "Colación"
-    elif time(12, 0) <= hora < time(15, 0):
-        momento = "Almuerzo"
-    elif time(15, 0) <= hora < time(20, 0):
-        momento = "Merienda"
-    else:
-        momento = "Cena"
-        
-    return fecha_obj.strftime("%Y-%m-%d"), momento
+    hora = me = ahora.time()
+    fecha_obj = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = me = float(val)
+        return int(num)
+    except ValueError:
+        return 0.0
 
-def calcular_tmb(peso, altura, edad, genero="masculino"):
-    # Fórmula de Harris-Benedict
+def calcular_tmb_y_get(peso, altura, edad, genero="masculino", actividad="sedentario"):
+    # Harris-Benedict revisada
     if genero.lower() in ["femenino", "f", "mujer"]:
-        return 655 + (9.6 * peso) + (1.8 * altura) - (4.7 * edad)
-    return 66 + (13.7 * peso) + (5 * altura) - (6.8 * edad)
+        tmb = 655 + (9.6 * peso) + (1.8 * altura) - (4.7 * edad)
+    else:
+        tmb = 66 + (13.7 * peso) + (5 * altura) - (6.8 * edad)
+    
+    # Factores de actividad
+    factores = {
+        "sedentario": 1.2,
+        "ligero": 1.375,
+        "moderado": 1.55,
+        "intenso": 1.725
+    }
+    factor = factores.get(str(actividad).lower(), 1.2)
+    get_val = tmb * factor
+    return tmb, get_val
 
 # ==========================================
 # GOOGLE SHEETS OPERACIONES
@@ -140,8 +139,8 @@ def get_or_create_worksheet(spreadsheet, title):
             ws.append_row(["Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones"])
             return ws
         elif title.startswith("Perfil_"):
-            ws = spreadsheet.add_worksheet(title=title, rows="10", cols="5")
-            ws.append_row(["Edad", "Peso", "Altura", "Genero", "Fecha_Actualizacion"])
+            ws = spreadsheet.add_worksheet(title=title, rows="100", cols="7")
+            ws.append_row(["Edad", "Peso", "Altura", "Sexo", "Ocupacion", "Mes", "Fecha_Actualizacion"])
             return ws
         elif title == "Plantillas_Comidas":
             ws = spreadsheet.add_worksheet(title=title, rows="100", cols="8")
@@ -178,12 +177,15 @@ def guardar_presion_en_sheets(user_id, alta, baja, pulsaciones):
     ahora = obtener_ahora_arg()
     ws.append_row([ahora.strftime("%Y-%m-%d %H:%M:%S"), ahora.strftime("%Y-%m-%d"), alta, baja, pulsaciones])
 
-def guardar_perfil_en_sheets(user_id, edad, peso, altura, genero="masculino"):
+def guardar_perfil_en_sheets(user_id, edad, peso, altura, genero="masculino", ocupacion="Sedentario", mes=None):
     gc = get_gspread_client()
     sh = gc.open(SPREADSHEET_NAME)
     ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
     ahora = obtener_ahora_arg()
-    ws.append_row([edad, peso, altura, genero, ahora.strftime("%Y-%m-%d %H:%M:%S")])
+    if not mes:
+        mes = ahora.strftime("%Y-%m")
+    # Guardar manteniendo valores numéricos reales (sin multiplicar por 1000)
+    ws.append_row([edad, peso, altura, genero, ocupacion, mes, ahora.strftime("%Y-%m-%d %H:%M:%S")])
 
 def obtener_perfil_usuario(user_id):
     try:
@@ -317,7 +319,7 @@ def obtener_recomendacion_ia(resumen_texto):
         return "Mantené una dieta equilibrada rica en fibra y agua, ajustando las porciones según tu actividad diaria."
 
 # ==========================================
-# GENERADORES DE PDF
+# GENERADORES DE PDF (MODIFICADOS Y AJUSTADOS)
 # ==========================================
 def generar_pdf_instrucciones_bytes():
     buffer = io.BytesIO()
@@ -353,7 +355,8 @@ def generar_pdf_comidas_bytes(plantillas):
     styles = getSampleStyleSheet()
     
     title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#1E3A8A'))
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#1E293B'))
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#1E293B'))
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
 
     story = [
         Paragraph("<b>LISTADO DE COMIDAS PREDETERMINADAS</b>", title_style),
@@ -363,28 +366,39 @@ def generar_pdf_comidas_bytes(plantillas):
     if not plantillas:
         story.append(Paragraph("No hay comidas predeterminadas cargadas en la hoja 'Plantillas_Comidas'.", body_style))
     else:
-        table_data = [["Nombre", "Momento", "Peso (g)", "Kcal", "Prot (g)", "Gras (g)", "Carb (g)", "Fibr (g)"]]
+        # Celdas con auto-height mediante Paragraph para evitar superposición
+        table_data = [[
+            Paragraph("Nombre", header_style), 
+            Paragraph("Momento", header_style), 
+            Paragraph("Peso (g)", header_style), 
+            Paragraph("Kcal", header_style), 
+            Paragraph("Prot (g)", header_style), 
+            Paragraph("Gras (g)", header_style), 
+            Paragraph("Carb (g)", header_style), 
+            Paragraph("Fibr (g)", header_style)
+        ]]
+        
         for p in plantillas:
             table_data.append([
-                str(p.get("Nombre", "")),
-                str(p.get("Momento", "")),
-                str(p.get("Peso", "")),
-                str(p.get("Calorias", "")),
-                str(p.get("Proteinas", "")),
-                str(p.get("Grasas", "")),
-                str(p.get("Carbohidratos", "")),
-                str(p.get("Fibras", ""))
+                Paragraph(str(p.get("Nombre", "")), body_style),
+                Paragraph(str(p.get("Momento", "")), body_style),
+                Paragraph(str(p.get("Peso", "")), body_style),
+                Paragraph(str(p.get("Calorias", "")), body_style),
+                Paragraph(str(p.get("Proteinas", "")), body_style),
+                Paragraph(str(p.get("Grasas", "")), body_style),
+                Paragraph(str(p.get("Carbohidratos", "")), body_style),
+                Paragraph(str(p.get("Fibras", "")), body_style)
             ])
         
-        t = Table(table_data, colWidths=[90, 65, 50, 50, 50, 50, 50, 50])
+        t = Table(table_data, colWidths=[140, 75, 45, 50, 50, 50, 50, 45])
         t.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 8),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')]),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 4)
         ]))
         story.append(t)
 
@@ -392,47 +406,175 @@ def generar_pdf_comidas_bytes(plantillas):
     buffer.seek(0)
     return buffer
 
-def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion):
+def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
     styles = getSampleStyleSheet()
     
-    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#1E3A8A'))
-    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=12, textColor=colors.HexColor('#2563EB'), spaceBefore=8)
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=9, leading=13, textColor=colors.HexColor('#1E293B'))
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
+    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#2563EB'), spaceBefore=6, spaceAfter=4)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8, leading=11, textColor=colors.HexColor('#1E293B'))
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
 
-    total_kcal = df_mes['Calorias'].sum() if not df_mes.empty else 0
-    dias_activos = df_mes['Fecha'].nunique() if not df_mes.empty else 0
-    prom_diario = total_kcal / dias_activos if dias_activos > 0 else 0
-
+    # --- HOJA 1: Reporte Nutricional Mensual ---
     story = [
-        Paragraph(f"<b>RESUMEN NUTRICIONAL Y SALUD - MES {mes_str}</b>", title_style),
-        HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#2563EB'), spaceAfter=10),
-        Paragraph("<b>Datos Biométricos y TMB</b>", sub_style)
+        Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str}</b>", title_style),
+        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=8)
     ]
 
-    if perfil:
-        story.append(Paragraph(f"• Edad: {perfil.get('Edad', 'N/A')} años | Peso: {perfil.get('Peso', 'N/A')} kg | Altura: {perfil.get('Altura', 'N/A')} cm", body_style))
-        story.append(Paragraph(f"• <b>Tasa de Metabolismo Basal (TMB):</b> {tmb_val:.0f} kcal/día", body_style))
-    else:
-        story.append(Paragraph("• Perfil biométrico no configurado. Usá /perfil para registrar tus datos.", body_style))
+    headers_h1 = ["Fecha", "Cal. Consumid.", "Cal. Quemad.", "Bal. Neto", "Proteinas (g)", "Grasas (g)", "Carbohidratos (g)", "Fibras (g)"]
+    table_data_h1 = [[Paragraph(h, header_style) for h in headers_h1]]
 
-    story.append(Spacer(1, 8))
-    story.append(Paragraph("<b>Consumo Nutricional del Mes</b>", sub_style))
-    story.append(Paragraph(f"• Días Activos Registrados: {dias_activos}", body_style))
-    story.append(Paragraph(f"• Calorías Totales Acumuladas: {total_kcal:.0f} kcal", body_style))
-    story.append(Paragraph(f"• Promedio Diario: {prom_diario:.0f} kcal/día", body_style))
+    tot_cons = 0.0
+    tot_quem = 0.0
+    tot_prot = 0.0
+    tot_gras = 0.0
+    tot_carb = 0.0
+    tot_fibr = 0.0
 
-    if not df_presion.empty:
-        story.append(Spacer(1, 8))
-        story.append(Paragraph("<b>Presión Arterial Registrada</b>", sub_style))
-        alta_prom = df_presion['Alta'].apply(parse_raw_val).mean()
-        baja_prom = df_presion['Baja'].apply(parse_raw_val).mean()
-        pul_prom = df_presion['Pulsaciones'].apply(parse_raw_val).mean()
-        story.append(Paragraph(f"• Promedio Presión: {alta_prom:.0f}/{baja_prom:.0f} mmHg | Pulsaciones Promedio: {pul_prom:.0f} bpm", body_style))
+    if not df_mes.empty:
+        df_grouped = df_mes.groupby('Fecha').agg({
+            'Calorias': 'sum',
+            'Proteinas': 'sum',
+            'Grasas': 'sum',
+            'Carbohidratos': 'sum',
+            'Fibras': 'sum'
+        }).reset_index()
 
+        dias_con_registro = len(df_grouped)
+
+        for _, row in df_grouped.iterrows():
+            c_cons = float(row['Calorias'])
+            c_quem = 0.0 # Ejercicio extra registrado si aplica
+            b_neto = c_cons - c_quem
+            prot = float(row['Proteinas'])
+            gras = float(row['Grasas'])
+            carb = float(row['Carbohidratos'])
+            fibr = float(row['Fibras'])
+
+            tot_cons += c_cons
+            tot_quem += c_quem
+            tot_prot += prot
+            tot_gras += gras
+            tot_carb += carb
+            tot_fibr += fibr
+
+            table_data_h1.append([
+                Paragraph(str(row['Fecha']), body_style),
+                Paragraph(f"{c_cons:.1f} kcal", body_style),
+                Paragraph(f"{c_quem:.1f} kcal", body_style),
+                Paragraph(f"{b_neto:.1f} kcal", body_style),
+                Paragraph(f"{prot:.1f} g", body_style),
+                Paragraph(f"{gras:.1f} g", body_style),
+                Paragraph(f"{carb:.1f} g", body_style),
+                Paragraph(f"{fibr:.1f} g", body_style)
+            ])
+        
+        # Fila TOTAL MES
+        tot_neto = tot_cons - tot_quem
+        table_data_h1.append([
+            Paragraph("<b>TOTAL MES</b>", body_style),
+            Paragraph(f"<b>{tot_cons:.1f} kcal</b>", body_style),
+            Paragraph(f"<b>{tot_quem:.1f} kcal</b>", body_style),
+            Paragraph(f"<b>{tot_neto:.1f} kcal</b>", body_style),
+            Paragraph(f"<b>{tot_prot:.1f} g</b>", body_style),
+            Paragraph(f"<b>{tot_gras:.1f} g</b>", body_style),
+            Paragraph(f"<b>{tot_carb:.1f} g</b>", body_style),
+            Paragraph(f"<b>{tot_fibr:.1f} g</b>", body_style)
+        ])
+
+        # Fila PROM. DIARIO
+        div = dias_con_registro if dias_con_registro > 0 else 1
+        table_data_h1.append([
+            Paragraph("<b>PROM. DIARIO</b>", body_style),
+            Paragraph(f"<b>{(tot_cons/div):.1f} kcal</b>", body_style),
+            Paragraph(f"<b>{(tot_quem/div):.1f} kcal</b>", body_style),
+            Paragraph(f"<b>{(tot_neto/div):.1f} kcal</b>", body_style),
+            Paragraph(f"<b>{(tot_prot/div):.1f} g</b>", body_style),
+            Paragraph(f"<b>{(tot_gras/div):.1f} g</b>", body_style),
+            Paragraph(f"<b>{(tot_carb/div):.1f} g</b>", body_style),
+            Paragraph(f"<b>{(tot_fibr/div):.1f} g</b>", body_style)
+        ])
+
+    t1 = Table(table_data_h1, colWidths=[65, 75, 70, 70, 65, 60, 80, 55])
+    t1.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('BACKGROUND', (0, -2), (-1, -1), colors.HexColor('#F1F5F9'))
+    ]))
+    story.append(t1)
+
+    # --- HOJA 2: Análisis Metabólico y Estimación Corporal ---
+    story.append(PageBreak())
+    story.append(Paragraph("<b>Análisis Metabólico y Estimación Corporal</b>", title_style))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10))
+
+    edad = parse_raw_val(perfil.get('Edad')) if perfil else 0
+    peso = parse_raw_val(perfil.get('Peso')) if perfil else 0
+    altura = parse_raw_val(perfil.get('Altura')) if perfil else 0
+    genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino'))) if perfil else 'masculino'
+    actividad = str(perfil.get('Ocupacion', 'sedentario')) if perfil else 'sedentario'
+    
+    tmb, get_val = calcular_tmb_y_get(peso, altura, edad, genero, actividad)
+
+    # Tabla Datos Fisiológicos
+    table_bio = [
+        [Paragraph("<b>Dato Fisiológico</b>", header_style), Paragraph("<b>Valor Registrado</b>", header_style)],
+        [Paragraph("Sexo", body_style), Paragraph(genero, body_style)],
+        [Paragraph("Edad", body_style), Paragraph(f"{edad:.0f} años", body_style)],
+        [Paragraph("Peso", body_style), Paragraph(f"{peso:.1f} kg", body_style)],
+        [Paragraph("Altura", body_style), Paragraph(f"{altura:.1f} cm", body_style)],
+        [Paragraph("Ocupación / Actividad", body_style), Paragraph(actividad, body_style)],
+        [Paragraph("Metabolismo Basal (TMB)", body_style), Paragraph(f"{tmb:.1f} kcal / día", body_style)],
+        [Paragraph("Gasto Energético Conservador (GET)", body_style), Paragraph(f"{get_val:.1f} kcal / día", body_style)]
+    ]
+    t_bio = Table(table_bio, colWidths=[200, 320])
+    t_bio.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+    ]))
+    story.append(t_bio)
+    story.append(Spacer(1, 12))
+
+    # Comparativa y Cambio Corporal
+    story.append(Paragraph("<b>Resumen de Balance y Cambio Corporal Estimado:</b>", sub_style))
+    dias_activos = df_mes['Fecha'].nunique() if not df_mes.empty else 1
+    get_total = get_val * dias_activos
+    bal_calorico = tot_cons - get_total - tot_quem
+    cambio_peso_kg = bal_calorico / 7700.0
+
+    # Macro recomendados estimados (por peso)
+    prot_rec = peso * 1.5
+    gras_rec = (get_val * 0.25) / 9.0
+    carb_rec = (get_val * 0.50) / 4.0
+    fibr_rec = 30.0
+
+    table_comp = [
+        [Paragraph("<b>Métrica / Nutrientes</b>", header_style), Paragraph("<b>Promedio Diario Real (Hoja 1)</b>", header_style), Paragraph("<b>Estimado / Recomendado</b>", header_style)],
+        [Paragraph("Calorías", body_style), Paragraph(f"{(tot_cons/dias_activos):.1f} kcal", body_style), Paragraph(f"{get_val:.1f} kcal (GET)", body_style)],
+        [Paragraph("Proteínas", body_style), Paragraph(f"{(tot_prot/dias_activos):.1f} g", body_style), Paragraph(f"{prot_rec:.1f} g", body_style)],
+        [Paragraph("Grasas", body_style), Paragraph(f"{(tot_gras/dias_activos):.1f} g", body_style), Paragraph(f"{gras_rec:.1f} g", body_style)],
+        [Paragraph("Carbohidratos", body_style), Paragraph(f"{(tot_carb/dias_activos):.1f} g", body_style), Paragraph(f"{carb_rec:.1f} g", body_style)],
+        [Paragraph("Fibras", body_style), Paragraph(f"{(tot_fibr/dias_activos):.1f} g", body_style), Paragraph(f"{fibr_rec:.1f} g", body_style)]
+    ]
+    t_comp = Table(table_comp, colWidths=[160, 180, 180])
+    t_comp.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+    ]))
+    story.append(t_comp)
     story.append(Spacer(1, 10))
-    story.append(Paragraph("<b>Recomendación de Inteligencia Artificial</b>", sub_style))
+
+    story.append(Paragraph(f"• <b>BALANCE CALÓRICO NETO REAL:</b> {bal_calorico:.1f} kcal", body_style))
+    story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO:</b> {cambio_peso_kg:.2f} kg ({cambio_peso_kg*1000:.1f} g)", body_style))
+
+    story.append(Spacer(1, 12))
+    story.append(Paragraph("<b>Recomendación de la IA:</b>", sub_style))
     story.append(Paragraph(f"<i>{recomendacion}</i>", body_style))
 
     doc.build(story)
@@ -547,12 +689,18 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 peso = float(parts[1].replace(',', '.'))
                 altura = float(parts[2].replace(',', '.'))
                 genero = parts[3] if len(parts) > 3 else "masculino"
-                guardar_perfil_en_sheets(user_id, edad, peso, altura, genero)
-                tmb = calcular_tmb(peso, altura, edad, genero)
+                ocupacion = parts[4] if len(parts) > 4 else "Sedentario"
+                mes = parts[5] if len(parts) > 5 else obtener_ahora_arg().strftime("%Y-%m")
+
+                guardar_perfil_en_sheets(user_id, edad, peso, altura, genero, ocupacion, mes)
+                tmb, get_val = calcular_tmb_y_get(peso, altura, edad, genero, ocupacion)
                 await update.message.reply_text(
                     f"✅ **Perfil actualizado correctamente:**\n"
                     f"• Edad: `{edad}` años\n• Peso: `{peso}` kg\n• Altura: `{altura}` cm\n"
-                    f"• **TMB Calculada:** `{tmb:.0f} kcal/día`",
+                    f"• Genero: `{genero}` | Ocupación: `{ocupacion}`\n"
+                    f"• Mes: `{mes}`\n"
+                    f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
+                    f"• **GET Estimado:** `{get_val:.0f} kcal/día`",
                     parse_mode="Markdown"
                 )
                 return
@@ -562,18 +710,28 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     perfil = obtener_perfil_usuario(user_id)
     if perfil:
-        tmb = calcular_tmb(parse_raw_val(perfil.get('Peso')), parse_raw_val(perfil.get('Altura')), parse_raw_val(perfil.get('Edad')), str(perfil.get('Genero','masculino')))
+        peso = parse_raw_val(perfil.get('Peso'))
+        altura = parse_raw_val(perfil.get('Altura'))
+        edad = parse_raw_val(perfil.get('Edad'))
+        genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino')))
+        ocupacion = str(perfil.get('Ocupacion', 'Sedentario'))
+        mes = str(perfil.get('Mes', obtener_ahora_arg().strftime("%Y-%m")))
+
+        tmb, get_val = calcular_tmb_y_get(peso, altura, edad, genero, ocupacion)
         txt = (
             f"👤 **Perfil Biométrico Actual:**\n\n"
-            f"• Edad: `{perfil.get('Edad')}` años\n"
-            f"• Peso: `{perfil.get('Peso')}` kg\n"
-            f"• Altura: `{perfil.get('Altura')}` cm\n"
-            f"• Genero: `{perfil.get('Genero', 'masculino')}`\n"
-            f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n\n"
-            f"Para actualizar tus datos envía:\n`/perfil EDAD, PESO, ALTURA, GENERO` (Ej: `/perfil 64, 110, 172, masculino`)"
+            f"• Edad: `{edad:.0f}` años\n"
+            f"• Peso: `{peso:.1f}` kg\n"
+            f"• Altura: `{altura:.1f}` cm\n"
+            f"• Genero: `{genero}`\n"
+            f"• Ocupación: `{ocupacion}`\n"
+            f"• Mes: `{mes}`\n"
+            f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
+            f"• **GET Estimado:** `{get_val:.0f} kcal/día`\n\n"
+            f"Para actualizar tus datos envía:\n`/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION, MES`\n(Ej: `/perfil 64, 110, 172, M, Sedentario, 2026-08`)"
         )
     else:
-        txt = "👤 **Perfil no registrado.** Para ingresar tus datos biométricos usá:\n`/perfil EDAD, PESO, ALTURA, GENERO` (Ej: `/perfil 64, 110, 172, masculino`)"
+        txt = "👤 **Perfil no registrado.** Para ingresar tus datos biométricos usá:\n`/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION, MES`\n(Ej: `/perfil 64, 110, 172, M, Sedentario, 2026-08`)"
 
     await update.message.reply_text(txt, parse_mode="Markdown")
 
@@ -856,30 +1014,56 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.message.reply_text(txt, parse_mode="Markdown")
         return
 
-    total_kcal = df_mes['Calorias'].sum()
     dias_activos = df_mes['Fecha'].nunique()
-    prom_diario = total_kcal / dias_activos if dias_activos > 0 else 0
+    dias_div = dias_activos if dias_activos > 0 else 1
+
+    total_kcal = df_mes['Calorias'].sum()
+    total_prot = df_mes['Proteinas'].sum()
+    total_gras = df_mes['Grasas'].sum()
+    total_carb = df_mes['Carbohidratos'].sum()
+    total_fibr = df_mes['Fibras'].sum()
+
+    prom_kcal = total_kcal / dias_div
+    prom_prot = total_prot / dias_div
+    prom_gras = total_gras / dias_div
+    prom_carb = total_carb / dias_div
+    prom_fibr = total_fibr / dias_div
 
     tmb_val = 0
+    get_val = 0
     if perfil:
-        tmb_val = calcular_tmb(parse_raw_val(perfil.get('Peso')), parse_raw_val(perfil.get('Altura')), parse_raw_val(perfil.get('Edad')), str(perfil.get('Genero','masculino')))
+        peso = parse_raw_val(perfil.get('Peso'))
+        altura = parse_raw_val(perfil.get('Altura'))
+        edad = parse_raw_val(perfil.get('Edad'))
+        genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino')))
+        actividad = str(perfil.get('Ocupacion', 'sedentario'))
+        tmb_val, get_val = calcular_tmb_y_get(peso, altura, edad, genero, actividad)
 
     txt = f"📊 **Resumen Mensual Completo ({mes_str}):**\n\n"
     txt += f"• **Días registrados:** `{dias_activos}`\n"
-    txt += f"• **Calorías Totales:** `{total_kcal:.0f} kcal`\n"
-    txt += f"• **Promedio Diario:** `{prom_diario:.0f} kcal/día`\n"
+    txt += f"• **Totales del mes:**\n"
+    txt += f"  - Calorías: `{total_kcal:.0f} kcal`\n"
+    txt += f"  - Proteínas: `{total_prot:.1f} g` | Grasas: `{total_gras:.1f} g`\n"
+    txt += f"  - Carbohidratos: `{total_carb:.1f} g` | Fibras: `{total_fibr:.1f} g`\n\n"
+
+    txt += f"📈 **Promedios Diarios:**\n"
+    txt += f"  - Calorías: `{prom_kcal:.0f} kcal/día`\n"
+    txt += f"  - Proteínas: `{prom_prot:.1f} g` | Grasas: `{prom_gras:.1f} g`\n"
+    txt += f"  - Carbohidratos: `{prom_carb:.1f} g` | Fibras: `{prom_fibr:.1f} g`\n\n"
     
     if tmb_val > 0:
-        txt += f"• **TMB Estimada:** `{tmb_val:.0f} kcal/día`\n"
+        txt += f"🎯 **Valores Recomendados según Biometría:**\n"
+        txt += f"  - TMB: `{tmb_val:.0f} kcal/día`\n"
+        txt += f"  - GET Estimado: `{get_val:.0f} kcal/día`\n"
 
     if not df_presion.empty:
         df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
         if not df_p_mes.empty:
             alta_prom = df_p_mes['Alta'].apply(parse_raw_val).mean()
             baja_prom = df_p_mes['Baja'].apply(parse_raw_val).mean()
-            txt += f"• **Presión Promedio:** `{alta_prom:.0f}/{baja_prom:.0f} mmHg`\n"
+            txt += f"\n🩺 **Presión Promedio:** `{alta_prom:.0f}/{baja_prom:.0f} mmHg`\n"
 
-    resumen_para_ia = f"Mes: {mes_str}, Dias activos: {dias_activos}, Promedio diario: {prom_diario:.0f} kcal, TMB: {tmb_val:.0f} kcal"
+    resumen_para_ia = f"Mes: {mes_str}, Dias activos: {dias_activos}, Promedios reales: Kcal={prom_kcal:.0f}, Prot={prom_prot:.1f}g, Gras={prom_gras:.1f}g, Carb={prom_carb:.1f}g, Fibr={prom_fibr:.1f}g. GET estimado: {get_val:.0f} kcal"
     rec_ia = obtener_recomendacion_ia(resumen_para_ia)
     txt += f"\n💡 **Recomendación IA:**\n_{rec_ia}_"
 
@@ -901,11 +1085,16 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
     
     tmb_val = 0
     if perfil:
-        tmb_val = calcular_tmb(parse_raw_val(perfil.get('Peso')), parse_raw_val(perfil.get('Altura')), parse_raw_val(perfil.get('Edad')), str(perfil.get('Genero','masculino')))
+        peso = parse_raw_val(perfil.get('Peso'))
+        altura = parse_raw_val(perfil.get('Altura'))
+        edad = parse_raw_val(perfil.get('Edad'))
+        genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino')))
+        actividad = str(perfil.get('Ocupacion', 'sedentario'))
+        tmb_val, _ = calcular_tmb_y_get(peso, altura, edad, genero, actividad)
 
     rec_ia = obtener_recomendacion_ia(f"Resumen del mes {mes_str} para usuario {user_id}")
     
-    pdf_bytes = generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, rec_ia)
+    pdf_bytes = generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, rec_ia, user_id)
     
     await context.bot.send_document(
         chat_id=query.message.chat_id,
