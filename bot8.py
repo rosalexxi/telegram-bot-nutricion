@@ -455,9 +455,8 @@ def analizar_imagen_con_groq(base64_image):
 def obtener_recomendacion_ia(resumen_texto):
     if not client_ai:
         return "No se pudo obtener recomendación de IA (API Key no configurada)."
-    prompt = f"Basado en este resumen de ingesta mensual y métricas del paciente, da una recomendación nutricional breve, profesional y motivadora (máximo 4 oraciones):
+        prompt = f"""Basado en este resumen mensual y métricas del paciente, da una recomendación nutricional breve, profesional y motivadora (máximo 4 oraciones):tu_variable_aqui}"""
 
-{resumen_texto}"
     try:
         response = client_ai.chat.completions.create(
             model="llama-3.3-70b-versatile",
