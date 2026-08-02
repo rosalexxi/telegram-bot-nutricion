@@ -432,6 +432,7 @@ Devolvé EXCLUSIVAMENTE un JSON con este formato:
         response_format={"type": "json_object"}
     )
     return json.loads(response.choices[0].message.content)
+
 def analizar_imagen_con_groq(base64_image):
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
@@ -455,7 +456,9 @@ def analizar_imagen_con_groq(base64_image):
 def obtener_recomendacion_ia(resumen_texto):
     if not client_ai:
         return "No se pudo obtener recomendación de IA (API Key no configurada)."
-        prompt = f"""Basado en este resumen mensual y métricas del paciente, da una recomendación nutricional breve, profesional y motivadora (máximo 4 oraciones):tu_variable_aqui}"""
+    
+    # CORREGIDO: Sintaxis de f-string arreglada (se eliminó el bloque basura al final)
+    prompt = f"Basado en este resumen mensual y métricas del paciente, da una recomendación nutricional breve, profesional y motivadora (máximo 4 oraciones):\n\n{resumen_texto}"
 
     try:
         response = client_ai.chat.completions.create(
@@ -872,25 +875,16 @@ async def render_confirmation_screen(msg_or_query, context):
 # HANDLERS DE TELEGRAM
 # ==========================================
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # CORREGIDO: Saltos de línea en strings multilinea arreglados correctamente
     msg = (
-        "👋 ¡Hola! Bienvenido a tu Bot Nutricional Personalizado.
-
-"
-        "📌 Funciones y Comandos Disponibles:
-"
-        "• `/comidas`: Visualiza el listado de comidas predeterminadas y descarga su PDF oficial.
-"
-        "• `/presión` o `/presion`: Registra valores (Ej: `/presion 120,80,70` o `/presión 120,80`) o consulta el resumen mensual de presión y su PDF detallado (Ej: `/presión 2026-08`).
-"
-        "• `/diario`: Consulta los consumos del día con agrupamiento inteligente y descarga directa del PDF diario detallado.
-"
-        "• `/resumen`: Genera el reporte mensual con la nueva **Tabla Comparativa de Macronutrientes**, datos biométricos del mes y recomendaciones de IA.
-"
-        "• `/perfil`: Consulta o actualiza tus datos biométricos corporales y ocupación específicos por mes.
-"
-        "• **Multiplicadores en Plantillas:** Usa `*PIZZAJM`, `*PIZZAJM,4` o `*CHURRO,0.5` para ajustar porciones automáticamente sin pasar por IA.
-
-"
+        "👋 ¡Hola! Bienvenido a tu Bot Nutricional Personalizado.\n\n"
+        "📌 Funciones y Comandos Disponibles:\n"
+        "• `/comidas`: Visualiza el listado de comidas predeterminadas y descarga su PDF oficial.\n"
+        "• `/presión` o `/presion`: Registra valores (Ej: `/presion 120,80,70` o `/presión 120,80`) o consulta el resumen mensual de presión y su PDF detallado (Ej: `/presión 2026-08`).\n"
+        "• `/diario`: Consulta los consumos del día con agrupamiento inteligente y descarga directa del PDF diario detallado.\n"
+        "• `/resumen`: Genera el reporte mensual con la nueva **Tabla Comparativa de Macronutrientes**, datos biométricos del mes y recomendaciones de IA.\n"
+        "• `/perfil`: Consulta o actualiza tus datos biométricos corporales y ocupación específicos por mes.\n"
+        "• **Multiplicadores en Plantillas:** Usa `*PIZZAJM`, `*PIZZAJM,4` o `*CHURRO,0.5` para ajustar porciones automáticamente sin pasar por IA.\n\n"
         "📄 Te adjuntamos el manual de instrucciones actualizado en PDF."
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
@@ -907,17 +901,13 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📋 No hay comidas predeterminadas registradas en la hoja 'Plantillas_Comidas'.")
         return
 
-    txt = "📋 **Listado de Comidas Predeterminadas:**
-
-"
+    txt = "📋 **Listado de Comidas Predeterminadas:**\n\n"
     for p in plantillas:
         nombre = p.get('Nombre', '')
         descripcion = p.get('Descripcion') or p.get('Momento', '')
-        txt += f"• **{nombre}**: {descripcion}
-"
+        txt += f"• **{nombre}**: {descripcion}\n"
 
-    txt += "
-📄 Te adjuntamos el archivo en PDF completo con todos los macronutrientes a continuación."
+    txt += "\n📄 Te adjuntamos el archivo en PDF completo con todos los macronutrientes a continuación."
     await update.message.reply_text(txt, parse_mode="Markdown")
 
     pdf_bytes = generar_pdf_comidas_bytes(plantillas)
@@ -945,16 +935,10 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 guardar_perfil_en_sheets(user_id, edad, peso, altura, genero, ocupacion, mes)
                 tmb, get_val = calcular_tmb_y_get(peso, altura, edad, genero, ocupacion)
                 await update.message.reply_text(
-                    f"✅ **Perfil actualizado correctamente para el mes `{mes}`:**
-"
-                    f"• Edad: `{edad:.0f}` años
-• Peso: `{peso:.1f}` kg
-• Altura: `{altura:.1f}` cm
-"
-                    f"• Género: `{genero}` | Ocupación: `{ocupacion}`
-"
-                    f"• **TMB Estimada:** `{tmb:.0f} kcal/día`
-"
+                    f"✅ **Perfil actualizado correctamente para el mes `{mes}`:**\n"
+                    f"• Edad: `{edad:.0f}` años\n• Peso: `{peso:.1f}` kg\n• Altura: `{altura:.1f}` cm\n"
+                    f"• Género: `{genero}` | Ocupación: `{ocupacion}`\n"
+                    f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
                     f"• **GET Estimado:** `{get_val:.0f} kcal/día`",
                     parse_mode="Markdown"
                 )
@@ -975,32 +959,24 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         tmb, get_val = calcular_tmb_y_get(peso, altura, edad, genero, ocupacion)
         txt = (
-            f"👤 **Perfil Biométrico Actual ({mes}):**
-
-"
-            f"• Edad: `{edad:.0f}` años
-"
-            f"• Peso: `{peso:.1f}` kg
-"
-            f"• Altura: `{altura:.1f}` cm
-"
-            f"• Género: `{genero}`
-"
-            f"• Ocupación: `{ocupacion}`
-"
-            f"• **TMB Estimada:** `{tmb:.0f} kcal/día`
-"
-            f"• **GET Estimado:** `{get_val:.0f} kcal/día`
-
-"
-            f"Para actualizar tus datos envía:
-`/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION, MES`
-(Ej: `/perfil 64, 82, 172, M, Jubilado, 2026-08`)"
+            f"👤 **Perfil Biométrico Actual ({mes}):**\n\n"
+            f"• Edad: `{edad:.0f}` años\n"
+            f"• Peso: `{peso:.1f}` kg\n"
+            f"• Altura: `{altura:.1f}` cm\n"
+            f"• Género: `{genero}`\n"
+            f"• Ocupación: `{ocupacion}`\n"
+            f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
+            f"• **GET Estimado:** `{get_val:.0f} kcal/día`\n\n"
+            f"Para actualizar tus datos envía:\n"
+            f"`/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION, MES`\n"
+            f"(Ej: `/perfil 64, 82, 172, M, Jubilado, 2026-08`)"
         )
     else:
-        txt = "👤 **Perfil no registrado.** Para ingresar tus datos biométricos usá:
-`/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION, MES`
-(Ej: `/perfil 64, 82, 172, M, Jubilado, 2026-08`)"
+        txt = (
+            "👤 **Perfil no registrado.** Para ingresar tus datos biométricos usá:\n"
+            "`/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION, MES`\n"
+            "(Ej: `/perfil 64, 82, 172, M, Jubilado, 2026-08`)"
+        )
 
     await update.message.reply_text(txt, parse_mode="Markdown")
 
@@ -1009,13 +985,15 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     raw_text = update.message.text.replace('/presión', '').replace('/presion', '').strip()
     
     if not raw_text:
-        await update.message.reply_text("🩺 Ingresá la presión o consultá un mes. Ejemplos:
-• `/presión 120,80,70`
-• `/presión 120,80`
-• `/presión 2026-08`", parse_mode="Markdown")
+        await update.message.reply_text(
+            "🩺 Ingresá la presión o consultá un mes. Ejemplos:\n"
+            "• `/presión 120,80,70`\n"
+            "• `/presión 120,80`\n"
+            "• `/presión 2026-08`", 
+            parse_mode="Markdown"
+        )
         return
 
-    # Si es formato mes YYYY-MM
     if re.match(r'^20\d{2}-\d{2}$', raw_text):
         await mostrar_resumen_presion_mes(update, user_id, raw_text)
         return
@@ -1027,8 +1005,7 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         pulsaciones = float(parts[2]) if len(parts) > 2 else None
         guardar_presion_en_sheets(user_id, alta, baja, pulsaciones)
         pul_str = f" | Pulsaciones: `{pulsaciones}`" if pulsaciones is not None else ""
-        await update.message.reply_text(f"✅ **Presión registrada:**
-Alta: `{alta}` | Baja: `{baja}`{pul_str}", parse_mode="Markdown")
+        await update.message.reply_text(f"✅ **Presión registrada:**\nAlta: `{alta}` | Baja: `{baja}`{pul_str}", parse_mode="Markdown")
         return
     else:
         await update.message.reply_text("❌ Formato incorrecto. Uso: `/presión 120,80,70` o `/presión 120,80` o `/presión 2026-08`", parse_mode="Markdown")
@@ -1057,19 +1034,13 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
     pul_prom = df_p_mes[df_p_mes['Pulsaciones'] > 0]['Pulsaciones'].mean() if 'Pulsaciones' in df_p_mes.columns else 0
 
     txt = (
-        f"🩺 **Resumen de Presión Arterial ({mes_str}):**
-
-"
-        f"• Mediciones registradas: `{len(df_p_mes)}`
-"
-        f"• **Promedio Alta (Sistólica):** `{alta_prom:.1f} mmHg`
-"
-        f"• **Promedio Baja (Diastólica):** `{baja_prom:.1f} mmHg`
-"
+        f"🩺 **Resumen de Presión Arterial ({mes_str}):**\n\n"
+        f"• Mediciones registradas: `{len(df_p_mes)}`\n"
+        f"• **Promedio Alta (Sistólica):** `{alta_prom:.1f} mmHg`\n"
+        f"• **Promedio Baja (Diastólica):** `{baja_prom:.1f} mmHg`\n"
     )
     if pul_prom > 0:
-        txt += f"• **Promedio Pulsaciones:** `{pul_prom:.1f} lpm`
-"
+        txt += f"• **Promedio Pulsaciones:** `{pul_prom:.1f} lpm`\n"
 
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📄 Descargar PDF Presión Diaria", callback_data=f"descargar_pdf_presion_{mes_str}")]
@@ -1153,7 +1124,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         items = context.user_data.get('pending_items', [])
         if 0 <= idx < len(items):
             try:
-                # El usuario puede escribir nuevos valores o descripción
                 parts = [p.strip() for p in raw_text.split(',') if p.strip()]
                 items[idx]['alimento'] = parts[0]
                 if len(parts) > 1:
@@ -1211,9 +1181,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Comando no reconocido.")
         return
 
-    # Procesamiento de comidas precargadas con multiplicador (*) - Sin IA
     if raw_text.startswith('*'):
-        # Parsear nombre y multiplicador (ej. *PIZZAJM,4 o *CHURRO,0.5 o *PIZZAJM)
         parts = [p.strip() for p in raw_text.split(',') if p.strip()]
         plantilla_nombre = parts[0].replace('*', '').strip().upper()
         multiplicador = 1.0
@@ -1292,9 +1260,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         guardar_en_sheets(user_id, items, fecha, momento)
-        await query.edit_message_text(f"✅ **¡Registro guardado correctamente!**
-📅 Fecha: `{fecha}` | Momento: `{momento}`
-Total ítems: {len(items)}", parse_mode="Markdown")
+        await query.edit_message_text(f"✅ **¡Registro guardado correctamente!**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\nTotal ítems: {len(items)}", parse_mode="Markdown")
 
     elif data == "cancel_entry":
         context.user_data.pop('pending_items', None)
@@ -1324,12 +1290,9 @@ Total ítems: {len(items)}", parse_mode="Markdown")
         items = context.user_data.get('pending_items', [])
         item = items[idx]
         await query.edit_message_text(
-            f"✏️ **Editando Ítem #{idx+1} ({item['alimento']}):**
-"
-            f"Envía los nuevos valores separados por coma:
-"
-            f"`Nombre, peso, calorias, proteinas, grasas, carbohidratos, fibras`
-"
+            f"✏️ **Editando Ítem #{idx+1} ({item['alimento']}):**\n"
+            f"Envía los nuevos valores separados por coma:\n"
+            f"`Nombre, peso, calorias, proteinas, grasas, carbohidratos, fibras`\n"
             f"(Ej: `Milanesa con puré, 350, 450, 25, 18, 45, 4`)",
             parse_mode="Markdown"
         )
@@ -1383,15 +1346,12 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
         if df_filtrado.empty:
             txt = f"📅 No hay registros para la fecha `{fecha_str}`."
         else:
-            txt = f"📅 **Registro del día {fecha_str}:**
-
-"
+            txt = f"📅 **Registro del día {fecha_str}:**\n\n"
             
             c_cons = df_filtrado[df_filtrado['Calorias'] > 0]['Calorias'].sum()
             c_quem = abs(df_filtrado[df_filtrado['Calorias'] < 0]['Calorias'].sum())
             b_neto = c_cons - c_quem
             
-            # Agrupamiento por momento en pantalla
             momentos_orden = ["Desayuno", "Colación", "Almuerzo", "Merienda", "Cena"]
             agrupados = {}
             for _, r in df_filtrado.iterrows():
@@ -1404,21 +1364,16 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
             for m in momentos_orden:
                 if m in agrupados:
                     items_str = ", ".join(agrupados[m])
-                    txt += f"• **{m}**: {items_str}
-"
+                    txt += f"• **{m}**: {items_str}\n"
 
             for m, items_list in agrupados.items():
                 if m not in momentos_orden:
                     items_str = ", ".join(items_list)
-                    txt += f"• **{m}**: {items_str}
-"
+                    txt += f"• **{m}**: {items_str}\n"
             
-            txt += f"
-📥 **Consumidas:** `{c_cons:.0f} kcal`"
-            txt += f"
-🔥 **Quemadas:** `{c_quem:.0f} kcal`"
-            txt += f"
-⚖️ **Balance Neto:** `{b_neto:.0f} kcal`"
+            txt += f"\n📥 **Consumidas:** `{c_cons:.0f} kcal`"
+            txt += f"\n🔥 **Quemadas:** `{c_quem:.0f} kcal`"
+            txt += f"\n⚖️ **Balance Neto:** `{b_neto:.0f} kcal`"
 
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📄 Descargar PDF del Diario", callback_data=f"descargar_pdf_diario_{fecha_str}")]
@@ -1499,30 +1454,18 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     carb_rec = (get_val * 0.50) / 4.0 if get_val > 0 else 250.0
     fibr_rec = 30.0
 
-    txt = f"📊 **Resumen Mensual y Tabla Comparativa ({mes_str}):**
-
-"
-    txt += f"• **Días registrados:** `{dias_activos}`
-
-"
-    txt += "📋 **Tabla Comparativa (Promedios Reales vs Recomendados):**
-"
-    txt += f"• **Calorías:** `{prom_cons:.0f} kcal` vs `{get_val:.0f} kcal` (GET)
-"
-    txt += f"• **Proteínas:** `{prom_prot:.1f} g` vs `{prot_rec:.1f} g`
-"
-    txt += f"• **Grasas:** `{prom_gras:.1f} g` vs `{gras_rec:.1f} g`
-"
-    txt += f"• **Carbohidratos:** `{prom_carb:.1f} g` vs `{carb_rec:.1f} g`
-"
-    txt += f"• **Fibras:** `{prom_fibr:.1f} g` vs `{fibr_rec:.1f} g`
-
-"
+    txt = f"📊 **Resumen Mensual y Tabla Comparativa ({mes_str}):**\n\n"
+    txt += f"• **Días registrados:** `{dias_activos}`\n\n"
+    txt += "📋 **Tabla Comparativa (Promedios Reales vs Recomendados):**\n"
+    txt += f"• **Calorías:** `{prom_cons:.0f} kcal` vs `{get_val:.0f} kcal` (GET)\n"
+    txt += f"• **Proteínas:** `{prom_prot:.1f} g` vs `{prot_rec:.1f} g`\n"
+    txt += f"• **Grasas:** `{prom_gras:.1f} g` vs `{gras_rec:.1f} g`\n"
+    txt += f"• **Carbohidratos:** `{prom_carb:.1f} g` vs `{carb_rec:.1f} g`\n"
+    txt += f"• **Fibras:** `{prom_fibr:.1f} g` vs `{fibr_rec:.1f} g`\n\n"
 
     resumen_para_ia = f"Mes: {mes_str}, Dias activos: {dias_activos}, Promedios reales: Kcal Consumidas={prom_cons:.0f}, Kcal Quemadas={prom_quem:.0f}, Prot={prom_prot:.1f}g, Gras={prom_gras:.1f}g, Carb={prom_carb:.1f}g, Fibr={prom_fibr:.1f}g. GET estimado: {get_val:.0f} kcal"
     rec_ia = obtener_recomendacion_ia(resumen_para_ia)
-    txt += f"💡 **Recomendación IA:**
-_{rec_ia}_"
+    txt += f"💡 **Recomendación IA:**\n_{rec_ia}_"
 
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📄 Descargar PDF Resumen", callback_data=f"descargar_pdf_resumen_{mes_str}")]
