@@ -412,23 +412,16 @@ def obtener_plantillas_comidas():
 def analizar_con_groq(prompt_text):
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
-    system_prompt = (
-        "Sos un nutricionista experto. Analizá el texto ingresado.
-"
-        "Devolvé EXCLUSIVAMENTE un JSON con este formato:
-"
-        "{
-"
-        '  "items": [
-'
-        '    {"alimento": "nombre", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}
-'
-        '  ],
-'
-        '  "tipo": "Comida"
-'
-        "}"
-    )
+    
+    system_prompt = """Sos un nutricionista experto. Analizá el texto ingresado.
+Devolvé EXCLUSIVAMENTE un JSON con este formato:
+{
+  "items": [
+    {"alimento": "nombre", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}
+  ],
+  "tipo": "Comida"
+}"""
+
     response = client_ai.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
@@ -439,7 +432,6 @@ def analizar_con_groq(prompt_text):
         response_format={"type": "json_object"}
     )
     return json.loads(response.choices[0].message.content)
-
 def analizar_imagen_con_groq(base64_image):
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
