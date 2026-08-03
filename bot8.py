@@ -438,7 +438,7 @@ def analizar_imagen_con_groq(base64_image):
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
     prompt = "Analizá esta imagen de comida/plato. Identificá los alimentos, estimá sus pesos en gramos y nutrientes. Respondé ÚNICAMENTE en formato JSON con la clave 'items' conteniendo alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras."
     response = client_ai.chat.completions.create(
-        model="qwen/qwen3.6-27b",
+        model="llama-3.3-70b-versatile",
         messages=[
             {
                 "role": "user",
@@ -488,7 +488,7 @@ def generar_pdf_instrucciones_bytes():
         Paragraph("<b>1. Comandos Principales</b>", section_style),
         Paragraph("• <b>/start</b>: Inicia el bot y reenvía este PDF informativo.", body_style),
         Paragraph("• <b>/comidas</b>: Ver listado de comidas predeterminadas y plantilla en PDF.", body_style),
-        Paragraph("• <b>/presion</b>: Registrar presion (Ej: <code>/presion 120,80,70</code> o <code>/presion 120,80</code>) o consultar resumen mensual de presion (Ej: <code>/presion 2026-08</code>).", body_style),
+        Paragraph("• <b>/presion</b>: Registrar presión (Ej: <code>/presion 120,80,70</code> o <code>/presion 120,80</code>) o consultar resumen mensual de presión (Ej: <code>/presion 2026-08</code>).", body_style),
         Paragraph("• <b>/diario</b>: Consultar consumos del día u otra fecha con descarga de PDF detallado.", body_style),
         Paragraph("• <b>/resumen</b>: Obtener el resumen mensual con tabla comparativa de macronutrientes, cálculo histórico de TMB y recomendaciones.", body_style),
         Paragraph("• <b>/perfil</b>: Actualizar o consultar datos biométricos corporales específicos por mes.", body_style),
@@ -629,13 +629,13 @@ def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
     header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
 
     story = [
-        Paragraph(f"<b>Detalle Diario de presion Arterial - {mes_str}</b>", title_style),
+        Paragraph(f"<b>Detalle Diario de Presión Arterial - {mes_str}</b>", title_style),
         Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
         HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
     ]
 
     if df_presion.empty:
-        story.append(Paragraph("No hay registros de presion para este mes.", body_style))
+        story.append(Paragraph("No hay registros de presión para este mes.", body_style))
     else:
         table_data = [[
             Paragraph("Fecha y Hora", header_style),
@@ -827,7 +827,6 @@ async def render_confirmation_screen(msg_or_query, context):
 
     txt = f"📝 **Confirmación de Ingesta:**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\n\n"
     for idx, item in enumerate(items, start=1):
-        # MODIFICACIÓN SOLICITADA: Mostrar correctamente el multiplicador/cantidad en el listado de confirmación si existe
         mult = item.get('multiplicador', 1.0)
         peso_total = item.get('peso', 0)
         cal_total = item.get('calorias', 0)
@@ -883,9 +882,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 ¡Hola! Bienvenido a tu Bot Nutricional Personalizado.\n\n"
         "📌 Funciones y Comandos Disponibles:\n"
         "• `/comidas`: Visualiza el listado de comidas predeterminadas y descarga su PDF oficial.\n"
-        "• `/presion`: Registra valores (Ej: `/presion 120,80,70` o `/presion 120,80`) o consulta el resumen mensual de presion y su PDF detallado (Ej: `/presion 2026-08`).\n"
+        "• `/presion`: Registra valores (Ej: `/presion 120,80,70` o `/presion 120,80`) o consulta el resumen mensual de presión y su PDF detallado (Ej: `/presion 2026-08`).\n"
         "• `/diario`: Consulta los consumos del día con agrupamiento inteligente y descarga directa del PDF diario detallado.\n"
-        "• `/resumen`: Genera el reporte mensual con la nueva **Tabla Comparativa de Macronutrientes**, datos biométricos del mes y recomendaciones de IA.\n"
+        "• `/resumen`: Genera el reporte mensual con la **Tabla Comparativa de Macronutrientes**, datos biométricos del mes y recomendaciones de IA.\n"
         "• `/perfil`: Consulta o actualiza tus datos biométricos corporales y ocupación específicos por mes.\n"
         "• **Multiplicadores en Plantillas:** Usa `*PIZZAJM`, `*PIZZAJM,4` o `*CHURRO,0.5` para ajustar porciones automáticamente sin pasar por IA.\n\n"
         "📄 Te adjuntamos el manual de instrucciones actualizado en PDF."
@@ -989,7 +988,7 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     if not raw_text:
         await update.message.reply_text(
-            "🩺 Ingresá la presion o consultá un mes. Ejemplos:\n"
+            "🩺 Ingresá la presión o consultá un mes. Ejemplos:\n"
             "• `/presion 120,80,70`\n"
             "• `/presion 120,80`\n"
             "• `/presion 2026-08`", 
@@ -1008,7 +1007,7 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         pulsaciones = float(parts[2]) if len(parts) > 2 else None
         guardar_presion_en_sheets(user_id, alta, baja, pulsaciones)
         pul_str = f" | Pulsaciones: `{pulsaciones}`" if pulsaciones is not None else ""
-        await update.message.reply_text(f"✅ **presion registrada:**\nAlta: `{alta}` | Baja: `{baja}`{pul_str}", parse_mode="Markdown")
+        await update.message.reply_text(f"✅ **Presión registrada:**\nAlta: `{alta}` | Baja: `{baja}`{pul_str}", parse_mode="Markdown")
         return
     else:
         await update.message.reply_text("❌ Formato incorrecto. Uso: `/presion 120,80,70` o `/presion 120,80` o `/presion 2026-08`", parse_mode="Markdown")
@@ -1016,7 +1015,7 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
     df_presion = obtener_datos_presion(user_id)
     if df_presion.empty:
-        txt = f"🩺 No hay registros de presion arterial para el usuario `{user_id}`."
+        txt = f"🩺 No hay registros de presión arterial para el usuario `{user_id}`."
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(txt, parse_mode="Markdown")
         else:
@@ -1025,7 +1024,7 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
 
     df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
     if df_p_mes.empty:
-        txt = f"🩺 No hay registros de presion para el mes `{mes_str}`."
+        txt = f"🩺 No hay registros de presión para el mes `{mes_str}`."
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(txt, parse_mode="Markdown")
         else:
@@ -1037,7 +1036,7 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
     pul_prom = df_p_mes[df_p_mes['Pulsaciones'] > 0]['Pulsaciones'].mean() if 'Pulsaciones' in df_p_mes.columns else 0
 
     txt = (
-        f"🩺 **Resumen de presion Arterial ({mes_str}):**\n\n"
+        f"🩺 **Resumen de Presión Arterial ({mes_str}):**\n\n"
         f"• Mediciones registradas: `{len(df_p_mes)}`\n"
         f"• **Promedio Alta (Sistólica):** `{alta_prom:.1f} mmHg`\n"
         f"• **Promedio Baja (Diastólica):** `{baja_prom:.1f} mmHg`\n"
@@ -1046,7 +1045,7 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
         txt += f"• **Promedio Pulsaciones:** `{pul_prom:.1f} lpm`\n"
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📄 Descargar PDF presion Diaria", callback_data=f"descargar_pdf_presion_{mes_str}")]
+        [InlineKeyboardButton("📄 Descargar PDF Presión Diaria", callback_data=f"descargar_pdf_presion_{mes_str}")]
     ])
 
     if hasattr(query_or_update, 'edit_message_text'):
@@ -1106,7 +1105,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = await update.message.reply_text("📸 Analizando foto con Qwen Vision...")
+    msg = await update.message.reply_text("📸 Analizando foto con Inteligencia Artificial...")
     try:
         photo_file = await update.message.photo[-1].get_file()
         photo_bytes = await photo_file.download_as_bytearray()
@@ -1121,7 +1120,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.strip()
 
-    # MODIFICACIÓN SOLICITADA 1: Edición flexible de un ítem existente (acepta solo nuevo alimento, o nuevo alimento + peso, o los 6 valores anteriores)
     if context.user_data.get('awaiting_edit_item_val'):
         context.user_data['awaiting_edit_item_val'] = False
         idx = context.user_data.get('editing_item_idx')
@@ -1132,7 +1130,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 item_actual = items[idx]
                 
                 if len(parts) == 1:
-                    # Caso A: Solo se ingresa el nuevo nombre de alimento (mantiene el peso actual y recalcula con IA)
                     nuevo_alimento = parts[0]
                     peso_actual = item_actual.get('peso', 100)
                     prompt_ia = f"{nuevo_alimento}, {peso_actual}g"
@@ -1149,7 +1146,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     items[idx]['multiplicador'] = 1.0
 
                 elif len(parts) == 2:
-                    # Caso B: Se ingresa el nuevo alimento y el nuevo peso (recalcula el resto con IA)
                     nuevo_alimento = parts[0]
                     nuevo_peso = parse_raw_val(parts[1].replace('g', '').strip())
                     prompt_ia = f"{nuevo_alimento}, {nuevo_peso}g"
@@ -1166,7 +1162,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     items[idx]['multiplicador'] = 1.0
 
                 else:
-                    # Caso C: Formato tradicional completo (Nombre, peso, calorias, proteinas, grasas, carbohidratos, fibras)
                     items[idx]['alimento'] = parts[0]
                     if len(parts) > 1: items[idx]['peso'] = float(parts[1].replace('g', '').strip())
                     if len(parts) > 2: items[idx]['calorias'] = float(parts[2])
@@ -1240,7 +1235,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
             alimento_desc = coincidencia.get("Descripcion") or coincidencia.get("Nombre")
             
-            # MODIFICACIÓN SOLICITADA 2: Guardar correctamente el multiplicador sin perderlo en el botón ni en la descripción
             item = {
                 "alimento": alimento_desc,
                 "multiplicador": multiplicador,
@@ -1571,4 +1565,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```[cite: 1]
