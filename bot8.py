@@ -457,7 +457,6 @@ def obtener_recomendacion_ia(resumen_texto):
     if not client_ai:
         return "No se pudo obtener recomendación de IA (API Key no configurada)."
     
-    # CORREGIDO: Sintaxis de f-string arreglada (se eliminó el bloque basura al final)
     prompt = f"Basado en este resumen mensual y métricas del paciente, da una recomendación nutricional breve, profesional y motivadora (máximo 4 oraciones):\n\n{resumen_texto}"
 
     try:
@@ -489,7 +488,7 @@ def generar_pdf_instrucciones_bytes():
         Paragraph("<b>1. Comandos Principales</b>", section_style),
         Paragraph("• <b>/start</b>: Inicia el bot y reenvía este PDF informativo.", body_style),
         Paragraph("• <b>/comidas</b>: Ver listado de comidas predeterminadas y plantilla en PDF.", body_style),
-        Paragraph("• <b>/presion</b> o <b>/presion</b>: Registrar presion (Ej: <code>/presion 120,80,70</code> o <code>/presion 120,80</code>) o consultar resumen mensual de presion (Ej: <code>/presion 2026-08</code>).", body_style),
+        Paragraph("• <b>/presion</b>: Registrar presion (Ej: <code>/presion 120,80,70</code> o <code>/presion 120,80</code>) o consultar resumen mensual de presion (Ej: <code>/presion 2026-08</code>).", body_style),
         Paragraph("• <b>/diario</b>: Consultar consumos del día u otra fecha con descarga de PDF detallado.", body_style),
         Paragraph("• <b>/resumen</b>: Obtener el resumen mensual con tabla comparativa de macronutrientes, cálculo histórico de TMB y recomendaciones.", body_style),
         Paragraph("• <b>/perfil</b>: Actualizar o consultar datos biométricos corporales específicos por mes.", body_style),
@@ -677,7 +676,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8, leading=11, textColor=colors.HexColor('#1E293B'))
     header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
 
-    # --- HOJA 1: Reporte Nutricional Mensual ---
     story = [
         Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str}</b>", title_style),
         Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
@@ -762,7 +760,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     ]))
     story.append(t1)
 
-    # --- HOJA 2: Análisis Metabólico y Tabla Comparativa Conjunta ---
     story.append(PageBreak())
     story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes</b>", title_style))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10))
@@ -830,7 +827,14 @@ async def render_confirmation_screen(msg_or_query, context):
 
     txt = f"📝 **Confirmación de Ingesta:**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\n\n"
     for idx, item in enumerate(items, start=1):
-        txt += f"**{idx}. {item['alimento']}** ({item.get('peso',0)}g): `{item.get('calorias',0)} kcal`\n"
+        # MODIFICACIÓN SOLICITADA: Mostrar correctamente el multiplicador/cantidad en el listado de confirmación si existe
+        mult = item.get('multiplicador', 1.0)
+        peso_total = item.get('peso', 0)
+        cal_total = item.get('calorias', 0)
+        if mult != 1.0:
+            txt += f"**{idx}. {item['alimento']}** ({peso_total:.1f}g) (x{mult}): `{cal_total:.1f} kcal`\n"
+        else:
+            txt += f"**{idx}. {item['alimento']}** ({peso_total:.1f}g): `{cal_total:.1f} kcal`\n"
 
     keyboard = []
     
@@ -875,12 +879,11 @@ async def render_confirmation_screen(msg_or_query, context):
 # HANDLERS DE TELEGRAM
 # ==========================================
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # CORREGIDO: Saltos de línea en strings multilinea arreglados correctamente
     msg = (
         "👋 ¡Hola! Bienvenido a tu Bot Nutricional Personalizado.\n\n"
         "📌 Funciones y Comandos Disponibles:\n"
         "• `/comidas`: Visualiza el listado de comidas predeterminadas y descarga su PDF oficial.\n"
-        "• `/presion` o `/presion`: Registra valores (Ej: `/presion 120,80,70` o `/presion 120,80`) o consulta el resumen mensual de presion y su PDF detallado (Ej: `/presion 2026-08`).\n"
+        "• `/presion`: Registra valores (Ej: `/presion 120,80,70` o `/presion 120,80`) o consulta el resumen mensual de presion y su PDF detallado (Ej: `/presion 2026-08`).\n"
         "• `/diario`: Consulta los consumos del día con agrupamiento inteligente y descarga directa del PDF diario detallado.\n"
         "• `/resumen`: Genera el reporte mensual con la nueva **Tabla Comparativa de Macronutrientes**, datos biométricos del mes y recomendaciones de IA.\n"
         "• `/perfil`: Consulta o actualiza tus datos biométricos corporales y ocupación específicos por mes.\n"
@@ -982,7 +985,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    raw_text = update.message.text.replace('/presion', '').replace('/presion', '').strip()
+    raw_text = update.message.text.replace('/presion', '').strip()
     
     if not raw_text:
         await update.message.reply_text(
@@ -1118,6 +1121,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.strip()
 
+    # MODIFICACIÓN SOLICITADA 1: Edición flexible de un ítem existente (acepta solo nuevo alimento, o nuevo alimento + peso, o los 6 valores anteriores)
     if context.user_data.get('awaiting_edit_item_val'):
         context.user_data['awaiting_edit_item_val'] = False
         idx = context.user_data.get('editing_item_idx')
@@ -1125,26 +1129,59 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if 0 <= idx < len(items):
             try:
                 parts = [p.strip() for p in raw_text.split(',') if p.strip()]
-                items[idx]['alimento'] = parts[0]
-                if len(parts) > 1:
-                    items[idx]['peso'] = float(parts[1])
-                if len(parts) > 2:
-                    items[idx]['calorias'] = float(parts[2])
-                if len(parts) > 3:
-                    items[idx]['proteinas'] = float(parts[3])
-                if len(parts) > 4:
-                    items[idx]['grasas'] = float(parts[4])
-                if len(parts) > 5:
-                    items[idx]['carbohidratos'] = float(parts[5])
-                if len(parts) > 6:
-                    items[idx]['fibras'] = float(parts[6])
+                item_actual = items[idx]
                 
+                if len(parts) == 1:
+                    # Caso A: Solo se ingresa el nuevo nombre de alimento (mantiene el peso actual y recalcula con IA)
+                    nuevo_alimento = parts[0]
+                    peso_actual = item_actual.get('peso', 100)
+                    prompt_ia = f"{nuevo_alimento}, {peso_actual}g"
+                    data_ia = analizar_con_groq(prompt_ia)
+                    nuevo_item = data_ia.get("items", [{}])[0]
+                    
+                    items[idx]['alimento'] = nuevo_item.get('alimento', nuevo_alimento)
+                    items[idx]['peso'] = parse_raw_val(nuevo_item.get('peso', peso_actual))
+                    items[idx]['calorias'] = parse_raw_val(nuevo_item.get('calorias', 0))
+                    items[idx]['proteinas'] = parse_raw_val(nuevo_item.get('proteinas', 0))
+                    items[idx]['grasas'] = parse_raw_val(nuevo_item.get('grasas', 0))
+                    items[idx]['carbohidratos'] = parse_raw_val(nuevo_item.get('carbohidratos', 0))
+                    items[idx]['fibras'] = parse_raw_val(nuevo_item.get('fibras', 0))
+                    items[idx]['multiplicador'] = 1.0
+
+                elif len(parts) == 2:
+                    # Caso B: Se ingresa el nuevo alimento y el nuevo peso (recalcula el resto con IA)
+                    nuevo_alimento = parts[0]
+                    nuevo_peso = parse_raw_val(parts[1].replace('g', '').strip())
+                    prompt_ia = f"{nuevo_alimento}, {nuevo_peso}g"
+                    data_ia = analizar_con_groq(prompt_ia)
+                    nuevo_item = data_ia.get("items", [{}])[0]
+
+                    items[idx]['alimento'] = nuevo_item.get('alimento', nuevo_alimento)
+                    items[idx]['peso'] = nuevo_peso
+                    items[idx]['calorias'] = parse_raw_val(nuevo_item.get('calorias', 0))
+                    items[idx]['proteinas'] = parse_raw_val(nuevo_item.get('proteinas', 0))
+                    items[idx]['grasas'] = parse_raw_val(nuevo_item.get('grasas', 0))
+                    items[idx]['carbohidratos'] = parse_raw_val(nuevo_item.get('carbohidratos', 0))
+                    items[idx]['fibras'] = parse_raw_val(nuevo_item.get('fibras', 0))
+                    items[idx]['multiplicador'] = 1.0
+
+                else:
+                    # Caso C: Formato tradicional completo (Nombre, peso, calorias, proteinas, grasas, carbohidratos, fibras)
+                    items[idx]['alimento'] = parts[0]
+                    if len(parts) > 1: items[idx]['peso'] = float(parts[1].replace('g', '').strip())
+                    if len(parts) > 2: items[idx]['calorias'] = float(parts[2])
+                    if len(parts) > 3: items[idx]['proteinas'] = float(parts[3])
+                    if len(parts) > 4: items[idx]['grasas'] = float(parts[4])
+                    if len(parts) > 5: items[idx]['carbohidratos'] = float(parts[5])
+                    if len(parts) > 6: items[idx]['fibras'] = float(parts[6])
+                    items[idx]['multiplicador'] = 1.0
+
                 context.user_data['pending_items'] = items
                 msg = await update.message.reply_text("✅ Ítem actualizado correctamente.")
                 await render_confirmation_screen(msg, context)
                 return
-            except ValueError:
-                await update.message.reply_text("❌ Formato inválido. Usá: `Nombre, peso, calorias, proteinas, grasas, carbohidratos, fibras`", parse_mode="Markdown")
+            except Exception as e:
+                await update.message.reply_text(f"❌ Error al procesar la edición: {e}. Usá: `Nuevo alimento` o `Nuevo alimento, peso`", parse_mode="Markdown")
                 return
 
     if context.user_data.get('awaiting_diario_date'):
@@ -1165,7 +1202,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if raw_text.startswith('/'):
         cmd = raw_text.split()[0].lower()
-        if cmd in ['/presion', '/presion']:
+        if cmd == '/presion':
             await cmd_presion_handler(update, context)
         elif cmd == '/diario':
             await cmd_diario(update, context)
@@ -1203,8 +1240,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
             alimento_desc = coincidencia.get("Descripcion") or coincidencia.get("Nombre")
             
+            # MODIFICACIÓN SOLICITADA 2: Guardar correctamente el multiplicador sin perderlo en el botón ni en la descripción
             item = {
-                "alimento": f"{alimento_desc} (x{multiplicador})" if multiplicador != 1.0 else alimento_desc,
+                "alimento": alimento_desc,
+                "multiplicador": multiplicador,
                 "peso": parse_raw_val(coincidencia.get("Peso")) * multiplicador,
                 "calorias": parse_raw_val(coincidencia.get("Calorias")) * multiplicador,
                 "proteinas": parse_raw_val(coincidencia.get("Proteinas")) * multiplicador,
@@ -1233,6 +1272,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def procesar_y_mostrar_confirmacion(data, msg, context):
     items = data.get("items", [])
+    for it in items:
+        if "multiplicador" not in it:
+            it["multiplicador"] = 1.0
     fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
     
     context.user_data['pending_items'] = items
@@ -1291,9 +1333,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         item = items[idx]
         await query.edit_message_text(
             f"✏️ **Editando Ítem #{idx+1} ({item['alimento']}):**\n"
-            f"Envía los nuevos valores separados por coma:\n"
-            f"`Nombre, peso, calorias, proteinas, grasas, carbohidratos, fibras`\n"
-            f"(Ej: `Milanesa con puré, 350, 450, 25, 18, 45, 4`)",
+            f"Podés enviar solo el nuevo alimento (ej. `milanesa de pollo`) o el alimento y peso (ej. `milanesa de pollo, 250`).",
             parse_mode="Markdown"
         )
 
@@ -1519,7 +1559,6 @@ def main():
     application.add_handler(CommandHandler("comidas", cmd_comidas))
     application.add_handler(CommandHandler("perfil", cmd_perfil))
     application.add_handler(CommandHandler("presion", cmd_presion_handler))
-    application.add_handler(CommandHandler("presion", cmd_presion_handler))
     application.add_handler(CommandHandler("diario", cmd_diario))
     application.add_handler(CommandHandler("resumen", cmd_resumen))
     
@@ -1532,3 +1571,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+```[cite: 1]
