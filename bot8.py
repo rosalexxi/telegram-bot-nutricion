@@ -432,13 +432,13 @@ Devolvé EXCLUSIVAMENTE un JSON con este formato:
         response_format={"type": "json_object"}
     )
     return json.loads(response.choices[0].message.content)
-
+    
 def analizar_imagen_con_groq(base64_image):
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
     prompt = "Analizá esta imagen de comida/plato. Identificá los alimentos, estimá sus pesos en gramos y nutrientes. Respondé ÚNICAMENTE en formato JSON con la clave 'items' conteniendo alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras."
     response = client_ai.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="qwen/qwen3.6-27b",  # <--- Modelo cambiado exclusivamente para visión
         messages=[
             {
                 "role": "user",
