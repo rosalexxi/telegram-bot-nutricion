@@ -189,8 +189,8 @@ def obtener_momento_y_fecha_auto():
         momento = "Cena"
         
     return fecha_obj.strftime("%Y-%m-%d"), momento
-    
-def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", actividad="sedentario", contextura="grande"):
+ 
+ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", actividad="sedentario", contextura="grande"):
     # 1. Estimar el peso ideal base según altura y género (Fórmula de Devine adaptada)
     altura_m = altura_cm / 100.0
     
@@ -223,13 +223,16 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", activid
     # 5. Calcular GET según el nivel de actividad
     factores = {
         "sedentario": 1.2,
-        "jubilado": 1.2,
-        "ligero": 1.375,
-        "moderado": 1.55,
-        "intenso": 1.725
+        "jubilado": 1.0,
+        "ligero": 1.4,
+        "moderado": 1.6,
+        "intenso": 1.7
     }
     factor = factores.get(str(actividad).lower(), 1.2)
     get_val = tmb * factor
+    
+    # 6. Cálculo interno de las proteínas esperadas utilizando el peso efectivo
+    proteinas_esperadas = peso_efectivo * 1.3
     
     return tmb, get_val
 
