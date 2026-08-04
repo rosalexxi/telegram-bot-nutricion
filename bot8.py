@@ -887,6 +887,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/resumen`: Genera el reporte mensual con la **Tabla Comparativa de Macronutrientes**, datos biométricos del mes y recomendaciones de IA.\n"
         "• `/perfil`: Consulta o actualiza tus datos biométricos corporales y ocupación específicos por mes.\n"
         "• **Multiplicadores en Plantillas:** Usa `*PIZZAJM`, `*PIZZAJM,4` o `*CHURRO,0.5` para ajustar porciones automáticamente sin pasar por IA.\n\n"
+        "• Para ingresar una ingesta se puede enviar un texto, una imagen o un archivo de voz.\n"
+        "• Al modificar se puede cambiar solo la comida manteniendo el peso o comida,peso . La IA va arecalcular los nuevos valores.\n\n"
         "📄 Te adjuntamos el manual de instrucciones actualizado en PDF."
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
