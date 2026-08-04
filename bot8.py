@@ -189,7 +189,7 @@ def obtener_momento_y_fecha_auto():
         momento = "Cena"
         
     return fecha_obj.strftime("%Y-%m-%d"), momento
-
+    
 def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", actividad="sedentario", contextura="grande"):
     # 1. Estimar el peso ideal base según altura y género (Fórmula de Devine adaptada)
     altura_m = altura_cm / 100.0
@@ -202,14 +202,14 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", activid
     if peso_ideal_base <= 0:
         peso_ideal_base = 22 * (altura_m ** 2)
 
-    # 2. Ajustar el peso ideal según la contextura ósea (Grande +10% para un enfoque realista y sostenible)
+    # 2. Ajustar el peso ideal según la contextura ósea (Grande +20% para un enfoque realista y sostenible)
     ctx = str(contextura).lower()
     if "peque" in ctx or "chica" in ctx:
         peso_ideal_referencia = peso_ideal_base * 0.90
     elif "mediana" in ctx:
         peso_ideal_referencia = peso_ideal_base
     else:  # Grande por defecto
-        peso_ideal_referencia = peso_ideal_base * 1.10
+        peso_ideal_referencia = peso_ideal_base * 1.20
 
     # 3. Tomar el promedio entre tu peso actual (con sobrepeso) y el peso ideal ajustado
     peso_efectivo = (peso_actual + peso_ideal_referencia) / 2.0
@@ -224,9 +224,9 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", activid
     factores = {
         "sedentario": 1.2,
         "jubilado": 1.2,
-        "ligero": 1.375,
-        "moderado": 1.55,
-        "intenso": 1.725
+        "ligero": 1.4,
+        "moderado": 1.6,
+        "intenso": 1.8
     }
     factor = factores.get(str(actividad).lower(), 1.2)
     get_val = tmb * factor
@@ -234,7 +234,7 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", activid
     # 6. Cálculo interno de las proteínas esperadas utilizando el peso efectivo
     proteinas_esperadas = peso_efectivo * 1.3
     
-    return tmb, get_val
+    return tmb, get_val    
 
 # ==========================================
 # GOOGLE SHEETS OPERACIONES
