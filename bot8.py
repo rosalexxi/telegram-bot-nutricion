@@ -1230,13 +1230,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if str(p.get("Nombre", "")).strip().upper() == plantilla_nombre:
                     coincidencia = p
                     break
-
+                    
         if coincidencia:
             fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
             alimento_desc = coincidencia.get("Descripcion") or coincidencia.get("Nombre")
             
+            # Modificación semántica: si el multiplicador es distinto de 1, se antepone al texto del alimento
+            if multiplicador != 1.0:
+                alimento_final = f"{multiplicador:g} {alimento_desc}"
+            else:
+                alimento_final = alimento_desc
+
             item = {
-                "alimento": alimento_desc,
+                "alimento": alimento_final,
                 "multiplicador": multiplicador,
                 "peso": parse_raw_val(coincidencia.get("Peso")) * multiplicador,
                 "calorias": parse_raw_val(coincidencia.get("Calorias")) * multiplicador,
