@@ -12,6 +12,10 @@ from google.oauth2.service_account import Credentials
 from groq import Groq
 from dotenv import load_dotenv
 from flask import Flask, request, render_template_string
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable, KeepTogether
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 # Telegram
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -380,12 +384,15 @@ def obtener_datos_presion(user_id):
         records = ws.get_all_records()
         if not records:
             return pd.DataFrame()
-        
+
         df = pd.DataFrame(records)
         for col in ['Alta', 'Baja', 'Pulsaciones']:
             if col in df.columns:
                 df[col] = df[col].apply(parse_float_from_sheets)
-                
+
+        if 'Fecha_Dia' in df.columns:
+            df['Fecha_Dia'] = df['Fecha_Dia'].astype(str).str.strip()
+
         return df
     except Exception:
         return pd.DataFrame()
@@ -981,12 +988,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 ¡Hola! Bienvenido a tu Bot Nutricional Personalizado.\n\n"
         "📌 Funciones y Comandos Disponibles:\n\n"
         "• `/comidas`: Visualiza el listado de comidas predeterminadas y descarga su PDF oficial.\n"
-        "• `/presion`: Registra valores \n`/presion 120,80,70` registra alta,baja,pulso \n`/presion 120,80`omite pulso \n `/presion 2026-08` consulta el resumen mensual y PDF detallado .\n"
+        "• `/presion`: Registra valores \n`/presion 120,80,70` registra alta,baja,pulso \n`/presion 120,80` omite pulso \n `/presion 2026-08` promedio mensual y PDF detallado .\n"
         "• `/diario`: Consulta los consumos del día con agrupamiento inteligente y PDF diario detallado.\n"
         "• `/resumen`: Genera el reporte mensual con la **Tabla Comparativa de Macronutrientes**, datos biométricos del mes y recomendaciones de IA. y PDF detallado\n"
         "• `/perfil`: Consulta o actualiza tus datos biométricos corporales y ocupación específicos por mes.\n\n"
         "📌 Ingreso de ingestas:\n\n"
-        "• **Multiplicadores en Plantillas:\n** `*PIZZAJM`, `*PIZZAJM,4` o `*CHURRO,0.5` para ajustar porciones automáticamente sin pasar por IA.\n\n"
+        "• **Multiplicadores en Plantillas:\n** `*PIZZAJM`, `*PIZZAJM,1.5` o `*CHURRO,6` para ajustar porciones automáticamente sin pasar por IA.\n\n"
         "• Para ingresar una ingesta se puede enviar un texto, una imagen o un archivo de voz.\n"
         "• Al modificar se puede cambiar solo la comida manteniendo el peso o comida,peso . La IA va a calcular los nuevos valores.\n\n"
         "📄 Te adjuntamos el manual de instrucciones actualizado en PDF."
