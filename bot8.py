@@ -473,29 +473,128 @@ def obtener_recomendacion_ia(resumen_texto):
 # ==========================================
 # GENERADORES DE PDF
 # ==========================================
+
 def generar_pdf_instrucciones_bytes():
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    # Márgenes equilibrados para un diseño más limpio (Aprox 1.5 cm)
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=letter, 
+        rightMargin=40, 
+        leftMargin=40, 
+        topMargin=40, 
+        bottomMargin=40
+    )
+    
     styles = getSampleStyleSheet()
     
-    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#1E3A8A'))
-    section_style = ParagraphStyle('SectionHeading', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#2563EB'), spaceBefore=8)
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=12, textColor=colors.HexColor('#1E293B'))
+    # Paleta de colores moderna
+    PRIMARY = colors.HexColor('#0F172A')   # Slate 900 (Casi negro/azul profundo)
+    SECONDARY = colors.HexColor('#2563EB') # Blue 600 (Azul moderno)
+    TEXT_COLOR = colors.HexColor('#334155')# Slate 700 (Texto legible)
+    BG_LIGHT = colors.HexColor('#F8FAFC')  # Slate 50 (Fondo sutil para cajas)
+    BORDER_COLOR = colors.HexColor('#E2E8F0') # Slate 200
 
-    story = [
-        Paragraph("<b>MANUAL DE USO COMPLETO - BOT NUTRICIONAL</b>", title_style),
-        HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#2563EB'), spaceAfter=8),
-        Paragraph("<b>1. Comandos Principales</b>", section_style),
-        Paragraph("• <b>/start</b>: Inicia el bot y reenvía este PDF informativo.", body_style),
-        Paragraph("• <b>/comidas</b>: Ver listado de comidas predeterminadas y plantilla en PDF.", body_style),
-        Paragraph("• <b>/presion</b>: Registrar presión (Ej: <code>/presion 120,80,70</code> o <code>/presion 120,80</code>) o consultar resumen mensual de presión (Ej: <code>/presion 2026-08</code>).", body_style),
-        Paragraph("• <b>/diario</b>: Consultar consumos del día u otra fecha con descarga de PDF detallado.", body_style),
-        Paragraph("• <b>/resumen</b>: Obtener el resumen mensual con tabla comparativa de macronutrientes, cálculo histórico de TMB y recomendaciones.", body_style),
-        Paragraph("• <b>/perfil</b>: Actualizar o consultar datos biométricos corporales específicos por mes.", body_style),
-        Paragraph("<b>2. Entrada de Datos y Multiplicadores</b>", section_style),
-        Paragraph("• <b>Texto:</b> Ingresá libremente tus alimentos o nombrá una plantilla con multiplicador (Ej: <code>*PIZZAJM,4</code> o <code>*CHURRO,0.5</code>).", body_style),
-        Paragraph("• <b>Voz y Foto:</b> Grabá un audio o enviá una foto de tu plato para análisis con inteligencia artificial.", body_style),
+    # Estilos tipográficos refinados
+    title_style = ParagraphStyle(
+        'ModernTitle', 
+        parent=styles['Heading1'], 
+        fontSize=18, 
+        leading=22, 
+        textColor=PRIMARY, 
+        spaceAfter=4
+    )
+    subtitle_style = ParagraphStyle(
+        'ModernSubtitle', 
+        parent=styles['Normal'], 
+        fontSize=10, 
+        leading=14, 
+        textColor=SECONDARY, 
+        spaceAfter=15
+    )
+    section_style = ParagraphStyle(
+        'ModernSection', 
+        parent=styles['Heading2'], 
+        fontSize=12, 
+        leading=16, 
+        textColor=PRIMARY, 
+        spaceBefore=12, 
+        spaceAfter=6
+    )
+    body_style = ParagraphStyle(
+        'ModernBody', 
+        parent=styles['Normal'], 
+        fontSize=9, 
+        leading=14, 
+        textColor=TEXT_COLOR
+    )
+    
+    story = []
+
+    # Cabecera moderna con barra lateral simulada mediante tabla
+    header_data = [
+        [Paragraph("🤖 Guía Interactiva del Bot Nutricional", title_style)],
+        [Paragraph("MANUAL DE USUARIO • ASISTENTE PERSONAL INTELIGENTE", subtitle_style)]
     ]
+    header_table = Table(header_data, colWidths=[532])
+    header_table.setStyle(TableStyle([
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ('TOPPADDING', (0,0), (-1,-1), 0),
+        ('LEFTPADDING', (0,0), (-1,-1), 0),
+        ('LINEBELOW', (0,1), (-1,1), 2, SECONDARY),
+    ]))
+    story.append(header_table)
+    story.append(Spacer(1, 10))
+
+    # Sección 1: Comandos Principales en una Tabla Estilizada
+    story.append(Paragraph("1. Comandos Principales", section_style))
+    
+    cmds_data = [
+        [Paragraph("<b>/start</b>", body_style), Paragraph("Inicia el bot y reenvía este manual informativo actualizado.", body_style)],
+        [Paragraph("<b>/comidas</b>", body_style), Paragraph("Visualiza el listado de comidas predeterminadas y descarga su plantilla en PDF.", body_style)],
+        [Paragraph("<b>/presion</b>", body_style), Paragraph("Registra valores (Ej: <code>120,80,70</code>) o consulta el resumen mensual de presión (Ej: <code>2026-08</code>).", body_style)],
+        [Paragraph("<b>/diario</b>", body_style), Paragraph("Consulta los consumos del día con agrupamiento inteligente y descarga de PDF detallado.", body_style)],
+        [Paragraph("<b>/resumen</b>", body_style), Paragraph("Obtiene el reporte mensual con tabla comparativa de macronutrientes y recomendaciones de IA.", body_style)],
+        [Paragraph("<b>/perfil</b>", body_style), Paragraph("Consulta o actualiza tus datos biométricos corporales específicos por mes.", body_style)],
+    ]
+    
+    t_cmds = Table(cmds_data, colWidths=[90, 442])
+    t_cmds.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), BG_LIGHT),
+        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('LEFTPADDING', (0,0), (-1,-1), 8),
+        ('RIGHTPADDING', (0,0), (-1,-1), 8),
+    ]))
+    story.append(t_cmds)
+    story.append(Spacer(1, 10))
+
+    # Sección 2: Entrada de Datos y Multiplicadores (Caja de destaque)
+    story.append(Paragraph("2. Métodos de Registro y Multiplicadores", section_style))
+    
+    input_data = [
+        [Paragraph("<b>💬 Texto Libre y Plantillas:</b> Podés escribir tus alimentos de forma natural o utilizar plantillas rápidas con multiplicadores de porción directamente (Ej: <code>*PIZZAJM,4</code> o <code>*CHURRO,0.5</code>).", body_style)],
+        [Paragraph("<b>🎤 Notas de Voz:</b> Grabá un audio dictando lo que comiste; el motor de transcripción procesará los datos automáticamente.", body_style)],
+        [Paragraph("<b>📸 Fotografías:</b> Enviá una foto de tu plato para que la inteligencia artificial analice los componentes y calcule los macronutrientes.", body_style)]
+    ]
+    
+    t_inputs = Table(input_data, colWidths=[532])
+    t_inputs.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), BG_LIGHT),
+        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('LINEBELOW', (0,0), (-1,-2), 0.5, BORDER_COLOR),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('LEFTPADDING', (0,0), (-1,-1), 10),
+        ('RIGHTPADDING', (0,0), (-1,-1), 10),
+    ]))
+    story.append(KeepTogether([t_inputs]))
+
+    # Compilación final del documento
     doc.build(story)
     buffer.seek(0)
     return buffer
@@ -882,12 +981,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 ¡Hola! Bienvenido a tu Bot Nutricional Personalizado.\n\n"
         "📌 Funciones y Comandos Disponibles:\n\n"
         "• `/comidas`: Visualiza el listado de comidas predeterminadas y descarga su PDF oficial.\n"
-        "• `/presion`: Registra valores \n`/presion 120,80,70` o `/presion 120,80`\nconsulta el resumen mensual y PDF detallado `/presion 2026-08`.\n"
+        "• `/presion`: Registra valores \n`/presion 120,80,70` registra alta,baja,pulso \n`/presion 120,80`omite pulso \n `/presion 2026-08` consulta el resumen mensual y PDF detallado .\n"
         "• `/diario`: Consulta los consumos del día con agrupamiento inteligente y PDF diario detallado.\n"
         "• `/resumen`: Genera el reporte mensual con la **Tabla Comparativa de Macronutrientes**, datos biométricos del mes y recomendaciones de IA. y PDF detallado\n"
         "• `/perfil`: Consulta o actualiza tus datos biométricos corporales y ocupación específicos por mes.\n\n"
         "📌 Ingreso de ingestas:\n\n"
-        "• **Multiplicadores en Plantillas:** Usa `*PIZZAJM`, `*PIZZAJM,4` o `*CHURRO,0.5` para ajustar porciones automáticamente sin pasar por IA.\n\n"
+        "• **Multiplicadores en Plantillas:\n** `*PIZZAJM`, `*PIZZAJM,4` o `*CHURRO,0.5` para ajustar porciones automáticamente sin pasar por IA.\n\n"
         "• Para ingresar una ingesta se puede enviar un texto, una imagen o un archivo de voz.\n"
         "• Al modificar se puede cambiar solo la comida manteniendo el peso o comida,peso . La IA va a calcular los nuevos valores.\n\n"
         "📄 Te adjuntamos el manual de instrucciones actualizado en PDF."
