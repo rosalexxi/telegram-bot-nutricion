@@ -880,15 +880,16 @@ async def render_confirmation_screen(msg_or_query, context):
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "👋 ¡Hola! Bienvenido a tu Bot Nutricional Personalizado.\n\n"
-        "📌 Funciones y Comandos Disponibles:\n"
+        "📌 Funciones y Comandos Disponibles:\n\n"
         "• `/comidas`: Visualiza el listado de comidas predeterminadas y descarga su PDF oficial.\n"
-        "• `/presion`: Registra valores (Ej: `/presion 120,80,70` o `/presion 120,80`) o consulta el resumen mensual de presión y su PDF detallado (Ej: `/presion 2026-08`).\n"
-        "• `/diario`: Consulta los consumos del día con agrupamiento inteligente y descarga directa del PDF diario detallado.\n"
-        "• `/resumen`: Genera el reporte mensual con la **Tabla Comparativa de Macronutrientes**, datos biométricos del mes y recomendaciones de IA.\n"
-        "• `/perfil`: Consulta o actualiza tus datos biométricos corporales y ocupación específicos por mes.\n"
+        "• `/presion`: Registra valores \n`/presion 120,80,70` o `/presion 120,80`\nconsulta el resumen mensual y PDF detallado `/presion 2026-08`.\n"
+        "• `/diario`: Consulta los consumos del día con agrupamiento inteligente y PDF diario detallado.\n"
+        "• `/resumen`: Genera el reporte mensual con la **Tabla Comparativa de Macronutrientes**, datos biométricos del mes y recomendaciones de IA. y PDF detallado\n"
+        "• `/perfil`: Consulta o actualiza tus datos biométricos corporales y ocupación específicos por mes.\n\n"
+        "📌 Ingreso de ingestas:\n\n"
         "• **Multiplicadores en Plantillas:** Usa `*PIZZAJM`, `*PIZZAJM,4` o `*CHURRO,0.5` para ajustar porciones automáticamente sin pasar por IA.\n\n"
         "• Para ingresar una ingesta se puede enviar un texto, una imagen o un archivo de voz.\n"
-        "• Al modificar se puede cambiar solo la comida manteniendo el peso o comida,peso . La IA va arecalcular los nuevos valores.\n\n"
+        "• Al modificar se puede cambiar solo la comida manteniendo el peso o comida,peso . La IA va a calcular los nuevos valores.\n\n"
         "📄 Te adjuntamos el manual de instrucciones actualizado en PDF."
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
