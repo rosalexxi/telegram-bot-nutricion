@@ -231,6 +231,8 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", activid
     factor = factores.get(str(actividad).lower(), 1.2)
     get_val = tmb * factor
     
+    prot_rec = peso_efectivo * 1.5
+    
     return tmb, get_val
 
 # ==========================================
