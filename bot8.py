@@ -233,7 +233,7 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", activid
     
     prot_rec = peso_efectivo * 1.5
     
-    return tmb, get_val
+    return tmb, get_val, prot_rec
 
 # ==========================================
 # GOOGLE SHEETS OPERACIONES
