@@ -190,13 +190,37 @@ def obtener_momento_y_fecha_auto():
         
     return fecha_obj.strftime("%Y-%m-%d"), momento
     
-def calcular_tmb_y_get(peso, altura, edad, genero="masculino", actividad="sedentario"):
-    genero_str = str(genero).lower()
-    if genero_str in ["femenino", "f", "mujer"]:
-        tmb = 655 + (9.6 * peso) + (1.8 * altura) - (4.7 * edad)
-    else:
-        tmb = 66 + (13.7 * peso) + (5 * altura) - (6.8 * edad)
+def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", actividad="sedentario", contextura="grande"):
+    # 1. Estimar el peso ideal base según altura y género (Fórmula de Devine adaptada)
+    altura_m = altura_cm / 100.0
     
+    if str(genero).lower() in ["femenino", "f", "mujer"]:
+        peso_ideal_base = 45.5 + 2.3 * ((altura_cm / 2.54) - 60)
+    else:
+        peso_ideal_base = 50.0 + 2.3 * ((altura_cm / 2.54) - 60)
+    
+    if peso_ideal_base <= 0:
+        peso_ideal_base = 22 * (altura_m ** 2)
+
+    # 2. Ajustar el peso ideal según la contextura ósea (Grande +10% para un enfoque realista y sostenible)
+    ctx = str(contextura).lower()
+    if "peque" in ctx or "chica" in ctx:
+        peso_ideal_referencia = peso_ideal_base * 0.90
+    elif "mediana" in ctx:
+        peso_ideal_referencia = peso_ideal_base
+    else:  # Grande por defecto
+        peso_ideal_referencia = peso_ideal_base * 1.20
+
+    # 3. Tomar el promedio entre tu peso actual (con sobrepeso) y el peso ideal ajustado
+    peso_efectivo = (peso_actual + peso_ideal_referencia) / 2.0
+    
+    # 4. Calcular TMB usando el peso efectivo
+    if str(genero).lower() in ["femenino", "f", "mujer"]:
+        tmb = 655 + (9.6 * peso_efectivo) + (1.8 * altura_cm) - (4.7 * edad)
+    else:
+        tmb = 66 + (13.7 * peso_efectivo) + (5 * altura_cm) - (6.8 * edad)
+    
+    # 5. Calcular GET según el nivel de actividad
     factores = {
         "sedentario": 1.2,
         "jubilado": 1.2,
@@ -206,6 +230,15 @@ def calcular_tmb_y_get(peso, altura, edad, genero="masculino", actividad="sedent
     }
     factor = factores.get(str(actividad).lower(), 1.2)
     get_val = tmb * factor
+    
+    # 6. Cálculo interno informativo: Proteínas esperadas basadas en el peso efectivo
+    # (Por ejemplo, usando un factor conservador y saludable de 1.3g por kilo de peso efectivo)
+    proteinas_esperadas = peso_efectivo * 1.3
+    
+    # (Opcional para uso interno/logs) Podés guardarlo o usarlo donde lo necesites en tu lógica interna
+    # print(f"[INFO] Proteínas esperadas calculadas con peso efectivo ({peso_efectivo:.1f}kg): {proteinas_esperadas:.1f}g")
+
+    # Retorna exactamente lo mismo que el original para no alterar el resto del programa
     return tmb, get_val
 
 # ==========================================
