@@ -1582,6 +1582,31 @@ async def generar_y_enviar_pdf_diario(query, user_id, fecha_str, context):
         filename=f"Diario_{fecha_str}.pdf"
     )
 
+async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
+    try:
+        # 1. Obtener registros de ingestas
+        df = obtener_datos_usuario(user_id)
+        if not df.empty and 'Fecha' in df.columns:
+            df_mes = df[df['Fecha'].str.startswith(mes_str)]
+            registros_mes = df_mes.to_dict('records')
+        else:
+            registros_mes = []
+
+        # 2. Obtener datos del perfil del usuario para el mes indicado
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str)
+
+        # 3. Generar los bytes del PDF mediante la función auxiliar existente
+        pdf_bytes = generar_pdf_resumen_bytes(registros_mes, perfil, mes_str)
+
+        # 4. Enviar el documento PDF al chat de Telegram
+        await context.bot.send_document(
+            chat_id=query.message.chat_id,
+            document=pdf_bytes,
+            filename=f"Resumen_Nutricional_{mes_str}.pdf"
+        )
+    except Exception as e:
+        await query.message.reply_text(f"❌ Error al generar el PDF del resumen: {e}")
+
 async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     df = obtener_datos_usuario(user_id)
     perfil = obtener_perfil_usuario(user_id, mes_target=mes_str)
