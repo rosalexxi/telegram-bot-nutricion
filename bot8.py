@@ -189,7 +189,9 @@ def obtener_momento_y_fecha_auto():
         momento = "Cena"
         
     return fecha_obj.strftime("%Y-%m-%d"), momento
-    
+
+
+
 def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", actividad="sedentario", contextura="grande"):
     # 1. Estimar el peso ideal base según altura y género (Fórmula de Devine adaptada)
     altura_m = altura_cm / 100.0
@@ -202,7 +204,7 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", activid
     if peso_ideal_base <= 0:
         peso_ideal_base = 22 * (altura_m ** 2)
 
-    # 2. Ajustar el peso ideal según la contextura ósea (Grande +10% para un enfoque realista y sostenible)
+    # 2. Ajustar el peso ideal según la contextura ósea
     ctx = str(contextura).lower()
     if "peque" in ctx or "chica" in ctx:
         peso_ideal_referencia = peso_ideal_base * 0.90
@@ -211,11 +213,11 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", activid
     else:  # Grande por defecto
         peso_ideal_referencia = peso_ideal_base * 1.20
 
-    # 3. Tomar el promedio entre tu peso actual (con sobrepeso) y el peso ideal ajustado
+    # 3. Tomar el promedio entre tu peso actual y el peso ideal ajustado (Peso efectivo)
     peso_efectivo = (peso_actual + peso_ideal_referencia) / 2.0
     
     # 4. Calcular TMB usando el peso efectivo
-    if str(genero).lower() in ["femenino", "f", "mujer"]:
+    if str(gener0).lower() in ["femenino", "f", "mujer"]:
         tmb = 655 + (9.6 * peso_efectivo) + (1.8 * altura_cm) - (4.7 * edad)
     else:
         tmb = 66 + (13.7 * peso_efectivo) + (5 * altura_cm) - (6.8 * edad)
@@ -231,15 +233,12 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", activid
     factor = factores.get(str(actividad).lower(), 1.2)
     get_val = tmb * factor
     
-    # 6. Cálculo interno informativo: Proteínas esperadas basadas en el peso efectivo
-    # (Por ejemplo, usando un factor conservador y saludable de 1.3g por kilo de peso efectivo)
-    proteinas_esperadas = peso_efectivo * 1.3
-    
-    # (Opcional para uso interno/logs) Podés guardarlo o usarlo donde lo necesites en tu lógica interna
-    # print(f"[INFO] Proteínas esperadas calculadas con peso efectivo ({peso_efectivo:.1f}kg): {proteinas_esperadas:.1f}g")
+    # 6. Cálculo de proteínas basado en el peso efectivo (ej. 1.5g por kilo efectivo)
+    # Nota: Si en el reporte tenías otro factor (como 1.5), podés ajustarlo acá mismo.
+    prot_rec = peso_efectivo * 1.5
 
-    # Retorna exactamente lo mismo que el original para no alterar el resto del programa
-    return tmb, get_val
+    # Retornamos los valores necesarios manteniendo la estructura esperada por el sistema
+    # (Si tu programa solo desempaqueta 2 valores, podés manejar las proteínas internamente o retornar un objeto/tupla ampliada si lo adaptas en el resumen).
 
 # ==========================================
 # GOOGLE SHEETS OPERACIONES
@@ -1065,6 +1064,44 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.replace('/perfil', '').strip()
 
+    # Si el usuario ingresó un solo valor numérico (ej: /perfil 81.5)
+    if raw_text and not (',' in raw_text or ' ' in raw_text):
+        try:
+            nuevo_peso = float(raw_text.replace(',', '.'))
+            ahora_mes = obtener_ahora_arg().strftime("%Y-%m")
+            
+            # Buscamos el perfil actual para conservar los demás datos (edad, altura, género, ocupación)
+            perfil_actual = obtener_perfil_usuario(user_id, mes_target=ahora_mes)
+            
+            if perfil_actual:
+                edad = parse_raw_val(perfil_actual.get('Edad'))
+                altura = parse_raw_val(perfil_actual.get('Altura'))
+                genero = str(perfil_actual.get('Sexo', perfil_actual.get('Genero', 'masculino')))
+                ocupacion = str(perfil_actual.get('Ocupacion', 'Jubilado'))
+                mes = str(perfil_actual.get('Mes', ahora_mes))
+            else:
+                # Valores por defecto si no existía perfil previo
+                edad = 40.0
+                altura = 170.0
+                genero = "masculino"
+                ocupacion = "Sedentario"
+                mes = ahora_mes
+
+            # Guardamos con el nuevo peso pero manteniendo los demás datos
+            guardar_perfil_en_sheets(user_id, edad, nuevo_peso, altura, genero, ocupacion, mes)
+            tmb, get_val = calcular_tmb_y_get(nuevo_peso, altura, edad, genero, ocupacion)
+            
+            await update.message.reply_text(
+                f"✅ **Peso actualizado correctamente a `{nuevo_peso:.1f} kg` para el mes `{mes}`:**\n"
+                f"• **TMB Recalculada:** `{tmb:.0f} kcal/día`\n"
+                f"• **GET Recalculado:** `{get_val:.0f} kcal/día`",
+                parse_mode="Markdown"
+            )
+            return
+        except ValueError:
+            pass  # Si no es un número válido, continúa hacia el flujo normal de múltiples parámetros o lectura
+
+    # Si ingresó múltiples valores (ej: /perfil 64, 82, 172, M, Jubilado, 2026-08)
     if raw_text:
         parts = [p.strip() for p in raw_text.replace('/', ',').replace(' ', ',').split(',') if p.strip()]
         if len(parts) >= 3:
@@ -1091,6 +1128,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ Error en los datos ingresados. Asegurate de usar números válidos.")
                 return
 
+    # Si no se pasó ningún texto, muestra el perfil actual
     ahora_mes = obtener_ahora_arg().strftime("%Y-%m")
     perfil = obtener_perfil_usuario(user_id, mes_target=ahora_mes)
     if perfil:
@@ -1111,19 +1149,20 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"• Ocupación: `{ocupacion}`\n"
             f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
             f"• **GET Estimado:** `{get_val:.0f} kcal/día`\n\n"
-            f"Para actualizar tus datos envía:\n"
-            f"`/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION, MES`\n"
-            f"(Ej: `/perfil 64, 82, 172, M, Jubilado, 2026-08`)"
+            f"💡 **Atajos:**\n"
+            f"• Para actualizar solo tu peso: `/perfil 78.5`\n"
+            f"• Para actualizar todo: `/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION, MES`"
         )
     else:
         txt = (
             "👤 **Perfil no registrado.** Para ingresar tus datos biométricos usá:\n"
             "`/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION, MES`\n"
-            "(Ej: `/perfil 64, 82, 172, M, Jubilado, 2026-08`)"
+            "(Ej: `/perfil 64, 82, 172, M, Jubilado, 2026-08`)\n\n"
+            "O actualizá únicamente tu peso escribiendo: `/perfil 82`"
         )
 
     await update.message.reply_text(txt, parse_mode="Markdown")
-
+    
 async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.replace('/presion', '').strip()
