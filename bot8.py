@@ -1825,10 +1825,10 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     tmb_val = metabol.get('tmb', 0) if isinstance(metabol, dict) else 0
     recomendacion = metabol.get('recomendacion', '') if isinstance(metabol, dict) else "Mantené una dieta equilibrada rica en fibra y agua."
     
-    # Cálculo de estadísticas básicas
-    dias_cnt = max(df['Fecha'].nunique() if not df.empty else 1, 1)
-    tot_cal = df['Calorías'].sum() if not df.empty and 'Calorías' in df.columns else 0
-    tot_prot = df['Proteínas'].sum() if not df.empty and 'Proteínas' in df.columns else 0
+    # Cálculo de estadísticas básicas (utilizando los nombres de columnas reales de tu app)
+    dias_cnt = max(df['Fecha'].nunique() if not df.empty and 'Fecha' in df.columns else 1, 1)
+    tot_cal = df['Calorias'].sum() if not df.empty and 'Calorias' in df.columns else 0
+    tot_prot = df['Proteinas'].sum() if not df.empty and 'Proteinas' in df.columns else 0
     tot_carb = df['Carbohidratos'].sum() if not df.empty and 'Carbohidratos' in df.columns else 0
     tot_gras = df['Grasas'].sum() if not df.empty and 'Grasas' in df.columns else 0
 
@@ -1877,17 +1877,17 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     )
 
     # Encabezado
-    story.append(Paragraph(f"<b>REPORTE NUTRICIONAL Y DE SALUD - {mes_str.upper()}</b>", title_style))
+    story.append(Paragraph(f"<b>REPORTE NUTRICIONAL Y DE SALUD - {str(mes_str).upper()}</b>", title_style))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1E3A8A'), spaceAfter=15))
 
     # Información del Perfil
-    nombre_usr = perfil.get('nombre', 'Usuario')
-    edad_usr = perfil.get('edad', 'N/D')
-    peso_usr = perfil.get('peso', 'N/D')
-    altura_usr = perfil.get('altura', 'N/D')
+    nombre_usr = str(user_id)
+    edad_usr = perfil.get('Edad', 'N/D') if perfil else 'N/D'
+    peso_usr = perfil.get('Peso', 'N/D') if perfil else 'N/D'
+    altura_usr = perfil.get('Altura', 'N/D') if perfil else 'N/D'
 
     perfil_data = [
-        [Paragraph(f"<b>Usuario:</b> {nombre_usr}", normal_style), Paragraph(f"<b>Edad:</b> {edad_usr} años", normal_style)],
+        [Paragraph(f"<b>Usuario ID:</b> {nombre_usr}", normal_style), Paragraph(f"<b>Edad:</b> {edad_usr} años", normal_style)],
         [Paragraph(f"<b>Peso actual:</b> {peso_usr} kg", normal_style), Paragraph(f"<b>Altura:</b> {altura_usr} cm", normal_style)],
         [Paragraph(f"<b>Tasa Metabólica Basal (TMB):</b> {int(tmb_val)} kcal", normal_style), Paragraph("", normal_style)]
     ]
@@ -1924,37 +1924,40 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
     # Registro de Presión Arterial
     story.append(Paragraph("<b>Registros de Presión Arterial</b>", subtitle_style))
     if not df_presion.empty:
-        presion_table_data = [['Fecha/Hora', 'Sistólica', 'Diastólica', 'Pulso']]
-        for _, row in df_presion.head(10).iterrows():
-            presion_table_data.append([
-                str(row.get('fecha', '')),
-                str(row.get('sistolica', '-')),
-                str(row.get('diastolica', '-')),
-                str(row.get('pulso', '-'))
-            ])
-        t_presion = Table(presion_table_data, colWidths=[130, 130, 130, 130])
-        t_presion.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#3B82F6')),
-            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E5E7EB')),
-            ('PADDING', (0,0), (-1,-1), 5),
-        ]))
-        story.append(t_presion)
+        df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
+        if not df_p_mes.empty:
+            presion_table_data = [['Fecha/Hora', 'Sistólica', 'Diastólica', 'Pulso']]
+            for _, row in df_p_mes.head(10).iterrows():
+                presion_table_data.append([
+                    str(row.get('Fecha_Hora', '')),
+                    f"{row.get('Alta', 0):.0f}",
+                    f"{row.get('Baja', 0):.0f}",
+                    f"{row.get('Pulsaciones', 0):.0f}"
+                ])
+            t_presion = Table(presion_table_data, colWidths=[130, 130, 130, 130])
+            t_presion.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#3B82F6')),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#D1D5DB')),
+                ('PADDING', (0,0), (-1,-1), 5),
+            ]))
+            story.append(t_presion)
+        else:
+            story.append(Paragraph("No hay registros de presión arterial para este mes.", normal_style))
     else:
-        story.append(Paragraph("<i>No se registraron datos de presión arterial en este período.</i>", normal_style))
-    
-    story.append(Spacer(1, 15))
+        story.append(Paragraph("No hay registros de presión arterial guardados.", normal_style))
 
-    # Recomendación IA / Observaciones
-    story.append(Paragraph("<b>Observación y Recomendación General</b>", subtitle_style))
-    story.append(Paragraph(recomendacion, normal_style))
+    story.append(Spacer(1, 15))
+    story.append(Paragraph("<b>Recomendación IA</b>", subtitle_style))
+    story.append(Paragraph(f"<i>{recomendacion}</i>", normal_style))
 
     # Construcción final del PDF
     doc.build(story)
     buffer.seek(0)
-    return buffer.getvalue()
-    
+    return buffer
+
+
     
 # ==========================================
 # MAIN
