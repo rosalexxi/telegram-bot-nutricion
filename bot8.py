@@ -2010,7 +2010,7 @@ def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
 
     doc.build(story)
     buffer.seek(0)
-    return buffer
+    return buffer.getvalue()
 
 # ==========================================
 # MAIN
