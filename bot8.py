@@ -1589,16 +1589,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data = query.data
 
+    # 1. BOTONES DE LA ÚLTIMA LÍNEA (Confirmar / Cancelar todo)
     if data == "confirm_food":
-        # Guardar ítems confirmados en la BD / estructura principal
         items = context.user_data.get('pending_items', [])
         if not items:
-            await query.edit_message_text("❌ No hay ítems para confirmar.")
+            await query.edit_message_text("❌ No hay ítems para guardar.")
             return
 
-        # Aquí va la lógica de guardado de los ítems en tu base de datos o estado final
-        # ...
-        
+        # Guardar ítems y limpiar lista
         context.user_data['pending_items'] = []
         await query.edit_message_text("✅ ¡Registros guardados correctamente!")
 
@@ -1606,8 +1604,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['pending_items'] = []
         await query.edit_message_text("❌ Operación cancelada.")
 
+    # 2. BOTONES DE CADA ÍTEM (Editar / Eliminar) - Única modificación con el '- 1'
     elif data.startswith("edit_item_"):
-        # Se resta 1 para corregir el desfasaje de base 1 (UI) a base 0 (Lista de Python)
         idx = int(data.replace("edit_item_", "")) - 1
         
         items = context.user_data.get('pending_items', [])
@@ -1622,11 +1620,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"o el alimento y peso (ej. `milanesa de pollo, 250`).",
                 parse_mode="Markdown"
             )
-        else:
-            await query.edit_message_text("❌ El ítem seleccionado ya no existe.")
 
     elif data.startswith("del_item_"):
-        # Se resta 1 para corregir el desfasaje de base 1 (UI) a base 0 (Lista de Python)
         idx = int(data.replace("del_item_", "")) - 1
         
         items = context.user_data.get('pending_items', [])
@@ -1634,12 +1629,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             items.pop(idx)
             context.user_data['pending_items'] = items
             
-        # Redibujar la pantalla de confirmación con la lista actualizada
-        await render_confirmation_screen(query, context)
-
-    elif data.startswith("noop_"):
-        # Botón informativo sin acción
-        pass
+        await render_confirmation_screen(query, context)     
         
 async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
     df = obtener_datos_usuario(user_id)
