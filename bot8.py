@@ -1041,10 +1041,15 @@ async def render_confirmation_screen(msg_or_query, context):
         mult = item.get('multiplicador', 1.0)
         peso_total = item.get('peso', 0)
         cal_total = item.get('calorias', 0)
+        
+        # Obtenemos el texto y limpiamos el símbolo '§' para que la vista quede limpia
+        alimento_str = item.get('alimento', item.get('nombre', ''))
+        alimento_limpio = alimento_str.replace('§', '').strip()
+
         if mult != 1.0:
-            txt += f"**{idx}. {item.get('alimento', item.get('nombre', ''))}** ({peso_total:.1f}g) (x{mult}): `{cal_total:.1f} kcal`\n"
+            txt += f"**{idx}. {alimento_limpio}** ({peso_total:.1f}g) (x{mult}): `{cal_total:.1f} kcal`\n"
         else:
-            txt += f"**{idx}. {item.get('alimento', item.get('nombre', ''))}** ({peso_total:.1f}g): `{cal_total:.1f} kcal`\n"
+            txt += f"**{idx}. {alimento_limpio}** ({peso_total:.1f}g): `{cal_total:.1f} kcal`\n"
 
     keyboard = []
     
@@ -1055,10 +1060,9 @@ async def render_confirmation_screen(msg_or_query, context):
         m_buttons.append(InlineKeyboardButton(f"{mark}{m}", callback_data=f"set_m_{m}"))
     keyboard.append(m_buttons)
 
-    # ENCAPSULAMIENTO INTERNO PARA PLANTILLAS:
-    # Detectamos si el ítem proviene de una plantilla mediante la presencia de la clave 'multiplicador' 
-    # (característica exclusiva del flujo con asterisco en handle_message).
-    es_plantilla = any('multiplicador' in item for item in items)
+    # ENCAPSULAMIENTO POR SÍMBOLO '§':
+    # Verificamos si algún ítem contiene el símbolo secreto '§' proveniente de la plantilla del Excel.
+    es_plantilla = any('§' in item.get('alimento', item.get('nombre', '')) for item in items)
 
     if not es_plantilla:
         for idx, item in enumerate(items, start=1):
@@ -1094,7 +1098,7 @@ async def render_confirmation_screen(msg_or_query, context):
         await msg_or_query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
     else:
         await msg_or_query.edit_text(txt, reply_markup=markup, parse_mode="Markdown")
-                        
+                                        
 # ==========================================
 # HANDLERS DE TELEGRAM
 # ==========================================
