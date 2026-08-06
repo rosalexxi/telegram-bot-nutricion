@@ -1841,28 +1841,47 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         else:
             tmb_val = res_metabol
 
-    # 1. Calcular promedios reales del mes para darle contexto a la IA
+    # 1. Separación explícita de métricas (Ingesta Real, Ejercicio y GET)
     if not df_mes.empty:
-        df_comida = df_mes[df_mes['Momento'] != 'Ejercicio'] if 'Momento' in df_mes.columns else df_mes
-        dias_cnt = max(df_comida['Fecha'].nunique() if 'Fecha' in df_comida.columns else 1, 1)
+        dias_cnt = max(df_mes['Fecha'].nunique() if 'Fecha' in df_mes.columns else 1, 1)
         
-        prom_c = (df_comida['Calorias'].sum() if 'Calorias' in df_comida.columns else 0) / dias_cnt
-        prom_p = (df_comida['Proteinas'].sum() if 'Proteinas' in df_comida.columns else 0) / dias_cnt
-        prom_g = (df_comida['Grasas'].sum() if 'Grasas' in df_comida.columns else 0) / dias_cnt
-        prom_h = (df_comida['Carbohidratos'].sum() if 'Carbohidratos' in df_comida.columns else 0) / dias_cnt
-        prom_f = (df_comida['Fibras'].sum() if 'Fibras' in df_comida.columns else 0) / dias_cnt
-    else:
-        prom_c = prom_p = prom_g = prom_h = prom_f = 0
+        # Ingesta Real promedio (solo calorías de comidas consumidas)
+        if 'Calorias' in df_mes.columns:
+            ingesta_total = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()
+            ejercicio_total = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())
+        else:
+            ingesta_total = 0.0
+            ejercicio_total = 0.0
 
-    # 2. Armar el prompt detallado con los datos reales
+        prom_ingesta_real = ingesta_total / dias_cnt
+        prom_ejercicio = ejercicio_total / dias_cnt
+        
+        prom_p = (df_mes['Proteinas'].sum() if 'Proteinas' in df_mes.columns else 0) / dias_cnt
+        prom_g = (df_mes['Grasas'].sum() if 'Grasas' in df_mes.columns else 0) / dias_cnt
+        prom_h = (df_mes['Carbohidratos'].sum() if 'Carbohidratos' in df_mes.columns else 0) / dias_cnt
+        prom_f = (df_mes['Fibras'].sum() if 'Fibras' in df_mes.columns else 0) / dias_cnt
+    else:
+        prom_ingesta_real = prom_ejercicio = prom_p = prom_g = prom_h = prom_f = 0.0
+
+    # 2. Ampliación del Prompt con instrucciones explícitas sobre macronutrientes, fibra y sugerencias
     prompt_completo = (
-        f"Analizá los consumos de este usuario para el mes {mes_str}:\n"
-        f"- Promedios diarios reales: {prom_c:.0f} kcal, {prom_p:.1f}g proteínas, {prom_g:.1f}g grasas, {prom_h:.1f}g carbohidratos, {prom_f:.1f}g fibra.\n"
-        f"- Objetivo energético estimado (GET): {get_val:.0f} kcal.\n"
-        f"Redactá una recomendación nutricional breve, profesional y personalizada para su informe PDF."
+        f"Analizá las métricas mensuales del usuario para el mes {mes_str}:\n\n"
+        f"MÉTRICAS INDEPENDIENTES:\n"
+        f"- Ingesta Real Promedio: {prom_ingesta_real:.0f} kcal/día (sin descontar ejercicio).\n"
+        f"- Gasto por Ejercicio Promedio: {prom_ejercicio:.0f} kcal/día.\n"
+        f"- Gasto Energético Total Estimado (GET Basal+Actividad): {get_val:.0f} kcal/día.\n\n"
+        f"MACRONUTRIENTES Y FIBRA PROMEDIO DIARIOS:\n"
+        f"- Proteínas: {prom_p:.1f} g\n"
+        f"- Grasas: {prom_g:.1f} g\n"
+        f"- Carbohidratos: {prom_h:.1f} g\n"
+        f"- Fibra: {prom_f:.1f} g\n\n"
+        f"INSTRUCCIONES:\n"
+        f"1. Evaluá explícitamente las deficiencias o excesos de cada macronutriente (proteínas, grasas, carbohidratos) y fibra comparándolos con el GET y un plan saludable.\n"
+        f"2. Sugerí alimentos específicos (como pescados, frutos secos, legumbres, granos integrales, frutas, etc.) ideales para corregir los desbalances identificados.\n"
+        f"3. Mantené un tono profesional, claro y motivador para incluir en el informe PDF."
     )
 
-    # 3. Pedir la recomendación a la IA con los datos cargados
+    # 3. Pedir la recomendación ampliada a la IA
     rec_ia = obtener_recomendacion_ia(prompt_completo)
     
     # 4. Generar y enviar el PDF
@@ -1873,7 +1892,6 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         document=pdf_bytes,
         filename=f"Resumen_Nutricional_{mes_str}.pdf"
     )
-    
 
 # ==========================================
 # MAIN
