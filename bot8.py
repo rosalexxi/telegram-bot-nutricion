@@ -1818,200 +1818,144 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
 
 def generar_pdf_bytes(user_id, mes_str, df, perfil, metabol):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=20, leftMargin=20, topMargin=30, bottomMargin=30)
-    styles = getSampleStyleSheet()
+    """
+    Genera el reporte PDF en bytes para el resumen mensual del usuario.
+    """
+    df_presion = obtener_datos_presion(user_id)
+    tmb_val = metabol.get('tmb', 0) if isinstance(metabol, dict) else 0
+    recomendacion = metabol.get('recomendacion', '') if isinstance(metabol, dict) else "Mantené una dieta equilibrada rica en fibra y agua."
     
-    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=8)
-    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#2563EB'), spaceAfter=6)
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=12)
+    # Cálculo de estadísticas básicas
+    dias_cnt = max(df['Fecha'].nunique() if not df.empty else 1, 1)
+    tot_cal = df['Calorías'].sum() if not df.empty and 'Calorías' in df.columns else 0
+    tot_prot = df['Proteínas'].sum() if not df.empty and 'Proteínas' in df.columns else 0
+    tot_carb = df['Carbohidratos'].sum() if not df.empty and 'Carbohidratos' in df.columns else 0
+    tot_gras = df['Grasas'].sum() if not df.empty and 'Grasas' in df.columns else 0
 
+    prom_cal = tot_cal / dias_cnt
+    prom_prot = tot_prot / dias_cnt
+    prom_carb = tot_carb / dias_cnt
+    prom_gras = tot_gras / dias_cnt
+
+    # Creación de documento ReportLab
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=letter,
+        rightMargin=40, 
+        leftMargin=40, 
+        topMargin=40, 
+        bottomMargin=40
+    )
     story = []
 
-    # ----------------------------------------------------
-    # HOJA 1: REGISTRO Y RESUMEN DIARIO
-    # ----------------------------------------------------
-    story.append(Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str}</b>", title_style))
-    story.append(Paragraph(f"Usuario Telegram ID: {user_id}", body_style))
-    story.append(Spacer(1, 10))
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'TitleStyle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        leading=22,
+        textColor=colors.HexColor('#1E3A8A'),
+        alignment=1,
+        spaceAfter=15
+    )
+    subtitle_style = ParagraphStyle(
+        'SubtitleStyle',
+        parent=styles['Heading2'],
+        fontSize=13,
+        leading=16,
+        textColor=colors.HexColor('#1E3A8A'),
+        spaceBefore=10,
+        spaceAfter=10
+    )
+    normal_style = ParagraphStyle(
+        'NormalStyle',
+        parent=styles['Normal'],
+        fontSize=10,
+        leading=14,
+        textColor=colors.HexColor('#333333')
+    )
 
-    if not df.empty and 'Fecha' in df.columns:
-        df['Es_Ejercicio'] = df['Momento'].astype(str).str.lower() == 'ejercicio'
-        fechas_unicas = sorted(df['Fecha'].unique())
-        table_data = [["Fecha", "Cal. Consumid.", "Cal. Quemad.", "Bal. Neto", "Proteínas (g)", "Grasas (g)", "Carbohidratos (g)", "Fibras (g)"]]
-        
-        tot_c_in = tot_c_out = tot_p = tot_g = tot_h = tot_f = 0
-        
-        for f in fechas_unicas:
-            sub = df[df['Fecha'] == f]
-            comidas = sub[~sub['Es_Ejercicio']]
-            ejercicios = sub[sub['Es_Ejercicio']]
-            
-            c_in = comidas['Calorias'].sum()
-            c_out = ejercicios['Calorias'].sum()
-            bal_neto = c_in - c_out
-            
-            p = comidas['Proteinas'].sum()
-            g = comidas['Grasas'].sum()
-            h = comidas['Carbohidratos'].sum()
-            fib = comidas['Fibras'].sum()
-            
-            tot_c_in += c_in
-            tot_c_out += c_out
-            tot_p += p
-            tot_g += g
-            tot_h += h
-            tot_f += fib
-            
-            table_data.append([
-                str(f),
-                f"{c_in:.1f} kcal",
-                f"-{c_out:.1f} kcal" if c_out > 0 else "0.0 kcal",
-                f"{bal_neto:.1f} kcal",
-                f"{p:.1f} g",
-                f"{g:.1f} g",
-                f"{h:.1f} g",
-                f"{fib:.1f} g"
+    # Encabezado
+    story.append(Paragraph(f"<b>REPORTE NUTRICIONAL Y DE SALUD - {mes_str.upper()}</b>", title_style))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1E3A8A'), spaceAfter=15))
+
+    # Información del Perfil
+    nombre_usr = perfil.get('nombre', 'Usuario')
+    edad_usr = perfil.get('edad', 'N/D')
+    peso_usr = perfil.get('peso', 'N/D')
+    altura_usr = perfil.get('altura', 'N/D')
+
+    perfil_data = [
+        [Paragraph(f"<b>Usuario:</b> {nombre_usr}", normal_style), Paragraph(f"<b>Edad:</b> {edad_usr} años", normal_style)],
+        [Paragraph(f"<b>Peso actual:</b> {peso_usr} kg", normal_style), Paragraph(f"<b>Altura:</b> {altura_usr} cm", normal_style)],
+        [Paragraph(f"<b>Tasa Metabólica Basal (TMB):</b> {int(tmb_val)} kcal", normal_style), Paragraph("", normal_style)]
+    ]
+    t_perfil = Table(perfil_data, colWidths=[260, 260])
+    t_perfil.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F3F4F6')),
+        ('PADDING', (0,0), (-1,-1), 8),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(t_perfil)
+    story.append(Spacer(1, 15))
+
+    # Promedios Nutricionales Diarios
+    story.append(Paragraph("<b>Promedios Diarios del Mes</b>", subtitle_style))
+    promedios_data = [
+        ['Métrica', 'Promedio Diario'],
+        ['Calorías', f"{prom_cal:.1f} kcal"],
+        ['Proteínas', f"{prom_prot:.1f} g"],
+        ['Carbohidratos', f"{prom_carb:.1f} g"],
+        ['Grasas', f"{prom_gras:.1f} g"]
+    ]
+    t_prom = Table(promedios_data, colWidths=[260, 260])
+    t_prom.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1E3A8A')),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#D1D5DB')),
+        ('PADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(t_prom)
+    story.append(Spacer(1, 15))
+
+    # Registro de Presión Arterial
+    story.append(Paragraph("<b>Registros de Presión Arterial</b>", subtitle_style))
+    if not df_presion.empty:
+        presion_table_data = [['Fecha/Hora', 'Sistólica', 'Diastólica', 'Pulso']]
+        for _, row in df_presion.head(10).iterrows():
+            presion_table_data.append([
+                str(row.get('fecha', '')),
+                str(row.get('sistolica', '-')),
+                str(row.get('diastolica', '-')),
+                str(row.get('pulso', '-'))
             ])
-            
-        dias_cnt = max(len(fechas_unicas), 1)
-        
-        table_data.append([
-            "TOTAL MES",
-            f"{tot_c_in:.1f} kcal",
-            f"-{tot_c_out:.1f} kcal",
-            f"{(tot_c_in - tot_c_out):.1f} kcal",
-            f"{tot_p:.1f} g",
-            f"{tot_g:.1f} g",
-            f"{tot_h:.1f} g",
-            f"{tot_f:.1f} g"
-        ])
-        
-        table_data.append([
-            "PROM. DIARIO",
-            f"{(tot_c_in / dias_cnt):.1f} kcal",
-            f"-{(tot_c_out / dias_cnt):.1f} kcal",
-            f"{((tot_c_in - tot_c_out) / dias_cnt):.1f} kcal",
-            f"{(tot_p / dias_cnt):.1f} g",
-            f"{(tot_g / dias_cnt):.1f} g",
-            f"{(tot_h / dias_cnt):.1f} g",
-            f"{(tot_f / dias_cnt):.1f} g"
-        ])
-            
-        t = Table(table_data, colWidths=[65, 75, 75, 75, 55, 55, 55, 55])
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1E3A8A')),
-            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+        t_presion = Table(presion_table_data, colWidths=[130, 130, 130, 130])
+        t_presion.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#3B82F6')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0,0), (-1,-1), 7.5),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-            ('TOPPADDING', (0,0), (-1,-1), 4),
-            ('BACKGROUND', (0,1), (-1,-3), colors.HexColor('#F8FAFC')),
-            ('BACKGROUND', (0,-2), (-1,-1), colors.HexColor('#E2E8F0')),
-            ('FONTNAME', (0,-2), (-1,-1), 'Helvetica-Bold'),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E5E7EB')),
+            ('PADDING', (0,0), (-1,-1), 5),
         ]))
-        story.append(t)
+        story.append(t_presion)
+    else:
+        story.append(Paragraph("<i>No se registraron datos de presión arterial en este período.</i>", normal_style))
+    
+    story.append(Spacer(1, 15))
 
-    story.append(PageBreak())
+    # Recomendación IA / Observaciones
+    story.append(Paragraph("<b>Observación y Recomendación General</b>", subtitle_style))
+    story.append(Paragraph(recomendacion, normal_style))
 
-    # ----------------------------------------------------
-    # HOJA 2: ANÁLISIS METABÓLICO, MACROS Y RECOMENDACIÓN IA
-    # ----------------------------------------------------
-    story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa</b>", title_style))
-    story.append(Spacer(1, 10))
-
-    if perfil and metabol:
-        p_edad = perfil.get('Edad', perfil.get('edad', 'N/A'))
-        p_peso = perfil.get('Peso_kg', perfil.get('peso', 'N/A'))
-        p_altura = perfil.get('Altura_cm', perfil.get('altura', 'N/A'))
-        p_ocup = perfil.get('Ocupacion', perfil.get('ocupacion', 'N/A'))
-        
-        dias_cnt = max(df['Fecha'].nunique() if not df.empty else 1, 1)
-        prom_c_in = tot_c_in / dias_cnt       # Ingesta pura promedio
-        prom_c_out = tot_c_out / dias_cnt     # Ejercicio promedio
-        prom_p = tot_p / dias_cnt
-        prom_g = tot_g / dias_cnt
-        prom_h = tot_h / dias_cnt
-        prom_f = tot_f / dias_cnt
-
-        rec_get = metabol['get']
-        rec_p = (rec_get * 0.20) / 4
-        rec_g = (rec_get * 0.25) / 9
-        rec_h = (rec_get * 0.50) / 4
-        rec_f = 30.0
-
-        info_tabla = [
-            ["Nutrientes / Métrica", "Promedio Diario Real", "Valor Recomendado / Objetivo"],
-            ["Calorías Consumidas (Ingesta)", f"{prom_c_in:.1f} kcal", f"{rec_get:.1f} kcal (GET)"],
-            ["Calorías Quemadas (Ejercicio)", f"{prom_c_out:.1f} kcal", "N/A"],
-            ["Proteínas", f"{prom_p:.1f} g", f"{rec_p:.1f} g"],
-            ["Grasas", f"{prom_g:.1f} g", f"{rec_g:.1f} g"],
-            ["Carbohidratos", f"{prom_h:.1f} g", f"{rec_h:.1f} g"],
-            ["Fibras", f"{prom_f:.1f} g", f"{rec_f:.1f} g"]
-        ]
-        
-        t_perfil = Table(info_tabla, colWidths=[160, 140, 150])
-        t_perfil.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2563EB')),
-            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
-            ('FONTSIZE', (0,0), (-1,-1), 8.5),
-        ]))
-        story.append(t_perfil)
-        story.append(Spacer(1, 12))
-
-        story.append(Paragraph(f"• <b>PERFIL UTILIZADO ({mes_str}):</b> Edad: {p_edad} años | Peso: {p_peso} kg | Altura: {p_altura} cm | Ocupación: {p_ocup}", body_style))
-        story.append(Spacer(1, 12))
-
-        # ----------------------------------------------------
-        # PROMPT AMPLIADO A LA IA CON DATOS SEPARADOS Y RECOMENDACIÓN DE ALIMENTOS
-        # ----------------------------------------------------
-        prompt_rec = (
-            f"Sos un nutricionista profesional. Realizá un análisis detallado y constructivo para el informe PDF mensual del paciente.\n\n"
-            f"MÉTRICAS DEL MES ({mes_str}):\n"
-            f"- Ingesta Calórica Real Promedio: {prom_c_in:.1f} kcal/día\n"
-            f"- Gasto Promedio por Ejercicio Extra: {prom_c_out:.1f} kcal/día\n"
-            f"- Gasto Energético Total Estimado (GET Objetivo): {rec_get:.1f} kcal/día\n"
-            f"- Proteínas Reales vs Objetivo: {prom_p:.1f}g vs {rec_p:.1f}g\n"
-            f"- Grasas Reales vs Objetivo: {prom_g:.1f}g vs {rec_g:.1f}g\n"
-            f"- Carbohidratos Reales vs Objetivo: {prom_h:.1f}g vs {rec_h:.1f}g\n"
-            f"- Fibras Reales vs Objetivo: {prom_f:.1f}g vs {rec_f:.1f}g\n\n"
-            f"INSTRUCCIONES DE RESPUESTA:\n"
-            f"1. Aclará el consumo calórico ingerido ({prom_c_in:.0f} kcal) comparándolo con su GET ({rec_get:.0f} kcal) y mencioná la actividad física aparte.\n"
-            f"2. Evaluá los déficits o excesos específicos en Proteínas, Grasas, Carbohidratos y Fibras.\n"
-            f"3. RECOMENDÁ ALIMENTOS CONCRETOS para cubrir las deficiencias detectadas (por ejemplo: si faltan grasas saludables recomienda palta, frutos secos, aceite de oliva o pescados azules; si falta fibra recomienda legumbres, avena, frutas enteras o verduras de hoja; etc.).\n"
-            f"4. Redactá la respuesta en un tono profesional, formal y alentador, estructurado en 2 o 3 párrafos concisos para el informe PDF."
-        )
-
-        try:
-            res_ai = client_ai.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt_rec}],
-                temperature=0.3
-            )
-            texto_recomendacion = res_ai.choices[0].message.content
-        except Exception:
-            texto_recomendacion = (
-                "Basado en sus consumos registrados, se recomienda ajustar el aporte energético e integrar una mayor variedad "
-                "de alimentos ricos en fibra y grasas saludables (frutos secos, pescado, semillas y vegetales) para alcanzar sus requerimientos diarios."
-            )
-
-        story.append(Paragraph("<b>Recomendación de la IA:</b>", sub_style))
-        
-        # Dividir la respuesta de la IA en párrafos para mantener el formato profesional en PDF
-        for paragrafo in texto_recomendacion.split('\n\n'):
-            if paragrafo.strip():
-                story.append(Paragraph(paragrafo.strip(), body_style))
-                story.append(Spacer(1, 6))
-
+    # Construcción final del PDF
     doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
-
+    
+    
 # ==========================================
 # MAIN
 # ==========================================
