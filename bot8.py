@@ -1,4 +1,4 @@
-import os
+ffffffffimport os
 import re
 import io
 import json
@@ -1020,15 +1020,19 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "👋 ¡Hola! Bienvenido a tu Bot Nutricional Personalizado.\n\n"
         "📌 Funciones y Comandos Disponibles:\n\n"
-        "• `/comidas`: Visualiza el listado de comidas predeterminadas y descarga su PDF oficial.\n"
-        "• `/presion`: Registra valores \n`/presion 120,80,70` registra alta,baja,pulso \n`/presion 120,80` omite pulso \n `/presion 2026-08` promedio mensual y PDF detallado .\n"
-        "• `/diario`: Consulta los consumos del día con agrupamiento inteligente y PDF diario detallado.\n"
-        "• `/resumen`: Genera el reporte mensual con la **Tabla Comparativa de Macronutrientes**, datos biométricos del mes y recomendaciones de IA. y PDF detallado\n"
-        "• `/perfil`: Consulta o actualiza tus datos biométricos corporales y ocupación específicos por mes.\n\n"
+        "• `/comidas`: Visualiza listado y descarga PDF.\n"
+        "• `/presion 120,80,70` registra alta,baja,pulso.\n`/presion 120,80` omite pulso.\n `/presion 2026-08` promedio mensual y PDF.\n"
+        "• `/diario`: Ingestas del día y PDF detallado.\n"
+        "• `/resumen`: Reporte mensual con IA. y PDF.\n"
+        "• `/perfil`: Consulta o carga datos biométricos.\n"
+        "• `/perfil,PESO`: Altualiza el peso del mes.\n\n"
         "📌 Ingreso de ingestas:\n\n"
-        "• **Multiplicadores en Plantillas:\n** `*PIZZAJM`, `*PIZZAJM,1.5` o `*CHURRO,6` para ajustar porciones automáticamente sin pasar por IA.\n\n"
-        "• Para ingresar una ingesta se puede enviar un texto, una imagen o un archivo de voz.\n"
-        "• Al modificar se puede cambiar solo la comida manteniendo el peso o comida,peso . La IA va a calcular los nuevos valores.\n\n"
+        "• **Del listado precargado:\n** `*PIZZAJM` ingresa una unidad de la comida. \n`*PIZZAJM,1.5` o `*CHURRO,6`Ingresa la cantidad seleccionada.\n\n"
+        "• Ingreso por IA:\n"
+        "• `Texto, Imagen, Voz descripcion, cant. o peso.\n\n"
+        "• Modificacion:\n"
+        "• Ingresar COMIDA se conserva el peso  vuelve a la IA.\n"
+        "• Ingresar COMIDA,PESO con nuevos valores vuelva a la IA.\n\n"
         "📄 Te adjuntamos el manual de instrucciones actualizado en PDF."
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
