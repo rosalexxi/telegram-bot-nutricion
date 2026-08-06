@@ -1055,13 +1055,10 @@ async def render_confirmation_screen(msg_or_query, context):
         m_buttons.append(InlineKeyboardButton(f"{mark}{m}", callback_data=f"set_m_{m}"))
     keyboard.append(m_buttons)
 
-    # ENCAPSULAMIENTO INTERNO POR NOMBRE EN MAYÚSCULAS:
-    # Verificamos exclusivamente la columna/clave del nombre (alimento/nombre) si está en mayúsculas.
-    def es_nombre_mayuscula(it):
-        nombre = it.get('alimento', it.get('nombre', ''))
-        return bool(nombre) and nombre == nombre.upper() and any(c.isalpha() for c in nombre)
-
-    es_plantilla = any(es_nombre_mayuscula(item) for item in items)
+    # ENCAPSULAMIENTO INTERNO PARA PLANTILLAS:
+    # Detectamos si el ítem proviene de una plantilla mediante la presencia de la clave 'multiplicador' 
+    # (característica exclusiva del flujo con asterisco en handle_message).
+    es_plantilla = any('multiplicador' in item for item in items)
 
     if not es_plantilla:
         for idx, item in enumerate(items, start=1):
@@ -1097,7 +1094,7 @@ async def render_confirmation_screen(msg_or_query, context):
         await msg_or_query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
     else:
         await msg_or_query.edit_text(txt, reply_markup=markup, parse_mode="Markdown")
-        
+                        
 # ==========================================
 # HANDLERS DE TELEGRAM
 # ==========================================
