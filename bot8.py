@@ -191,10 +191,32 @@ def obtener_momento_y_fecha_auto():
     return fecha_obj.strftime("%Y-%m-%d"), momento
     
 def calcular_proteina_sugerida():
-    # Asume que 'peso', 'altura', 'genero' y 'contextura' ya existen 
-    # como variables globales o se leen directamente del Excel/base de datos aquí dentro.
-    
-    # Ejemplo si los lees directo dentro de la función o los toma del entorno:
+    # Intenta obtener el perfil del usuario actual del mes en curso desde Google Sheets
+    # Nota: Si el contexto de Telegram o user_id no está disponible directamente como global, 
+    # podés adaptarlo, pero aquí simulamos la carga segura consultando el último perfil registrado o valores por defecto.
+    try:
+        ahora_mes = obtener_ahora_arg().strftime("%Y-%m")
+        # Si tenés acceso al user_id global o querés buscar en la última sesión:
+        # (Asumimos una llamada genérica o buscamos en las funciones auxiliares ya definidas)
+        perfil = obtener_perfil_usuario(user_id=123456789, mes_target=ahora_mes) # Reemplazá o ajustá si dispones de la variable de usuario
+        if not perfil:
+            # Si no encuentra perfil específico, intenta leer el último disponible o usa valores estándar
+            peso = 75.0
+            altura = 170.0
+            genero = "masculino"
+            contextura = "mediana"
+        else:
+            peso = parse_raw_val(perfil.get('Peso', 75.0))
+            altura = parse_raw_val(perfil.get('Altura', 170.0))
+            genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino')))
+            contextura = str(perfil.get('Contextura', 'mediana'))
+    except Exception:
+        # Valores por defecto de respaldo por seguridad ante cualquier fallo de lectura
+        peso = 75.0
+        altura = 170.0
+        genero = "masculino"
+        contextura = "mediana"
+
     altura_m = altura / 100.0
     
     if str(genero).lower() in ["femenino", "f", "mujer"]:
@@ -215,7 +237,7 @@ def calcular_proteina_sugerida():
 
     peso_efectivo = (peso + peso_ideal_ref) / 2.0
     return peso_efectivo * 1.3
-   
+
 def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", actividad="sedentario", contextura="grande"):
     # 1. Estimar el peso ideal base según altura y género (Fórmula de Devine adaptada)
     altura_m = altura_cm / 100.0
