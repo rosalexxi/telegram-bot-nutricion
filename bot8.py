@@ -1825,16 +1825,47 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
     df_mes = df[df['Fecha'].str.startswith(mes_str)] if not df.empty else pd.DataFrame()
     
     tmb_val = 0
+    get_val = 2000  # Valor por defecto
     if perfil:
         peso = parse_raw_val(perfil.get('Peso'))
         altura = parse_raw_val(perfil.get('Altura'))
         edad = parse_raw_val(perfil.get('Edad'))
         genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino')))
         actividad = str(perfil.get('Ocupacion', 'Jubilado'))
-        tmb_val, _ = calcular_tmb_y_get(peso, altura, edad, genero, actividad)
+        
+        # Guardamos tanto el TMB como el GET
+        res_metabol = calcular_tmb_y_get(peso, altura, edad, genero, actividad)
+        if isinstance(res_metabol, tuple):
+            tmb_val = res_metabol[0]
+            get_val = res_metabol[1] if len(res_metabol) > 1 else tmb_val
+        else:
+            tmb_val = res_metabol
 
-    rec_ia = obtener_recomendacion_ia(f"Resumen del mes {mes_str} para usuario {user_id}")
+    # 1. Calcular promedios reales del mes para darle contexto a la IA
+    if not df_mes.empty:
+        df_comida = df_mes[df_mes['Momento'] != 'Ejercicio'] if 'Momento' in df_mes.columns else df_mes
+        dias_cnt = max(df_comida['Fecha'].nunique() if 'Fecha' in df_comida.columns else 1, 1)
+        
+        prom_c = (df_comida['Calorias'].sum() if 'Calorias' in df_comida.columns else 0) / dias_cnt
+        prom_p = (df_comida['Proteinas'].sum() if 'Proteinas' in df_comida.columns else 0) / dias_cnt
+        prom_g = (df_comida['Grasas'].sum() if 'Grasas' in df_comida.columns else 0) / dias_cnt
+        prom_h = (df_comida['Carbohidratos'].sum() if 'Carbohidratos' in df_comida.columns else 0) / dias_cnt
+        prom_f = (df_comida['Fibras'].sum() if 'Fibras' in df_comida.columns else 0) / dias_cnt
+    else:
+        prom_c = prom_p = prom_g = prom_h = prom_f = 0
+
+    # 2. Armar el prompt detallado con los datos reales
+    prompt_completo = (
+        f"Analizá los consumos de este usuario para el mes {mes_str}:\n"
+        f"- Promedios diarios reales: {prom_c:.0f} kcal, {prom_p:.1f}g proteínas, {prom_g:.1f}g grasas, {prom_h:.1f}g carbohidratos, {prom_f:.1f}g fibra.\n"
+        f"- Objetivo energético estimado (GET): {get_val:.0f} kcal.\n"
+        f"Redactá una recomendación nutricional breve, profesional y personalizada para su informe PDF."
+    )
+
+    # 3. Pedir la recomendación a la IA con los datos cargados
+    rec_ia = obtener_recomendacion_ia(prompt_completo)
     
+    # 4. Generar y enviar el PDF
     pdf_bytes = generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, rec_ia, user_id)
     
     await context.bot.send_document(
@@ -1842,6 +1873,7 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         document=pdf_bytes,
         filename=f"Resumen_Nutricional_{mes_str}.pdf"
     )
+    
 
 # ==========================================
 # MAIN
