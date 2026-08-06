@@ -1155,11 +1155,12 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         filename="Comidas_Predeterminadas.pdf"
     )
 
-
-
 # 1. COMANDO DE CARGA DIRECTA (SIN IA)
+
 async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    texto = " ".join(context.args)
+    # Extraer el texto escrito después del comando
+    texto = update.message.text.replace('/actividad', '').strip()
+    
     if not texto:
         await update.message.reply_text(
             "⚠️ Por favor ingresá la actividad y las calorías.\nEjemplo: `/actividad caminata, 250 cal`",
@@ -1167,15 +1168,30 @@ async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Buscar número de calorías en el texto enviado
-    match_cal = re.search(r'(\d+)\s*(cal|kcal)?', texto, re.IGNORECASE)
-    
-    if match_cal:
-        calorias_pos = float(match_cal.group(1))
-        calorias_neg = -abs(calorias_pos)
+    # Si hay una coma, asumimos que las calorías están después de la coma
+    if ',' in texto:
+        parte_calorias = texto.split(',')[-1]
     else:
-        await update.message.reply_text("❌ No se detectaron las calorías. Recordá indicar las calorías ej: `250 cal`.")
-        return
+        parte_calorias = texto
+
+    # EQUIVALENTE A VAL(): Filtramos y dejamos SOLO los dígitos numéricos
+    solo_numeros = re.sub(r'\D', '', parte_calorias)
+
+    if solo_numeros:
+        calorias_pos = float(solo_numeros)
+    else:
+        # Si no había números después de la coma, buscamos cualquier número en todo el texto
+        todos_los_numeros = re.findall(r'\d+', texto)
+        if todos_los_numeros:
+            calorias_pos = float(todos_los_numeros[-1])
+        else:
+            await update.message.reply_text(
+                "❌ No se detectaron las calorías. Recordá indicar un número ej: `250 cal`.",
+                parse_mode="Markdown"
+            )
+            return
+
+    calorias_neg = -abs(calorias_pos)
 
     # Guardar ítems pendientes para la confirmación
     context.user_data['pending_items'] = [{
@@ -1189,15 +1205,16 @@ async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Renderizar pantalla de confirmación
     await render_confirmation_screen(update.message, context)
-
-
+    
 # 2. COMANDO CON IA (CALCULA SEGÚN TIEMPO Y DATO BIOMÉTRICO)
 
 async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    texto = " ".join(context.args)
+    # Extraer el texto correctamente igual que en los otros comandos
+    texto = update.message.text.replace('/actividad_ia', '').strip()
+    
     if not texto:
         await update.message.reply_text(
-            "⚠️ Por favor ingresá el detalle de la actividad.\nEjemplo: `/actividad_ia caminata 50 min`",
+            "⚠️ Por favor ingresá el detalle de la actividad.\nEjemplo: `/actividad_ia caminata, 50 min`",
             parse_mode="Markdown"
         )
         return
@@ -1214,21 +1231,23 @@ async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Asegúrate de que el valor 'calorias' sea SIEMPRE un número negativo.
     """
     
-    # Llamada a tu función de IA (ejemplo con la función de consulta que tengas)
+    # Llamada a tu función de IA
     respuesta_ia = consultar_ia(prompt_ejercicio, user_id=update.effective_user.id)
     
     # Asignar a pending_items y mostrar pantalla de confirmación
+    # Aseguramos que la respuesta sea tratada correctamente si la IA devuelve un dict
     context.user_data['pending_items'] = [{
         'alimento': respuesta_ia.get('actividad', texto),
         'gramos': 0.0,
-        'calorias': -abs(float(respuesta_ia.get('calorias', 0)))
+        'calorias': float(respuesta_ia.get('calorias', 0))
     }]
     context.user_data['pending_momento'] = "Actividad Física"
     if 'pending_fecha' not in context.user_data:
         context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
 
     await render_confirmation_screen(update.message, context)
-
+    
+    
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.replace('/perfil', '').strip()
