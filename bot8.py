@@ -1588,49 +1588,100 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
+    user_id = query.from_user.id
 
-    # 1. BOTONES DE LA ÚLTIMA LÍNEA (Confirmar / Cancelar todo)
-    if data == "confirm_food":
+    if data == "noop":
+        return
+
+    elif data == "confirm_save":
         items = context.user_data.get('pending_items', [])
+        fecha = context.user_data.get('pending_fecha')
+        momento = context.user_data.get('pending_momento')
+        
         if not items:
             await query.edit_message_text("❌ No hay ítems para guardar.")
             return
 
-        # Guardar ítems y limpiar lista
-        context.user_data['pending_items'] = []
-        await query.edit_message_text("✅ ¡Registros guardados correctamente!")
+        guardar_en_sheets(user_id, items, fecha, momento)
+        await query.edit_message_text(f"✅ **¡Registro guardado correctamente!**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\nTotal ítems: {len(items)}", parse_mode="Markdown")
 
-    elif data == "cancel_food":
-        context.user_data['pending_items'] = []
-        await query.edit_message_text("❌ Operación cancelada.")
+    elif data == "cancel_entry":
+        context.user_data.pop('pending_items', None)
+        await query.edit_message_text("🚫 Registro cancelado y eliminado.")
 
-    # 2. BOTONES DE CADA ÍTEM (Editar / Eliminar) - Única modificación con el '- 1'
+    elif data.startswith("set_m_"):
+        nuevo_m = data.replace("set_m_", "")
+        context.user_data['pending_momento'] = nuevo_m
+        await render_confirmation_screen(query, context)
+
+    elif data == "set_d_hoy":
+        context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+        await render_confirmation_screen(query, context)
+
+    elif data == "set_d_ayer":
+        context.user_data['pending_fecha'] = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
+        await render_confirmation_screen(query, context)
+
+    elif data == "set_d_otro":
+        await query.edit_message_text("📅 Por favor, escribí la fecha deseada en formato `YYYY-MM-DD` (Ej: `2026-08-01`):", parse_mode="Markdown")
+        context.user_data['awaiting_date'] = True
+
     elif data.startswith("edit_item_"):
+        # Se resta 1 para pasar de base 1 (UI) a base 0 (Lista Python)
         idx = int(data.replace("edit_item_", "")) - 1
-        
         items = context.user_data.get('pending_items', [])
+        
         if 0 <= idx < len(items):
             context.user_data['editing_item_idx'] = idx
             context.user_data['awaiting_edit_item_val'] = True
             item = items[idx]
-            
             await query.edit_message_text(
-                f"✏️ **Editando Ítem #{idx + 1} ({item.get('alimento', '')}):**\n\n"
-                f"Podés enviar solo el nuevo alimento (ej. `milanesa de pollo`) "
-                f"o el alimento y peso (ej. `milanesa de pollo, 250`).",
+                f"✏️ **Editando Ítem #{idx+1} ({item['alimento']}):**\n"
+                f"Podés enviar solo el nuevo alimento (ej. `milanesa de pollo`) o el alimento y peso (ej. `milanesa de pollo, 250`).",
                 parse_mode="Markdown"
             )
 
     elif data.startswith("del_item_"):
+        # Se resta 1 para pasar de base 1 (UI) a base 0 (Lista Python)
         idx = int(data.replace("del_item_", "")) - 1
-        
         items = context.user_data.get('pending_items', [])
         if 0 <= idx < len(items):
             items.pop(idx)
             context.user_data['pending_items'] = items
-            
-        await render_confirmation_screen(query, context)     
-        
+        await render_confirmation_screen(query, context)
+
+    elif data == "diario_hoy":
+        fecha = obtener_ahora_arg().strftime("%Y-%m-%d")
+        await mostrar_diario_fecha(query, user_id, fecha)
+
+    elif data == "diario_ayer":
+        fecha = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
+        await mostrar_diario_fecha(query, user_id, fecha)
+
+    elif data == "diario_otro":
+        await query.edit_message_text("📆 Por favor enviá la fecha que querés consultar en formato `YYYY-MM-DD`:", parse_mode="Markdown")
+        context.user_data['awaiting_diario_date'] = True
+
+    elif data.startswith("descargar_pdf_diario_"):
+        fecha_str = data.replace("descargar_pdf_diario_", "")
+        await generar_y_enviar_pdf_diario(query, user_id, fecha_str, context)
+
+    elif data == "resumen_mes_otro":
+        await query.edit_message_text("🗓️ Por favor enviá el mes que querés consultar en formato `YYYY-MM` (Ej: `2026-07`):", parse_mode="Markdown")
+        context.user_data['awaiting_resumen_date'] = True
+
+    elif data.startswith("resumen_mes_"):
+        mes_str = data.replace("resumen_mes_", "")
+        await mostrar_resumen_mes(query, user_id, mes_str)
+
+    elif data.startswith("descargar_pdf_resumen_"):
+        mes_str = data.replace("descargar_pdf_resumen_", "")
+        await generar_y_enviar_pdf_resumen(query, user_id, mes_str, context)
+
+    elif data.startswith("descargar_pdf_presion_"):
+        mes_str = data.replace("descargar_pdf_presion_", "")
+        await generar_y_enviar_pdf_presion(query, user_id, mes_str, context)
+                
 async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
     df = obtener_datos_usuario(user_id)
     if df.empty:
