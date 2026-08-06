@@ -1030,6 +1030,7 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
 # ==========================================
 # INTERFAZ Y RENDER DE CONFIRMACIÓN
 # ==========================================
+
 async def render_confirmation_screen(msg_or_query, context):
     items = context.user_data.get('pending_items', [])
     fecha = context.user_data.get('pending_fecha')
@@ -1041,25 +1042,37 @@ async def render_confirmation_screen(msg_or_query, context):
         peso_total = item.get('peso', 0)
         cal_total = item.get('calorias', 0)
         if mult != 1.0:
-            txt += f"**{idx}. {item['alimento']}** ({peso_total:.1f}g) (x{mult}): `{cal_total:.1f} kcal`\n"
+            txt += f"**{idx}. {item.get('alimento', item.get('nombre', ''))}** ({peso_total:.1f}g) (x{mult}): `{cal_total:.1f} kcal`\n"
         else:
-            txt += f"**{idx}. {item['alimento']}** ({peso_total:.1f}g): `{cal_total:.1f} kcal`\n"
+            txt += f"**{idx}. {item.get('alimento', item.get('nombre', ''))}** ({peso_total:.1f}g): `{cal_total:.1f} kcal`\n"
 
     keyboard = []
     
+    # Selector de momento (Desayuno, Almuerzo, Merienda, Cena)
     m_buttons = []
     for m in ["Desayuno", "Almuerzo", "Merienda", "Cena"]:
         mark = "✅ " if m.lower() == momento.lower() else ""
         m_buttons.append(InlineKeyboardButton(f"{mark}{m}", callback_data=f"set_m_{m}"))
     keyboard.append(m_buttons)
 
-    for idx, item in enumerate(items):
-        keyboard.append([
-            InlineKeyboardButton(f"Item #{idx+1}: {item['alimento'][:15]}", callback_data="noop"),
-            InlineKeyboardButton("✏️ Editar", callback_data=f"edit_item_{idx}"),
-            InlineKeyboardButton("🗑️ Anular", callback_data=f"del_item_{idx}")
-        ])
+    # ENCAPSULAMIENTO INTERNO POR NOMBRE EN MAYÚSCULAS:
+    # Verificamos exclusivamente la columna/clave del nombre (alimento/nombre) si está en mayúsculas.
+    def es_nombre_mayuscula(it):
+        nombre = it.get('alimento', it.get('nombre', ''))
+        return bool(nombre) and nombre == nombre.upper() and any(c.isalpha() for c in nombre)
 
+    es_plantilla = any(es_nombre_mayuscula(item) for item in items)
+
+    if not es_plantilla:
+        for idx, item in enumerate(items, start=1):
+            nombre_corto = item.get('alimento', item.get('nombre', ''))[:10]
+            keyboard.append([
+                InlineKeyboardButton(f"#{idx} {nombre_corto}", callback_data=f"noop_{idx}"),
+                InlineKeyboardButton("✏️ Editar", callback_data=f"edit_item_{idx}"),
+                InlineKeyboardButton("❌ Anular", callback_data=f"del_item_{idx}")
+            ])
+
+    # Selector de Fecha: Hoy / Ayer / Otro día
     hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
     ayer_str = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
     mark_hoy = "✅ " if fecha == hoy_str else ""
@@ -1072,6 +1085,7 @@ async def render_confirmation_screen(msg_or_query, context):
         InlineKeyboardButton(f"{mark_otro}Otro Día", callback_data="set_d_otro")
     ])
 
+    # Línea inferior: ELIMINAR TODO / GUARDAR
     keyboard.append([
         InlineKeyboardButton("🗑️ ELIMINAR TODO", callback_data="cancel_entry"),
         InlineKeyboardButton("💾 GUARDAR", callback_data="confirm_save")
@@ -1083,7 +1097,7 @@ async def render_confirmation_screen(msg_or_query, context):
         await msg_or_query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
     else:
         await msg_or_query.edit_text(txt, reply_markup=markup, parse_mode="Markdown")
-
+        
 # ==========================================
 # HANDLERS DE TELEGRAM
 # ==========================================
@@ -1102,12 +1116,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📌 Ingreso de ingestas:\n\n"
         "• **Del listado precargado:**\n"
         "  `*PIZZAJM` ingresa una unidad de la comida.\n"
-        "  `*PIZZAJM,1.5` o `*CHURRO,6` ingresa la cantidad seleccionada.\n\n"
+        "  `*PIZZAJM,1.5` o `*CHURRO,6` ingresa la cantidad.\n\n"
         "• **Ingreso por IA:**\n"
         "  Texto, Imagen, Voz (descripción, cantidad o peso).\n\n"
         "• **Modificación:**\n"
         "  Ingresar `COMIDA` se conserva el peso y vuelve a la IA.\n"
-        "  Ingresar `COMIDA,PESO` con nuevos valores vuelve a la IA.\n\n"
+        "  Ingresar `COMIDA,PESO` nuevos valores vuelve a la IA.\n\n"
         "📄 Te adjuntamos el manual de instrucciones actualizado en PDF."
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
