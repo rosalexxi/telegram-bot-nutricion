@@ -1155,6 +1155,80 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         filename="Comidas_Predeterminadas.pdf"
     )
 
+
+
+# 1. COMANDO DE CARGA DIRECTA (SIN IA)
+async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto = " ".join(context.args)
+    if not texto:
+        await update.message.reply_text(
+            "⚠️ Por favor ingresá la actividad y las calorías.\nEjemplo: `/actividad caminata, 250 cal`",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Buscar número de calorías en el texto enviado
+    match_cal = re.search(r'(\d+)\s*(cal|kcal)?', texto, re.IGNORECASE)
+    
+    if match_cal:
+        calorias_pos = float(match_cal.group(1))
+        calorias_neg = -abs(calorias_pos)
+    else:
+        await update.message.reply_text("❌ No se detectaron las calorías. Recordá indicar las calorías ej: `250 cal`.")
+        return
+
+    # Guardar ítems pendientes para la confirmación
+    context.user_data['pending_items'] = [{
+        'alimento': texto,
+        'gramos': 0.0,
+        'calorias': calorias_neg
+    }]
+    context.user_data['pending_momento'] = "Actividad Física"
+    if 'pending_fecha' not in context.user_data:
+        context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+
+    # Renderizar pantalla de confirmación
+    await render_confirmation_screen(update.message, context)
+
+
+# 2. COMANDO CON IA (CALCULA SEGÚN TIEMPO Y DATO BIOMÉTRICO)
+
+async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto = " ".join(context.args)
+    if not texto:
+        await update.message.reply_text(
+            "⚠️ Por favor ingresá el detalle de la actividad.\nEjemplo: `/actividad_ia caminata 50 min`",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Prompt para la IA incluyendo contexto de actividad física
+    prompt_ejercicio = f"""
+    El usuario realizó la siguiente actividad física: '{texto}'.
+    Calcula el gasto calórico estimado.
+    Devuelve ÚNICAMENTE un JSON con este formato exacto:
+    {{
+        "actividad": "Nombre de la actividad y tiempo",
+        "calorias": -numero_de_calorias_negativo
+    }}
+    Asegúrate de que el valor 'calorias' sea SIEMPRE un número negativo.
+    """
+    
+    # Llamada a tu función de IA (ejemplo con la función de consulta que tengas)
+    respuesta_ia = consultar_ia(prompt_ejercicio, user_id=update.effective_user.id)
+    
+    # Asignar a pending_items y mostrar pantalla de confirmación
+    context.user_data['pending_items'] = [{
+        'alimento': respuesta_ia.get('actividad', texto),
+        'gramos': 0.0,
+        'calorias': -abs(float(respuesta_ia.get('calorias', 0)))
+    }]
+    context.user_data['pending_momento'] = "Actividad Física"
+    if 'pending_fecha' not in context.user_data:
+        context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+
+    await render_confirmation_screen(update.message, context)
+
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.replace('/perfil', '').strip()
@@ -1496,20 +1570,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await render_confirmation_screen(update.message, context)
         return
 
-    if raw_text.startswith('/'):
+   if raw_text.startswith('/'):
         cmd = raw_text.split()[0].lower()
-        if cmd == '/presion':
-            await cmd_presion_handler(update, context)
+        
+        if cmd == '/start':
+            await cmd_start(update, context)
+        elif cmd == '/comidas':
+            await cmd_comidas(update, context)
         elif cmd == '/diario':
             await cmd_diario(update, context)
         elif cmd == '/resumen':
             await cmd_resumen(update, context)
-        elif cmd == '/start':
-            await cmd_start(update, context)
-        elif cmd == '/comidas':
-            await cmd_comidas(update, context)
         elif cmd == '/perfil':
             await cmd_perfil(update, context)
+        elif cmd.startswith('/presi'):  # Coincide con /presion, /presión, /precio, /presiones, etc.
+            await cmd_presion_handler(update, context)
+        elif cmd == '/actividad':
+            await cmd_actividad(update, context)
+        elif cmd == '/actividadia':
+            await cmd_actividad_ia(update, context)
         else:
             await update.message.reply_text("❌ Comando no reconocido.")
         return
