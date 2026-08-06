@@ -236,7 +236,7 @@ def calcular_proteina_sugerida():
         peso_ideal_ref = peso_ideal_base * 1.20
 
     peso_efectivo = (peso + peso_ideal_ref) / 2.0
-    return peso_efectivo * 1.3
+    return peso_efectivo * 1.5
 
 def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", actividad="sedentario", contextura="grande"):
     # 1. Estimar el peso ideal base según altura y género (Fórmula de Devine adaptada)
@@ -362,7 +362,7 @@ def guardar_presion_en_sheets(user_id, alta, baja, pulsaciones):
         to_sheet_int(pulsaciones) if pulsaciones is not None else 0
     ])
 
-def guardar_perfil_en_sheets(user_id, edad, peso, altura, genero="masculino", ocupacion="Sedentario", mes=None):
+def guardar_perfil_en_sheets(user_id, edad, peso, altura, genero="masculino", ocupacion="Sedentario", mes=None, reescribir=True):
     gc = get_gspread_client()
     sh = gc.open(SPREADSHEET_NAME)
     ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
@@ -370,7 +370,8 @@ def guardar_perfil_en_sheets(user_id, edad, peso, altura, genero="masculino", oc
     if not mes:
         mes = ahora.strftime("%Y-%m")
     
-    ws.append_row([
+    # Preparamos los datos de la fila
+    nueva_fila = [
         to_sheet_int(edad), 
         to_sheet_int(peso), 
         to_sheet_int(altura), 
@@ -378,7 +379,29 @@ def guardar_perfil_en_sheets(user_id, edad, peso, altura, genero="masculino", oc
         str(ocupacion), 
         str(mes), 
         ahora.strftime("%Y-%m-%d %H:%M:%S")
-    ])
+    ]
+
+    fila_a_actualizar = None
+
+    if reescribir:
+        # Obtenemos todos los registros para buscar si ya existe el mes
+        records = ws.get_all_records()
+        
+        # Iteramos buscando la coincidencia en la columna del mes 
+        # (Asumiendo que el mes está en la 6ta columna, índice de lista 5)
+        for idx, row in enumerate(records, start=2): # start=2 porque la fila 1 son encabezados
+            # Intentamos obtener el valor del mes desde la clave o por posición si es una lista/diccionario
+            mes_en_fila = str(row.get('Mes', row.get(list(row.keys())[5], ''))).strip()
+            if mes_en_fila == str(mes):
+                fila_a_actualizar = idx
+                break
+
+    if fila_a_actualizar:
+        # Si se encontró el registro del mes y reescribir=True, actualizamos esa fila específica
+        ws.update(f"A{fila_a_actualizar}:G{fila_a_actualizar}", [nueva_fila])
+    else:
+        # Si no existe o reescribir=False, añadimos una fila nueva al final
+        ws.append_row(nueva_fila)
 
 def obtener_perfil_usuario(user_id, mes_target=None):
     try:
@@ -1116,22 +1139,79 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.replace('/perfil', '').strip()
+    ahora = obtener_ahora_arg()
+    mes_actual = ahora.strftime("%Y-%m")
 
+    # Función auxiliar encapsulada para verificar los 30 días del último peso
+    def verificar_alerta_30_dias(uid):
+        try:
+            gc = get_gspread_client()
+            sh = gc.open(SPREADSHEET_NAME)
+            ws = get_or_create_worksheet(sh, f"Perfil_{uid}")
+            records = ws.get_all_records()
+            if not records:
+                return False
+            
+            ultimo_registro = records[-1]
+            fecha_act_str = str(ultimo_registro.get('Fecha_Actualizacion', '')).strip()
+            if fecha_act_str:
+                fecha_act = datetime.strptime(fecha_act_str[:10], "%Y-%m-%d").date()
+                diferencia_dias = (ahora.date() - fecha_act).days
+                return diferencia_dias > 30
+        except Exception:
+            pass
+        return False
+
+    # 1. Procesamiento si se envía texto en el comando
     if raw_text:
         parts = [p.strip() for p in raw_text.replace('/', ',').replace(' ', ',').split(',') if p.strip()]
-        if len(parts) >= 3:
+        
+        # CASO A: Se ingresa un único valor numérico -> Modificar SOLO el peso del mes actual
+        if len(parts) == 1:
+            try:
+                nuevo_peso = float(parts[0].replace(',', '.'))
+                perfil_existente = obtener_perfil_usuario(user_id, mes_target=mes_actual)
+                
+                if perfil_existente:
+                    edad = parse_raw_val(perfil_existente.get('Edad', 64))
+                    altura = parse_raw_val(perfil_existente.get('Altura', 170))
+                    genero = str(perfil_existente.get('Sexo', perfil_existente.get('Genero', 'masculino')))
+                    ocupacion = str(perfil_existente.get('Ocupacion', 'Jubilado'))
+                else:
+                    # Valores por defecto si no existe perfil previo en el mes
+                    edad, altura, genero, ocupacion = 64.0, 170.0, "masculino", "Jubilado"
+
+                # Guardar actualizando el peso y manteniendo el resto
+                guardar_perfil_en_sheets(user_id, edad, nuevo_peso, altura, genero, ocupacion, mes_actual, reescribir=True)
+                tmb, get_val = calcular_tmb_y_get(nuevo_peso, altura, edad, genero, ocupacion)
+                
+                await update.message.reply_text(
+                    f"✅ **Peso actualizado correctamente para el mes `{mes_actual}`:**\n"
+                    f"• Nuevo Peso: `{nuevo_peso:.1f}` kg\n"
+                    f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
+                    f"• **GET Estimado:** `{get_val:.0f} kcal/día`",
+                    parse_mode="Markdown"
+                )
+                return
+            except ValueError:
+                await update.message.reply_text("❌ Formato de peso inválido. Usá por ejemplo: `/perfil 82.5`", parse_mode="Markdown")
+                return
+
+        # CASO B: Ingreso de todos los datos (Edad, Peso, Altura, Género, Ocupación) - Mes automático
+        elif len(parts) >= 3:
             try:
                 edad = float(parts[0].replace(',', '.'))
                 peso = float(parts[1].replace(',', '.'))
                 altura = float(parts[2].replace(',', '.'))
                 genero = parts[3] if len(parts) > 3 else "masculino"
                 ocupacion = parts[4] if len(parts) > 4 else "Jubilado"
-                mes = parts[5] if len(parts) > 5 else obtener_ahora_arg().strftime("%Y-%m")
-
-                guardar_perfil_en_sheets(user_id, edad, peso, altura, genero, ocupacion, mes)
+                
+                # Mes y año se toman automáticamente del día actual
+                guardar_perfil_en_sheets(user_id, edad, peso, altura, genero, ocupacion, mes_actual, reescribir=True)
                 tmb, get_val = calcular_tmb_y_get(peso, altura, edad, genero, ocupacion)
+                
                 await update.message.reply_text(
-                    f"✅ **Perfil actualizado correctamente para el mes `{mes}`:**\n"
+                    f"✅ **Perfil registrado/actualizado para el mes `{mes_actual}`:**\n"
                     f"• Edad: `{edad:.0f}` años\n• Peso: `{peso:.1f}` kg\n• Altura: `{altura:.1f}` cm\n"
                     f"• Género: `{genero}` | Ocupación: `{ocupacion}`\n"
                     f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
@@ -1140,22 +1220,28 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             except ValueError:
-                await update.message.reply_text("❌ Error en los datos ingresados. Asegurate de usar números válidos.")
+                await update.message.reply_text("❌ Error en los datos ingresados. Asegurate de usar números válidos.", parse_mode="Markdown")
                 return
 
-    ahora_mes = obtener_ahora_arg().strftime("%Y-%m")
-    perfil = obtener_perfil_usuario(user_id, mes_target=ahora_mes)
+    # 2. Si no hay argumentos, muestra el perfil actual y evalúa la advertencia de 30 días
+    perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
+    alerta_30_dias = verificar_alerta_30_dias(user_id)
+    
+    advertencia_txt = ""
+    if alerta_30_dias:
+        advertencia_txt = "\n⚠️ **ADVERTENCIA:** Han pasado más de 30 días desde tu último registro de peso. Te sugerimos actualizarlo con `/perfil [PESO]`.\n"
+
     if perfil:
         peso = parse_raw_val(perfil.get('Peso'))
         altura = parse_raw_val(perfil.get('Altura'))
         edad = parse_raw_val(perfil.get('Edad'))
         genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino')))
         ocupacion = str(perfil.get('Ocupacion', 'Jubilado'))
-        mes = str(perfil.get('Mes', ahora_mes))
 
         tmb, get_val = calcular_tmb_y_get(peso, altura, edad, genero, ocupacion)
         txt = (
-            f"👤 **Perfil Biométrico Actual ({mes}):**\n\n"
+            f"{advertencia_txt}"
+            f"👤 **Perfil Biométrico Actual ({mes_actual}):**\n\n"
             f"• Edad: `{edad:.0f}` años\n"
             f"• Peso: `{peso:.1f}` kg\n"
             f"• Altura: `{altura:.1f}` cm\n"
@@ -1163,15 +1249,17 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"• Ocupación: `{ocupacion}`\n"
             f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
             f"• **GET Estimado:** `{get_val:.0f} kcal/día`\n\n"
-            f"Para actualizar tus datos envía:\n"
-            f"`/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION, MES`\n"
-            f"(Ej: `/perfil 64, 82, 172, M, Jubilado, 2026-08`)"
+            f"📌 **Para actualizar solo tu peso mensual:**\n"
+            f"`/perfil 82.5`\n\n"
+            f"📌 **Para actualizar todos los datos:**\n"
+            f"`/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION`"
         )
     else:
         txt = (
-            "👤 **Perfil no registrado.** Para ingresar tus datos biométricos usá:\n"
-            "`/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION, MES`\n"
-            "(Ej: `/perfil 64, 82, 172, M, Jubilado, 2026-08`)"
+            f"{advertencia_txt}"
+            f"👤 **Perfil no registrado para este mes.** Para ingresar tus datos usá:\n"
+            f"`/perfil EDAD, PESO, ALTURA, GENERO, OCUPACION`\n"
+            f"(Ej: `/perfil 64, 82, 172, M, Jubilado`)"
         )
 
     await update.message.reply_text(txt, parse_mode="Markdown")
