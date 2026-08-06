@@ -1570,7 +1570,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await render_confirmation_screen(update.message, context)
         return
 
-   if raw_text.startswith('/'):
+    if raw_text.startswith('/'):
         cmd = raw_text.split()[0].lower()
         
         if cmd == '/start':
