@@ -190,106 +190,32 @@ def obtener_momento_y_fecha_auto():
         
     return fecha_obj.strftime("%Y-%m-%d"), momento
     
-def calcular_proteina_sugerida(user_id, mes_target=None):
-    """
-    Lee el perfil biométrico y el diario nutricional directamente desde Google Sheets 
-    para calcular la proteína sugerida/objetivo y compararla con el consumo real del mes.
-    """
-    try:
-        # 1. Conexión a Google Sheets y obtención de datos del usuario
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        
-        # Obtener perfil del usuario (específico del mes o el último disponible)
-        ws_perfil = get_or_create_worksheet(sh, f"Perfil_{user_id}")
-        perfil_records = ws_perfil.get_all_records()
-        
-        perfil_raw = None
-        if perfil_records:
-            if mes_target:
-                for r in reversed(perfil_records):
-                    m_val = str(r.get('MES', r.get('Mes', ''))).strip()
-                    if m_val == mes_target:
-                        perfil_raw = r
-                        break
-            if not perfil_raw:
-                perfil_raw = perfil_records[-1]
-
-        # Valores por defecto en caso de no encontrar perfil
-        edad = 64.0
-        peso = 82.0
-        altura = 172.0
-        genero = "masculino"
-        actividad = "sedentario"
-        
-        if perfil_raw:
-            for k, v in perfil_raw.items():
-                k_upper = str(k).strip().upper()
-                if k_upper == 'EDAD': edad = parse_float_from_sheets(v)
-                elif k_upper == 'PESO': peso = parse_float_from_sheets(v)
-                elif k_upper == 'ALTURA': altura = parse_float_from_sheets(v)
-                elif k_upper in ['GENERO', 'SEXO']: genero = str(v)
-                elif k_upper == 'OCUPACION': actividad = str(v)
-
-        # 2. Cálculo del peso efectivo y proteína recomendada (similar a la lógica interna de TMB/GET)
-        altura_m = altura / 100.0
-        if str(genero).lower() in ["femenino", "f", "mujer"]:
-            peso_ideal_base = 45.5 + 2.3 * ((altura / 2.54) - 60)
-        else:
-            peso_ideal_base = 50.0 + 2.3 * ((altura / 2.54) - 60)
-            
-        if peso_ideal_base <= 0:
-            peso_ideal_base = 22 * (altura_m ** 2)
-
-        # Contextura grande por defecto (+20% sobre peso ideal base)
-        peso_ideal_referencia = peso_ideal_base * 1.20
-        peso_efectivo = (peso + peso_ideal_referencia) / 2.0
-        
-        # Factor conservador y saludable de proteína (ej. 1.3g a 1.5g por kilo de peso efectivo)
-        proteina_sugerida_g = peso_efectivo * 1.4
-
-        # 3. Obtener ingestas reales de la hoja de usuario para comparar
-        ws_user = get_or_create_worksheet(sh, f"User_{user_id}")
-        user_records = ws_user.get_all_records()
-        
-        promedio_real_g = 0.0
-        dias_activos = 0
-        
-        if user_records:
-            df = pd.DataFrame(user_records)
-            # Normalizar nombres de columnas básicos por seguridad
-            col_map = {}
-            for c in df.columns:
-                c_lower = str(c).lower()
-                if 'fecha' in c_lower: col_map[c] = 'Fecha'
-                elif 'prote' in c_lower: col_map[c] = 'Proteinas'
-            df = df.rename(columns=col_map)
-            
-            if 'Fecha' in df.columns and 'Proteinas' in df.columns:
-                df['Fecha'] = df['Fecha'].astype(str).str.strip()
-                df['Proteinas'] = df['Proteinas'].apply(parse_float_from_sheets)
-                
-                if mes_target:
-                    df = df[df['Fecha'].str.startswith(mes_target)]
-                
-                if not df.empty:
-                    dias_activos = df['Fecha'].nunique()
-                    total_proteinas_mes = df['Proteinas'].sum()
-                    if dias_activos > 0:
-                        promedio_real_g = total_proteinas_mes / dias_activos
-
-        return {
-            "peso_actual": peso,
-            "peso_efectivo": round(peso_efectivo, 1),
-            "proteina_sugerida_g": round(proteina_sugerida_g, 1),
-            "promedio_real_g": round(promedio_real_g, 1),
-            "dias_evaluados": dias_activos
-        }
-
-    except Exception as e:
-        print(f"[ERROR] No se pudo calcular la proteína sugerida para el usuario {user_id}: {e}")
-        return None
+def calcular_proteina_sugerida():
+    # Asume que 'peso', 'altura', 'genero' y 'contextura' ya existen 
+    # como variables globales o se leen directamente del Excel/base de datos aquí dentro.
     
+    # Ejemplo si los lees directo dentro de la función o los toma del entorno:
+    altura_m = altura / 100.0
+    
+    if str(genero).lower() in ["femenino", "f", "mujer"]:
+        peso_ideal_base = 45.5 + 2.3 * ((altura / 2.54) - 60)
+    else:
+        peso_ideal_base = 50.0 + 2.3 * ((altura / 2.54) - 60)
+        
+    if peso_ideal_base <= 0:
+        peso_ideal_base = 22 * (altura_m ** 2)
+
+    ctx = str(contextura).lower()
+    if "peque" in ctx or "chica" in ctx:
+        peso_ideal_ref = peso_ideal_base * 0.90
+    elif "mediana" in ctx:
+        peso_ideal_ref = peso_ideal_base
+    else:
+        peso_ideal_ref = peso_ideal_base * 1.20
+
+    peso_efectivo = (peso + peso_ideal_ref) / 2.0
+    return peso_efectivo * 1.3
+   
 def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", actividad="sedentario", contextura="grande"):
     # 1. Estimar el peso ideal base según altura y género (Fórmula de Devine adaptada)
     altura_m = altura_cm / 100.0
