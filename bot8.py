@@ -1137,29 +1137,64 @@ async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt_ejercicio = f"El usuario realizó la actividad física: '{texto}'. Estima el gasto calórico negativo."
 
     try:
-        respuesta_ia = analizar_con_groq(prompt_ejercicio)
-        items = respuesta_ia.get("items", [])
+        respuesta_ia = analizar_con_groq(prompt_ejercicio)[cite: 1]
+        items = respuesta_ia.get("items", [])[cite: 1]
         
         if items:
             for it in items:
-                it['calorias'] = -abs(parse_raw_val(it.get('calorias', 0)))
+                it['calorias'] = -abs(parse_raw_val(it.get('calorias', 0)))[cite: 1]
         else:
-            items = [{"alimento": texto, "peso": 0.0, "calorias": -150.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}]
+            items = [{
+                "alimento": texto, 
+                "peso": 0.0, 
+                "calorias": -150.0, 
+                "proteinas": 0.0, 
+                "grasas": 0.0, 
+                "carbohidratos": 0.0, 
+                "fibras": 0.0
+            }][cite: 1]
 
-        fecha_actual = obtener_ahora_arg().strftime("%Y-%m-%d")
-        guardar_en_sheets(user_id, items, fecha_actual, "Actividad Física", tipo="Actividad")
+        fecha_auto, _ = obtener_momento_y_fecha_auto()[cite: 1]
+        
+        # Guardar en las variables globales/temporales que usa el bot para confirmación
+        context.user_data['pending_items'] = items[cite: 1]
+        context.user_data['pending_tipo'] = "Actividad"[cite: 1]
+        context.user_data['pending_fecha'] = fecha_auto[cite: 1]
+        context.user_data['pending_momento'] = "Actividad Física"[cite: 1]
 
-        act_nombre = items[0].get('alimento', texto)
-        cal_neg = items[0].get('calorias', 0)
+        actividad = items[0]
+        calorias = abs(actividad.get('calorias', 0))
+
+        # Texto claro indicando cómo editar en caso de pulsar el botón
+        texto_msg = (
+            f"🏋️ *Registro de Actividad Física*\n\n"
+            f"• *Actividad:* {actividad.get('alimento')}\n"
+            f"• *Gasto estimado:* -{calorias:.0f} kcal\n"
+            f"• *Fecha:* {fecha_auto}\n\n"
+            f"💡 *¿Querés ajustar el valor?*\n"
+            f"Presioná *✏️ Editar* y respondé enviando la duración (ej: `45 min`) o las calorías (ej: `200 kcal`).\n\n"
+            f"¿Confirmás el registro?"
+        )
+
+        # Botonera mínima (Editar, Cancelar, Guardar)
+        keyboard = [
+            [
+                InlineKeyboardButton(f"✏️ Editar (-{calorias:.0f} kcal)", callback_data="edit_item_0")
+            ],
+            [
+                InlineKeyboardButton("🗑️ CANCELAR", callback_data="cancel_all"),
+                InlineKeyboardButton("💾 GUARDAR", callback_data="confirm_save")
+            ]
+        ]
 
         await msg.edit_text(
-            f"✅ **Actividad física registrada con IA:**\n"
-            f"• Actividad: `{act_nombre}`\n"
-            f"• Calorías: `{cal_neg:.0f} kcal`",
+            texto_msg, 
+            reply_markup=InlineKeyboardMarkup(keyboard), 
             parse_mode="Markdown"
         )
+
     except Exception as e:
-        await msg.edit_text(f"❌ Error al consultar la IA: {e}")
+        await msg.edit_text(f"❌ Error al consultar la IA: {e}")[cite: 1]
 
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
