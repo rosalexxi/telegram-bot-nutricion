@@ -1157,6 +1157,10 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # 1. COMANDO DE CARGA DIRECTA (SIN IA)
 
+
+
+# 1. COMANDO DE CARGA DIRECTA (SIN IA)
+
 async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Extraer el texto escrito después del comando
     texto = update.message.text.replace('/actividad', '').strip()
@@ -1196,6 +1200,7 @@ async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Guardar ítems pendientes para la confirmación
     context.user_data['pending_items'] = [{
         'alimento': texto,
+        'peso': 0.0,
         'gramos': 0.0,
         'calorias': calorias_neg
     }]
@@ -1203,9 +1208,11 @@ async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if 'pending_fecha' not in context.user_data:
         context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
 
-    # Renderizar pantalla de confirmación
-    await render_confirmation_screen(update.message, context)
-    
+    # SOLUCIÓN: Responder primero para obtener una referencia de mensaje editable
+    msg = await update.message.reply_text("🏃 Registrando actividad física...")
+    await render_confirmation_screen(msg, context)
+
+
 # 2. COMANDO CON IA (CALCULA SEGÚN TIEMPO Y DATO BIOMÉTRICO)
 
 async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1219,6 +1226,8 @@ async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    msg = await update.message.reply_text("⏳ Calculando gasto calórico con IA...")
+
     # Prompt para la IA incluyendo contexto de actividad física
     prompt_ejercicio = f"""
     El usuario realizó la siguiente actividad física: '{texto}'.
@@ -1231,22 +1240,26 @@ async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Asegúrate de que el valor 'calorias' sea SIEMPRE un número negativo.
     """
     
-    # Llamada a tu función de IA
-    respuesta_ia = consultar_ia(prompt_ejercicio, user_id=update.effective_user.id)
-    
-    # Asignar a pending_items y mostrar pantalla de confirmación
-    # Aseguramos que la respuesta sea tratada correctamente si la IA devuelve un dict
-    context.user_data['pending_items'] = [{
-        'alimento': respuesta_ia.get('actividad', texto),
-        'gramos': 0.0,
-        'calorias': float(respuesta_ia.get('calorias', 0))
-    }]
-    context.user_data['pending_momento'] = "Actividad Física"
-    if 'pending_fecha' not in context.user_data:
-        context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+    try:
+        # Llamada a tu función de IA
+        respuesta_ia = consultar_ia(prompt_ejercicio, user_id=update.effective_user.id)
+        
+        # Asignar a pending_items y mostrar pantalla de confirmación
+        context.user_data['pending_items'] = [{
+            'alimento': respuesta_ia.get('actividad', texto),
+            'peso': 0.0,
+            'gramos': 0.0,
+            'calorias': float(respuesta_ia.get('calorias', 0))
+        }]
+        context.user_data['pending_momento'] = "Actividad Física"
+        if 'pending_fecha' not in context.user_data:
+            context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
 
-    await render_confirmation_screen(update.message, context)
-    
+        await render_confirmation_screen(msg, context)
+    except Exception as e:
+        await msg.edit_text(f"❌ Error al consultar la IA: {e}")
+
+
     
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
