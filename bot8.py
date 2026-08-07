@@ -219,7 +219,7 @@ def calcular_proteina_sugerida(user_id=123456789):
         peso_ideal_ref = peso_ideal_base * 1.20
 
     peso_efectivo = (peso + peso_ideal_ref) / 2.0
-    return peso_efectivo * 1.5
+    return peso_efectivo * 1.3
 
 def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", actividad="sedentario", contextura="grande"):
     altura_m = altura_cm / 100.0
