@@ -1027,6 +1027,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/presion 2026-08` promedio mensual y PDF.\n"
         "• `/diario`: Ingestas del día y PDF detallado.\n"
         "• `/resumen`: Reporte mensual con IA y PDF.\n"
+        "• `/actividad ACTIVIDAD,CAL.`: Guardar en exel.\n"
+        "• `/actividadia ACTIVIDAD, MIN.`:Guarda en exel por IA.\n"
         "• `/perfil`: Consulta o carga datos biométricos.\n"
         "• `/perfil,PESO`: Actualiza el peso del mes.\n\n"
         "📌 Ingreso de ingestas:\n\n"
