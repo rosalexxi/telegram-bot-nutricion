@@ -1137,12 +1137,12 @@ async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt_ejercicio = f"El usuario realizó la actividad física: '{texto}'. Estima el gasto calórico negativo."
 
     try:
-        respuesta_ia = analizar_con_groq(prompt_ejercicio)[cite: 1]
-        items = respuesta_ia.get("items", [])[cite: 1]
+        respuesta_ia = analizar_con_groq(prompt_ejercicio)
+        items = respuesta_ia.get("items", []) if isinstance(respuesta_ia, dict) else []
         
         if items:
             for it in items:
-                it['calorias'] = -abs(parse_raw_val(it.get('calorias', 0)))[cite: 1]
+                it['calorias'] = -abs(parse_raw_val(it.get('calorias', 0)))
         else:
             items = [{
                 "alimento": texto, 
@@ -1152,15 +1152,15 @@ async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "grasas": 0.0, 
                 "carbohidratos": 0.0, 
                 "fibras": 0.0
-            }][cite: 1]
+            }]
 
-        fecha_auto, _ = obtener_momento_y_fecha_auto()[cite: 1]
+        fecha_auto, _ = obtener_momento_y_fecha_auto()
         
         # Guardar en las variables globales/temporales que usa el bot para confirmación
-        context.user_data['pending_items'] = items[cite: 1]
-        context.user_data['pending_tipo'] = "Actividad"[cite: 1]
-        context.user_data['pending_fecha'] = fecha_auto[cite: 1]
-        context.user_data['pending_momento'] = "Actividad Física"[cite: 1]
+        context.user_data['pending_items'] = items
+        context.user_data['pending_tipo'] = "Actividad"
+        context.user_data['pending_fecha'] = fecha_auto
+        context.user_data['pending_momento'] = "Actividad Física"
 
         actividad = items[0]
         calorias = abs(actividad.get('calorias', 0))
@@ -1194,7 +1194,9 @@ async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     except Exception as e:
-        await msg.edit_text(f"❌ Error al consultar la IA: {e}")[cite: 1]
+        print(f"Error en cmd_actividad_ia: {e}")
+        # Evitamos parse_mode="Markdown" en el error para prevenir que se trabe la edición si 'e' tiene guiones o caracteres especiales
+        await msg.edit_text(f"❌ Error al consultar la IA: {str(e)}")
 
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
