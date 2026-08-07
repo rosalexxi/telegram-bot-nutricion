@@ -1134,7 +1134,7 @@ async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = await update.message.reply_text("⏳ Calculando gasto calórico con IA...")
 
-    prompt_ejercicio = f"El usuario realizó la actividad física: '{texto}'. Estima el gasto calórico negativo."
+    prompt_ejercicio = f"El usuario realizó la siguiente actividad física: '{texto}'. Estimá únicamente el gasto calórico estimado en calorías quemadas (número positivo)."
 
     try:
         respuesta_ia = analizar_con_groq(prompt_ejercicio)
@@ -1142,6 +1142,7 @@ async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if items:
             for it in items:
+                # Asegurar valor negativo para la hoja de cálculo (gasto calórico)
                 it['calorias'] = -abs(parse_raw_val(it.get('calorias', 0)))
         else:
             items = [{
@@ -1156,47 +1157,19 @@ async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         fecha_auto, _ = obtener_momento_y_fecha_auto()
         
-        # Guardar en las variables globales/temporales que usa el bot para confirmación
+        # Guardar en las variables temporales de contexto
         context.user_data['pending_items'] = items
         context.user_data['pending_tipo'] = "Actividad"
         context.user_data['pending_fecha'] = fecha_auto
         context.user_data['pending_momento'] = "Actividad Física"
 
-        actividad = items[0]
-        calorias = abs(actividad.get('calorias', 0))
-
-        # Texto claro indicando cómo editar en caso de pulsar el botón
-        texto_msg = (
-            f"🏋️ *Registro de Actividad Física*\n\n"
-            f"• *Actividad:* {actividad.get('alimento')}\n"
-            f"• *Gasto estimado:* -{calorias:.0f} kcal\n"
-            f"• *Fecha:* {fecha_auto}\n\n"
-            f"💡 *¿Querés ajustar el valor?*\n"
-            f"Presioná *✏️ Editar* y respondé enviando la duración (ej: `45 min`) o las calorías (ej: `200 kcal`).\n\n"
-            f"¿Confirmás el registro?"
-        )
-
-        # Botonera corregida con los callback_data que reconoce el bot
-        keyboard = [
-            [
-                InlineKeyboardButton(f"✏️ Editar (-{calorias:.0f} kcal)", callback_data="edit_0")
-            ],
-            [
-                InlineKeyboardButton("🗑️ CANCELAR", callback_data="cancel_save"),
-                InlineKeyboardButton("💾 GUARDAR", callback_data="confirm_save")
-            ]
-        ]
-
-        await msg.edit_text(
-            texto_msg, 
-            reply_markup=InlineKeyboardMarkup(keyboard), 
-            parse_mode="Markdown"
-        )
+        # Mostrar la pantalla estándar de confirmación interactiva
+        await render_confirmation_screen(msg, context)
 
     except Exception as e:
         print(f"Error en cmd_actividad_ia: {e}")
         await msg.edit_text(f"❌ Error al consultar la IA: {str(e)}")
-
+        
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.replace('/perfil', '').strip()
