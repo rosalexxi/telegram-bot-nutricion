@@ -1176,13 +1176,13 @@ async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"¿Confirmás el registro?"
         )
 
-        # Botonera mínima (Editar, Cancelar, Guardar)
+        # Botonera corregida con los callback_data que reconoce el bot
         keyboard = [
             [
-                InlineKeyboardButton(f"✏️ Editar (-{calorias:.0f} kcal)", callback_data="edit_item_0")
+                InlineKeyboardButton(f"✏️ Editar (-{calorias:.0f} kcal)", callback_data="edit_0")
             ],
             [
-                InlineKeyboardButton("🗑️ CANCELAR", callback_data="cancel_all"),
+                InlineKeyboardButton("🗑️ CANCELAR", callback_data="cancel_save"),
                 InlineKeyboardButton("💾 GUARDAR", callback_data="confirm_save")
             ]
         ]
@@ -1195,7 +1195,6 @@ async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         print(f"Error en cmd_actividad_ia: {e}")
-        # Evitamos parse_mode="Markdown" en el error para prevenir que se trabe la edición si 'e' tiene guiones o caracteres especiales
         await msg.edit_text(f"❌ Error al consultar la IA: {str(e)}")
 
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
