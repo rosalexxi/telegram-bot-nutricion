@@ -1157,12 +1157,8 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # 1. COMANDO DE CARGA DIRECTA (SIN IA)
 
-
-
-# 1. COMANDO DE CARGA DIRECTA (SIN IA)
-
 async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Extraer el texto escrito después del comando
+    user_id = update.effective_user.id
     texto = update.message.text.replace('/actividad', '').strip()
     
     if not texto:
@@ -1172,19 +1168,13 @@ async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Si hay una coma, asumimos que las calorías están después de la coma
-    if ',' in texto:
-        parte_calorias = texto.split(',')[-1]
-    else:
-        parte_calorias = texto
-
-    # EQUIVALENTE A VAL(): Filtramos y dejamos SOLO los dígitos numéricos
+    # Extraer calorías
+    parte_calorias = texto.split(',')[-1] if ',' in texto else texto
     solo_numeros = re.sub(r'\D', '', parte_calorias)
 
     if solo_numeros:
         calorias_pos = float(solo_numeros)
     else:
-        # Si no había números después de la coma, buscamos cualquier número en todo el texto
         todos_los_numeros = re.findall(r'\d+', texto)
         if todos_los_numeros:
             calorias_pos = float(todos_los_numeros[-1])
@@ -1196,27 +1186,31 @@ async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     calorias_neg = -abs(calorias_pos)
+    fecha_actual = obtener_ahora_arg().strftime("%Y-%m-%d")
 
-    # Guardar ítems pendientes para la confirmación
-    context.user_data['pending_items'] = [{
-        'alimento': texto,
-        'peso': 0.0,
-        'gramos': 0.0,
-        'calorias': calorias_neg
-    }]
-    context.user_data['pending_momento'] = "Actividad Física"
-    if 'pending_fecha' not in context.user_data:
-        context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+    # Guardar directo a Google Sheets / Excel igual que /presion
+    guardar_diario_en_sheets(
+        user_id=user_id,
+        fecha=fecha_actual,
+        momento="Actividad Física",
+        alimento=texto,
+        peso=0.0,
+        calorias=calorias_neg,
+        proteinas=0.0,
+        grasas=0.0,
+        carbohidratos=0.0,
+        fibras=0.0
+    )
 
-    # SOLUCIÓN: Responder primero para obtener una referencia de mensaje editable
-    msg = await update.message.reply_text("🏃 Registrando actividad física...")
-    await render_confirmation_screen(msg, context)
-
-
-# 2. COMANDO CON IA (CALCULA SEGÚN TIEMPO Y DATO BIOMÉTRICO)
-
+    await update.message.reply_text(
+        f"✅ **Actividad física registrada:**\n"
+        f"• Detalle: `{texto}`\n"
+        f"• Calorías: `{calorias_neg:.0f} kcal`",
+        parse_mode="Markdown"
+    )
+    
 async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Extraer el texto correctamente igual que en los otros comandos
+    user_id = update.effective_user.id
     texto = update.message.text.replace('/actividad_ia', '').strip()
     
     if not texto:
@@ -1228,7 +1222,6 @@ async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = await update.message.reply_text("⏳ Calculando gasto calórico con IA...")
 
-    # Prompt para la IA incluyendo contexto de actividad física
     prompt_ejercicio = f"""
     El usuario realizó la siguiente actividad física: '{texto}'.
     Calcula el gasto calórico estimado.
@@ -1239,28 +1232,38 @@ async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }}
     Asegúrate de que el valor 'calorias' sea SIEMPRE un número negativo.
     """
-    
-    try:
-        # Llamada a tu función de IA
-        respuesta_ia = consultar_ia(prompt_ejercicio, user_id=update.effective_user.id)
-        
-        # Asignar a pending_items y mostrar pantalla de confirmación
-        context.user_data['pending_items'] = [{
-            'alimento': respuesta_ia.get('actividad', texto),
-            'peso': 0.0,
-            'gramos': 0.0,
-            'calorias': float(respuesta_ia.get('calorias', 0))
-        }]
-        context.user_data['pending_momento'] = "Actividad Física"
-        if 'pending_fecha' not in context.user_data:
-            context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
 
-        await render_confirmation_screen(msg, context)
+    try:
+        respuesta_ia = consultar_ia(prompt_ejercicio, user_id=user_id)
+        
+        actividad_nombre = respuesta_ia.get('actividad', texto)
+        calorias_neg = -abs(float(respuesta_ia.get('calorias', 0)))
+        fecha_actual = obtener_ahora_arg().strftime("%Y-%m-%d")
+
+        # Guardar directo a Google Sheets / Excel
+        guardar_diario_en_sheets(
+            user_id=user_id,
+            fecha=fecha_actual,
+            momento="Actividad Física",
+            alimento=actividad_nombre,
+            peso=0.0,
+            calorias=calorias_neg,
+            proteinas=0.0,
+            grasas=0.0,
+            carbohidratos=0.0,
+            fibras=0.0
+        )
+
+        await msg.edit_text(
+            f"✅ **Actividad física registrada con IA:**\n"
+            f"• Actividad: `{actividad_nombre}`\n"
+            f"• Calorías: `{calorias_neg:.0f} kcal`",
+            parse_mode="Markdown"
+        )
     except Exception as e:
         await msg.edit_text(f"❌ Error al consultar la IA: {e}")
-
-
-    
+        
+                
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.replace('/perfil', '').strip()
