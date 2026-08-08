@@ -1837,17 +1837,30 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.message.reply_text(txt, parse_mode="Markdown")
         return
 
+    # Cálculos de Calorías
     tot_cons = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()
     tot_quem = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())
     bal_neto = tot_cons - tot_quem
     dias_registrados = df_mes['Fecha'].nunique()
 
+    # Cálculos de Macronutrientes
+    tot_prot = df_mes['Proteinas'].sum() if 'Proteinas' in df_mes.columns else 0.0
+    tot_gras = df_mes['Grasas'].sum() if 'Grasas' in df_mes.columns else 0.0
+    tot_carb = df_mes['Carbohidratos'].sum() if 'Carbohidratos' in df_mes.columns else 0.0
+    tot_fibr = df_mes['Fibras'].sum() if 'Fibras' in df_mes.columns else 0.0
+
+    # Construcción del mensaje con formato detallado
     txt = (
         f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
         f"• Días con registro: `{dias_registrados}`\n"
         f"• **Total Consumidas:** `{tot_cons:.0f} kcal`\n"
         f"• **Total Quemadas:** `{tot_quem:.0f} kcal`\n"
         f"• **Balance Neto:** `{bal_neto:.0f} kcal`\n\n"
+        f"🥗 **Desglose de Nutrientes (Mes):**\n"
+        f"• **Proteínas:** `{tot_prot:.1f} g`\n"
+        f"• **Grasas:** `{tot_gras:.1f} g`\n"
+        f"• **Carbohidratos:** `{tot_carb:.1f} g`\n"
+        f"• **Fibras:** `{tot_fibr:.1f} g`\n\n"
         f"📄 Descargá el reporte PDF con la recomendación de la IA:"
     )
 
@@ -1859,7 +1872,10 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
     else:
         await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
-
+        
+        
+        
+        
 async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
     df = obtener_datos_usuario(user_id)
     perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) or {}
