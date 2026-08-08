@@ -1820,52 +1820,115 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mes_str = data.replace("descargar_pdf_presion_", "")
         await generar_y_enviar_pdf_presion(query, user_id, mes_str, context)
 
-async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
-    df = obtener_datos_usuario(user_id)
-    if df.empty:
-        txt = f"📂 No hay registros cargados para el usuario `{user_id}`."
-    else:
-        df_filtrado = df[df['Fecha'] == fecha_str]
-        if df_filtrado.empty:
-            txt = f"📅 No hay registros para la fecha `{fecha_str}`."
+import asyncio
+from datetime import datetime
+from telegram import Update
+from telegram.ext import ContextTypes
+
+def safe_number(val):
+    """
+    Convierte el valor almacenado (multiplicado por 1000 sin coma) 
+    de vuelta a su valor real dividiéndolo por 1000.
+    """
+    try:
+        if val is None or val == "":
+            return 0.0
+        return int(val) / 1000.0
+    except (ValueError, TypeError):
+        return 0.0
+
+async def mostrar_diario_fecha(update: Update, context: ContextTypes.DEFAULT_TYPE, fecha_str: str):
+    """
+    Obtiene los registros del día desde Google Sheets sin bloquear el bot
+    y muestra el resumen de nutrición y ejercicio.
+    """
+    query = update.callback_query
+    
+    # Responder de inmediato al toque del botón si proviene de un InlineKeyboard
+    if query:
+        await query.answer()
+
+    user_id = update.effective_user.id
+
+    try:
+        # Formatear la fecha
+        fecha_target = datetime.strptime(fecha_str, "%Y-%m-%d").date()
+        fecha_display = fecha_target.strftime("%d/%m/%Y")
+
+        # 3. Lectura asíncrona no bloqueante de Google Sheets
+        hoja_usuario = get_user_sheet(user_id)
+        registros = await asyncio.to_thread(hoja_usuario.get_all_records)
+
+        # Filtrar registros correspondientes al día seleccionado
+        filas_dia = [
+            r for r in registros 
+            if str(r.get("Fecha")) == fecha_str or str(r.get("Fecha")) == fecha_display
+        ]
+
+        # 1. Completado: Manejo de día sin registros
+        if not filas_dia:
+            texto_vacio = f"📅 **Diario del {fecha_display}**\n\nNo hay registros guardados para este día."
+            if query:
+                await query.edit_message_text(texto_vacio, parse_mode="Markdown")
+            else:
+                await update.message.reply_text(texto_vacio, parse_mode="Markdown")
+            return
+
+        totales = {"kcal": 0.0, "proteina": 0.0, "carbos": 0.0, "grasa": 0.0, "ejercicio": 0.0}
+        desglose = []
+
+        for row in filas_dia:
+            concepto = row.get("Alimento/Actividad", "Varios")
+            tipo = str(row.get("Momento", "General"))
+            
+            # 2. Conversión dividiendo por 1000 (enteros sin coma)
+            cal = safe_number(row.get("Calorías"))
+            prot = safe_number(row.get("Proteínas (g)"))
+            carb = safe_number(row.get("Carbohidratos (g)"))
+            gras = safe_number(row.get("Grasas (g)"))
+
+            if cal < 0 or tipo.lower() == "actividad":
+                gasto = abs(cal)
+                totales["ejercicio"] += gasto
+                desglose.append(f"🏃 *{concepto}*: -{gasto:.0f} kcal")
+            else:
+                totales["kcal"] += cal
+                totales["proteina"] += prot
+                totales["carbos"] += carb
+                totales["grasa"] += gras
+                desglose.append(f"🍽️ *{concepto}* ({tipo}): {cal:.0f} kcal")
+
+        balance_neto = totales["kcal"] - totales["ejercicio"]
+
+        # 1. Completado: Armado del mensaje y envío final
+        resumen_msg = (
+            f"📊 **Resumen del Diario ({fecha_display})**\n\n"
+            + "\n".join(desglose) + "\n\n"
+            f"----------------------------------------\n"
+            f"📥 **Consumo Total:** {totales['kcal']:.0f} kcal\n"
+            f"🔥 **Ejercicio Total:** -{totales['ejercicio']:.0f} kcal\n"
+            f"⚖️ **Balance Neto:** {balance_neto:.0f} kcal\n\n"
+            f"🥩 **Proteínas:** {totales['proteina']:.1f}g | "
+            f"🍞 **Carbos:** {totales['carbos']:.1f}g | "
+            f"🥑 **Grasas:** {totales['grasa']:.1f}g"
+        )
+
+        if query:
+            await query.edit_message_text(resumen_msg, parse_mode="Markdown")
         else:
-            txt = f"📅 **Registro del día {fecha_str}:**\n\n"
-            
-            c_cons = df_filtrado[df_filtrado['Calorias'] > 0]['Calorias'].sum()
-            c_quem = abs(df_filtrado[df_filtrado['Calorias'] < 0]['Calorias'].sum())
-            b_neto = c_cons - c_quem
-            
-            momentos_orden = ["Desayuno", "Colación", "Almuerzo", "Merienda", "Cena"]
-            agrupados = {}
-            for _, r in df_filtrado.iterrows():
-                m = r.get('Momento', 'Comida')
-                alim = r.get('Alimento', 'Item')
-                if m not in agrupados:
-                    agrupados[m] = []
-                agrupados[m].append(alim)
+            await update.message.reply_text(resumen_msg, parse_mode="Markdown")
 
-            for m in momentos_orden:
-                if m in agrupados:
-                    items_str = ", ".join(agrupados[m])
-                    txt += f"• **{m}**: {items_str}\n"
+    except Exception as e:
+        print(f"Error al consultar el diario ({fecha_str}): {e}")
+        error_msg = "❌ Hubo un inconveniente al consultar los datos del diario."
+        if query:
+            await query.edit_message_text(error_msg)
+        else:
+            await update.message.reply_text(error_msg)
 
-            for m, items_list in agrupados.items():
-                if m not in momentos_orden:
-                    items_str = ", ".join(items_list)
-                    txt += f"• **{m}**: {items_str}\n"
-            
-            txt += f"\n📥 **Consumidas:** `{c_cons:.0f} kcal`"
-            txt += f"\n🔥 **Quemadas:** `{c_quem:.0f} kcal`"
-            txt += f"\n⚖️ **Balance Neto:** `{b_neto:.0f} kcal`"
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📄 Descargar PDF del Diario", callback_data=f"descargar_pdf_diario_{fecha_str}")]
-    ])
 
-    if hasattr(query_or_update, 'edit_message_text'):
-        await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
-    else:
-        await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
+
 
 async def generar_y_enviar_pdf_diario(query, user_id, fecha_str, context):
     df = obtener_datos_usuario(user_id)
