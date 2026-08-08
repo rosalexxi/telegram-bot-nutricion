@@ -1892,34 +1892,46 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         prom_carb = tot_carb / dias_registrados
         prom_fibr = tot_fibr / dias_registrados
 
-        # 4. Lectura Directa del Peso Específico del Mes desde la Columna MES
+        # 4. Lectura Directa del Peso Específico del Mes (Arreglado con .str[:7])
         peso_mes_especifico = 0.0
         peso_ideal = 75.0
 
-        if 'MES' in df_datos.columns:
-            # Normalizar la columna MES para coincidencia exacta con mes_str (ej: "2026-07")
-            df_datos['MES_STR'] = df_datos['MES'].astype(str).str.strip()
-            fila_perfil_mes = df_datos[df_datos['MES_STR'] == str(mes_str).strip()]
+        # Intentar leer desde obtener_perfil_usuario o desde df_datos
+        df_perfil = obtener_perfil_usuario(user_id) if 'obtener_perfil_usuario' in globals() else df_datos
 
-            if not fila_perfil_mes.empty:
-                # Extraer Peso del Mes y corregir formato/escala
-                if 'PESO' in fila_perfil_mes.columns:
-                    val_peso = pd.to_numeric(fila_perfil_mes['PESO'].iloc[-1], errors='coerce')
-                    if pd.notnull(val_peso) and val_peso > 0:
-                        peso_mes_especifico = val_peso / 1000.0 if val_peso > 500 else val_peso
+        if df_perfil is not None and not df_perfil.empty:
+            # Buscar la columna que contenga la fecha/mes
+            col_fecha_mes = next((c for c in ['MES', 'Mes', 'Fecha_Actualiza', 'fecha_actualiza'] if c in df_perfil.columns), None)
 
-                # Extraer Peso Ideal
-                col_ideal = next((c for c in ['Peso_ideal', 'PESO_IDEAL', 'Peso Ideal'] if c in fila_perfil_mes.columns), None)
-                if col_ideal:
-                    val_ideal = pd.to_numeric(fila_perfil_mes[col_ideal].iloc[-1], errors='coerce')
-                    if pd.notnull(val_ideal) and val_ideal > 0:
-                        peso_ideal = val_ideal / 1000.0 if val_ideal > 500 else val_ideal
+            if col_fecha_mes:
+                # Tomar solo los primeros 7 caracteres (YYYY-MM) ignorando horas o días
+                serie_meses = df_perfil[col_fecha_mes].astype(str).str.strip().str[:7]
+                
+                # Filtrar coincidencia exacta con el mes (ej: "2026-07")
+                fila_perfil_mes = df_perfil[serie_meses == str(mes_str).strip()]
 
-        # Si no se encontró un peso en ese mes específico, tomar el último registrado
-        if peso_mes_especifico == 0.0 and 'PESO' in df_datos.columns:
-            val_ult = pd.to_numeric(df_datos['PESO'].dropna().iloc[-1], errors='coerce') if not df_datos['PESO'].dropna().empty else 0.0
-            if pd.notnull(val_ult) and val_ult > 0:
-                peso_mes_especifico = val_ult / 1000.0 if val_ult > 500 else val_ult
+                if not fila_perfil_mes.empty:
+                    # Extraer Peso del Mes y dividir por 1000 si está en gramos/escala amplia
+                    col_peso = next((c for c in ['PESO', 'Peso', 'peso'] if c in fila_perfil_mes.columns), None)
+                    if col_peso:
+                        val_peso = pd.to_numeric(fila_perfil_mes[col_peso].iloc[-1], errors='coerce')
+                        if pd.notnull(val_peso) and val_peso > 0:
+                            peso_mes_especifico = val_peso / 1000.0 if val_peso > 500 else val_peso
+
+                    # Extraer Peso Ideal
+                    col_ideal = next((c for c in ['Peso_ideal', 'PESO_IDEAL', 'Peso Ideal', 'peso_ideal'] if c in fila_perfil_mes.columns), None)
+                    if col_ideal:
+                        val_ideal = pd.to_numeric(fila_perfil_mes[col_ideal].iloc[-1], errors='coerce')
+                        if pd.notnull(val_ideal) and val_ideal > 0:
+                            peso_ideal = val_ideal / 1000.0 if val_ideal > 500 else val_ideal
+
+        # Respaldo: Si por alguna razón no halló coincidencia en el mes exacto, toma el último ingresado
+        if peso_mes_especifico == 0.0 and df_perfil is not None:
+            col_peso_alt = next((c for c in ['PESO', 'Peso', 'peso'] if c in df_perfil.columns), None)
+            if col_peso_alt:
+                val_ult = pd.to_numeric(df_perfil[col_peso_alt].dropna().iloc[-1], errors='coerce') if not df_perfil[col_peso_alt].dropna().empty else 0.0
+                if pd.notnull(val_ult) and val_ult > 0:
+                    peso_mes_especifico = val_ult / 1000.0 if val_ult > 500 else val_ult
 
         # 5. Metas Nutricionales del Usuario
         metas = obtener_metas_usuario(user_id) if 'obtener_metas_usuario' in globals() else {}
@@ -1929,7 +1941,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         ideal_carb = metas.get('carbohidratos', 220.0)
         ideal_fibr = metas.get('fibras', 25.0)
 
-        # 6. Prompt para la IA con Contexto de Peso Específico del Mes
+        # 6. Prompt para la IA
         prompt_para_ia = (
             f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
             f"- Peso registrado en el mes {mes_str}: {peso_mes_especifico:.1f} kg\n"
@@ -1951,7 +1963,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         else:
             recomendacion_ia = "Mantené un consumo equilibrado de alimentos y agua."
 
-        # 7. Formato Final del Mensaje para Telegram (Sin impresiones innecesarias de peso)
+        # 7. Formato Final del Mensaje para Telegram
         txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
             f"• **Promedio Consumidas:** `{prom_cons:.0f} kcal` / día\n"
@@ -1983,7 +1995,8 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
         else:
-            await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
+            await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")    
+    
     
 # ==========================================
 # INICIALIZACIÓN PRINCIPAL Y BOT DE TELEGRAM
