@@ -143,16 +143,10 @@ AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT
 # ==========================================
 # FUNCIONES AUXILIARES Y FORMATO
 # ==========================================
-def parse_raw_val(val):
-    if val is None or val == "":
-        return 0.0
-    if isinstance(val, (int, float)):
-        return float(val)
-    val_str = str(val).strip().replace(',', '.')
-    try:
-        return float(val_str)
-    except ValueError:
-        return 0.0
+
+
+
+
 
 def to_sheet_int(val):
     num = parse_raw_val(val)
@@ -186,39 +180,60 @@ def obtener_momento_y_fecha_auto():
         
     return fecha_obj.strftime("%Y-%m-%d"), momento
     
-def calcular_proteina_sugerida(user_id=123456789):
-    try:
-        ahora_mes = obtener_ahora_arg().strftime("%Y-%m")
-        perfil = obtener_perfil_usuario(user_id=user_id, mes_target=ahora_mes)
-        if not perfil:
-            peso, altura = 75.0, 170.0
-            peso_ideal = 75.0
-        else:
-            peso = parse_raw_val(perfil.get('Peso', 75.0))
-            altura = parse_raw_val(perfil.get('Altura', 170.0))
-            peso_ideal = parse_raw_val(perfil.get('Peso_ideal', perfil.get('PesoIdeal', peso)))
-    except Exception:
-        peso, altura = 75.0, 170.0
-        peso_ideal = 75.0
+def calcular_proteina_sugerida(user_id=123456789, mes_target=None):
+    """
+    Calcula la proteína sugerida sobre el peso efectivo (promedio).
+    """
+    datos = obtener_datos_peso_perfil(user_id=user_id, mes_target=mes_target)
+    return datos["peso_efectivo"] * 1.3
 
-    if peso_ideal <= 0:
-        peso_ideal = peso
+def obtener_datos_peso_perfil(user_id=123456789, mes_target=None):
+    """
+    Obtiene los datos del perfil y calcula el peso efectivo (promedio entre el actual y el ideal).
+    """
+    if mes_target is None:
+        mes_target = obtener_ahora_arg().strftime("%Y-%m")
 
-    peso_efectivo = (peso + peso_ideal) / 2.0
-    return peso_efectivo * 1.3
+    perfil = obtener_perfil_usuario(user_id=user_id, mes_target=mes_target) or {}
 
+    peso_actual = parse_raw_val(perfil.get('Peso'), default=75.0)
+    peso_ideal = parse_raw_val(perfil.get('Peso_ideal') or perfil.get('PesoIdeal'), default=peso_actual)
+    altura = parse_raw_val(perfil.get('Altura'), default=172.0)
+    edad = parse_raw_val(perfil.get('EDAD') or perfil.get('Edad'), default=64.0)
+    genero = str(perfil.get('GENERO') or perfil.get('Genero') or 'M').strip()
+    actividad = str(perfil.get('OCUPACION') or perfil.get('Ocupacion') or 'Jubilado').strip()
 
-def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", actividad="sedentario", contextura="grande", peso_ideal=None):
-    if peso_ideal is None or float(peso_ideal) <= 0:
-        peso_ideal = peso_actual
+    # Promedio entre Peso Actual y Peso Ideal
+    peso_efectivo = (peso_actual + peso_ideal) / 2.0
 
-    peso_efectivo = (peso_actual + float(peso_ideal)) / 2.0
-    
+    return {
+        "peso_actual": peso_actual,
+        "peso_ideal": peso_ideal,
+        "peso_efectivo": peso_efectivo,
+        "altura": altura,
+        "edad": edad,
+        "genero": genero,
+        "actividad": actividad
+    }
+
+def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", actividad="sedentario", peso_ideal=None):
+    """
+    Calcula TMB y GET utilizando el promedio entre peso actual y peso ideal.
+    """
+    p_act = parse_raw_val(peso_actual, default=75.0)
+    p_id = parse_raw_val(peso_ideal, default=p_act)
+    alt = parse_raw_val(altura_cm, default=172.0)
+    ed = parse_raw_val(edad, default=64.0)
+
+    # Promedio
+    peso_efectivo = (p_act + p_id) / 2.0
+
+    # Cálculo de TMB (Harris-Benedict)
     if str(genero).lower() in ["femenino", "f", "mujer"]:
-        tmb = 655 + (9.6 * peso_efectivo) + (1.8 * altura_cm) - (4.7 * edad)
+        tmb = 655 + (9.6 * peso_efectivo) + (1.8 * alt) - (4.7 * ed)
     else:
-        tmb = 66 + (13.7 * peso_efectivo) + (5 * altura_cm) - (6.8 * edad)
-    
+        tmb = 66 + (13.7 * peso_efectivo) + (5 * alt) - (6.8 * ed)
+
     factores = {
         "sedentario": 1.2,
         "jubilado": 1.2,
@@ -228,8 +243,9 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", activid
     }
     factor = factores.get(str(actividad).lower(), 1.2)
     get_val = tmb * factor
-    
+
     return tmb, get_val
+
 
 # ==========================================
 # GOOGLE SHEETS OPERACIONES
