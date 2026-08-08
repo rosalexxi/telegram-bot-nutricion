@@ -1870,9 +1870,11 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
 
         # 1. Totales Acumulados Nutricionales
         tot_cons = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum() if 'Calorias' in df_mes.columns else 0.0
+        tot_con = tot_cons/dias_registrados
         tot_quem = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
+        tot_quem = tot_quem / dias_registrados
         bal_neto = tot_cons - tot_quem
-
+        
         tot_prot = df_mes['Proteinas'].sum() if 'Proteinas' in df_mes.columns else 0.0
         tot_gras = df_mes['Grasas'].sum() if 'Grasas' in df_mes.columns else 0.0
         tot_carb = df_mes['Carbohidratos'].sum() if 'Carbohidratos' in df_mes.columns else 0.0
@@ -1933,8 +1935,8 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
             f"• Días con registro: `{dias_registrados}`\n"
-            f"• **Total Consumidas:** `{tot_cons:.0f} kcal`\n"
-            f"• **Total Quemadas:** `{tot_quem:.0f} kcal`\n"
+            f"• **Promedio Consumidas:** `{tot_cons:.0f} kcal`\n"
+            f"• **Promedio Quemadas:** `{tot_quem:.0f} kcal`\n"
             f"• **Balance Neto:** `{bal_neto:.0f} kcal`\n\n"
             f"📈 **Promedio Diario vs. Objetivos:**\n"
             f"• **Calorías:** `{prom_cal:.0f} kcal` / Meta: `{ideal_cal:.0f} kcal`\n"
