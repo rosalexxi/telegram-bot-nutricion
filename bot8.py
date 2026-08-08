@@ -1819,118 +1819,37 @@ async def generar_y_enviar_pdf_diario(query, user_id, fecha_str, context):
         filename=f"Diario_{fecha_str}.pdf"
     )
 
+import inspect
+import pandas as pd
 
-async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
-    df_datos = obtener_datos_usuario(user_id)
-    if df_datos.empty:
-        txt = f"📊 No hay registros ingresados para el usuario `{user_id}`."
-        if hasattr(query_or_update, 'edit_message_text'):
-            await query_or_update.edit_message_text(txt, parse_mode="Markdown")
-        else:
-            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
-        return
+ 
+# ==========================================
+# SERVIDOR FLASK (Web Service)
+# ==========================================
 
-    df_mes = df_datos[df_datos['Fecha'].str.startswith(mes_str)] if 'Fecha' in df_datos.columns else pd.DataFrame()
-    if df_mes.empty:
-        txt = f"📊 No hay registros para el mes `{mes_str}`."
-        if hasattr(query_or_update, 'edit_message_text'):
-            await query_or_update.edit_message_text(txt, parse_mode="Markdown")
-        else:
-            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
-        return
+@app.route('/')
+def index():
+    """
+    Ruta principal para verificar que el servicio web sigue en línea
+    y evitar que plataformas de hosting lo pongan a dormir.
+    """
+    return "Bot Nutricional activo y ejecutándose correctamente.", 200
 
-    dias_registrados = df_mes['Fecha'].nunique()
-    if dias_registrados == 0:
-        dias_registrados = 1
+def run_flask():
+    """
+    Función para arrancar el servidor web en el puerto asignado.
+    """
+    port = int(os.environ.get('PORT', 5000))
+    # use_reloader=False es fundamental para evitar conflictos cuando corre en un hilo secundario
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
-    # 1. Totales Acumulados
-    tot_cons = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()
-    tot_quem = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())
-    bal_neto = tot_cons - tot_quem
 
-    tot_prot = df_mes['Proteinas'].sum() if 'Proteinas' in df_mes.columns else 0.0
-    tot_gras = df_mes['Grasas'].sum() if 'Grasas' in df_mes.columns else 0.0
-    tot_carb = df_mes['Carbohidratos'].sum() if 'Carbohidratos' in df_mes.columns else 0.0
-    tot_fibr = df_mes['Fibras'].sum() if 'Fibras' in df_mes.columns else 0.0
 
-    # 2. Promedios Diarios Reales
-    prom_cal = tot_cons / dias_registrados
-    prom_prot = tot_prot / dias_registrados
-    prom_gras = tot_gras / dias_registrados
-    prom_carb = tot_carb / dias_registrados
-    prom_fibr = tot_fibr / dias_registrados
-
-    # 3. Cálculo de Pesos (Promedio Mes, Ideal del Excel y Meta Intermedia Progresiva)
-    peso_prom_mes = df_mes['Peso'].dropna().mean() if 'Peso' in df_mes.columns and not df_mes['Peso'].dropna().empty else 0.0
-    peso_ideal = df_datos['Peso Ideal'].dropna().iloc[-1] if 'Peso Ideal' in df_datos.columns and not df_datos['Peso Ideal'].dropna().empty else 0.0
-
-    # Si existen ambos valores, calculamos la meta de convergencia intermedia
-    peso_meta_intermedia = (peso_prom_mes + peso_ideal) / 2 if (peso_prom_mes > 0 and peso_ideal > 0) else peso_ideal
-
-    # 4. Metas Nutricionales Diarias
-    metas = obtener_metas_usuario(user_id) if 'obtener_metas_usuario' in globals() else {}
-    ideal_cal = metas.get('calorias', 2000)
-    ideal_prot = metas.get('proteinas', 120.0)
-    ideal_gras = metas.get('grasas', 65.0)
-    ideal_carb = metas.get('carbohidratos', 220.0)
-    ideal_fibr = metas.get('fibras', 25.0)
-
-    # 5. Envío a la IA con foco en la convergencia progresiva hacia la meta
-    if 'obtener_recomendacion_ia' in globals():
-        recomendacion_ia = obtener_recomendacion_ia(
-            df_mes=df_mes,
-            prom_cal=prom_cal,
-            prom_prot=prom_prot,
-            prom_gras=prom_gras,
-            prom_carb=prom_carb,
-            prom_fibr=prom_fibr,
-            peso_actual=peso_prom_mes,            # Punto de partida actual
-            peso_objetivo=peso_meta_intermedia,   # Meta de ajuste progresivo
-            peso_ideal_final=peso_ideal          # Meta final del Excel
-        )
-    else:
-        recomendacion_ia = "Mantendremos un ajuste gradual de calorías para converger paso a paso hacia tu peso ideal."
-
-    # 6. Formato del Mensaje
-    str_peso = ""
-    if peso_prom_mes > 0:
-        str_peso = (
-            f"• **Peso Promedio Mes:** `{peso_prom_mes:.1f} kg`\n"
-            f"• **Meta Progresiva (Intermedia):** `{peso_meta_intermedia:.1f} kg` *(Ideal Final: {peso_ideal:.1f} kg)*\n"
-        )
-
-    txt = (
-        f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
-        f"• Días con registro: `{dias_registrados}`\n"
-        f"• **Total Consumidas:** `{tot_cons:.0f} kcal`\n"
-        f"• **Total Quemadas:** `{tot_quem:.0f} kcal`\n"
-        f"• **Balance Neto:** `{bal_neto:.0f} kcal`\n\n"
-        f"📈 **Promedio Diario vs. Objetivos:**\n"
-        f"{str_peso}"
-        f"• **Calorías:** `{prom_cal:.0f} kcal` / Meta: `{ideal_cal:.0f} kcal`\n"
-        f"• **Proteínas:** `{prom_prot:.1f} g` / Meta: `{ideal_prot:.1f} g`\n"
-        f"• **Grasas:** `{prom_gras:.1f} g` / Meta: `{ideal_gras:.1f} g`\n"
-        f"• **Carbohidratos:** `{prom_carb:.1f} g` / Meta: `{ideal_carb:.1f} g`\n"
-        f"• **Fibras:** `{prom_fibr:.1f} g` / Meta: `{ideal_fibr:.1f} g`\n\n"
-        f"🤖 **Recomendación de la IA (Estrategia Progresiva):**\n"
-        f"{recomendacion_ia}\n\n"
-        f"📄 Podés descargar el reporte completo en PDF a continuación:"
-    )
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"descargar_pdf_resumen_{mes_str}")]
-    ])
-
-    if hasattr(query_or_update, 'edit_message_text'):
-        await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
-    else:
-        await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown") 
 
 async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     try:
         df_datos = obtener_datos_usuario(user_id)
         
-        # Validación de DataFrame vacío
         if df_datos is None or df_datos.empty:
             txt = f"📊 No hay registros ingresados para el usuario `{user_id}`."
             if hasattr(query_or_update, 'edit_message_text'):
@@ -1963,24 +1882,44 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         tot_carb = df_mes['Carbohidratos'].sum() if 'Carbohidratos' in df_mes.columns else 0.0
         tot_fibr = df_mes['Fibras'].sum() if 'Fibras' in df_mes.columns else 0.0
 
-        # 2. Promedios Diarios
+        # 2. Promedios Diarios Nutricionales
         prom_cal = tot_cons / dias_registrados
         prom_prot = tot_prot / dias_registrados
         prom_gras = tot_gras / dias_registrados
         prom_carb = tot_carb / dias_registrados
         prom_fibr = tot_fibr / dias_registrados
 
-        # 3. Búsqueda flexible de columnas de Peso
+        # 3. Lectura de Datos Biométricos desde el Excel
+        # Cálculo del Peso Promedio Real del mes (uso interno)
         col_peso = next((c for c in ['Peso', 'Peso Actual', 'peso'] if c in df_mes.columns), None)
-        peso_prom_mes = df_mes[col_peso].dropna().mean() if col_peso and not df_mes[col_peso].dropna().empty else 0.0
+        if col_peso:
+            pesos_validos = pd.to_numeric(df_mes[col_peso], errors='coerce').dropna()
+            pesos_validos = pesos_validos[pesos_validos > 0]
+            peso_prom_mes = pesos_validos.mean() if not pesos_validos.empty else 0.0
+        else:
+            peso_prom_mes = 0.0
 
-        col_ideal = next((c for c in ['Peso Ideal', 'Peso ideal', 'peso_ideal'] if c in df_datos.columns), None)
-        peso_ideal = df_datos[col_ideal].dropna().iloc[-1] if col_ideal and not df_datos[col_ideal].dropna().empty else 0.0
+        # Función auxiliar para extraer datos biométricos del perfil
+        def obtener_val_bio(columnas, valor_defecto):
+            for col in columnas:
+                if col in df_datos.columns:
+                    vals = df_datos[col].dropna()
+                    if not vals.empty:
+                        return vals.iloc[-1]
+            return valor_defecto
 
-        # Meta Intermedia Dinámica (Zanahoria móvil)
-        peso_meta_intermedia = (peso_prom_mes + peso_ideal) / 2 if (peso_prom_mes > 0 and peso_ideal > 0) else peso_ideal
+        peso_ideal = float(obtener_val_bio(['Peso Ideal', 'Peso ideal', 'peso_ideal'], 0.0))
+        edad = int(obtener_val_bio(['Edad', 'edad'], 64))
+        sexo = str(obtener_val_bio(['Sexo', 'sexo', 'Genero'], 'Masculino'))
+        altura = float(obtener_val_bio(['Altura', 'Estatura', 'altura'], 170.0))
 
-        # 4. Metas Nutricionales
+        # Meta Intermedia Dinámica (Zanahoria que se acerca)
+        if peso_prom_mes > 0 and peso_ideal > 0:
+            peso_meta_intermedia = (peso_prom_mes + peso_ideal) / 2
+        else:
+            peso_meta_intermedia = peso_ideal if peso_ideal > 0 else peso_prom_mes
+
+        # 4. Metas Nutricionales Diarias
         metas = obtener_metas_usuario(user_id) if 'obtener_metas_usuario' in globals() else {}
         ideal_cal = metas.get('calorias', 2000)
         ideal_prot = metas.get('proteinas', 120.0)
@@ -1988,36 +1927,32 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         ideal_carb = metas.get('carbohidratos', 220.0)
         ideal_fibr = metas.get('fibras', 25.0)
 
-        # 5. Consulta a la IA con inspección segura de parámetros
-        recomendacion_ia = "Mantené un consumo equilibrado de alimentos y agua."
+        # 5. Construcción del texto del prompt para la IA
+        prompt_para_ia = (
+            f"DATOS BIOMÉTRICOS Y METAS DEL PACIENTE:\n"
+            f"- Edad: {edad} años, Sexo: {sexo}, Altura: {altura} cm\n"
+            f"- Peso Promedio Registrado este Mes: {peso_prom_mes:.1f} kg\n"
+            f"- Meta Progresiva (Siguiente Hito Intermedio): {peso_meta_intermedia:.1f} kg\n"
+            f"- Peso Ideal Objetivo Final: {peso_ideal:.1f} kg\n\n"
+            f"CONSUMO PROMEDIO DIARIO DEL MES ({dias_registrados} días con registro):\n"
+            f"- Calorías: {prom_cal:.0f} kcal (Meta: {ideal_cal:.0f} kcal)\n"
+            f"- Proteínas: {prom_prot:.1f} g (Meta: {ideal_prot:.1f} g)\n"
+            f"- Grasas: {prom_gras:.1f} g (Meta: {ideal_gras:.1f} g)\n"
+            f"- Carbohidratos: {prom_carb:.1f} g (Meta: {ideal_carb:.1f} g)\n"
+            f"- Fibras: {prom_fibr:.1f} g (Meta: {ideal_fibr:.1f} g)\n\n"
+            f"Instrucción: Evalúa los nutrientes consumidos contra las metas y da un consejo enfocado en lograr gradualmente la Meta Progresiva de {peso_meta_intermedia:.1f} kg."
+        )
+
+        # Consulta limpia pasándole el string resultante
         if 'obtener_recomendacion_ia' in globals():
-            try:
-                sig = inspect.signature(obtener_recomendacion_ia)
-                params = sig.parameters
-                kwargs = {
-                    'df_mes': df_mes,
-                    'prom_cal': prom_cal,
-                    'prom_prot': prom_prot,
-                    'prom_gras': prom_gras,
-                    'prom_carb': prom_carb,
-                    'prom_fibr': prom_fibr
-                }
-                if 'peso_actual' in params: kwargs['peso_actual'] = peso_prom_mes
-                if 'peso_objetivo' in params: kwargs['peso_objetivo'] = peso_meta_intermedia
-                if 'peso_ideal_final' in params: kwargs['peso_ideal_final'] = peso_ideal
-                if 'peso_ideal' in params: kwargs['peso_ideal'] = peso_ideal
+            recomendacion_ia = obtener_recomendacion_ia(prompt_para_ia)
+        else:
+            recomendacion_ia = "Mantené un consumo equilibrado de alimentos y agua."
 
-                recomendacion_ia = obtener_recomendacion_ia(**kwargs)
-            except Exception as e_ia:
-                recomendacion_ia = f"Consulta nutricional en progreso. (Ajuste gradual hacia {peso_meta_intermedia:.1f} kg)."
-
-        # 6. Armado del texto
-        str_peso = ""
-        if peso_prom_mes > 0:
-            str_peso = (
-                f"• **Peso Promedio Mes:** `{peso_prom_mes:.1f} kg`\n"
-                f"• **Meta Progresiva (Intermedia):** `{peso_meta_intermedia:.1f} kg` *(Ideal Final: {peso_ideal:.1f} kg)*\n"
-            )
+        # 6. Formato del Mensaje en Pantalla (Sin Peso Promedio)
+        str_meta_progresiva = ""
+        if peso_meta_intermedia > 0:
+            str_meta_progresiva = f"• **Meta Progresiva (Intermedia):** `{peso_meta_intermedia:.1f} kg` *(Ideal Final: {peso_ideal:.1f} kg)*\n"
 
         txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
@@ -2026,7 +1961,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             f"• **Total Quemadas:** `{tot_quem:.0f} kcal`\n"
             f"• **Balance Neto:** `{bal_neto:.0f} kcal`\n\n"
             f"📈 **Promedio Diario vs. Objetivos:**\n"
-            f"{str_peso}"
+            f"{str_meta_progresiva}"
             f"• **Calorías:** `{prom_cal:.0f} kcal` / Meta: `{ideal_cal:.0f} kcal`\n"
             f"• **Proteínas:** `{prom_prot:.1f} g` / Meta: `{ideal_prot:.1f} g`\n"
             f"• **Grasas:** `{prom_gras:.1f} g` / Meta: `{ideal_gras:.1f} g`\n"
@@ -2052,25 +1987,6 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
         else:
             await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
-# ==========================================
-# SERVIDOR FLASK (Web Service)
-# ==========================================
-
-@app.route('/')
-def index():
-    """
-    Ruta principal para verificar que el servicio web sigue en línea
-    y evitar que plataformas de hosting lo pongan a dormir.
-    """
-    return "Bot Nutricional activo y ejecutándose correctamente.", 200
-
-def run_flask():
-    """
-    Función para arrancar el servidor web en el puerto asignado.
-    """
-    port = int(os.environ.get('PORT', 5000))
-    # use_reloader=False es fundamental para evitar conflictos cuando corre en un hilo secundario
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 
 # ==========================================
