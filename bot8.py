@@ -1891,7 +1891,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         prom_fibr = tot_fibr / dias_registrados
 
         # 2. LECTURA DINÁMICA DE LA PESTAÑA Perfil_{user_id}
-        edad, altura, peso_mes_especifico, peso_ideal_base, genero = 64, 172.0, 0.0, 75.0, "M"
+        edad, altura, peso_mes_especifico, peso_ideal_base, genero = 64, 172.0, 0.0, 120.0, "M"
         
         try:
             nombre_hoja_perfil = f"Perfil_{user_id}"
