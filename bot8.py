@@ -1134,12 +1134,6 @@ async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• Calorías: `{calorias_neg:.0f} kcal`",
         parse_mode="Markdown"
     )
-    
-import os
-import re
-from datetime import datetime, date, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, ConversationLogic
 
 # ==========================================
 # 1. GESTIÓN DE ACTIVIDAD FÍSICA CON IA
