@@ -1121,45 +1121,178 @@ async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
     
-async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    texto = update.message.text.replace('/actividadia', '').replace('/actividad_ia', '').strip()
-    
-    if not texto:
-        await update.message.reply_text(
-            "⚠️ Por favor ingresá el detalle de la actividad.\nEjemplo: `/actividadia caminata, 50 min`",
-            parse_mode="Markdown"
-        )
+
+async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Función totalmente encapsulada para registrar actividad física con IA.
+    Calcula calorías, muestra confirmación con botones (Guardar, Editar, Anular)
+    y gestiona las respuestas de forma aislada.
+    """
+    # 1. Obtener texto del comando
+    if update.message:
+        raw_text = update.message.text.replace('/actividadia', '').replace('/actividad_ia', '').strip()
+        msg = await update.message.reply_text("⏳ Calculando gasto calórico con IA...")
+    else:
         return
 
-    msg = await update.message.reply_text("⏳ Calculando gasto calórico con IA...")
+    if not raw_text:
+        await msg.edit_text("⚠️ Por favor ingresá la actividad y duración.\nEjemplo: `/actividadia aquagym 50 min`", parse_mode="Markdown")
+        return
 
-    prompt_ejercicio = f"El usuario realizó la actividad física: '{texto}'. Estima el gasto calórico negativo."
-
+    # 2. Consultar a GROQ (Llama 3.3)
     try:
-        respuesta_ia = analizar_con_groq(prompt_ejercicio)
-        items = respuesta_ia.get("items", [])
-        
-        if items:
-            for it in items:
-                it['calorias'] = -abs(parse_raw_val(it.get('calorias', 0)))
-        else:
-            items = [{"alimento": texto, "peso": 0.0, "calorias": -150.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}]
+        if not client_ai:
+            await msg.edit_text("❌ Error: API Key de GROQ no configurada.")
+            return
 
-        fecha_actual = obtener_ahora_arg().strftime("%Y-%m-%d")
-        guardar_en_sheets(user_id, items, fecha_actual, "Actividad Física", tipo="Actividad")
+        system_prompt = """Sos un asistente deportivo experto.
+Analizá el texto de la actividad física y calculá el gasto calórico como un número NEGATIVO.
+Devolvé EXCLUSIVAMENTE un JSON válido con este formato:
+{
+  "actividad": "Nombre de la actividad",
+  "calorias": -250.0
+}"""
 
-        act_nombre = items[0].get('alimento', texto)
-        cal_neg = items[0].get('calorias', 0)
-
-        await msg.edit_text(
-            f"✅ **Actividad física registrada con IA:**\n"
-            f"• Actividad: `{act_nombre}`\n"
-            f"• Calorías: `{cal_neg:.0f} kcal`",
-            parse_mode="Markdown"
+        response = client_ai.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": raw_text}
+            ],
+            temperature=0.1,
+            response_format={"type": "json_object"}
         )
+        
+        datos = json.loads(response.choices[0].message.content)
+        actividad_nombre = datos.get("actividad", raw_text)
+        calorias_val = float(datos.get("calorias", 0.0))
+        # Asegurar que las calorías sean negativas
+        if calorias_val > 0:
+            calorias_val = -calorias_val
+
     except Exception as e:
-        await msg.edit_text(f"❌ Error al consultar la IA: {e}")
+        await msg.edit_text(f"❌ Error al procesar con IA: {e}")
+        return
+
+    # Contenedor de datos local para este ciclo
+    estado_local = {
+        "actividad": actividad_nombre,
+        "calorias": calorias_val
+    }
+
+    # 3. Función auxiliar para renderizar el mensaje y la botonera
+    def generar_vista():
+        texto = (
+            f"🏃 **Actividad Física Detectada**\n\n"
+            f"• **Detalle:** {estado_local['actividad']}\n"
+            f"• **Calorías:** `{estado_local['calorias']:.1f} kcal`\n\n"
+            f"¿Qué deseás hacer?"
+        )
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("💾 GUARDAR", callback_data="act_guardar"),
+                InlineKeyboardButton("✏️ EDITAR", callback_data="act_editar"),
+            ],
+            [
+                InlineKeyboardButton("❌ ANULAR", callback_data="act_anular")
+            ]
+        ])
+        return texto, keyboard
+
+    # Mostrar la interfaz inicial
+    txt, kb = generar_vista()
+    mensaje_interactivo = await msg.edit_text(txt, reply_markup=kb, parse_mode="Markdown")
+
+    # 4. Handlers locales dinámicos para captura de eventos
+    async def manejar_botones(upd: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        query = upd.callback_query
+        if query.message.message_id != mensaje_interactivo.message_id:
+            return  # Ignorar interacciones de otros mensajes
+
+        await query.answer()
+        accion = query.data
+
+        if accion == "act_guardar":
+            # Guardado en Google Sheets o sistema principal
+            fecha_auto, _ = obtener_momento_y_fecha_auto()
+            item = {
+                "alimento": f"Actividad: {estado_local['actividad']}",
+                "peso": 0.0,
+                "calorias": estado_local['calorias'],
+                "proteinas": 0.0,
+                "grasas": 0.0,
+                "carbohidratos": 0.0,
+                "fibras": 0.0
+            }
+            try:
+                guardar_en_sheets([item], "Actividad", fecha_auto, "Actividad Física")
+                await query.edit_message_text(
+                    f"✅ **¡Actividad Guardada con éxito!**\n\n"
+                    f"🏃 {estado_local['actividad']}: `{estado_local['calorias']:.1f} kcal`",
+                    parse_mode="Markdown"
+                )
+            except Exception as err:
+                await query.edit_message_text(f"❌ Error al guardar en Sheets: {err}")
+            
+            _remover_handlers(ctx)
+
+        elif accion == "act_anular":
+            await query.edit_message_text("🚫 Registro de actividad cancelado.")
+            _remover_handlers(ctx)
+
+        elif accion == "act_editar":
+            await query.edit_message_text(
+                f"✏️ **Edición de Actividad**\n\n"
+                f"Ingresá el nuevo nombre y calorías separados por coma.\n"
+                f"Ejemplo: `Caminata, -180`",
+                parse_mode="Markdown"
+            )
+            ctx.user_data['esperando_edicion_actividad'] = True
+
+    async def manejar_texto_edicion(upd: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        if not ctx.user_data.get('esperando_edicion_actividad'):
+            return
+
+        nuevo_texto = upd.message.text.strip()
+        try:
+            if "," in nuevo_texto:
+                partes = nuevo_texto.split(",")
+                estado_local['actividad'] = partes[0].strip()
+                cal = float(partes[1].strip())
+                estado_local['calorias'] = -abs(cal)
+            else:
+                cal = float(nuevo_texto)
+                estado_local['calorias'] = -abs(cal)
+
+            ctx.user_data['esperando_edicion_actividad'] = False
+            
+            # Re-renderizar pantalla con los nuevos valores
+            txt_nuevo, kb_nuevo = generar_vista()
+            await upd.message.reply_text(txt_nuevo, reply_markup=kb_nuevo, parse_mode="Markdown")
+            _remover_handlers(ctx, solo_mensaje=True)
+
+        except ValueError:
+            await upd.message.reply_text("⚠️ Formato incorrecto. Ingresá algo como: `Bicicleta, -300` o solo `-300`.")
+
+    def _remover_handlers(ctx: ContextTypes.DEFAULT_TYPE, solo_mensaje=False):
+        """Limpia los handlers temporales creados para esta sesión."""
+        if 'esperando_edicion_actividad' in ctx.user_data:
+            del ctx.user_data['esperando_edicion_actividad']
+        
+        # Eliminar handlers dinámicos del dispatcher
+        for h in list(ctx.application.handlers[0]):
+            if getattr(h, '_actividad_encapsulada', False):
+                ctx.application.remove_handler(h)
+
+    # 5. Registro dinámico de handlers encapsulados
+    cb_handler = CallbackQueryHandler(manejar_botones, pattern="^act_")
+    msg_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_texto_edicion)
+    
+    cb_handler._actividad_encapsulada = True
+    msg_handler._actividad_encapsulada = True
+
+    context.application.add_handler(cb_handler, group=0)
+    context.application.add_handler(msg_handler, group=0)
 
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
