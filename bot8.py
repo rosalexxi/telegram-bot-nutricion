@@ -1840,8 +1840,6 @@ def run_flask():
     # use_reloader=False es fundamental para evitar conflictos cuando corre en un hilo secundario
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
-import pandas as pd
-
 async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     try:
         df_datos = obtener_datos_usuario(user_id)
@@ -1876,7 +1874,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         prom_cons = tot_cons_mes / dias_registrados
         prom_quem = tot_quem_mes / dias_registrados
         prom_bal_neto = prom_cons - prom_quem
-        bal_neto = tot_cons - tot_quem
+        
         
         tot_prot = df_mes['Proteinas'].sum() if 'Proteinas' in df_mes.columns else 0.0
         tot_gras = df_mes['Grasas'].sum() if 'Grasas' in df_mes.columns else 0.0
