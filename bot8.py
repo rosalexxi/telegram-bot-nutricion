@@ -196,23 +196,23 @@ def calcular_proteina_sugerida(user_id=123456789):
         else:
             peso = parse_raw_val(perfil.get('Peso', 75.0))
             # Se toma la constante fijada en la hoja de Excel
-            peso_ideal = parse_raw_val(perfil.get('Peso_Ideal', perfil.get('PesoIdeal', peso)))
+            peso_ideal = parse_raw_val(perfil.get('Peso_Ideal', perfil.get('Peso_ideal', peso)))
             if peso_ideal <= 0:
-                peso_ideal = peso
+                peso_ideal = peso * 0.85
     except Exception:
         peso = 75.0
         peso_ideal = 75.0
 
     # Fórmula Única Aprobada:
     peso_efectivo = (peso + peso_ideal) / 2.0
-    return peso_efectivo * 1.3
+    return peso_efectivo
     
 def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", actividad="sedentario", contextura="grande", peso_ideal=None):
     peso_actual = parse_raw_val(peso_actual)
     peso_ideal_val = parse_raw_val(peso_ideal)
 
     if peso_ideal_val <= 0:
-        peso_ideal_val = peso_actual
+        peso_ideal_val = peso_actual *0.85
 
     # Fórmula Única Aprobada: Promedio entre Peso Actual y Peso Ideal del Excel
     peso_efectivo = (peso_actual + peso_ideal_val) / 2.0
@@ -878,9 +878,9 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     actividad = str(perfil.get('Ocupacion', 'sedentario')) if perfil else 'sedentario'
     
     # Recuperación directa desde Excel / Perfil (Si no existe, utiliza el peso actual por fallback)
-    peso_ideal = parse_raw_val(perfil.get('Peso_Ideal', perfil.get('PesoIdeal', peso_actual))) if perfil else peso_actual
+    peso_ideal = parse_raw_val(perfil.get('Peso_ideal', perfil.get('PesoIdeal', peso_actual))) if perfil else peso_actual
     if peso_ideal <= 0:
-        peso_ideal = peso_actual
+        peso_ideal = peso_actual * 0.85
 
     # --- CÁLCULO DE VALORES IDEALES (Basado 100% en Peso Ideal) ---
     tmb_ideal, get_ideal = calcular_tmb_y_get(peso_ideal, altura, edad, genero, actividad)
@@ -891,7 +891,7 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     cambio_peso_kg = bal_calorico / 7700.0
 
     # Macronutrientes sugeridos según Peso Ideal
-    prot_rec = peso_ideal * 1.6 if peso_ideal > 0 else 90.0  # 1.6g por kg de Peso Ideal
+    prot_rec = peso_ideal * 1.5 if peso_ideal > 0 else 90.0  # 1.6g por kg de Peso Ideal
     gras_rec = (get_ideal * 0.25) / 9.0                      # 25% de calorías en grasa
     carb_rec = (get_ideal * 0.50) / 4.0                      # 50% de calorías en carbohidratos
     fibr_rec = 30.0
@@ -1906,12 +1906,12 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         perfil.get('Peso_ideal') or perfil.get('Peso Ideal') or perfil.get('peso_ideal') or 0
     )
     
-    # Si por alguna razón no viniera el peso fijado en el Excel, usamos 75 por defecto
+    # Si por alguna razón no viniera el peso fijado en el Excel, usamos 15 porciento menos por defecto
     if peso_ideal_fijo <= 0:
-        peso_ideal_fijo = 75.0
+        peso_ideal_fijo = peso_actual * 0.85
 
     # 2. CALCULAR EL PESO OBJETIVO DINÁMICO (PROMEDIO)
-    # A medida que bajes de peso, este valor se irá acercando gradualmente a 75 kg
+    # A medida que bajes de peso, este valor se irá acercando gradualmente
     if peso_actual > 0:
         peso_promedio_objetivo = (peso_actual + peso_ideal_fijo) / 2.0
     else:
