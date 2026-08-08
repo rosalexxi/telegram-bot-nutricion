@@ -1837,31 +1837,82 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.message.reply_text(txt, parse_mode="Markdown")
         return
 
-    # Cálculos de Calorías
+    dias_registrados = df_mes['Fecha'].nunique()
+    if dias_registrados == 0:
+        dias_registrados = 1
+
+    # 1. Totales Acumulados
     tot_cons = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()
     tot_quem = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())
     bal_neto = tot_cons - tot_quem
-    dias_registrados = df_mes['Fecha'].nunique()
 
-    # Cálculos de Macronutrientes
     tot_prot = df_mes['Proteinas'].sum() if 'Proteinas' in df_mes.columns else 0.0
     tot_gras = df_mes['Grasas'].sum() if 'Grasas' in df_mes.columns else 0.0
     tot_carb = df_mes['Carbohidratos'].sum() if 'Carbohidratos' in df_mes.columns else 0.0
     tot_fibr = df_mes['Fibras'].sum() if 'Fibras' in df_mes.columns else 0.0
 
-    # Construcción del mensaje con formato detallado
+    # 2. Promedios Diarios Reales
+    prom_cal = tot_cons / dias_registrados
+    prom_prot = tot_prot / dias_registrados
+    prom_gras = tot_gras / dias_registrados
+    prom_carb = tot_carb / dias_registrados
+    prom_fibr = tot_fibr / dias_registrados
+
+    # 3. Cálculo de Pesos (Promedio Mes, Ideal del Excel y Meta Intermedia Progresiva)
+    peso_prom_mes = df_mes['Peso'].dropna().mean() if 'Peso' in df_mes.columns and not df_mes['Peso'].dropna().empty else 0.0
+    peso_ideal = df_datos['Peso Ideal'].dropna().iloc[-1] if 'Peso Ideal' in df_datos.columns and not df_datos['Peso Ideal'].dropna().empty else 0.0
+
+    # Si existen ambos valores, calculamos la meta de convergencia intermedia
+    peso_meta_intermedia = (peso_prom_mes + peso_ideal) / 2 if (peso_prom_mes > 0 and peso_ideal > 0) else peso_ideal
+
+    # 4. Metas Nutricionales Diarias
+    metas = obtener_metas_usuario(user_id) if 'obtener_metas_usuario' in globals() else {}
+    ideal_cal = metas.get('calorias', 2000)
+    ideal_prot = metas.get('proteinas', 120.0)
+    ideal_gras = metas.get('grasas', 65.0)
+    ideal_carb = metas.get('carbohidratos', 220.0)
+    ideal_fibr = metas.get('fibras', 25.0)
+
+    # 5. Envío a la IA con foco en la convergencia progresiva hacia la meta
+    if 'obtener_recomendacion_ia' in globals():
+        recomendacion_ia = obtener_recomendacion_ia(
+            df_mes=df_mes,
+            prom_cal=prom_cal,
+            prom_prot=prom_prot,
+            prom_gras=prom_gras,
+            prom_carb=prom_carb,
+            prom_fibr=prom_fibr,
+            peso_actual=peso_prom_mes,            # Punto de partida actual
+            peso_objetivo=peso_meta_intermedia,   # Meta de ajuste progresivo
+            peso_ideal_final=peso_ideal          # Meta final del Excel
+        )
+    else:
+        recomendacion_ia = "Mantendremos un ajuste gradual de calorías para converger paso a paso hacia tu peso ideal."
+
+    # 6. Formato del Mensaje
+    str_peso = ""
+    if peso_prom_mes > 0:
+        str_peso = (
+            f"• **Peso Promedio Mes:** `{peso_prom_mes:.1f} kg`\n"
+            f"• **Meta Progresiva (Intermedia):** `{peso_meta_intermedia:.1f} kg` *(Ideal Final: {peso_ideal:.1f} kg)*\n"
+        )
+
     txt = (
         f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
         f"• Días con registro: `{dias_registrados}`\n"
         f"• **Total Consumidas:** `{tot_cons:.0f} kcal`\n"
         f"• **Total Quemadas:** `{tot_quem:.0f} kcal`\n"
         f"• **Balance Neto:** `{bal_neto:.0f} kcal`\n\n"
-        f"🥗 **Desglose de Nutrientes (Mes):**\n"
-        f"• **Proteínas:** `{tot_prot:.1f} g`\n"
-        f"• **Grasas:** `{tot_gras:.1f} g`\n"
-        f"• **Carbohidratos:** `{tot_carb:.1f} g`\n"
-        f"• **Fibras:** `{tot_fibr:.1f} g`\n\n"
-        f"📄 Descargá el reporte PDF con la recomendación de la IA:"
+        f"📈 **Promedio Diario vs. Objetivos:**\n"
+        f"{str_peso}"
+        f"• **Calorías:** `{prom_cal:.0f} kcal` / Meta: `{ideal_cal:.0f} kcal`\n"
+        f"• **Proteínas:** `{prom_prot:.1f} g` / Meta: `{ideal_prot:.1f} g`\n"
+        f"• **Grasas:** `{prom_gras:.1f} g` / Meta: `{ideal_gras:.1f} g`\n"
+        f"• **Carbohidratos:** `{prom_carb:.1f} g` / Meta: `{ideal_carb:.1f} g`\n"
+        f"• **Fibras:** `{prom_fibr:.1f} g` / Meta: `{ideal_fibr:.1f} g`\n\n"
+        f"🤖 **Recomendación de la IA (Estrategia Progresiva):**\n"
+        f"{recomendacion_ia}\n\n"
+        f"📄 Podés descargar el reporte completo en PDF a continuación:"
     )
 
     keyboard = InlineKeyboardMarkup([
@@ -1871,10 +1922,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     if hasattr(query_or_update, 'edit_message_text'):
         await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
     else:
-        await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
-        
-        
-        
+        await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown") 
         
 async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
     df = obtener_datos_usuario(user_id)
