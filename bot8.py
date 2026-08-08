@@ -196,17 +196,21 @@ def calcular_proteina_sugerida(user_id=123456789):
         else:
             peso = parse_raw_val(perfil.get('Peso', 75.0))
             altura = parse_raw_val(perfil.get('Altura', 170.0))
-            peso_ideal = parse_raw_val(perfil.get('Peso_ideal', perfil.get('PesoIdeal', peso)))
+            
+            # Obtención del peso ideal usando la nueva fórmula basada en la altura
+            peso_ideal = parse_raw_val(perfil.get('Peso_ideal', perfil.get('PesoIdeal', 0)))
+            if peso_ideal <= 0:
+                # Fórmula de Peso Ideal corregida/estándar según la altura en cm (ej. Altura - 100)
+                peso_ideal = altura - 100.0 if altura > 100 else peso
     except Exception:
         peso, altura = 75.0, 170.0
-        peso_ideal = 75.0
+        peso_ideal = 70.0
 
     if peso_ideal <= 0:
         peso_ideal = peso
 
     peso_efectivo = (peso + peso_ideal) / 2.0
     return peso_efectivo * 1.3
-
 
 def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", actividad="sedentario", contextura="grande", peso_ideal=None):
     if peso_ideal is None or float(peso_ideal) <= 0:
@@ -1708,28 +1712,29 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = query.from_user.id
 
-    if data == "noop":
+    if data.startswith("noop"):
         return
 
     elif data == "confirm_save":
         items = context.user_data.get('pending_items', [])
         fecha = context.user_data.get('pending_fecha')
         momento = context.user_data.get('pending_momento')
-        
-        if not items:
-            await query.edit_message_text("❌ No hay ítems para guardar.")
-            return
+        tipo = context.user_data.get('pending_tipo', 'Comida')
 
-        guardar_en_sheets(user_id, items, fecha, momento)
-        await query.edit_message_text(f"✅ **¡Registro guardado correctamente!**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\nTotal ítems: {len(items)}", parse_mode="Markdown")
+        if items:
+            guardar_en_sheets(user_id, items, fecha, momento, tipo=tipo)
+            await query.edit_message_text(f"✅ **¡Registro guardado exitosamente!**\n📅 Fecha: `{fecha}` | Momento: `{momento}`", parse_mode="Markdown")
+            context.user_data.clear()
+        else:
+            await query.edit_message_text("⚠️ No había ítems pendientes para guardar.")
 
     elif data == "cancel_entry":
-        context.user_data.pop('pending_items', None)
-        await query.edit_message_text("🚫 Registro cancelado y eliminado.")
+        context.user_data.clear()
+        await query.edit_message_text("❌ Registro cancelado y descartado.")
 
     elif data.startswith("set_m_"):
-        nuevo_m = data.replace("set_m_", "")
-        context.user_data['pending_momento'] = nuevo_m
+        nuevo_momento = data.replace("set_m_", "")
+        context.user_data['pending_momento'] = nuevo_momento
         await render_confirmation_screen(query, context)
 
     elif data == "set_d_hoy":
@@ -1741,22 +1746,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await render_confirmation_screen(query, context)
 
     elif data == "set_d_otro":
-        await query.edit_message_text("📅 Por favor, escribí la fecha deseada en formato `YYYY-MM-DD` (Ej: `2026-08-01`):", parse_mode="Markdown")
         context.user_data['awaiting_date'] = True
+        await query.edit_message_text("📅 Por favor, escribí la fecha en formato `YYYY-MM-DD` (Ej: `2026-08-08`):", parse_mode="Markdown")
 
     elif data.startswith("edit_item_"):
         idx = int(data.replace("edit_item_", "")) - 1
-        items = context.user_data.get('pending_items', [])
-        
-        if 0 <= idx < len(items):
-            context.user_data['editing_item_idx'] = idx
-            context.user_data['awaiting_edit_item_val'] = True
-            item = items[idx]
-            await query.edit_message_text(
-                f"✏️ **Editando Ítem #{idx+1} ({item['alimento']}):**\n"
-                f"Podés enviar solo el nuevo alimento (ej. `milanesa de pollo`) o el alimento y peso (ej. `milanesa de pollo, 250`).",
-                parse_mode="Markdown"
-            )
+        context.user_data['awaiting_edit_item_val'] = True
+        context.user_data['editing_item_idx'] = idx
+        await query.edit_message_text(
+            f"✏️ **Editando ítem #{idx + 1}:**\n"
+            "Escribí el nuevo alimento (Ej: `Manzana`) o alimento y peso (Ej: `Manzana, 150g`):", 
+            parse_mode="Markdown"
+        )
 
     elif data.startswith("del_item_"):
         idx = int(data.replace("del_item_", "")) - 1
@@ -1764,7 +1765,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if 0 <= idx < len(items):
             items.pop(idx)
             context.user_data['pending_items'] = items
-        await render_confirmation_screen(query, context)
+            if items:
+                await render_confirmation_screen(query, context)
+            else:
+                context.user_data.clear()
+                await query.edit_message_text("❌ Se eliminaron todos los ítems. Operación cancelada.")
 
     elif data == "diario_hoy":
         fecha = obtener_ahora_arg().strftime("%Y-%m-%d")
@@ -1775,33 +1780,51 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await mostrar_diario_fecha(query, user_id, fecha)
 
     elif data == "diario_otro":
-        await query.edit_message_text("📆 Por favor enviá la fecha que querés consultar en formato `YYYY-MM-DD`:", parse_mode="Markdown")
         context.user_data['awaiting_diario_date'] = True
+        await query.edit_message_text("🗓️ Escribí la fecha que querés consultar (`YYYY-MM-DD`):", parse_mode="Markdown")
 
     elif data.startswith("descargar_pdf_diario_"):
         fecha_str = data.replace("descargar_pdf_diario_", "")
-        await generar_y_enviar_pdf_diario(query, user_id, fecha_str, context)
-
-    elif data == "resumen_mes_otro":
-        await query.edit_message_text("🗓️ Por favor enviá el mes que querés consultar en formato `YYYY-MM` (Ej: `2026-07`):", parse_mode="Markdown")
-        context.user_data['awaiting_resumen_date'] = True
+        df_diario = obtener_datos_usuario(user_id)
+        df_filtrado = df_diario[df_diario['Fecha'] == fecha_str] if not df_diario.empty else pd.DataFrame()
+        pdf_bytes = generar_pdf_diario_bytes(fecha_str, df_filtrado, user_id)
+        await context.bot.send_document(
+            chat_id=query.message.chat_id,
+            document=pdf_bytes,
+            filename=f"Diario_{fecha_str}.pdf"
+        )
 
     elif data.startswith("resumen_mes_"):
         mes_str = data.replace("resumen_mes_", "")
-        await mostrar_resumen_mes(query, user_id, mes_str)
+        if mes_str == "otro":
+            context.user_data['awaiting_resumen_date'] = True
+            await query.edit_message_text("🗓️ Escribí el año y mes que querés consultar (`YYYY-MM`):", parse_mode="Markdown")
+        else:
+            await mostrar_resumen_mes(query, user_id, mes_str)
 
     elif data.startswith("descargar_pdf_resumen_"):
         mes_str = data.replace("descargar_pdf_resumen_", "")
-        await generar_y_enviar_pdf_resumen(query, user_id, mes_str, context)
+        df_datos = obtener_datos_usuario(user_id)
+        df_mes = df_datos[df_datos['Fecha'].str.startswith(mes_str)] if not df_datos.empty else pd.DataFrame()
+        df_presion = obtener_datos_presion(user_id)
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str)
+        tmb, get_val = calcular_tmb_y_get(
+            parse_raw_val(perfil.get('Peso', 75)) if perfil else 75,
+            parse_raw_val(perfil.get('Altura', 170)) if perfil else 170,
+            parse_raw_val(perfil.get('Edad', 30)) if perfil else 30
+        )
+        rec = obtener_recomendacion_ia(f"Resumen del mes {mes_str} para usuario {user_id}")
+        pdf_bytes = generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb, rec, user_id)
+        await context.bot.send_document(
+            chat_id=query.message.chat_id,
+            document=pdf_bytes,
+            filename=f"Resumen_Mensual_{mes_str}.pdf"
+        )
 
     elif data.startswith("descargar_pdf_presion_"):
         mes_str = data.replace("descargar_pdf_presion_", "")
         await generar_y_enviar_pdf_presion(query, user_id, mes_str, context)
 
-import asyncio
-from datetime import datetime
-from telegram import Update
-from telegram.ext import ContextTypes
 
 def safe_number(val):
     """
