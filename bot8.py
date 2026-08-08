@@ -2151,7 +2151,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     else:
         await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
 
-
+# 1. FUNCIÓN AUXILIAR (Genera el PDF con ReportLab)
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
@@ -2174,7 +2174,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     tot_cons, tot_quem, tot_prot, tot_gras, tot_carb, tot_fibr = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     dias_con_registro = 0
 
-    # --- PROCESAMIENTO DE DATOS MENSUALES ---
     if df_mes is not None and not df_mes.empty:
         fechas_unicas = sorted(df_mes['Fecha'].unique())
         dias_con_registro = len(fechas_unicas)
@@ -2182,8 +2181,8 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
         for f in fechas_unicas:
             sub = df_mes[df_mes['Fecha'] == f]
             
-            c_cons = sub[sub['Calorias'] > 0]['Calorias'].sum()
-            c_quem = abs(sub[sub['Calorias'] < 0]['Calorias'].sum())
+            c_cons = float(sub[sub['Calorias'] > 0]['Calorias'].sum())
+            c_quem = abs(float(sub[sub['Calorias'] < 0]['Calorias'].sum()))
             b_neto = c_cons - c_quem
             
             prot = float(sub['Proteinas'].sum())
@@ -2254,9 +2253,8 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     genero = str(perfil.get('Sexo', perfil.get('Genero', perfil.get('sexo', perfil.get('genero', 'masculino'))))) if perfil else 'masculino'
     actividad = str(perfil.get('Ocupacion', perfil.get('ocupacion', 'sedentario'))) if perfil else 'sedentario'
     
-    # --- LECTURA DIRECTA DE 'Peso_ideal' EN GOOGLE SHEETS ---
+    # --- LECTURA DIRECTA DE 'Peso_ideal' ---
     peso_ideal_val = None
-    
     if perfil and isinstance(perfil, dict):
         for k, v in perfil.items():
             if str(k).strip().lower() in ['peso_ideal', 'pesoideal', 'peso ideal']:
@@ -2305,6 +2303,7 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     prom_d_fibr = tot_fibr / dias_activos
 
     # --- RE-EVALUACIÓN CON LA IA ---
+    recomendacion_actualizada = recomendacion
     try:
         prompt_ia = f"""
         Actúa como un médico nutricionista evaluando el resumen mensual de un paciente.
@@ -2324,18 +2323,19 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
         Redacta una recomendación médica/nutricional breve (máximo 4-5 líneas) analizando si debe subir/bajar nutrientes o ajustar calorías para acercarse a su peso ideal.
         """
         
-        # Asegúrate de que client_groq sea el nombre correcto de tu instancia
-        res_ia = client_groq.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt_ia}],
-            temperature=0.3,
-            max_tokens=300
-        )
-        recomendacion_actualizada = res_ia.choices[0].message.content.strip()
-    except Exception:
-        recomendacion_actualizada = recomendacion
+        client = globals().get('client_ai') or globals().get('client_groq')
+        if client:
+            res_ia = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt_ia}],
+                temperature=0.3,
+                max_tokens=300
+            )
+            recomendacion_actualizada = res_ia.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Error re-evaluando con IA: {e}")
 
-    # --- CONSTRUCCIÓN DE LA TABLA COMPARATIVA ---
+    # --- TABLA COMPARATIVA ---
     table_comp = [
         [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Valor Ideal (Peso Objetivo)</b>", header_style)],
         [Paragraph("Calorías", body_style), Paragraph(f"{prom_d_cons:.1f} kcal", body_style), Paragraph(f"{get_ideal:.1f} kcal (GET)", body_style)],
@@ -2361,10 +2361,67 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(Paragraph("<b>Recomendación Nutricional Personalizada (IA):</b>", sub_style))
     story.append(Paragraph(f"<i>{recomendacion_actualizada}</i>", body_style))
 
-    # --- CONSTRUCCIÓN DEL DOCUMENTO Y RETORNO ---
     doc.build(story)
     buffer.seek(0)
-    return buffer   
+    return buffer
+
+
+# 2. FUNCIÓN PRINCIPAL DE TELEGRAM (La que llama el bot)
+async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
+    df = obtener_datos_usuario(user_id)
+    perfil = obtener_perfil_usuario(user_id, mes_target=mes_str)
+    df_presion = obtener_datos_presion(user_id)
+    
+    df_mes = df[df['Fecha'].str.startswith(mes_str)] if not df.empty else pd.DataFrame()
+    
+    tmb_val = 0
+    get_val = 2000
+    if perfil:
+        peso = parse_raw_val(perfil.get('Peso'))
+        altura = parse_raw_val(perfil.get('Altura'))
+        edad = parse_raw_val(perfil.get('Edad'))
+        genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino')))
+        actividad = str(perfil.get('Ocupacion', 'Jubilado'))
+        
+        res_metabol = calcular_tmb_y_get(peso, altura, edad, genero, actividad)
+        if isinstance(res_metabol, tuple):
+            tmb_val = res_metabol[0]
+            get_val = res_metabol[1] if len(res_metabol) > 1 else tmb_val
+        else:
+            tmb_val = res_metabol
+
+    if not df_mes.empty:
+        dias_cnt = max(df_mes['Fecha'].nunique() if 'Fecha' in df_mes.columns else 1, 1)
+        
+        if 'Calorias' in df_mes.columns:
+            ingesta_total = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()
+            ejercicio_total = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())
+        else:
+            ingesta_total = 0.0
+            ejercicio_total = 0.0
+
+        prom_ingesta_real = ingesta_total / dias_cnt
+        prom_ejercicio = ejercicio_total / dias_cnt
+    else:
+        prom_ingesta_real = 0.0
+        prom_ejercicio = 0.0
+
+    resumen_para_ia = f"Mes: {mes_str}, Ingesta diaria: {prom_ingesta_real:.0f} kcal, Ejercicio: {prom_ejercicio:.0f} kcal, GET: {get_val:.0f} kcal."
+    rec_ia = obtener_recomendacion_ia(resumen_para_ia)
+
+    # Asegura que 'Peso_Ideal' exista y tenga valor real
+    if perfil:
+        perfil['Peso_Ideal'] = parse_raw_val(perfil.get('Peso_ideal') or perfil.get('Peso Ideal') or perfil.get('peso_ideal') or 0) or round(22.5 * ((parse_raw_val(perfil.get('Altura', 0)) / 100.0) ** 2), 1)
+
+    pdf_bytes = generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, rec_ia, user_id)
+    
+    await context.bot.send_document(
+        chat_id=query.message.chat_id,
+        document=pdf_bytes,
+        filename=f"Resumen_Nutricional_{mes_str}.pdf"
+    )
+
+
      
 # ==========================================
 # INICIALIZACIÓN
