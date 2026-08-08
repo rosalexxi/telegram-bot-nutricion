@@ -2151,60 +2151,47 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     else:
         await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
 
-async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
-    df = obtener_datos_usuario(user_id)
-    perfil = obtener_perfil_usuario(user_id, mes_target=mes_str)
-    df_presion = obtener_datos_presion(user_id)
-    
-    df_mes = df[df['Fecha'].str.startswith(mes_str)] if not df.empty else pd.DataFrame()
-    
-    tmb_val = 0
-    get_val = 2000
-    if perfil:
-        peso = parse_raw_val(perfil.get('Peso'))
-        altura = parse_raw_val(perfil.get('Altura'))
-        edad = parse_raw_val(perfil.get('Edad'))
-        genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino')))
-        actividad = str(perfil.get('Ocupacion', 'Jubilado'))
-        
-        res_metabol = calcular_tmb_y_get(peso, altura, edad, genero, actividad)
-        if isinstance(res_metabol, tuple):
-            tmb_val = res_metabol[0]
-            get_val = res_metabol[1] if len(res_metabol) > 1 else tmb_val
-        else:
-            tmb_val = res_metabol
 
-    if not df_mes.empty:
-        dias_cnt = max(df_mes['Fecha'].nunique() if 'Fecha' in df_mes.columns else 1, 1)
-        
-        if 'Calorias' in df_mes.columns:
-            ingesta_total = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()
-            ejercicio_total = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())
-        else:
-            ingesta_total = 0.0
-            ejercicio_total = 0.0
+async def generar_y_enviar_pdf_resumen(update, context, mes_str, df_mes, df_presion, perfil, tmb_val, rec_ia, user_id):
+    """
+    Calcula el peso ideal progresivo (promedio entre peso actual y la meta fija del Excel)
+    y genera/envía el reporte PDF nutricional mensual al usuario.
+    """
+    query = update.callback_query if update.callback_query else None
+    chat_id = query.message.chat_id if query else update.effective_chat.id
 
-        prom_ingesta_real = ingesta_total / dias_cnt
-        prom_ejercicio = ejercicio_total / dias_cnt
+    # --- LÓGICA DE PESO IDEAL PROGRESIVO ---
+    # 1. Obtiene la meta fija grabada en la columna 'Peso_ideal' de Google Sheets
+    raw_meta = parse_raw_val(
+        perfil.get('Peso_ideal') or perfil.get('Peso Ideal') or perfil.get('peso_ideal') or 0
+    )
+
+    # 2. Si el valor ingresado viene como 75000 (sin punto decimal), lo convierte automáticamente a 75.0 kg
+    if raw_meta > 200:
+        raw_meta /= 1000.0
+
+    # 3. Obtiene el peso actual del perfil para el mes
+    peso_act = parse_raw_val(perfil.get('Peso', perfil.get('peso', 0)))
+
+    # 4. Asigna como 'Peso_Ideal' el promedio dinámico entre el Peso Actual y la Meta del Excel
+    if raw_meta > 0 and peso_act > 0:
+        perfil['Peso_Ideal'] = round((peso_act + raw_meta) / 2.0, 1)
     else:
-        prom_ingesta_real = 0.0
-        prom_ejercicio = 0.0
+        perfil['Peso_Ideal'] = raw_meta or peso_act
 
-    resumen_para_ia = f"Mes: {mes_str}, Ingesta diaria: {prom_ingesta_real:.0f} kcal, Ejercicio: {prom_ejercicio:.0f} kcal, GET: {get_val:.0f} kcal."
-    rec_ia = obtener_recomendacion_ia(resumen_para_ia)
+    # --- GENERACIÓN DEL ARCHIVO PDF EN MEMORIA ---
+    pdf_bytes = generar_pdf_resumen_bytes(
+        mes_str, df_mes, df_presion, perfil, tmb_val, rec_ia, user_id
+    )
 
-
-
-# --- LÍNEA DE CORRECCIÓN (Asegura que 'Peso_Ideal' exista y tenga valor real) ---
-    perfil['Peso_Ideal'] = parse_raw_val(perfil.get('Peso_ideal') or perfil.get('Peso Ideal') or perfil.get('peso_ideal') or 0) or round(22.5 * ((parse_raw_val(perfil.get('Altura', 0)) / 100.0) ** 2), 1)
-
-    pdf_bytes = generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, rec_ia, user_id)
+    # --- ENVÍO DEL DOCUMENTO VÍA TELEGRAM ---
     await context.bot.send_document(
-        chat_id=query.message.chat_id,
+        chat_id=chat_id,
         document=pdf_bytes,
         filename=f"Resumen_Nutricional_{mes_str}.pdf"
     )
-
+    
+    
 # ==========================================
 # INICIALIZACIÓN
 # ==========================================
