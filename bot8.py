@@ -1211,7 +1211,7 @@ async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 2. MUESTRA Y CONSULTA DEL DIARIO
 # ==========================================
 
- async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
+async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
     # 1. Obtener los datos normalizados mediante la función central del script
     df = obtener_datos_usuario(user_id)
     
