@@ -1915,7 +1915,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
                 peso_ideal_base = parse_val(perfil_mes.get("Peso_ideal"), 75.0)
                 genero = str(perfil_mes.get("GENERO", "M")).strip().upper()
         except Exception as err_perfil:
-            logger.error(f"Error accediendo a {f'Perfil_{user_id}'}: {err_perfil}")
+            print(f"Error accediendo a Perfil_{user_id}: {err_perfil}")
 
         # Si no se encontró registro para ese mes, resguardo
         if peso_mes_especifico == 0.0:
@@ -1999,8 +1999,8 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
         else:
-            await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
-        
+            await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")   
+            
 # ==========================================
 # INICIALIZACIÓN PRINCIPAL Y BOT DE TELEGRAM
 # ==========================================
