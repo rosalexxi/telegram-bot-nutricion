@@ -2019,8 +2019,8 @@ def main():
         application.add_handler(CommandHandler("perfil", cmd_perfil))
         application.add_handler(CommandHandler("presion", cmd_presion_handler))
         application.add_handler(CommandHandler("actividad", cmd_actividad))
-        application.add_handler(CommandHandler("actividadia", cmd_actividad_ia))
-        application.add_handler(CommandHandler("actividad_ia", cmd_actividad_ia))
+        application.add_handler(CommandHandler("actividadia", actividad_ia))
+        application.add_handler(CommandHandler("actividad_ia", actividad_ia))
 
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
