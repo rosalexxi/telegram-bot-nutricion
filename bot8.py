@@ -1121,25 +1121,83 @@ async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
     
-
 async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Función totalmente encapsulada para registrar actividad física con IA.
-    Calcula calorías, muestra confirmación con botones (Guardar, Editar, Anular)
-    y gestiona las respuestas de forma aislada.
+    Función encapsulada para registrar actividad física con IA.
+    Gestiona el cálculo inicial, los botones (Guardar, Editar, Anular)
+    y el flujo de confirmación.
     """
-    # 1. Obtener texto del comando
-    if update.message:
-        raw_text = update.message.text.replace('/actividadia', '').replace('/actividad_ia', '').strip()
-        msg = await update.message.reply_text("⏳ Calculando gasto calórico con IA...")
-    else:
+    # -------------------------------------------------------------------------
+    # CASO 1: El usuario presiona uno de los botones (CallbackQuery)
+    # -------------------------------------------------------------------------
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        accion = query.data
+
+        estado_local = context.user_data.get('actividad_ia_pendiente')
+
+        if not estado_local:
+            await query.edit_message_text("⚠️ Esta interacción ha expirado o ya fue procesada.")
+            return
+
+        if accion == "act_guardar":
+            fecha_auto, _ = obtener_momento_y_fecha_auto()
+            item = {
+                "alimento": f"Actividad: {estado_local['actividad']}",
+                "peso": 0.0,
+                "calorias": estado_local['calorias'],
+                "proteinas": 0.0,
+                "grasas": 0.0,
+                "carbohidratos": 0.0,
+                "fibras": 0.0
+            }
+            try:
+                guardar_en_sheets([item], "Actividad", fecha_auto, "Actividad Física")
+                await query.edit_message_text(
+                    f"✅ **¡Actividad Guardada con éxito!**\n\n"
+                    f"🏃 {estado_local['actividad']}: `{estado_local['calorias']:.1f} kcal`",
+                    parse_mode="Markdown"
+                )
+            except Exception as err:
+                await query.edit_message_text(f"❌ Error al guardar en Sheets: {err}")
+
+            # Limpiar memoria temporal
+            context.user_data.pop('actividad_ia_pendiente', None)
+
+        elif accion == "act_anular":
+            await query.edit_message_text("🚫 Registro de actividad cancelado.")
+            context.user_data.pop('actividad_ia_pendiente', None)
+
+        elif accion == "act_editar":
+            await query.edit_message_text(
+                f"✏️ **Edición de Actividad**\n\n"
+                f"Para editar, volvé a enviar el comando con los nuevos valores.\n"
+                f"Ejemplo: `/actividadia {estado_local['actividad']}, 40 min`",
+                parse_mode="Markdown"
+            )
+            context.user_data.pop('actividad_ia_pendiente', None)
+
         return
 
+    # -------------------------------------------------------------------------
+    # CASO 2: Invocación del comando inicial por mensaje de texto
+    # -------------------------------------------------------------------------
+    if not update.message:
+        return
+
+    raw_text = update.message.text.replace('/actividadia', '').replace('/actividad_ia', '').strip()
+    
     if not raw_text:
-        await msg.edit_text("⚠️ Por favor ingresá la actividad y duración.\nEjemplo: `/actividadia aquagym 50 min`", parse_mode="Markdown")
+        await update.message.reply_text(
+            "⚠️ Por favor ingresá la actividad y duración.\nEjemplo: `/actividadia aquagym 50 min`",
+            parse_mode="Markdown"
+        )
         return
 
-    # 2. Consultar a GROQ (Llama 3.3)
+    msg = await update.message.reply_text("⏳ Calculando gasto calórico con IA...")
+
+    # Consultar a GROQ (Llama 3.3)
     try:
         if not client_ai:
             await msg.edit_text("❌ Error: API Key de GROQ no configurada.")
@@ -1166,7 +1224,7 @@ Devolvé EXCLUSIVAMENTE un JSON válido con este formato:
         datos = json.loads(response.choices[0].message.content)
         actividad_nombre = datos.get("actividad", raw_text)
         calorias_val = float(datos.get("calorias", 0.0))
-        # Asegurar que las calorías sean negativas
+        
         if calorias_val > 0:
             calorias_val = -calorias_val
 
@@ -1174,125 +1232,33 @@ Devolvé EXCLUSIVAMENTE un JSON válido con este formato:
         await msg.edit_text(f"❌ Error al procesar con IA: {e}")
         return
 
-    # Contenedor de datos local para este ciclo
-    estado_local = {
+    # Guardar en memoria persistente de usuario para recuperarlo al tocar el botón
+    context.user_data['actividad_ia_pendiente'] = {
         "actividad": actividad_nombre,
         "calorias": calorias_val
     }
 
-    # 3. Función auxiliar para renderizar el mensaje y la botonera
-    def generar_vista():
-        texto = (
-            f"🏃 **Actividad Física Detectada**\n\n"
-            f"• **Detalle:** {estado_local['actividad']}\n"
-            f"• **Calorías:** `{estado_local['calorias']:.1f} kcal`\n\n"
-            f"¿Qué deseás hacer?"
-        )
-        keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("💾 GUARDAR", callback_data="act_guardar"),
-                InlineKeyboardButton("✏️ EDITAR", callback_data="act_editar"),
-            ],
-            [
-                InlineKeyboardButton("❌ ANULAR", callback_data="act_anular")
-            ]
-        ])
-        return texto, keyboard
-
-    # Mostrar la interfaz inicial
-    txt, kb = generar_vista()
-    mensaje_interactivo = await msg.edit_text(txt, reply_markup=kb, parse_mode="Markdown")
-
-    # 4. Handlers locales dinámicos para captura de eventos
-    async def manejar_botones(upd: Update, ctx: ContextTypes.DEFAULT_TYPE):
-        query = upd.callback_query
-        if query.message.message_id != mensaje_interactivo.message_id:
-            return  # Ignorar interacciones de otros mensajes
-
-        await query.answer()
-        accion = query.data
-
-        if accion == "act_guardar":
-            # Guardado en Google Sheets o sistema principal
-            fecha_auto, _ = obtener_momento_y_fecha_auto()
-            item = {
-                "alimento": f"Actividad: {estado_local['actividad']}",
-                "peso": 0.0,
-                "calorias": estado_local['calorias'],
-                "proteinas": 0.0,
-                "grasas": 0.0,
-                "carbohidratos": 0.0,
-                "fibras": 0.0
-            }
-            try:
-                guardar_en_sheets([item], "Actividad", fecha_auto, "Actividad Física")
-                await query.edit_message_text(
-                    f"✅ **¡Actividad Guardada con éxito!**\n\n"
-                    f"🏃 {estado_local['actividad']}: `{estado_local['calorias']:.1f} kcal`",
-                    parse_mode="Markdown"
-                )
-            except Exception as err:
-                await query.edit_message_text(f"❌ Error al guardar en Sheets: {err}")
-            
-            _remover_handlers(ctx)
-
-        elif accion == "act_anular":
-            await query.edit_message_text("🚫 Registro de actividad cancelado.")
-            _remover_handlers(ctx)
-
-        elif accion == "act_editar":
-            await query.edit_message_text(
-                f"✏️ **Edición de Actividad**\n\n"
-                f"Ingresá el nuevo nombre y calorías separados por coma.\n"
-                f"Ejemplo: `Caminata, -180`",
-                parse_mode="Markdown"
-            )
-            ctx.user_data['esperando_edicion_actividad'] = True
-
-    async def manejar_texto_edicion(upd: Update, ctx: ContextTypes.DEFAULT_TYPE):
-        if not ctx.user_data.get('esperando_edicion_actividad'):
-            return
-
-        nuevo_texto = upd.message.text.strip()
-        try:
-            if "," in nuevo_texto:
-                partes = nuevo_texto.split(",")
-                estado_local['actividad'] = partes[0].strip()
-                cal = float(partes[1].strip())
-                estado_local['calorias'] = -abs(cal)
-            else:
-                cal = float(nuevo_texto)
-                estado_local['calorias'] = -abs(cal)
-
-            ctx.user_data['esperando_edicion_actividad'] = False
-            
-            # Re-renderizar pantalla con los nuevos valores
-            txt_nuevo, kb_nuevo = generar_vista()
-            await upd.message.reply_text(txt_nuevo, reply_markup=kb_nuevo, parse_mode="Markdown")
-            _remover_handlers(ctx, solo_mensaje=True)
-
-        except ValueError:
-            await upd.message.reply_text("⚠️ Formato incorrecto. Ingresá algo como: `Bicicleta, -300` o solo `-300`.")
-
-    def _remover_handlers(ctx: ContextTypes.DEFAULT_TYPE, solo_mensaje=False):
-        """Limpia los handlers temporales creados para esta sesión."""
-        if 'esperando_edicion_actividad' in ctx.user_data:
-            del ctx.user_data['esperando_edicion_actividad']
-        
-        # Eliminar handlers dinámicos del dispatcher
-        for h in list(ctx.application.handlers[0]):
-            if getattr(h, '_actividad_encapsulada', False):
-                ctx.application.remove_handler(h)
-
-    # 5. Registro dinámico de handlers encapsulados
-    cb_handler = CallbackQueryHandler(manejar_botones, pattern="^act_")
-    msg_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_texto_edicion)
+    # Armar la vista interactiva
+    texto = (
+        f"🏃 **Actividad Física Detectada**\n\n"
+        f"• **Detalle:** {actividad_nombre}\n"
+        f"• **Calorías:** `{calorias_val:.1f} kcal`\n\n"
+        f"¿Qué deseás hacer?"
+    )
     
-    cb_handler._actividad_encapsulada = True
-    msg_handler._actividad_encapsulada = True
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("💾 GUARDAR", callback_data="act_guardar"),
+            InlineKeyboardButton("✏️ EDITAR", callback_data="act_editar"),
+        ],
+        [
+            InlineKeyboardButton("❌ ANULAR", callback_data="act_anular")
+        ]
+    ])
 
-    context.application.add_handler(cb_handler, group=0)
-    context.application.add_handler(msg_handler, group=0)
+    await msg.edit_text(texto, reply_markup=keyboard, parse_mode="Markdown")
+    
+    
 
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -2025,6 +1991,11 @@ def main():
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        
+        # Manejador específico para los botones de actividad IA
+        application.add_handler(CallbackQueryHandler(actividad_ia, pattern="^act_"))
+        
+        # Manejador general de callbacks
         application.add_handler(CallbackQueryHandler(handle_callback))
 
         application.run_polling()
@@ -2034,3 +2005,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+    
+    
+    
