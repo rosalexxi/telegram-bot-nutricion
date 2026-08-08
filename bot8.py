@@ -1839,6 +1839,13 @@ def run_flask():
     port = int(os.environ.get('PORT', 5000))
     # use_reloader=False es fundamental para evitar conflictos cuando corre en un hilo secundario
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    
+
+
+
+# ==========================================
+# PANTALLA RESUMEN MES
+# ==========================================
 
 async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     try:
@@ -1852,8 +1859,8 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
                 await query_or_update.message.reply_text(txt, parse_mode="Markdown")
             return
 
-        # Filtrar registros del mes para el resumen diario
-        df_mes = df_datos[df_datos['Fecha'].str.startswith(mes_str)] if 'Fecha' in df_datos.columns else pd.DataFrame()
+        # 1. Filtrar registros del mes solicitado para el análisis diario
+        df_mes = df_datos[df_datos['Fecha'].str.startswith(str(mes_str))] if 'Fecha' in df_datos.columns else pd.DataFrame()
         if df_mes.empty:
             txt = f"📊 No hay registros para el mes `{mes_str}`."
             if hasattr(query_or_update, 'edit_message_text'):
@@ -1866,44 +1873,55 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         if dias_registrados == 0:
             dias_registrados = 1
 
-        # 1. Totales Acumulados
+        # 2. Totales Acumulados Nutricionales del Mes
         tot_cons_mes = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum() if 'Calorias' in df_mes.columns else 0.0
         tot_quem_mes = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
 
-        # 2. Promedios Diarios
-        prom_cons = tot_cons_mes / dias_registrados
-        prom_quem = tot_quem_mes / dias_registrados
-        prom_bal_neto = prom_cons - prom_quem
-        
-        
         tot_prot = df_mes['Proteinas'].sum() if 'Proteinas' in df_mes.columns else 0.0
         tot_gras = df_mes['Grasas'].sum() if 'Grasas' in df_mes.columns else 0.0
         tot_carb = df_mes['Carbohidratos'].sum() if 'Carbohidratos' in df_mes.columns else 0.0
         tot_fibr = df_mes['Fibras'].sum() if 'Fibras' in df_mes.columns else 0.0
 
-        # 2. Promedios Diarios del Mes
-        prom_cal = tot_cons_mes / dias_registrados
+        # 3. Promedios Diarios del Mes
+        prom_cons = tot_cons_mes / dias_registrados
+        prom_quem = tot_quem_mes / dias_registrados
+        prom_bal_neto = prom_cons - prom_quem
+
         prom_prot = tot_prot / dias_registrados
         prom_gras = tot_gras / dias_registrados
         prom_carb = tot_carb / dias_registrados
         prom_fibr = tot_fibr / dias_registrados
 
-        # 3. Lectura de Peso ESPECÍFICO del Mes Solicitado (Para Contexto de la IA)
-        df_perfil_mes = df_datos[df_datos['MES'] == mes_str] if 'MES' in df_datos.columns else pd.DataFrame()
-        
-        def obtener_y_escalar(df, col_name, val_defecto):
-            if col_name in df.columns:
-                vals = pd.to_numeric(df[col_name], errors='coerce').dropna()
-                if not vals.empty and vals.iloc[-1] > 0:
-                    val = vals.iloc[-1]
-                    return val / 1000.0 if val > 500 else val
-            return val_defecto
+        # 4. Lectura Directa del Peso Específico del Mes desde la Columna MES
+        peso_mes_especifico = 0.0
+        peso_ideal = 75.0
 
-        # Obtiene peso del mes solicitado (no el actual)
-        peso_mes_especifico = float(obtener_y_escalar(df_perfil_mes, 'PESO', 0.0))
-        peso_ideal = float(obtener_y_escalar(df_perfil_mes, 'Peso_ideal', 75.0))
+        if 'MES' in df_datos.columns:
+            # Normalizar la columna MES para coincidencia exacta con mes_str (ej: "2026-07")
+            df_datos['MES_STR'] = df_datos['MES'].astype(str).str.strip()
+            fila_perfil_mes = df_datos[df_datos['MES_STR'] == str(mes_str).strip()]
 
-        # 4. Metas Nutricionales
+            if not fila_perfil_mes.empty:
+                # Extraer Peso del Mes y corregir formato/escala
+                if 'PESO' in fila_perfil_mes.columns:
+                    val_peso = pd.to_numeric(fila_perfil_mes['PESO'].iloc[-1], errors='coerce')
+                    if pd.notnull(val_peso) and val_peso > 0:
+                        peso_mes_especifico = val_peso / 1000.0 if val_peso > 500 else val_peso
+
+                # Extraer Peso Ideal
+                col_ideal = next((c for c in ['Peso_ideal', 'PESO_IDEAL', 'Peso Ideal'] if c in fila_perfil_mes.columns), None)
+                if col_ideal:
+                    val_ideal = pd.to_numeric(fila_perfil_mes[col_ideal].iloc[-1], errors='coerce')
+                    if pd.notnull(val_ideal) and val_ideal > 0:
+                        peso_ideal = val_ideal / 1000.0 if val_ideal > 500 else val_ideal
+
+        # Si no se encontró un peso en ese mes específico, tomar el último registrado
+        if peso_mes_especifico == 0.0 and 'PESO' in df_datos.columns:
+            val_ult = pd.to_numeric(df_datos['PESO'].dropna().iloc[-1], errors='coerce') if not df_datos['PESO'].dropna().empty else 0.0
+            if pd.notnull(val_ult) and val_ult > 0:
+                peso_mes_especifico = val_ult / 1000.0 if val_ult > 500 else val_ult
+
+        # 5. Metas Nutricionales del Usuario
         metas = obtener_metas_usuario(user_id) if 'obtener_metas_usuario' in globals() else {}
         ideal_cal = metas.get('calorias', 2000)
         ideal_prot = metas.get('proteinas', 120.0)
@@ -1911,20 +1929,21 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         ideal_carb = metas.get('carbohidratos', 220.0)
         ideal_fibr = metas.get('fibras', 25.0)
 
-        # 5. Prompt de la IA con el PESO ESPECÍFICO del mes
-        str_contexto_peso = f"- Peso registrado en el mes {mes_str}: {peso_mes_especifico:.1f} kg\n" if peso_mes_especifico > 0 else ""
-
+        # 6. Prompt para la IA con Contexto de Peso Específico del Mes
         prompt_para_ia = (
             f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
-            f"{str_contexto_peso}"
-            f"CONSUMO PROMEDIO DIARIO ({dias_registrados} días registrados):\n"
-            f"- Calorías: {prom_cal:.0f} kcal (Meta: {ideal_cal:.0f} kcal)\n"
+            f"- Peso registrado en el mes {mes_str}: {peso_mes_especifico:.1f} kg\n"
+            f"- Peso Ideal Objetivo: {peso_ideal:.1f} kg\n\n"
+            f"CONSUMO PROMEDIO DIARIO DEL MES ({dias_registrados} días registrados):\n"
+            f"- Calorías: {prom_cons:.0f} kcal (Meta: {ideal_cal:.0f} kcal)\n"
             f"- Proteínas: {prom_prot:.1f} g (Meta: {ideal_prot:.1f} g)\n"
             f"- Grasas: {prom_gras:.1f} g (Meta: {ideal_gras:.1f} g)\n"
             f"- Carbohidratos: {prom_carb:.1f} g (Meta: {ideal_carb:.1f} g)\n"
             f"- Fibras: {prom_fibr:.1f} g (Meta: {ideal_fibr:.1f} g)\n\n"
-            f"Instrucción: Evalúa los macronutrientes de este mes específico ({mes_str}). "
-            f"Ten en cuenta los datos de consumo de este mes en particular para dar un consejo personalizado y no repetitivo respecto a otros meses."
+            f"INSTRUCCIÓN PARA LA IA:\n"
+            f"1. Comenzá mencionando explícitamente el mes ({mes_str}) y el peso registrado correspondiente a este mes ({peso_mes_especifico:.1f} kg).\n"
+            f"2. Analizá los macronutrientes promedio consumidos.\n"
+            f"3. Ofrecé una recomendación personalizada considerando este peso específico de {peso_mes_especifico:.1f} kg frente al peso ideal de {peso_ideal:.1f} kg."
         )
 
         if 'obtener_recomendacion_ia' in globals():
@@ -1932,15 +1951,15 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         else:
             recomendacion_ia = "Mantené un consumo equilibrado de alimentos y agua."
 
-        # 6. Formato Final (SIN línea de peso en pantalla)
+        # 7. Formato Final del Mensaje para Telegram (Sin impresiones innecesarias de peso)
         txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
             f"• **Promedio Consumidas:** `{prom_cons:.0f} kcal` / día\n"
             f"• **Promedio Quemadas:** `{prom_quem:.0f} kcal` / día\n"
             f"• **Balance Neto Diario:** `{prom_bal_neto:.0f} kcal` / día\n\n"
-            f"• Días con registro: `{dias_registrados}`\n"
+            f"• Días con registro: `{dias_registrados}`\n\n"
             f"📈 **Promedio Diario vs. Objetivos:**\n"
-            f"• **Calorías:** `{prom_cal:.0f} kcal` / Meta: `{ideal_cal:.0f} kcal`\n"
+            f"• **Calorías:** `{prom_cons:.0f} kcal` / Meta: `{ideal_cal:.0f} kcal`\n"
             f"• **Proteínas:** `{prom_prot:.1f} g` / Meta: `{ideal_prot:.1f} g`\n"
             f"• **Grasas:** `{prom_gras:.1f} g` / Meta: `{ideal_gras:.1f} g`\n"
             f"• **Carbohidratos:** `{prom_carb:.1f} g` / Meta: `{ideal_carb:.1f} g`\n"
@@ -1965,10 +1984,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
         else:
             await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
-
-# ==========================================
-# MAIN LOOP / INICIALIZACIÓN
-# ==========================================
+    
 # ==========================================
 # INICIALIZACIÓN PRINCIPAL Y BOT DE TELEGRAM
 # ==========================================
