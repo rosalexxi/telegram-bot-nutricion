@@ -1868,11 +1868,14 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         if dias_registrados == 0:
             dias_registrados = 1
 
-        # 1. Totales Acumulados Nutricionales
-        tot_cons = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum() if 'Calorias' in df_mes.columns else 0.0
-        tot_con = tot_cons/dias_registrados
-        tot_quem = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
-        tot_quem = tot_quem / dias_registrados
+        # 1. Totales Acumulados
+        tot_cons_mes = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum() if 'Calorias' in df_mes.columns else 0.0
+        tot_quem_mes = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
+
+        # 2. Promedios Diarios
+        prom_cons = tot_cons_mes / dias_registrados
+        prom_quem = tot_quem_mes / dias_registrados
+        prom_bal_neto = prom_cons - prom_quem
         bal_neto = tot_cons - tot_quem
         
         tot_prot = df_mes['Proteinas'].sum() if 'Proteinas' in df_mes.columns else 0.0
@@ -1934,10 +1937,10 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         # 6. Formato Final (SIN línea de peso en pantalla)
         txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
+            f"• **Promedio Consumidas:** `{prom_cons:.0f} kcal` / día\n"
+            f"• **Promedio Quemadas:** `{prom_quem:.0f} kcal` / día\n"
+            f"• **Balance Neto Diario:** `{prom_bal_neto:.0f} kcal` / día\n\n"
             f"• Días con registro: `{dias_registrados}`\n"
-            f"• **Promedio Consumidas:** `{tot_cons:.0f} kcal`\n"
-            f"• **Promedio Quemadas:** `{tot_quem:.0f} kcal`\n"
-            f"• **Balance Neto:** `{bal_neto:.0f} kcal`\n\n"
             f"📈 **Promedio Diario vs. Objetivos:**\n"
             f"• **Calorías:** `{prom_cal:.0f} kcal` / Meta: `{ideal_cal:.0f} kcal`\n"
             f"• **Proteínas:** `{prom_prot:.1f} g` / Meta: `{ideal_prot:.1f} g`\n"
