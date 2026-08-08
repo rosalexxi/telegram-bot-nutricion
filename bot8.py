@@ -1212,7 +1212,6 @@ async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==========================================
 
 async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
-    # 1. Obtener los datos normalizados mediante la función central del script
     df = obtener_datos_usuario(user_id)
     
     if df.empty:
@@ -1223,60 +1222,59 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
             await query_or_update.message.reply_text(txt, parse_mode="Markdown")
         return
 
-    # Filtrar por la fecha solicitada
     df_diario = df[df['Fecha'] == fecha_str]
     
     if df_diario.empty:
-        txt = f"📅 **Diario del {fecha_str}:**\n\nNo hay registros guardados para este día."
+        txt = f"📅 **Registro del día {fecha_str}:**\n\nNo hay registros guardados para este día."
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(txt, parse_mode="Markdown")
         else:
             await query_or_update.message.reply_text(txt, parse_mode="Markdown")
         return
 
-    # 2. Calcular consumos, ejercicio y macronutrientes
+    # 1. Agrupar items por Momento
+    momentos_dict = {}
+    for _, row in df_diario.iterrows():
+        momento = str(row.get("Momento", "General")).strip()
+        concepto = str(row.get("Alimento", "")).strip()
+        
+        if me := momento.title():
+            momento = me
+
+        if momento not in momentos_dict:
+            momentos_dict[momento] = []
+        if concepto:
+            momentos_dict[momento].append(concepto)
+
+    # 2. Armar las líneas del desglose por categoría
+    lineas_desglose = []
+    for momento, ítems in momentos_dict.items():
+        cadena_ítems = ", ".join(ítems)
+        lineas_desglose.append(f"• {momento}: {cadena_ítems}")
+
+    # 3. Calcular totales de calorías
     tot_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
     tot_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
     bal_neto = tot_cons - tot_quem
 
-    tot_prot = df_diario['Proteinas'].sum()
-    tot_gras = df_diario['Grasas'].sum()
-    tot_carb = df_diario['Carbohidratos'].sum()
-    tot_fibr = df_diario['Fibras'].sum()
-
-    # 3. Formatear el desglose de ingestas/actividades
-    desglose = []
-    for _, row in df_diario.iterrows():
-        concepto = row.get("Alimento", "Varios")
-        momento = str(row.get("Momento", "General"))
-        cal = float(row.get("Calorias", 0))
-
-        if cal < 0 or momento.lower() == "actividad física":
-            desglose.append(f"🏃 *{concepto}*: -{abs(cal):.0f} kcal")
-        else:
-            desglose.append(f"🍽️ *{concepto}* ({momento}): {cal:.0f} kcal")
-
+    # 4. Formatear mensaje como la captura
     resumen_msg = (
-        f"📊 **Resumen del Diario ({fecha_str})**\n\n"
-        + "\n".join(desglose) + "\n\n"
-        f"----------------------------------------\n"
-        f"📥 **Consumo Total:** {tot_cons:.0f} kcal\n"
-        f"🔥 **Ejercicio Total:** -{tot_quem:.0f} kcal\n"
-        f"⚖️ **Balance Neto:** {bal_neto:.0f} kcal\n\n"
-        f"🥩 **Proteínas:** {tot_prot:.1f}g | "
-        f"🍞 **Carbos:** {tot_carb:.1f}g | "
-        f"🥑 **Grasas:** {tot_gras:.1f}g | "
-        f"🌾 **Fibras:** {tot_fibr:.1f}g"
+        f"📅 **Registro del día {fecha_str}:**\n\n"
+        + "\n".join(lineas_desglose) + "\n\n"
+        f"🖥️ **Consumidas:** {tot_cons:.0f} kcal\n"
+        f"🔥 **Quemadas:** {tot_quem:.0f} kcal\n"
+        f"⚖️ **Balance Neto:** {bal_neto:.0f} kcal"
     )
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📄 Descargar PDF Diario", callback_data=f"descargar_pdf_diario_{fecha_str}")]
+        [InlineKeyboardButton("📄 Descargar PDF del Diario", callback_data=f"descargar_pdf_diario_{fecha_str}")]
     ])
 
     if hasattr(query_or_update, 'edit_message_text'):
         await query_or_update.edit_message_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
     else:
         await query_or_update.message.reply_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
+
  
         
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
