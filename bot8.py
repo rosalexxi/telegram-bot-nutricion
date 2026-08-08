@@ -1908,13 +1908,13 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
 
 async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
     df = obtener_datos_usuario(user_id)
-    perfil = obtener_perfil_usuario(user_id, mes_target=mes_str)
+    perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) or {}
     df_presion = obtener_datos_presion(user_id)
     
-    df_mes = df[df['Fecha'].str.startswith(mes_str)] if not df.empty else pd.DataFrame()
+    df_mes = df[df['Fecha'].str.startswith(mes_str)] if (df is not None and not df.empty and 'Fecha' in df.columns) else pd.DataFrame()
     
-    tmb_val = 0
-    get_val = 2000
+    tmb_val = 0.0
+    get_val = 2000.0
     if perfil:
         peso = parse_raw_val(perfil.get('Peso'))
         altura = parse_raw_val(perfil.get('Altura'))
@@ -1924,17 +1924,17 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         
         res_metabol = calcular_tmb_y_get(peso, altura, edad, genero, actividad)
         if isinstance(res_metabol, tuple):
-            tmb_val = res_metabol[0]
-            get_val = res_metabol[1] if len(res_metabol) > 1 else tmb_val
+            tmb_val = parse_raw_val(res_metabol[0])
+            get_val = parse_raw_val(res_metabol[1]) if len(res_metabol) > 1 else tmb_val
         else:
-            tmb_val = res_metabol
+            tmb_val = parse_raw_val(res_metabol)
 
     if not df_mes.empty:
         dias_cnt = max(df_mes['Fecha'].nunique() if 'Fecha' in df_mes.columns else 1, 1)
         
         if 'Calorias' in df_mes.columns:
-            ingesta_total = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()
-            ejercicio_total = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())
+            ingesta_total = pd.to_numeric(df_mes[df_mes['Calorias'] > 0]['Calorias'], errors='coerce').sum()
+            ejercicio_total = abs(pd.to_numeric(df_mes[df_mes['Calorias'] < 0]['Calorias'], errors='coerce').sum())
         else:
             ingesta_total = 0.0
             ejercicio_total = 0.0
@@ -1945,32 +1945,62 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         prom_ingesta_real = 0.0
         prom_ejercicio = 0.0
 
-    resumen_para_ia = f"Mes: {mes_str}, Ingesta diaria: {prom_ingesta_real:.0f} kcal, Ejercicio: {prom_ejercicio:.0f} kcal, GET: {get_val:.0f} kcal."
+    # Aseguramos que los valores sean flotantes antes de formatear
+    ingesta_f = float(prom_ingesta_real or 0)
+    ejercicio_f = float(prom_ejercicio or 0)
+    get_f = float(get_val or 2000)
+
+    resumen_para_ia = f"Mes: {mes_str}, Ingesta diaria: {ingesta_f:.0f} kcal, Ejercicio: {ejercicio_f:.0f} kcal, GET: {get_f:.0f} kcal."
     rec_ia = obtener_recomendacion_ia(resumen_para_ia)
 
-
-
-# --- LÍNEA DE CORRECCIÓN (Asegura que 'Peso_Ideal' exista y tenga valor real) ---
-    perfil['Peso_Ideal'] = parse_raw_val(perfil.get('Peso_ideal') or perfil.get('Peso Ideal') or perfil.get('peso_ideal') or 0) or round(22.5 * ((parse_raw_val(perfil.get('Altura', 0)) / 100.0) ** 2), 1)
+    # Cálculo seguro de Peso Ideal evitando errores si falta la altura
+    altura_val = parse_raw_val(perfil.get('Altura', 0))
+    peso_ideal_calc = round(22.5 * ((altura_val / 100.0) ** 2), 1) if altura_val > 0 else 0
+    perfil['Peso_Ideal'] = parse_raw_val(perfil.get('Peso_ideal') or perfil.get('Peso Ideal') or perfil.get('peso_ideal')) or peso_ideal_calc
 
     pdf_bytes = generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, rec_ia, user_id)
+    
     await context.bot.send_document(
         chat_id=query.message.chat_id,
         document=pdf_bytes,
         filename=f"Resumen_Nutricional_{mes_str}.pdf"
     )
 
+
 # ==========================================
-# INICIALIZACIÓN
+# SERVIDOR FLASK (Web Service)
 # ==========================================
+
+@app.route('/')
+def index():
+    """
+    Ruta principal para verificar que el servicio web sigue en línea
+    y evitar que plataformas de hosting lo pongan a dormir.
+    """
+    return "Bot Nutricional activo y ejecutándose correctamente.", 200
+
+def run_flask():
+    """
+    Función para arrancar el servidor web en el puerto asignado.
+    """
+    port = int(os.environ.get('PORT', 5000))
+    # use_reloader=False es fundamental para evitar conflictos cuando corre en un hilo secundario
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+
+
+# ==========================================
+# INICIALIZACIÓN PRINCIPAL Y BOT DE TELEGRAM
+# ==========================================
+
 def main():
     if TELEGRAM_TOKEN:
-        # Iniciar Flask en hilo secundario
+        # 1. Iniciar servidor Flask en un hilo secundario (Daemon)
         threading.Thread(target=run_flask, daemon=True).start()
         
-        # Iniciar Bot Telegram
+        # 2. Configurar el Bot de Telegram
         application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
+        # Registro de comandos
         application.add_handler(CommandHandler("start", cmd_start))
         application.add_handler(CommandHandler("comidas", cmd_comidas))
         application.add_handler(CommandHandler("diario", cmd_diario))
@@ -1981,6 +2011,7 @@ def main():
         application.add_handler(CommandHandler("actividadia", actividad_ia))
         application.add_handler(CommandHandler("actividad_ia", actividad_ia))
 
+        # Registro de mensajes de voz, fotos y texto
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -1988,16 +2019,15 @@ def main():
         # Manejador específico para los botones de actividad IA
         application.add_handler(CallbackQueryHandler(actividad_ia, pattern="^act_"))
         
-        # Manejador general de callbacks
+        # Manejador general de callbacks (botones en pantalla)
         application.add_handler(CallbackQueryHandler(handle_callback))
 
+        # 3. Iniciar el bot escuchando mensajes (Polling)
+        print("Bot iniciado y escuchando mensajes...")
         application.run_polling()
     else:
-        # Si no hay token de Telegram, corre únicamente como servidor Flask
+        print("No se encontró el token de Telegram. Ejecutando solo el servidor Flask.")
         run_flask()
 
 if __name__ == '__main__':
     main()
-    
-    
-    
