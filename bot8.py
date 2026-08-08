@@ -2193,6 +2193,11 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
     resumen_para_ia = f"Mes: {mes_str}, Ingesta diaria: {prom_ingesta_real:.0f} kcal, Ejercicio: {prom_ejercicio:.0f} kcal, GET: {get_val:.0f} kcal."
     rec_ia = obtener_recomendacion_ia(resumen_para_ia)
 
+
+
+# --- LÍNEA DE CORRECCIÓN (Asegura que 'Peso_Ideal' exista y tenga valor real) ---
+    perfil['Peso_Ideal'] = parse_raw_val(perfil.get('Peso_ideal') or perfil.get('Peso Ideal') or perfil.get('peso_ideal') or 0) or round(22.5 * ((parse_raw_val(perfil.get('Altura', 0)) / 100.0) ** 2), 1)
+
     pdf_bytes = generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, rec_ia, user_id)
     await context.bot.send_document(
         chat_id=query.message.chat_id,
