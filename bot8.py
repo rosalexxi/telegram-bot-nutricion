@@ -1844,6 +1844,7 @@ def run_flask():
 # PANTALLA RESUMEN MES
 # ==========================================
 
+
 async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query:
@@ -1851,12 +1852,11 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         mes_str = query.data.replace("resumen_mes_", "")
         chat_id = query.message.chat_id
     else:
-        # Si entra por comando directo
         mes_str = datetime.now().strftime("%Y-%m")
         chat_id = update.effective_chat.id
 
     try:
-        # --- 1. OBTENER Y PROCESAR DATOS BIOMÉTRICOS DEL MES DESDE EL EXCEL ---
+        # --- LECTURA Y CÁLCULO MATEMÁTICO DE DATOS BIOMÉTRICOS ---
         sheet_perfil = sheet_datos.worksheet("Perfil")
         registros_perfil = sheet_perfil.get_all_records()
         
@@ -1864,54 +1864,49 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         perfil_mes = next((row for row in registros_perfil if str(row.get("MES", "")).strip() == mes_str), None)
 
         if perfil_mes:
-            # Función auxiliar interna para limpiar y corregir valores x1000
-            def parse_biometrico(val, default_val):
+            # Función de limpieza matemática para corregir escala x1000 si existiera
+            def parse_num(val, default_val):
                 try:
                     num = float(str(val).replace(",", "."))
-                    # Si el valor es mayor a 1000, está escalado x1000 (ej: 160000 -> 160.0)
                     if num > 1000:
                         num = num / 1000.0
                     return num if num > 0 else default_val
                 except (ValueError, TypeError):
                     return default_val
 
-            edad = int(parse_biometrico(perfil_mes.get("EDAD"), 64))
-            altura = parse_biometrico(perfil_mes.get("ALTURA"), 172.0)
-            peso_real = parse_biometrico(perfil_mes.get("PESO"), 108.5)
-            peso_ideal_base = parse_biometrico(perfil_mes.get("Peso_ideal"), 75.0)
-            genero = str(perfil_mes.get("GENERO", "M")).upper()
-            ocupacion = str(perfil_mes.get("OCUPACION", "Jubilado"))
+            edad = int(parse_num(perfil_mes.get("EDAD"), 64))
+            altura = parse_num(perfil_mes.get("ALTURA"), 172.0)
+            peso_real = parse_num(perfil_mes.get("PESO"), 108.5)
+            peso_ideal_base = parse_num(perfil_mes.get("Peso_ideal"), 75.0)
+            genero = str(perfil_mes.get("GENERO", "M")).strip().upper()
+            ocupacion = str(perfil_mes.get("OCUPACION", "Jubilado")).strip()
         else:
-            # Valores por defecto si no encuentra el mes cargado
             edad, altura, peso_real, peso_ideal_base = 64, 172.0, 108.5, 75.0
             genero, ocupacion = "M", "Jubilado"
 
-        # PESO PROMEDIO QUE ACTÚA COMO META DE REFERENCIA PROGRESIVA
+        # MATEMÁTICA: Peso promedio como meta progresiva
         peso_promedio = (peso_real + peso_ideal_base) / 2.0
 
-        # --- RECALCULAR OBJETIVOS DINÁMICOS BASADOS EN EL PESO PROMEDIO ---
-        # Tasa Metabólica Basal (Mifflin-St Jeor)
+        # RECALCULAR TMB Y GET BASADO EN EL PESO PROMEDIO
         if genero == "M":
             tmb = (10 * peso_promedio) + (6.25 * altura) - (5 * edad) + 5
         else:
             tmb = (10 * peso_promedio) + (6.25 * altura) - (5 * edad) - 161
 
-        # Factor de actividad según ocupación
         factor_act = 1.2 if "Jubilado" in ocupacion or "Sedentario" in ocupacion else 1.375
         get_meta = tmb * factor_act
 
-        # Metas calculadas dinámicamente para este mes específico
+        # Recálculo de Objetivos Dinámicos del Mes
         meta_calorias = round(get_meta)
-        meta_proteinas = round(peso_promedio * 1.5, 1)  # 1.5g por kg de peso objetivo progresivo
-        meta_grasas = round((get_meta * 0.25) / 9, 1)    # 25% de las calorías en grasas
-        meta_carbos = round((get_meta * 0.50) / 4, 1)    # 50% de las calorías en carbohidratos
+        meta_proteinas = round(peso_promedio * 1.5, 1)
+        meta_grasas = round((get_meta * 0.25) / 9, 1)
+        meta_carbos = round((get_meta * 0.50) / 4, 1)
         meta_fibras = 25.0
 
-        # --- PROCESAMIENTO DE CONSUMOS DIARIOS ---
+        # --- LECTURA DE CONSUMOS DIARIOS (CÓDIGO ORIGINAL) ---
         sheet_consumo = sheet_datos.worksheet("Consumo_Diario")
         registros_consumo = sheet_consumo.get_all_records()
         
-        # Filtrar registros del mes seleccionado
         registros_filtrados = [r for r in registros_consumo if str(r.get("FECHA", "")).startswith(mes_str)]
         
         if not registros_filtrados:
@@ -1920,7 +1915,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             else: await context.bot.send_message(chat_id=chat_id, text=msg)
             return
 
-        # Sumatoria y promedios mensuales
         dias_unicos = len(set(r.get("FECHA") for r in registros_filtrados if r.get("FECHA")))
         dias_unicos = max(dias_unicos, 1)
 
@@ -1936,7 +1930,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         prom_carb = round(total_carb / dias_unicos, 1)
         prom_fibra = round(total_fibra / dias_unicos, 1)
 
-        # --- PREPARAR EL PROMPT PARA LA IA (SOLO PESO REAL Y PESO PROMEDIO OBJETIVO) ---
+        # --- DATOS CORREGIDOS ENVIADOS A LA IA ---
         prompt_ia = f"""
         Actúa como un médico nutricionista experto. Analiza el siguiente resumen mensual:
 
@@ -1952,11 +1946,10 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         - Carbohidratos: {prom_carb} g / Meta: {meta_carbos} g
         - Fibra: {prom_fibra} g / Meta: {meta_fibras} g
 
-        Escribe un análisis breve, claro y motivador (máximo 300 palabras) evaluando el progreso.
+        Escribe un análisis breve, claro y motivador (máximo 150 palabras) evaluando el progreso.
         Ten en cuenta que el plan está estructurado para trabajar de forma progresiva desde su peso actual ({peso_real} kg) hacia el peso meta del mes ({peso_promedio:.1f} kg). NO menciones ningún otro peso ideal.
         """
 
-        # Llamada a Groq IA
         chat_completion = client_groq.chat.completions.create(
             messages=[{"role": "user", "content": prompt_ia}],
             model="llama-3.3-70b-versatile",
@@ -1964,10 +1957,10 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         recomendacion_ia = chat_completion.choices[0].message.content
 
-        # --- CONSTRUCCIÓN DEL MENSAJE DE TEXTO ---
+        # --- MENSAJE DE SALIDA (ESTRUCTURA ORIGINAL) ---
         texto_resumen = (
             f"📊 **Reporte Nutricional Mensual ({mes_str})**:\n\n"
-            f"📈 **Promedio Diario vs. Objetivos Ajustados:**\n"
+            f"📈 **Promedio Diario vs. Objetivos:**\n"
             f"• Calorías: {prom_kcal} kcal / Meta: {meta_calorias} kcal\n"
             f"• Proteínas: {prom_prot} g / Meta: {meta_proteinas} g\n"
             f"• Grasas: {prom_gras} g / Meta: {meta_grasas} g\n"
@@ -1976,7 +1969,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"🤖 **Recomendación de la IA:**\n{recomendacion_ia}"
         )
 
-        # Envío del mensaje y botón de PDF
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"pdf_mes_{mes_str}")]])
         
         if query:
@@ -1989,7 +1981,8 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         error_msg = f"❌ Ocurrió un error al generar el resumen del mes {mes_str}."
         if query: await query.edit_message_text(error_msg)
         else: await context.bot.send_message(chat_id=chat_id, text=error_msg)
-    
+
+
 # ==========================================
 # INICIALIZACIÓN PRINCIPAL Y BOT DE TELEGRAM
 # ==========================================
