@@ -1844,9 +1844,9 @@ def run_flask():
 # PANTALLA RESUMEN MES
 # ==========================================
 
-
 async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     try:
+        # 1. Obtener registros de comidas de la pestaña User_{user_id}
         df_datos = obtener_datos_usuario(user_id)
         
         if df_datos is None or df_datos.empty:
@@ -1857,7 +1857,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
                 await query_or_update.message.reply_text(txt, parse_mode="Markdown")
             return
 
-        # Filtrar registros del mes para el resumen diario
+        # Filtrar registros de comidas del mes en cuestión
         df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)] if 'Fecha' in df_datos.columns else pd.DataFrame()
         if df_mes.empty:
             txt = f"📊 No hay registros para el mes `{mes_str}`."
@@ -1871,11 +1871,10 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         if dias_registrados == 0:
             dias_registrados = 1
 
-        # 1. Totales Acumulados
+        # Totales y Promedios Diarios de Consumo
         tot_cons_mes = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum() if 'Calorias' in df_mes.columns else 0.0
         tot_quem_mes = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
 
-        # 2. Promedios Diarios
         prom_cons = tot_cons_mes / dias_registrados
         prom_quem = tot_quem_mes / dias_registrados
         prom_bal_neto = prom_cons - prom_quem
@@ -1891,46 +1890,49 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         prom_carb = tot_carb / dias_registrados
         prom_fibr = tot_fibr / dias_registrados
 
-        # 3. LECTURA PRECISA DEL PERFIL DE ESE MES
-        # Normalizamos la columna MES eliminando espacios para garantizar que encuentre "2026-07" / "2026-08"
-        if 'MES' in df_datos.columns:
-            df_perfil_mes = df_datos[df_datos['MES'].astype(str).str.strip() == str(mes_str).strip()]
-        else:
-            df_perfil_mes = pd.DataFrame()
+        # 2. LECTURA DINÁMICA DE LA PESTAÑA Perfil_{user_id}
+        edad, altura, peso_mes_especifico, peso_ideal_base, genero = 64, 172.0, 0.0, 75.0, "M"
         
-        def obtener_y_escalar(df, col_name, val_defecto):
-            if col_name in df.columns:
-                vals = pd.to_numeric(df[col_name].astype(str).str.replace(',', '.'), errors='coerce').dropna()
-                if not vals.empty and vals.iloc[-1] > 0:
-                    val = vals.iloc[-1]
-                    # Desescalar valores de la planilla (ej: 160000 -> 160.0)
-                    return val / 1000.0 if val > 500 else val
-            return val_defecto
+        try:
+            nombre_hoja_perfil = f"Perfil_{user_id}"
+            sheet_perfil = sheet_datos.worksheet(nombre_hoja_perfil)
+            registros_perfil = sheet_perfil.get_all_records()
+            
+            # Buscamos la fila correspondiente a mes_str (ej: "2026-07" o "2026-08")
+            perfil_mes = next((r for r in registros_perfil if str(r.get("MES", "")).strip() == str(mes_str).strip()), None)
+            
+            if perfil_mes:
+                def parse_val(v, default):
+                    try:
+                        n = float(str(v).replace(",", "."))
+                        return n / 1000.0 if n > 500 else n
+                    except:
+                        return default
 
-        # Extraer variables biométricas de la fila del mes
-        edad = int(obtener_y_escalar(df_perfil_mes, 'EDAD', 64))
-        altura = float(obtener_y_escalar(df_perfil_mes, 'ALTURA', 172.0))
-        peso_mes_especifico = float(obtener_y_escalar(df_perfil_mes, 'PESO', 108.5))
-        peso_ideal_base = float(obtener_y_escalar(df_perfil_mes, 'Peso_ideal', 75.0))
-        
-        genero = "M"
-        if 'GENERO' in df_perfil_mes.columns and not df_perfil_mes['GENERO'].dropna().empty:
-            genero = str(df_perfil_mes['GENERO'].dropna().iloc[-1]).strip().upper()
+                edad = int(parse_val(perfil_mes.get("EDAD"), 64))
+                altura = parse_val(perfil_mes.get("ALTURA"), 172.0)
+                peso_mes_especifico = parse_val(perfil_mes.get("PESO"), 0.0)
+                peso_ideal_base = parse_val(perfil_mes.get("Peso_ideal"), 75.0)
+                genero = str(perfil_mes.get("GENERO", "M")).strip().upper()
+        except Exception as err_perfil:
+            logger.error(f"Error accediendo a {f'Perfil_{user_id}'}: {err_perfil}")
 
-        # MATEMÁTICA: Peso Promedio como Meta Progresiva del mes
-        if peso_mes_especifico > 0:
-            peso_promedio = (peso_mes_especifico + peso_ideal_base) / 2.0
-        else:
-            peso_promedio = peso_ideal_base
+        # Si no se encontró registro para ese mes, resguardo
+        if peso_mes_especifico == 0.0:
+            peso_mes_especifico = 108.5
 
-        # 4. RECALCULAR METAS DINÁMICAMENTE SEGÚN EL PESO PROMEDIO DEL MES
-        # Tasa Metabólica Basal (Mifflin-St Jeor)
+        # 3. CÁLCULO MATEMÁTICO DEL PESO PROMEDIO DEL MES
+        # Julio: (112 + 75) / 2 = 93.5 kg
+        # Agosto: (160 + 75) / 2 = 117.5 kg
+        peso_promedio = (peso_mes_especifico + peso_ideal_base) / 2.0
+
+        # 4. RECALCULAR METAS DINÁMICAS (Mifflin-St Jeor)
         if genero == "M":
             tmb = (10 * peso_promedio) + (6.25 * altura) - (5 * edad) + 5
         else:
             tmb = (10 * peso_promedio) + (6.25 * altura) - (5 * edad) - 161
 
-        factor_act = 1.2  # Factor sedentario/jubilado
+        factor_act = 1.2
         get_meta = tmb * factor_act
 
         ideal_cal = round(get_meta)
@@ -1939,11 +1941,11 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         ideal_carb = round((get_meta * 0.50) / 4, 1)
         ideal_fibr = 25.0
 
-        # 5. Prompt de la IA con el Peso Actual y el Peso Meta Progresivo
+        # 5. Prompt a la IA con los pesos exactos calculados
         str_contexto_peso = (
             f"- Peso registrado en el mes {mes_str}: {peso_mes_especifico:.1f} kg\n"
             f"- Peso Meta Progresivo objetivo del mes: {peso_promedio:.1f} kg\n"
-        ) if peso_mes_especifico > 0 else ""
+        )
 
         prompt_para_ia = (
             f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
@@ -1955,8 +1957,8 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             f"- Carbohidratos: {prom_carb:.1f} g (Meta: {ideal_carb:.1f} g)\n"
             f"- Fibras: {prom_fibr:.1f} g (Meta: {ideal_fibr:.1f} g)\n\n"
             f"Instrucción: Evalúa los macronutrientes de este mes específico ({mes_str}). "
-            f"Considera que el objetivo actual es avanzar de forma progresiva desde el peso actual ({peso_mes_especifico:.1f} kg) "
-            f"hacia la meta intermedia del mes ({peso_promedio:.1f} kg). NO menciones ningún otro peso ideal definitivo. "
+            f"Considera que el objetivo actual es avanzar de forma progresiva desde el peso actual del mes ({peso_mes_especifico:.1f} kg) "
+            f"hacia la meta intermedia ({peso_promedio:.1f} kg). NO menciones ningún otro peso ideal definitivo. "
             f"Da un consejo personalizado y no repetitivo respecto a otros meses."
         )
 
@@ -1965,7 +1967,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         else:
             recomendacion_ia = "Mantené un consumo equilibrado de alimentos y agua."
 
-        # 6. Formato Final
+        # 6. Salida de mensaje
         txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
             f"• **Promedio Consumidas:** `{prom_cons:.0f} kcal` / día\n"
