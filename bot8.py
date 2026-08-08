@@ -1951,6 +1951,8 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
             f"{str_contexto_peso}"
             f"CONSUMO PROMEDIO DIARIO ({dias_registrados} días registrados):\n"
+            f"- Pesos
+            : {peso_promedio:.1f} kcal (Meta: {peso_mes_especifico:.1f} kcal)\n"
             f"- Calorías: {prom_cal:.0f} kcal (Meta: {ideal_cal:.0f} kcal)\n"
             f"- Proteínas: {prom_prot:.1f} g (Meta: {ideal_prot:.1f} g)\n"
             f"- Grasas: {prom_gras:.1f} g (Meta: {ideal_gras:.1f} g)\n"
