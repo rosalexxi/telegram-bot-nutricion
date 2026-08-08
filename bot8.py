@@ -1840,18 +1840,27 @@ def run_flask():
     # use_reloader=False es fundamental para evitar conflictos cuando corre en un hilo secundario
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
     
-
-
-
 # ==========================================
 # PANTALLA RESUMEN MES
 # ==========================================
 
+import pandas as pd
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
 async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     try:
-        df_datos = obtener_datos_usuario(user_id)
+        # Obtener datos de consumo del usuario
+        datos_raw = obtener_datos_usuario(user_id)
         
-        if df_datos is None or df_datos.empty:
+        # Si es diccionario o lista, convertir a DataFrame
+        if isinstance(datos_raw, dict):
+            df_datos = pd.DataFrame([datos_raw]) if datos_raw else pd.DataFrame()
+        elif isinstance(datos_raw, list):
+            df_datos = pd.DataFrame(datos_raw)
+        else:
+            df_datos = datos_raw if datos_raw is not None else pd.DataFrame()
+
+        if df_datos.empty:
             txt = f"📊 No hay registros ingresados para el usuario `{user_id}`."
             if hasattr(query_or_update, 'edit_message_text'):
                 await query_or_update.edit_message_text(txt, parse_mode="Markdown")
@@ -1860,7 +1869,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             return
 
         # 1. Filtrar registros del mes solicitado para el análisis diario
-        df_mes = df_datos[df_datos['Fecha'].str.startswith(str(mes_str))] if 'Fecha' in df_datos.columns else pd.DataFrame()
+        df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(str(mes_str))] if 'Fecha' in df_datos.columns else pd.DataFrame()
         if df_mes.empty:
             txt = f"📊 No hay registros para el mes `{mes_str}`."
             if hasattr(query_or_update, 'edit_message_text'):
@@ -1869,7 +1878,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
                 await query_or_update.message.reply_text(txt, parse_mode="Markdown")
             return
 
-        dias_registrados = df_mes['Fecha'].nunique()
+        dias_registrados = df_mes['Fecha'].nunique() if 'Fecha' in df_mes.columns else 1
         if dias_registrados == 0:
             dias_registrados = 1
 
@@ -1892,41 +1901,40 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         prom_carb = tot_carb / dias_registrados
         prom_fibr = tot_fibr / dias_registrados
 
-        # 4. Lectura Directa del Peso Específico del Mes (Arreglado con .str[:7])
+        # 4. Lectura Directa del Peso Específico del Mes (con conversión segura a DataFrame)
         peso_mes_especifico = 0.0
         peso_ideal = 75.0
 
-        # Intentar leer desde obtener_perfil_usuario o desde df_datos
-        df_perfil = obtener_perfil_usuario(user_id) if 'obtener_perfil_usuario' in globals() else df_datos
+        perfil_raw = obtener_perfil_usuario(user_id) if 'obtener_perfil_usuario' in globals() else df_datos
 
-        if df_perfil is not None and not df_perfil.empty:
-            # Buscar la columna que contenga la fecha/mes
+        if isinstance(perfil_raw, dict):
+            df_perfil = pd.DataFrame([perfil_raw]) if perfil_raw else pd.DataFrame()
+        elif isinstance(perfil_raw, list):
+            df_perfil = pd.DataFrame(perfil_raw)
+        else:
+            df_perfil = perfil_raw if perfil_raw is not None else pd.DataFrame()
+
+        if not df_perfil.empty:
             col_fecha_mes = next((c for c in ['MES', 'Mes', 'Fecha_Actualiza', 'fecha_actualiza'] if c in df_perfil.columns), None)
 
             if col_fecha_mes:
-                # Tomar solo los primeros 7 caracteres (YYYY-MM) ignorando horas o días
                 serie_meses = df_perfil[col_fecha_mes].astype(str).str.strip().str[:7]
-                
-                # Filtrar coincidencia exacta con el mes (ej: "2026-07")
                 fila_perfil_mes = df_perfil[serie_meses == str(mes_str).strip()]
 
                 if not fila_perfil_mes.empty:
-                    # Extraer Peso del Mes y dividir por 1000 si está en gramos/escala amplia
                     col_peso = next((c for c in ['PESO', 'Peso', 'peso'] if c in fila_perfil_mes.columns), None)
                     if col_peso:
                         val_peso = pd.to_numeric(fila_perfil_mes[col_peso].iloc[-1], errors='coerce')
                         if pd.notnull(val_peso) and val_peso > 0:
                             peso_mes_especifico = val_peso / 1000.0 if val_peso > 500 else val_peso
 
-                    # Extraer Peso Ideal
                     col_ideal = next((c for c in ['Peso_ideal', 'PESO_IDEAL', 'Peso Ideal', 'peso_ideal'] if c in fila_perfil_mes.columns), None)
                     if col_ideal:
                         val_ideal = pd.to_numeric(fila_perfil_mes[col_ideal].iloc[-1], errors='coerce')
                         if pd.notnull(val_ideal) and val_ideal > 0:
                             peso_ideal = val_ideal / 1000.0 if val_ideal > 500 else val_ideal
 
-        # Respaldo: Si por alguna razón no halló coincidencia en el mes exacto, toma el último ingresado
-        if peso_mes_especifico == 0.0 and df_perfil is not None:
+        if peso_mes_especifico == 0.0 and not df_perfil.empty:
             col_peso_alt = next((c for c in ['PESO', 'Peso', 'peso'] if c in df_perfil.columns), None)
             if col_peso_alt:
                 val_ult = pd.to_numeric(df_perfil[col_peso_alt].dropna().iloc[-1], errors='coerce') if not df_perfil[col_peso_alt].dropna().empty else 0.0
@@ -1935,11 +1943,11 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
 
         # 5. Metas Nutricionales del Usuario
         metas = obtener_metas_usuario(user_id) if 'obtener_metas_usuario' in globals() else {}
-        ideal_cal = metas.get('calorias', 2000)
-        ideal_prot = metas.get('proteinas', 120.0)
-        ideal_gras = metas.get('grasas', 65.0)
-        ideal_carb = metas.get('carbohidratos', 220.0)
-        ideal_fibr = metas.get('fibras', 25.0)
+        ideal_cal = metas.get('calorias', 2000) if isinstance(metas, dict) else 2000
+        ideal_prot = metas.get('proteinas', 120.0) if isinstance(metas, dict) else 120.0
+        ideal_gras = metas.get('grasas', 65.0) if isinstance(metas, dict) else 65.0
+        ideal_carb = metas.get('carbohidratos', 220.0) if isinstance(metas, dict) else 220.0
+        ideal_fibr = metas.get('fibras', 25.0) if isinstance(metas, dict) else 25.0
 
         # 6. Prompt para la IA
         prompt_para_ia = (
@@ -1995,8 +2003,8 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
         else:
-            await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")    
-    
+            await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
+
     
 # ==========================================
 # INICIALIZACIÓN PRINCIPAL Y BOT DE TELEGRAM
