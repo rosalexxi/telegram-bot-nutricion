@@ -1827,6 +1827,7 @@ async def generar_y_enviar_pdf_diario(query, user_id, fecha_str, context):
         filename=f"Diario_{fecha_str}.pdf"
     )
 
+
 async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     df = obtener_datos_usuario(user_id)
     perfil = obtener_perfil_usuario(user_id, mes_target=mes_str)
@@ -1913,22 +1914,44 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
     
     df_mes = df[df['Fecha'].str.startswith(mes_str)] if (df is not None and not df.empty and 'Fecha' in df.columns) else pd.DataFrame()
     
+    # 1. Extraer Peso Actual y Peso Ideal Fijo grabado en el Excel (Columna H)
+    peso_actual = parse_raw_val(perfil.get('Peso', 0))
+    peso_ideal_fijo = parse_raw_val(
+        perfil.get('Peso_ideal') or perfil.get('Peso Ideal') or perfil.get('peso_ideal') or 0
+    )
+    
+    # Si por alguna razón no viniera el peso fijado en el Excel, usamos 75 por defecto
+    if peso_ideal_fijo <= 0:
+        peso_ideal_fijo = 75.0
+
+    # 2. CALCULAR EL PESO OBJETIVO DINÁMICO (PROMEDIO)
+    # A medida que bajes de peso, este valor se irá acercando gradualmente a 75 kg
+    if peso_actual > 0:
+        peso_promedio_objetivo = (peso_actual + peso_ideal_fijo) / 2.0
+    else:
+        peso_promedio_objetivo = peso_ideal_fijo
+
+    # Asignamos al perfil el promedio calculado
+    perfil['Peso_Ideal'] = round(peso_promedio_objetivo, 1)
+
+    # 3. Cálculo de TMB y GET usando el peso objetivo promedio
     tmb_val = 0.0
     get_val = 2000.0
     if perfil:
-        peso = parse_raw_val(perfil.get('Peso'))
         altura = parse_raw_val(perfil.get('Altura'))
         edad = parse_raw_val(perfil.get('Edad'))
         genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino')))
         actividad = str(perfil.get('Ocupacion', 'Jubilado'))
         
-        res_metabol = calcular_tmb_y_get(peso, altura, edad, genero, actividad)
+        # Calculamos TMB y GET pasándole el Peso Promedio Objetivo
+        res_metabol = calcular_tmb_y_get(peso_promedio_objetivo, altura, edad, genero, actividad)
         if isinstance(res_metabol, tuple):
             tmb_val = parse_raw_val(res_metabol[0])
             get_val = parse_raw_val(res_metabol[1]) if len(res_metabol) > 1 else tmb_val
         else:
             tmb_val = parse_raw_val(res_metabol)
 
+    # 4. Cálculo de ingesta y ejercicio del mes
     if not df_mes.empty:
         dias_cnt = max(df_mes['Fecha'].nunique() if 'Fecha' in df_mes.columns else 1, 1)
         
@@ -1945,19 +1968,15 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         prom_ingesta_real = 0.0
         prom_ejercicio = 0.0
 
-    # Aseguramos que los valores sean flotantes antes de formatear
     ingesta_f = float(prom_ingesta_real or 0)
     ejercicio_f = float(prom_ejercicio or 0)
     get_f = float(get_val or 2000)
 
-    resumen_para_ia = f"Mes: {mes_str}, Ingesta diaria: {ingesta_f:.0f} kcal, Ejercicio: {ejercicio_f:.0f} kcal, GET: {get_f:.0f} kcal."
+    # 5. Consulta a la IA con los datos recalculados
+    resumen_para_ia = f"Mes: {mes_str}, Ingesta diaria: {ingesta_f:.0f} kcal, Ejercicio: {ejercicio_f:.0f} kcal, GET Objetivo: {get_f:.0f} kcal, Peso Actual: {peso_actual} kg, Peso Objetivo Etapa: {peso_promedio_objetivo:.1f} kg."
     rec_ia = obtener_recomendacion_ia(resumen_para_ia)
 
-    # Cálculo seguro de Peso Ideal evitando errores si falta la altura
-    altura_val = parse_raw_val(perfil.get('Altura', 0))
-    peso_ideal_calc = round(22.5 * ((altura_val / 100.0) ** 2), 1) if altura_val > 0 else 0
-    perfil['Peso_Ideal'] = parse_raw_val(perfil.get('Peso_ideal') or perfil.get('Peso Ideal') or perfil.get('peso_ideal')) or peso_ideal_calc
-
+    # 6. Generación del reporte en PDF
     pdf_bytes = generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, rec_ia, user_id)
     
     await context.bot.send_document(
@@ -1965,8 +1984,6 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         document=pdf_bytes,
         filename=f"Resumen_Nutricional_{mes_str}.pdf"
     )
-
-
 # ==========================================
 # SERVIDOR FLASK (Web Service)
 # ==========================================
