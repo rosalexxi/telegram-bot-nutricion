@@ -1211,87 +1211,73 @@ async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 2. MUESTRA Y CONSULTA DEL DIARIO
 # ==========================================
 
-async def mostrar_diario_fecha(update: Update, context: ContextTypes.DEFAULT_TYPE, fecha_str: str):
-    """
-    Obtiene los registros de comidas y actividad física para una fecha
-    específica desde Google Sheets y muestra el resumen calórico/macro.
-    """
-    query = update.callback_query
-    user_id = update.effective_user.id
-
-    try:
-        # Formatear la fecha ingresada
-        fecha_target = datetime.strptime(fecha_str, "%Y-%m-%d").date()
-        fecha_display = fecha_target.strftime("%d/%m/%Y")
-
-        # Cargar hojas del usuario desde Google Sheets
-        hoja_usuario = get_user_sheet(user_id) # Función de asistencia a gspread
-        registros = hoja_usuario.get_all_records()
-
-        # Filtrar registros de la fecha seleccionada
-        filas_dia = [r for r in registros if str(r.get("Fecha")) == fecha_str or str(r.get("Fecha")) == fecha_display]
-
-        if not filas_dia:
-            texto_vacio = f"📅 **Diario del {fecha_display}**\n\nNo hay registros guardados para este día."
-            if query:
-                await query.edit_message_text(texto_vacio, parse_mode="Markdown")
-            else:
-                await update.message.reply_text(texto_vacio, parse_mode="Markdown")
-            return
-
-        # Variables de acumulación
-        totales = {"kcal": 0, "proteina": 0, "carbos": 0, "grasa": 0, "ejercicio": 0}
-        desglose = []
-
-        for row in filas_dia:
-            concepto = row.get("Alimento/Actividad", "Varios")
-            tipo = row.get("Momento", "General")
-            cal = float(row.get("Calorías", 0))
-            prot = float(row.get("Proteínas (g)", 0))
-            carb = float(row.get("Carbohidratos (g)", 0))
-            gras = float(row.get("Grasas (g)", 0))
-
-            if cal < 0 or tipo.lower() == "actividad":
-                totales["ejercicio"] += abs(cal)
-                desglose.append(f"🏃 *{concepto}*: -{abs(cal):.0f} kcal")
-            else:
-                totales["kcal"] += cal
-                totales["proteina"] += prot
-                totales["carbos"] += carb
-                totales["grasa"] += gras
-                desglose.append(f"🍽️ *{concepto}* ({tipo}): {cal:.0f} kcal")
-
-        balance_neto = totales["kcal"] - totales["ejercicio"]
-
-        # Formatear mensaje final de salida
-        resumen_msg = (
-            f"📊 **Resumen del Diario ({fecha_display})**\n\n"
-            + "\n".join(desglose) + "\n\n"
-            f"----------------------------------------\n"
-            f"📥 **Consumo Total:** {totales['kcal']:.0f} kcal\n"
-            f"🔥 **Ejercicio Total:** -{totales['ejercicio']:.0f} kcal\n"
-            f"⚖️ **Balance Neto:** {balance_neto:.0f} kcal\n\n"
-            f"🥩 **Proteínas:** {totales['proteina']:.1f}g | "
-            f"🍞 **Carbos:** {totales['carbos']:.1f}g | "
-            f"🥑 **Grasas:** {totales['grasa']:.1f}g"
-        )
-
-        if query:
-            await query.edit_message_text(resumen_msg, parse_mode="Markdown")
+ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
+    # 1. Obtener los datos normalizados mediante la función central del script
+    df = obtener_datos_usuario(user_id)
+    
+    if df.empty:
+        txt = f"📅 No hay registros ingresados para el usuario `{user_id}`."
+        if hasattr(query_or_update, 'edit_message_text'):
+            await query_or_update.edit_message_text(txt, parse_mode="Markdown")
         else:
-            await update.message.reply_text(resumen_msg, parse_mode="Markdown")
+            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
+        return
 
-    except Exception as e:
-        print(f"Error al generar el diario para la fecha {fecha_str}: {e}")
-        error_msg = "❌ Hubo un inconveniente al consultar los datos del diario."
-        if query:
-            await query.edit_message_text(error_msg)
+    # Filtrar por la fecha solicitada
+    df_diario = df[df['Fecha'] == fecha_str]
+    
+    if df_diario.empty:
+        txt = f"📅 **Diario del {fecha_str}:**\n\nNo hay registros guardados para este día."
+        if hasattr(query_or_update, 'edit_message_text'):
+            await query_or_update.edit_message_text(txt, parse_mode="Markdown")
         else:
-            await update.message.reply_text(error_msg)
+            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
+        return
 
+    # 2. Calcular consumos, ejercicio y macronutrientes
+    tot_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
+    tot_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
+    bal_neto = tot_cons - tot_quem
 
+    tot_prot = df_diario['Proteinas'].sum()
+    tot_gras = df_diario['Grasas'].sum()
+    tot_carb = df_diario['Carbohidratos'].sum()
+    tot_fibr = df_diario['Fibras'].sum()
 
+    # 3. Formatear el desglose de ingestas/actividades
+    desglose = []
+    for _, row in df_diario.iterrows():
+        concepto = row.get("Alimento", "Varios")
+        momento = str(row.get("Momento", "General"))
+        cal = float(row.get("Calorias", 0))
 
+        if cal < 0 or momento.lower() == "actividad física":
+            desglose.append(f"🏃 *{concepto}*: -{abs(cal):.0f} kcal")
+        else:
+            desglose.append(f"🍽️ *{concepto}* ({momento}): {cal:.0f} kcal")
+
+    resumen_msg = (
+        f"📊 **Resumen del Diario ({fecha_str})**\n\n"
+        + "\n".join(desglose) + "\n\n"
+        f"----------------------------------------\n"
+        f"📥 **Consumo Total:** {tot_cons:.0f} kcal\n"
+        f"🔥 **Ejercicio Total:** -{tot_quem:.0f} kcal\n"
+        f"⚖️ **Balance Neto:** {bal_neto:.0f} kcal\n\n"
+        f"🥩 **Proteínas:** {tot_prot:.1f}g | "
+        f"🍞 **Carbos:** {tot_carb:.1f}g | "
+        f"🥑 **Grasas:** {tot_gras:.1f}g | "
+        f"🌾 **Fibras:** {tot_fibr:.1f}g"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📄 Descargar PDF Diario", callback_data=f"descargar_pdf_diario_{fecha_str}")]
+    ])
+
+    if hasattr(query_or_update, 'edit_message_text'):
+        await query_or_update.edit_message_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
+    else:
+        await query_or_update.message.reply_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
+ 
         
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1830,98 +1816,6 @@ def safe_number(val):
         return int(val) / 1000.0
     except (ValueError, TypeError):
         return 0.0
-
-async def mostrar_diario_fecha(update: Update, context: ContextTypes.DEFAULT_TYPE, fecha_str: str):
-    """
-    Obtiene los registros del día desde Google Sheets sin bloquear el bot
-    y muestra el resumen de nutrición y ejercicio.
-    """
-    query = update.callback_query
-    
-    # Responder de inmediato al toque del botón si proviene de un InlineKeyboard
-    if query:
-        await query.answer()
-
-    user_id = update.effective_user.id
-
-    try:
-        # Formatear la fecha
-        fecha_target = datetime.strptime(fecha_str, "%Y-%m-%d").date()
-        fecha_display = fecha_target.strftime("%d/%m/%Y")
-
-        # 3. Lectura asíncrona no bloqueante de Google Sheets
-        hoja_usuario = get_user_sheet(user_id)
-        registros = await asyncio.to_thread(hoja_usuario.get_all_records)
-
-        # Filtrar registros correspondientes al día seleccionado
-        filas_dia = [
-            r for r in registros 
-            if str(r.get("Fecha")) == fecha_str or str(r.get("Fecha")) == fecha_display
-        ]
-
-        # 1. Completado: Manejo de día sin registros
-        if not filas_dia:
-            texto_vacio = f"📅 **Diario del {fecha_display}**\n\nNo hay registros guardados para este día."
-            if query:
-                await query.edit_message_text(texto_vacio, parse_mode="Markdown")
-            else:
-                await update.message.reply_text(texto_vacio, parse_mode="Markdown")
-            return
-
-        totales = {"kcal": 0.0, "proteina": 0.0, "carbos": 0.0, "grasa": 0.0, "ejercicio": 0.0}
-        desglose = []
-
-        for row in filas_dia:
-            concepto = row.get("Alimento/Actividad", "Varios")
-            tipo = str(row.get("Momento", "General"))
-            
-            # 2. Conversión dividiendo por 1000 (enteros sin coma)
-            cal = safe_number(row.get("Calorías"))
-            prot = safe_number(row.get("Proteínas (g)"))
-            carb = safe_number(row.get("Carbohidratos (g)"))
-            gras = safe_number(row.get("Grasas (g)"))
-
-            if cal < 0 or tipo.lower() == "actividad":
-                gasto = abs(cal)
-                totales["ejercicio"] += gasto
-                desglose.append(f"🏃 *{concepto}*: -{gasto:.0f} kcal")
-            else:
-                totales["kcal"] += cal
-                totales["proteina"] += prot
-                totales["carbos"] += carb
-                totales["grasa"] += gras
-                desglose.append(f"🍽️ *{concepto}* ({tipo}): {cal:.0f} kcal")
-
-        balance_neto = totales["kcal"] - totales["ejercicio"]
-
-        # 1. Completado: Armado del mensaje y envío final
-        resumen_msg = (
-            f"📊 **Resumen del Diario ({fecha_display})**\n\n"
-            + "\n".join(desglose) + "\n\n"
-            f"----------------------------------------\n"
-            f"📥 **Consumo Total:** {totales['kcal']:.0f} kcal\n"
-            f"🔥 **Ejercicio Total:** -{totales['ejercicio']:.0f} kcal\n"
-            f"⚖️ **Balance Neto:** {balance_neto:.0f} kcal\n\n"
-            f"🥩 **Proteínas:** {totales['proteina']:.1f}g | "
-            f"🍞 **Carbos:** {totales['carbos']:.1f}g | "
-            f"🥑 **Grasas:** {totales['grasa']:.1f}g"
-        )
-
-        if query:
-            await query.edit_message_text(resumen_msg, parse_mode="Markdown")
-        else:
-            await update.message.reply_text(resumen_msg, parse_mode="Markdown")
-
-    except Exception as e:
-        print(f"Error al consultar el diario ({fecha_str}): {e}")
-        error_msg = "❌ Hubo un inconveniente al consultar los datos del diario."
-        if query:
-            await query.edit_message_text(error_msg)
-        else:
-            await update.message.reply_text(error_msg)
-
-
-
 
 
 async def generar_y_enviar_pdf_diario(query, user_id, fecha_str, context):
