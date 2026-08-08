@@ -1124,8 +1124,8 @@ async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Función encapsulada para registrar actividad física con IA.
-    Gestiona el cálculo inicial, los botones (Guardar, Editar, Anular)
-    y el flujo de confirmación.
+    Gestiona el cálculo inicial, botones (Guardar, Editar, Anular)
+    y permite editar solo duración/calorías sin re-escribir la actividad.
     """
     # -------------------------------------------------------------------------
     # CASO 1: El usuario presiona uno de los botones (CallbackQuery)
@@ -1162,7 +1162,6 @@ async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as err:
                 await query.edit_message_text(f"❌ Error al guardar en Sheets: {err}")
 
-            # Limpiar memoria temporal
             context.user_data.pop('actividad_ia_pendiente', None)
 
         elif accion == "act_anular":
@@ -1170,24 +1169,27 @@ async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop('actividad_ia_pendiente', None)
 
         elif accion == "act_editar":
+            # Guardamos cuál es la actividad activa para no perder el nombre
+            act_actual = estado_local['actividad']
             await query.edit_message_text(
-                f"✏️ **Edición de Actividad**\n\n"
-                f"Para editar, volvé a enviar el comando con los nuevos valores.\n"
-                f"Ejemplo: `/actividadia {estado_local['actividad']}, 40 min`",
+                f"✏️ **Edición de Actividad: {act_actual}**\n\n"
+                f"Ingresá únicamente la nueva duración o calorías usando el comando.\n\n"
+                f"Ejemplos:\n"
+                f"• `/actividadia 20 min` (recalcula por tiempo)\n"
+                f"• `/actividadia 200 cal` (fija las calorías en -200)",
                 parse_mode="Markdown"
             )
-            context.user_data.pop('actividad_ia_pendiente', None)
 
         return
 
     # -------------------------------------------------------------------------
-    # CASO 2: Invocación del comando inicial por mensaje de texto
+    # CASO 2: Invocación del comando por mensaje (/actividadia ...)
     # -------------------------------------------------------------------------
     if not update.message:
         return
 
     raw_text = update.message.text.replace('/actividadia', '').replace('/actividad_ia', '').strip()
-    
+
     if not raw_text:
         await update.message.reply_text(
             "⚠️ Por favor ingresá la actividad y duración.\nEjemplo: `/actividadia aquagym 50 min`",
@@ -1195,15 +1197,42 @@ async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    msg = await update.message.reply_text("⏳ Calculando gasto calórico con IA...")
+    # Revisar si hay una actividad previa guardada en memoria para reusar el nombre
+    estado_previo = context.user_data.get('actividad_ia_pendiente')
+    actividad_guardada = estado_previo.get('actividad') if estado_previo else None
 
-    # Consultar a GROQ (Llama 3.3)
-    try:
-        if not client_ai:
-            await msg.edit_text("❌ Error: API Key de GROQ no configurada.")
-            return
+    # Detectar si el usuario ingresó solo calorías directas (ej: "200 cal", "-200 kcal", "250")
+    import re
+    es_solo_calorias = False
+    calorias_directas = 0.0
 
-        system_prompt = """Sos un asistente deportivo experto.
+    # Patrón para detectar si el texto es puramente un número o número + cal/kcal
+    match_cal = re.match(r'^[\s\-]*(\d+(?:\.\d+)?)\s*(?:cal|kcal)?$', raw_text, re.IGNORECASE)
+    
+    if match_cal and "min" not in raw_text.lower():
+        es_solo_calorias = True
+        calorias_directas = -abs(float(match_cal.group(1)))
+
+    # Caso A: Se ingresaron calorías directas y existía una actividad previa
+    if es_solo_calorias and actividad_guardada:
+        actividad_nombre = actividad_guardada
+        calorias_val = calorias_directas
+    else:
+        # Caso B: Se ingresaron minutos o una actividad nueva completa -> Consulta a IA
+        msg = await update.message.reply_text("⏳ Calculando gasto calórico con IA...")
+
+        # Si el usuario solo puso un número/minutos (ej: "20 min") y había una actividad previa, armamos la frase completa
+        if actividad_guardada and not any(c.isalpha() for c in raw_text.replace("min", "").strip()):
+            texto_para_ia = f"{actividad_guardada} {raw_text}"
+        else:
+            texto_para_ia = raw_text
+
+        try:
+            if not client_ai:
+                await msg.edit_text("❌ Error: API Key de GROQ no configurada.")
+                return
+
+            system_prompt = """Sos un asistente deportivo experto.
 Analizá el texto de la actividad física y calculá el gasto calórico como un número NEGATIVO.
 Devolvé EXCLUSIVAMENTE un JSON válido con este formato:
 {
@@ -1211,41 +1240,45 @@ Devolvé EXCLUSIVAMENTE un JSON válido con este formato:
   "calorias": -250.0
 }"""
 
-        response = client_ai.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": raw_text}
-            ],
-            temperature=0.1,
-            response_format={"type": "json_object"}
-        )
-        
-        datos = json.loads(response.choices[0].message.content)
-        actividad_nombre = datos.get("actividad", raw_text)
-        calorias_val = float(datos.get("calorias", 0.0))
-        
-        if calorias_val > 0:
-            calorias_val = -calorias_val
+            response = client_ai.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": texto_para_ia}
+                ],
+                temperature=0.1,
+                response_format={"type": "json_object"}
+            )
 
-    except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar con IA: {e}")
-        return
+            datos = json.loads(response.choices[0].message.content)
+            # Si ya teníamos un nombre de actividad, lo preservamos; si no, usamos el de la IA
+            actividad_nombre = actividad_guardada if actividad_guardada else datos.get("actividad", raw_text)
+            calorias_val = float(datos.get("calorias", 0.0))
 
-    # Guardar en memoria persistente de usuario para recuperarlo al tocar el botón
+            if calorias_val > 0:
+                calorias_val = -calorias_val
+
+            # Borrar mensaje temporal de carga
+            await msg.delete()
+
+        except Exception as e:
+            await msg.edit_text(f"❌ Error al procesar con IA: {e}")
+            return
+
+    # Guardar estado actualizado en memoria
     context.user_data['actividad_ia_pendiente'] = {
         "actividad": actividad_nombre,
         "calorias": calorias_val
     }
 
-    # Armar la vista interactiva
+    # Mostrar la vista interactiva con los 3 botones
     texto = (
         f"🏃 **Actividad Física Detectada**\n\n"
         f"• **Detalle:** {actividad_nombre}\n"
         f"• **Calorías:** `{calorias_val:.1f} kcal`\n\n"
         f"¿Qué deseás hacer?"
     )
-    
+
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("💾 GUARDAR", callback_data="act_guardar"),
@@ -1256,10 +1289,179 @@ Devolvé EXCLUSIVAMENTE un JSON válido con este formato:
         ]
     ])
 
-    await msg.edit_text(texto, reply_markup=keyboard, parse_mode="Markdown")
+    await update.message.reply_text(texto, reply_markup=keyboard, parse_mode="Markdown")
     
-    
+async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Función encapsulada para registrar actividad física con IA.
+    Gestiona el cálculo inicial, botones (Guardar, Editar, Anular)
+    y permite editar solo duración/calorías sin re-escribir la actividad.
+    """
+    # -------------------------------------------------------------------------
+    # CASO 1: El usuario presiona uno de los botones (CallbackQuery)
+    # -------------------------------------------------------------------------
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        accion = query.data
 
+        estado_local = context.user_data.get('actividad_ia_pendiente')
+
+        if not estado_local:
+            await query.edit_message_text("⚠️ Esta interacción ha expirado o ya fue procesada.")
+            return
+
+        if accion == "act_guardar":
+            fecha_auto, _ = obtener_momento_y_fecha_auto()
+            item = {
+                "alimento": f"Actividad: {estado_local['actividad']}",
+                "peso": 0.0,
+                "calorias": estado_local['calorias'],
+                "proteinas": 0.0,
+                "grasas": 0.0,
+                "carbohidratos": 0.0,
+                "fibras": 0.0
+            }
+            try:
+                guardar_en_sheets([item], "Actividad", fecha_auto, "Actividad Física")
+                await query.edit_message_text(
+                    f"✅ **¡Actividad Guardada con éxito!**\n\n"
+                    f"🏃 {estado_local['actividad']}: `{estado_local['calorias']:.1f} kcal`",
+                    parse_mode="Markdown"
+                )
+            except Exception as err:
+                await query.edit_message_text(f"❌ Error al guardar en Sheets: {err}")
+
+            context.user_data.pop('actividad_ia_pendiente', None)
+
+        elif accion == "act_anular":
+            await query.edit_message_text("🚫 Registro de actividad cancelado.")
+            context.user_data.pop('actividad_ia_pendiente', None)
+
+        elif accion == "act_editar":
+            # Guardamos cuál es la actividad activa para no perder el nombre
+            act_actual = estado_local['actividad']
+            await query.edit_message_text(
+                f"✏️ **Edición de Actividad: {act_actual}**\n\n"
+                f"Ingresá únicamente la nueva duración o calorías usando el comando.\n\n"
+                f"Ejemplos:\n"
+                f"• `/actividadia 20 min` (recalcula por tiempo)\n"
+                f"• `/actividadia 200 cal` (fija las calorías en -200)",
+                parse_mode="Markdown"
+            )
+
+        return
+
+    # -------------------------------------------------------------------------
+    # CASO 2: Invocación del comando por mensaje (/actividadia ...)
+    # -------------------------------------------------------------------------
+    if not update.message:
+        return
+
+    raw_text = update.message.text.replace('/actividadia', '').replace('/actividad_ia', '').strip()
+
+    if not raw_text:
+        await update.message.reply_text(
+            "⚠️ Por favor ingresá la actividad y duración.\nEjemplo: `/actividadia aquagym 50 min`",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Revisar si hay una actividad previa guardada en memoria para reusar el nombre
+    estado_previo = context.user_data.get('actividad_ia_pendiente')
+    actividad_guardada = estado_previo.get('actividad') if estado_previo else None
+
+    # Detectar si el usuario ingresó solo calorías directas (ej: "200 cal", "-200 kcal", "250")
+    import re
+    es_solo_calorias = False
+    calorias_directas = 0.0
+
+    # Patrón para detectar si el texto es puramente un número o número + cal/kcal
+    match_cal = re.match(r'^[\s\-]*(\d+(?:\.\d+)?)\s*(?:cal|kcal)?$', raw_text, re.IGNORECASE)
+    
+    if match_cal and "min" not in raw_text.lower():
+        es_solo_calorias = True
+        calorias_directas = -abs(float(match_cal.group(1)))
+
+    # Caso A: Se ingresaron calorías directas y existía una actividad previa
+    if es_solo_calorias and actividad_guardada:
+        actividad_nombre = actividad_guardada
+        calorias_val = calorias_directas
+    else:
+        # Caso B: Se ingresaron minutos o una actividad nueva completa -> Consulta a IA
+        msg = await update.message.reply_text("⏳ Calculando gasto calórico con IA...")
+
+        # Si el usuario solo puso un número/minutos (ej: "20 min") y había una actividad previa, armamos la frase completa
+        if actividad_guardada and not any(c.isalpha() for c in raw_text.replace("min", "").strip()):
+            texto_para_ia = f"{actividad_guardada} {raw_text}"
+        else:
+            texto_para_ia = raw_text
+
+        try:
+            if not client_ai:
+                await msg.edit_text("❌ Error: API Key de GROQ no configurada.")
+                return
+
+            system_prompt = """Sos un asistente deportivo experto.
+Analizá el texto de la actividad física y calculá el gasto calórico como un número NEGATIVO.
+Devolvé EXCLUSIVAMENTE un JSON válido con este formato:
+{
+  "actividad": "Nombre de la actividad",
+  "calorias": -250.0
+}"""
+
+            response = client_ai.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": texto_para_ia}
+                ],
+                temperature=0.1,
+                response_format={"type": "json_object"}
+            )
+
+            datos = json.loads(response.choices[0].message.content)
+            # Si ya teníamos un nombre de actividad, lo preservamos; si no, usamos el de la IA
+            actividad_nombre = actividad_guardada if actividad_guardada else datos.get("actividad", raw_text)
+            calorias_val = float(datos.get("calorias", 0.0))
+
+            if calorias_val > 0:
+                calorias_val = -calorias_val
+
+            # Borrar mensaje temporal de carga
+            await msg.delete()
+
+        except Exception as e:
+            await msg.edit_text(f"❌ Error al procesar con IA: {e}")
+            return
+
+    # Guardar estado actualizado en memoria
+    context.user_data['actividad_ia_pendiente'] = {
+        "actividad": actividad_nombre,
+        "calorias": calorias_val
+    }
+
+    # Mostrar la vista interactiva con los 3 botones
+    texto = (
+        f"🏃 **Actividad Física Detectada**\n\n"
+        f"• **Detalle:** {actividad_nombre}\n"
+        f"• **Calorías:** `{calorias_val:.1f} kcal`\n\n"
+        f"¿Qué deseás hacer?"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("💾 GUARDAR", callback_data="act_guardar"),
+            InlineKeyboardButton("✏️ EDITAR", callback_data="act_editar"),
+        ],
+        [
+            InlineKeyboardButton("❌ ANULAR", callback_data="act_anular")
+        ]
+    ])
+
+    await update.message.reply_text(texto, reply_markup=keyboard, parse_mode="Markdown")
+    
+        
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.replace('/perfil', '').strip()
