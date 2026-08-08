@@ -1958,7 +1958,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             f"- Fibras: {prom_fibr:.1f} g (Meta: {ideal_fibr:.1f} g)\n\n"
             f"Instrucción: Evalúa los macronutrientes de este mes específico ({mes_str}). "
             f"Considera que el objetivo actual es avanzar de forma progresiva desde el peso actual del mes ({peso_mes_especifico:.1f} kg) "
-            f"hacia la meta intermedia ({peso_promedio:.1f} kg). NO menciones ningún otro peso ideal definitivo. "
+            f"hacia la meta intermedia ({peso_promedio:.1f} kg). Aclara en el resumen cual es el peso actual del mes y la meta intermedia. "
             f"Da un consejo personalizado y no repetitivo respecto a otros meses."
         )
 
