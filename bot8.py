@@ -870,74 +870,44 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes</b>", title_style))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10))
 
-    # --- EXTRACCIÓN DE DATOS BIOMÉTRICOS Y OBTENCIÓN DEL PESO IDEAL DE EXCEL ---
+    # --- OBTENCIÓN DE DATOS BIOMÉTRICOS Y PROMEDIO DE PESO IDEAL ---
     edad = parse_raw_val(perfil.get('Edad')) if perfil else 0
     peso_actual = parse_raw_val(perfil.get('Peso')) if perfil else 0
     altura = parse_raw_val(perfil.get('Altura')) if perfil else 0
     genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino'))) if perfil else 'masculino'
     actividad = str(perfil.get('Ocupacion', 'sedentario')) if perfil else 'sedentario'
     
-    # Recuperación directa desde Excel / Perfil (Si no existe, utiliza el peso actual por fallback)
-    peso_ideal = parse_raw_val(perfil.get('Peso_ideal', perfil.get('PesoIdeal', peso_actual))) if perfil else peso_actual
-    if peso_ideal <= 0:
-        peso_ideal = peso_actual * 0.85
+    # Extraer Peso Ideal guardado en el Excel
+    peso_ideal_excel = parse_raw_val(perfil.get('Peso_ideal', perfil.get('Peso_Ideal', perfil.get('PesoIdeal', peso_actual)))) if perfil else peso_actual
+    if peso_ideal_excel <= 0:
+        peso_ideal_excel = peso_actual * 0.85
 
-    # --- CÁLCULO DE VALORES IDEALES (Basado 100% en Peso Ideal) ---
-    tmb_ideal, get_ideal = calcular_tmb_y_get(peso_ideal, altura, edad, genero, actividad)
+    # CÁLCULO DEL PESO IDEAL PROMEDIO (Real + Ideal Excel) / 2
+    peso_ideal_promedio = (peso_actual + peso_ideal_excel) / 2.0 if peso_actual > 0 else peso_ideal_excel
+
+    # CÁLCULO DE METRICAS CON PESO PROMEDIO
+    tmb_ideal, get_ideal = calcular_tmb_y_get(peso_ideal_promedio, altura, edad, genero, actividad)
 
     dias_activos = df_mes['Fecha'].nunique() if not df_mes.empty else 1
     get_total_ideal = get_ideal * dias_activos
     bal_calorico = tot_cons - get_total_ideal - tot_quem
     cambio_peso_kg = bal_calorico / 7700.0
 
-    # Macronutrientes sugeridos según Peso Ideal
-    prot_rec = peso_ideal * 1.5 if peso_ideal > 0 else 90.0  # 1.6g por kg de Peso Ideal
-    gras_rec = (get_ideal * 0.25) / 9.0                      # 25% de calorías en grasa
-    carb_rec = (get_ideal * 0.50) / 4.0                      # 50% de calorías en carbohidratos
+    # Macronutrientes sugeridos
+    prot_rec = peso_ideal_promedio * 1.5 if peso_ideal_promedio > 0 else 90.0
+    gras_rec = (get_ideal * 0.25) / 9.0
+    carb_rec = (get_ideal * 0.50) / 4.0
     fibr_rec = 30.0
 
-    # Promedios reales registrados
     prom_d_cons = (tot_cons / dias_activos) if dias_activos > 0 else 0
     prom_d_prot = (tot_prot / dias_activos) if dias_activos > 0 else 0
     prom_d_gras = (tot_gras / dias_activos) if dias_activos > 0 else 0
     prom_d_carb = (tot_carb / dias_activos) if dias_activos > 0 else 0
     prom_d_fibr = (tot_fibr / dias_activos) if dias_activos > 0 else 0
 
-    # --- RE-EVALUACIÓN CON LA IA DE FORMA ENCAPSULADA ---
-    try:
-        prompt_ia = f"""
-        Actúa como un médico nutricionista evaluando el resumen mensual de un paciente.
-        Compara los promedios diarios consumidos contra los OBJETIVOS IDEALES calculados según su Peso Ideal:
-        
-        DATOS PACIENTE:
-        - Peso Actual: {peso_actual:.1f} kg | Peso Ideal (Objetivo): {peso_ideal:.1f} kg
-        - Altura: {altura:.1f} cm | Edad: {edad:.0f} años | Actividad: {actividad}
-        
-        VALORES DIARIOS REALES VS IDEALES:
-        - Calorías: Real {prom_d_cons:.1f} kcal vs Ideal {get_ideal:.1f} kcal
-        - Proteínas: Real {prom_d_prot:.1f} g vs Ideal {prot_rec:.1f} g
-        - Grasas: Real {prom_d_gras:.1f} g vs Ideal {gras_rec:.1f} g
-        - Carbohidratos: Real {prom_d_carb:.1f} g vs Ideal {carb_rec:.1f} g
-        - Fibras: Real {prom_d_fibr:.1f} g vs Ideal {fibr_rec:.1f} g
-        
-        Redacta una recomendación médica/nutricional breve (máximo 4-5 líneas) analizando si debe subir/bajar nutrientes o ajustar calorías para acercarse a su peso ideal.
-        """
-        
-        # Llamada a Groq/IA dentro de la función sin tocar el resto del programa
-        res_ia = client_groq.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt_ia}],
-            temperature=0.3,
-            max_tokens=300
-        )
-        recomendacion_actualizada = res_ia.choices[0].message.content.strip()
-    except Exception:
-        # Si no se puede contactar a la IA en el momento, usa la recomendación recibida por parámetro
-        recomendacion_actualizada = recomendacion
-
-    # --- CONSTRUCCIÓN DE LA TABLA COMPARATIVA CON VALORES IDEALES ---
+    # TABLA COMPARATIVA
     table_comp = [
-        [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Valor Ideal (Peso Objetivo)</b>", header_style)],
+        [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Valor Ideal (Peso Promedio)</b>", header_style)],
         [Paragraph("Calorías", body_style), Paragraph(f"{prom_d_cons:.1f} kcal", body_style), Paragraph(f"{get_ideal:.1f} kcal (GET)", body_style)],
         [Paragraph("Proteínas", body_style), Paragraph(f"{prom_d_prot:.1f} g", body_style), Paragraph(f"{prot_rec:.1f} g", body_style)],
         [Paragraph("Grasas", body_style), Paragraph(f"{prom_d_gras:.1f} g", body_style), Paragraph(f"{gras_rec:.1f} g", body_style)],
@@ -953,18 +923,18 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(t_comp)
     story.append(Spacer(1, 12))
 
-    story.append(Paragraph(f"• <b>PERFIL BASE ({mes_str}):</b> Peso Actual: {peso_actual:.1f} kg | Peso Ideal Registrado: {peso_ideal:.1f} kg | Altura: {altura:.1f} cm", body_style))
+    story.append(Paragraph(f"• <b>PERFIL BASE ({mes_str}):</b> Peso Actual: {peso_actual:.1f} kg | Peso Ideal Calculado (Promedio): {peso_ideal_promedio:.1f} kg | Altura: {altura:.1f} cm", body_style))
     story.append(Paragraph(f"• <b>BALANCE CALÓRICO NETO PROYECTADO:</b> {bal_calorico:.1f} kcal", body_style))
     story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {cambio_peso_kg:.2f} kg ({cambio_peso_kg*1000:.1f} g)", body_style))
 
     story.append(Spacer(1, 10))
     story.append(Paragraph("<b>Recomendación Nutricional Personalizada (IA):</b>", sub_style))
-    story.append(Paragraph(f"<i>{recomendacion_actualizada}</i>", body_style))
+    story.append(Paragraph(f"<i>{recomendacion}</i>", body_style))
 
     doc.build(story)
     buffer.seek(0)
     return buffer
-
+  
 # ==========================================
 # INTERFAZ Y RENDER DE CONFIRMACIÓN
 # ==========================================
@@ -1235,7 +1205,7 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
             await query_or_update.message.reply_text(txt, parse_mode="Markdown")
         return
 
-    # 1. Agrupar items por Momento
+    # 1. Agrupar ítems por Momento/Comida
     momentos_dict = {}
     for _, row in df_diario.iterrows():
         momento = str(row.get("Momento", "General")).strip()
@@ -1249,7 +1219,7 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
         if concepto:
             momentos_dict[momento].append(concepto)
 
-    # 2. Armar las líneas del desglose por categoría
+    # 2. Construir líneas de desglose por categoría
     lineas_desglose = []
     for momento, ítems in momentos_dict.items():
         cadena_ítems = ", ".join(ítems)
@@ -1260,7 +1230,7 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
     tot_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
     bal_neto = tot_cons - tot_quem
 
-    # 4. Formatear mensaje como la captura
+    # 4. Formatear mensaje coincidente con la imagen
     resumen_msg = (
         f"📅 **Registro del día {fecha_str}:**\n\n"
         + "\n".join(lineas_desglose) + "\n\n"
@@ -1277,8 +1247,6 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
         await query_or_update.edit_message_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
     else:
         await query_or_update.message.reply_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
-
- 
         
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1892,7 +1860,6 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     else:
         await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
 
-
 async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
     df = obtener_datos_usuario(user_id)
     perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) or {}
@@ -1900,27 +1867,25 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
     
     df_mes = df[df['Fecha'].str.startswith(mes_str)] if (df is not None and not df.empty and 'Fecha' in df.columns) else pd.DataFrame()
     
-    # 1. Extraer Peso Actual y Peso Ideal Fijo grabado en el Excel (Columna H)
+    # 1. Obtener Peso Real y Peso Ideal grabado en Excel
     peso_actual = parse_raw_val(perfil.get('Peso', 0))
-    peso_ideal_fijo = parse_raw_val(
+    peso_ideal_excel = parse_raw_val(
         perfil.get('Peso_ideal') or perfil.get('Peso Ideal') or perfil.get('peso_ideal') or 0
     )
     
-    # Si por alguna razón no viniera el peso fijado en el Excel, usamos 15 porciento menos por defecto
-    if peso_ideal_fijo <= 0:
-        peso_ideal_fijo = peso_actual * 0.85
+    if peso_ideal_excel <= 0:
+        peso_ideal_excel = peso_actual * 0.85
 
-    # 2. CALCULAR EL PESO OBJETIVO DINÁMICO (PROMEDIO)
-    # A medida que bajes de peso, este valor se irá acercando gradualmente
+    # 2. CALCULAR EL PESO IDEAL PROMEDIO (Real + Ideal Excel) / 2
     if peso_actual > 0:
-        peso_promedio_objetivo = (peso_actual + peso_ideal_fijo) / 2.0
+        peso_ideal_promedio = (peso_actual + peso_ideal_excel) / 2.0
     else:
-        peso_promedio_objetivo = peso_ideal_fijo
+        peso_ideal_promedio = peso_ideal_excel
 
-    # Asignamos al perfil el promedio calculado
-    perfil['Peso_Ideal'] = round(peso_promedio_objetivo, 1)
+    # Guardar dinámicamente en el dict para la llamada
+    perfil['Peso_Ideal'] = round(peso_ideal_promedio, 1)
 
-    # 3. Cálculo de TMB y GET usando el peso objetivo promedio
+    # 3. Cálculo de TMB y GET con el peso promedio calculado
     tmb_val = 0.0
     get_val = 2000.0
     if perfil:
@@ -1929,15 +1894,14 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino')))
         actividad = str(perfil.get('Ocupacion', 'Jubilado'))
         
-        # Calculamos TMB y GET pasándole el Peso Promedio Objetivo
-        res_metabol = calcular_tmb_y_get(peso_promedio_objetivo, altura, edad, genero, actividad)
+        res_metabol = calcular_tmb_y_get(peso_ideal_promedio, altura, edad, genero, actividad)
         if isinstance(res_metabol, tuple):
             tmb_val = parse_raw_val(res_metabol[0])
             get_val = parse_raw_val(res_metabol[1]) if len(res_metabol) > 1 else tmb_val
         else:
             tmb_val = parse_raw_val(res_metabol)
 
-    # 4. Cálculo de ingesta y ejercicio del mes
+    # 4. Ingesta y ejercicio del mes
     if not df_mes.empty:
         dias_cnt = max(df_mes['Fecha'].nunique() if 'Fecha' in df_mes.columns else 1, 1)
         
@@ -1958,18 +1922,23 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
     ejercicio_f = float(prom_ejercicio or 0)
     get_f = float(get_val or 2000)
 
-    # 5. Consulta a la IA con los datos recalculados
-    resumen_para_ia = f"Mes: {mes_str}, Ingesta diaria: {ingesta_f:.0f} kcal, Ejercicio: {ejercicio_f:.0f} kcal, GET Objetivo: {get_f:.0f} kcal, Peso Actual: {peso_actual} kg, Peso Objetivo Etapa: {peso_promedio_objetivo:.1f} kg."
+    # 5. Enviar el promedio de peso a la IA para sus cálculos
+    resumen_para_ia = (
+        f"Mes: {mes_str}, Ingesta diaria: {ingesta_f:.0f} kcal, Ejercicio: {ejercicio_f:.0f} kcal, "
+        f"GET Objetivo: {get_f:.0f} kcal, Peso Actual: {peso_actual} kg, "
+        f"Peso Ideal Promedio Objetivo: {peso_ideal_promedio:.1f} kg."
+    )
     rec_ia = obtener_recomendacion_ia(resumen_para_ia)
 
-    # 6. Generación del reporte en PDF
+    # 6. Generar el PDF adjunto
     pdf_bytes = generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, rec_ia, user_id)
     
     await context.bot.send_document(
         chat_id=query.message.chat_id,
         document=pdf_bytes,
-        filename=f"Resumen_Nutricional_{mes_str}.pdf"
+        filename=f"Resumen_Mensual_{mes_str}.pdf"
     )
+
 # ==========================================
 # SERVIDOR FLASK (Web Service)
 # ==========================================
