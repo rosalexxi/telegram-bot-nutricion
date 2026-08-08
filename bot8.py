@@ -1293,7 +1293,7 @@ Devolvé EXCLUSIVAMENTE un JSON válido con este formato:
     
 async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Función encapsulada para registrar actividad física con IA.
+    Función para registrar actividad física con IA.
     Gestiona el cálculo inicial, botones (Guardar, Editar, Anular)
     y permite editar solo duración/calorías sin re-escribir la actividad.
     """
@@ -1304,6 +1304,7 @@ async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         await query.answer()
         accion = query.data
+        user_id = query.from_user.id
 
         estado_local = context.user_data.get('actividad_ia_pendiente')
 
@@ -1323,7 +1324,8 @@ async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "fibras": 0.0
             }
             try:
-                guardar_en_sheets([item], "Actividad", fecha_auto, "Actividad Física")
+                # Modificación: Se pasa el user_id en la posición correctas
+                guardar_en_sheets(user_id, [item], fecha_auto, "Actividad Física", tipo="Actividad")
                 await query.edit_message_text(
                     f"✅ **¡Actividad Guardada con éxito!**\n\n"
                     f"🏃 {estado_local['actividad']}: `{estado_local['calorias']:.1f} kcal`",
@@ -1339,7 +1341,6 @@ async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop('actividad_ia_pendiente', None)
 
         elif accion == "act_editar":
-            # Guardamos cuál es la actividad activa para no perder el nombre
             act_actual = estado_local['actividad']
             await query.edit_message_text(
                 f"✏️ **Edición de Actividad: {act_actual}**\n\n"
@@ -1367,31 +1368,24 @@ async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Revisar si hay una actividad previa guardada en memoria para reusar el nombre
     estado_previo = context.user_data.get('actividad_ia_pendiente')
     actividad_guardada = estado_previo.get('actividad') if estado_previo else None
 
-    # Detectar si el usuario ingresó solo calorías directas (ej: "200 cal", "-200 kcal", "250")
-    import re
     es_solo_calorias = False
     calorias_directas = 0.0
 
-    # Patrón para detectar si el texto es puramente un número o número + cal/kcal
     match_cal = re.match(r'^[\s\-]*(\d+(?:\.\d+)?)\s*(?:cal|kcal)?$', raw_text, re.IGNORECASE)
     
     if match_cal and "min" not in raw_text.lower():
         es_solo_calorias = True
         calorias_directas = -abs(float(match_cal.group(1)))
 
-    # Caso A: Se ingresaron calorías directas y existía una actividad previa
     if es_solo_calorias and actividad_guardada:
         actividad_nombre = actividad_guardada
         calorias_val = calorias_directas
     else:
-        # Caso B: Se ingresaron minutos o una actividad nueva completa -> Consulta a IA
         msg = await update.message.reply_text("⏳ Calculando gasto calórico con IA...")
 
-        # Si el usuario solo puso un número/minutos (ej: "20 min") y había una actividad previa, armamos la frase completa
         if actividad_guardada and not any(c.isalpha() for c in raw_text.replace("min", "").strip()):
             texto_para_ia = f"{actividad_guardada} {raw_text}"
         else:
@@ -1421,27 +1415,23 @@ Devolvé EXCLUSIVAMENTE un JSON válido con este formato:
             )
 
             datos = json.loads(response.choices[0].message.content)
-            # Si ya teníamos un nombre de actividad, lo preservamos; si no, usamos el de la IA
             actividad_nombre = actividad_guardada if actividad_guardada else datos.get("actividad", raw_text)
             calorias_val = float(datos.get("calorias", 0.0))
 
             if calorias_val > 0:
                 calorias_val = -calorias_val
 
-            # Borrar mensaje temporal de carga
             await msg.delete()
 
         except Exception as e:
             await msg.edit_text(f"❌ Error al procesar con IA: {e}")
             return
 
-    # Guardar estado actualizado en memoria
     context.user_data['actividad_ia_pendiente'] = {
         "actividad": actividad_nombre,
         "calorias": calorias_val
     }
 
-    # Mostrar la vista interactiva con los 3 botones
     texto = (
         f"🏃 **Actividad Física Detectada**\n\n"
         f"• **Detalle:** {actividad_nombre}\n"
@@ -1459,8 +1449,7 @@ Devolvé EXCLUSIVAMENTE un JSON válido con este formato:
         ]
     ])
 
-    await update.message.reply_text(texto, reply_markup=keyboard, parse_mode="Markdown")
-    
+    await update.message.reply_text(texto, reply_markup=keyboard, parse_mode="Markdown")    
         
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
