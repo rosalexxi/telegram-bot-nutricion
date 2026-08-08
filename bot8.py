@@ -1121,16 +1121,9 @@ async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
     
-async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE, texto_directo: str = None):
+async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    
-    # Permite recibir el texto directo desde handle_message o extraerlo del comando
-    if texto_directo:
-        texto = texto_directo.strip()
-    elif update.message and update.message.text:
-        texto = update.message.text.replace('/actividadia', '').replace('/actividad_ia', '').strip()
-    else:
-        texto = ""
+    texto = update.message.text.replace('/actividadia', '').replace('/actividad_ia', '').strip()
     
     if not texto:
         await update.message.reply_text(
@@ -1141,63 +1134,32 @@ async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE, t
 
     msg = await update.message.reply_text("⏳ Calculando gasto calórico con IA...")
 
-    prompt_ejercicio = f"El usuario realizó la siguiente actividad física: '{texto}'. Estimá únicamente el gasto calórico estimado en calorías quemadas (número positivo)."
+    prompt_ejercicio = f"El usuario realizó la actividad física: '{texto}'. Estima el gasto calórico negativo."
 
     try:
         respuesta_ia = analizar_con_groq(prompt_ejercicio)
-        items = respuesta_ia.get("items", []) if isinstance(respuesta_ia, dict) else []
+        items = respuesta_ia.get("items", [])
         
-        calorias_val = -150.0
         if items:
-            calorias_val = -abs(parse_raw_val(items[0].get('calorias', 150)))
-            
-        item_actividad = {
-            "alimento": texto, 
-            "peso": 0.0, 
-            "calorias": calorias_val, 
-            "proteinas": 0.0, 
-            "grasas": 0.0, 
-            "carbohidratos": 0.0, 
-            "fibras": 0.0
-        }
+            for it in items:
+                it['calorias'] = -abs(parse_raw_val(it.get('calorias', 0)))
+        else:
+            items = [{"alimento": texto, "peso": 0.0, "calorias": -150.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}]
 
-        fecha_auto, _ = obtener_momento_y_fecha_auto()
-        
-        # Estado del usuario para el callback handler
-        context.user_data['pending_items'] = [item_actividad]
-        context.user_data['pending_tipo'] = "Actividad"
-        context.user_data['pending_fecha'] = fecha_auto
-        context.user_data['pending_momento'] = "Actividad Física"
+        fecha_actual = obtener_ahora_arg().strftime("%Y-%m-%d")
+        guardar_en_sheets(user_id, items, fecha_actual, "Actividad Física", tipo="Actividad")
 
-        texto_msg = (
-            f"🏃 **Confirmación de Actividad Física:**\n"
-            f"📅 **Fecha:** `{fecha_auto}` | **Momento:** `Actividad Física`\n\n"
-            f"1. {texto}: **{calorias_val:.1f} kcal**"
+        act_nombre = items[0].get('alimento', texto)
+        cal_neg = items[0].get('calorias', 0)
+
+        await msg.edit_text(
+            f"✅ **Actividad física registrada con IA:**\n"
+            f"• Actividad: `{act_nombre}`\n"
+            f"• Calorías: `{cal_neg:.0f} kcal`",
+            parse_mode="Markdown"
         )
-
-        # Botonera alineada con los callback_data de handle_callback
-        keyboard = [
-            [
-                InlineKeyboardButton("✏️ Editar", callback_data="edit_item_1"),
-                InlineKeyboardButton("❌ Anular", callback_data="cancel_entry")
-            ],
-            [
-                InlineKeyboardButton("✅ Hoy", callback_data="set_d_hoy"),
-                InlineKeyboardButton("📅 Ayer", callback_data="set_d_ayer"),
-                InlineKeyboardButton("📆 Otro Día", callback_data="set_d_otro")
-            ],
-            [
-                InlineKeyboardButton("💾 GUARDAR", callback_data="confirm_save")
-            ]
-        ]
-
-        await msg.edit_text(texto_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
     except Exception as e:
-        print(f"Error en cmd_actividad_ia: {e}")
-        await msg.edit_text(f"❌ Error al consultar la IA: {str(e)}")
-
-
+        await msg.edit_text(f"❌ Error al consultar la IA: {e}")
 
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1457,12 +1419,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.strip()
 
-    # --- INTERCEPCIÓN DE ACTIVIDAD FÍSICA CON IA ---
-    if context.user_data.get('awaiting_actividad_input'):
-        context.user_data['awaiting_actividad_input'] = False
-        await cmd_actividad_ia(update, context, texto_directo=raw_text)
-        return
-
     if context.user_data.get('awaiting_edit_item_val'):
         context.user_data['awaiting_edit_item_val'] = False
         idx = context.user_data.get('editing_item_idx')
@@ -1671,15 +1627,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "set_d_otro":
         await query.edit_message_text("📅 Por favor, escribí la fecha deseada en formato `YYYY-MM-DD` (Ej: `2026-08-01`):", parse_mode="Markdown")
         context.user_data['awaiting_date'] = True
-
-    # --- NUEVA OPCIÓN: ACTIVIDAD FÍSICA CON IA ---
-    elif data == "mod_actividad":
-        await query.edit_message_text(
-            "🏃 **Registro de Actividad Física con IA**\n\n"
-            "Por favor, enviá un mensaje describiendo tu actividad (ejemplo: _'Caminé 45 minutos a paso firme'_ o _'Hice 30 min de natación intensos'_):",
-            parse_mode="Markdown"
-        )
-        context.user_data['awaiting_actividad_input'] = True
 
     elif data.startswith("edit_item_"):
         idx = int(data.replace("edit_item_", "")) - 1
@@ -1939,9 +1886,8 @@ def main():
         application.add_handler(CommandHandler("perfil", cmd_perfil))
         application.add_handler(CommandHandler("presion", cmd_presion_handler))
         application.add_handler(CommandHandler("actividad", cmd_actividad))
-        
-        # Handlers para actividad IA (soportando ambas sintaxis)
-        application.add_handler(CommandHandler(["actividadia", "actividad_ia"], cmd_actividad_ia))
+        application.add_handler(CommandHandler("actividadia", cmd_actividad_ia))
+        application.add_handler(CommandHandler("actividad_ia", cmd_actividad_ia))
 
         application.add_handler(MessageHandler(filters.VOICE, handle_voice))
         application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
@@ -1955,5 +1901,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
