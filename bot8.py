@@ -895,33 +895,75 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes</b>", title_style))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10))
 
+    # --- EXTRACCIÓN DE DATOS BIOMÉTRICOS Y OBTENCIÓN DEL PESO IDEAL DE EXCEL ---
     edad = parse_raw_val(perfil.get('Edad')) if perfil else 0
-    peso = parse_raw_val(perfil.get('Peso')) if perfil else 0
+    peso_actual = parse_raw_val(perfil.get('Peso')) if perfil else 0
     altura = parse_raw_val(perfil.get('Altura')) if perfil else 0
     genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino'))) if perfil else 'masculino'
     actividad = str(perfil.get('Ocupacion', 'sedentario')) if perfil else 'sedentario'
     
-    tmb, get_val = calcular_tmb_y_get(peso, altura, edad, genero, actividad)
+    # Recuperación directa desde Excel / Perfil (Si no existe, utiliza el peso actual por fallback)
+    peso_ideal = parse_raw_val(perfil.get('Peso_Ideal', perfil.get('PesoIdeal', peso_actual))) if perfil else peso_actual
+    if peso_ideal <= 0:
+        peso_ideal = peso_actual
+
+    # --- CÁLCULO DE VALORES IDEALES (Basado 100% en Peso Ideal) ---
+    tmb_ideal, get_ideal = calcular_tmb_y_get(peso_ideal, altura, edad, genero, actividad)
 
     dias_activos = df_mes['Fecha'].nunique() if not df_mes.empty else 1
-    get_total = get_val * dias_activos
-    bal_calorico = tot_cons - get_total - tot_quem
+    get_total_ideal = get_ideal * dias_activos
+    bal_calorico = tot_cons - get_total_ideal - tot_quem
     cambio_peso_kg = bal_calorico / 7700.0
 
-    prot_rec = calcular_proteina_sugerida(user_id=user_id) if peso > 0 else 90.0
-    gras_rec = (get_val * 0.25) / 9.0
-    carb_rec = (get_val * 0.50) / 4.0
+    # Macronutrientes sugeridos según Peso Ideal
+    prot_rec = peso_ideal * 1.6 if peso_ideal > 0 else 90.0  # 1.6g por kg de Peso Ideal
+    gras_rec = (get_ideal * 0.25) / 9.0                      # 25% de calorías en grasa
+    carb_rec = (get_ideal * 0.50) / 4.0                      # 50% de calorías en carbohidratos
     fibr_rec = 30.0
 
+    # Promedios reales registrados
     prom_d_cons = (tot_cons / dias_activos) if dias_activos > 0 else 0
     prom_d_prot = (tot_prot / dias_activos) if dias_activos > 0 else 0
     prom_d_gras = (tot_gras / dias_activos) if dias_activos > 0 else 0
     prom_d_carb = (tot_carb / dias_activos) if dias_activos > 0 else 0
     prom_d_fibr = (tot_fibr / dias_activos) if dias_activos > 0 else 0
 
+    # --- RE-EVALUACIÓN CON LA IA DE FORMA ENCAPSULADA ---
+    try:
+        prompt_ia = f"""
+        Actúa como un médico nutricionista evaluando el resumen mensual de un paciente.
+        Compara los promedios diarios consumidos contra los OBJETIVOS IDEALES calculados según su Peso Ideal:
+        
+        DATOS PACIENTE:
+        - Peso Actual: {peso_actual:.1f} kg | Peso Ideal (Objetivo): {peso_ideal:.1f} kg
+        - Altura: {altura:.1f} cm | Edad: {edad:.0f} años | Actividad: {actividad}
+        
+        VALORES DIARIOS REALES VS IDEALES:
+        - Calorías: Real {prom_d_cons:.1f} kcal vs Ideal {get_ideal:.1f} kcal
+        - Proteínas: Real {prom_d_prot:.1f} g vs Ideal {prot_rec:.1f} g
+        - Grasas: Real {prom_d_gras:.1f} g vs Ideal {gras_rec:.1f} g
+        - Carbohidratos: Real {prom_d_carb:.1f} g vs Ideal {carb_rec:.1f} g
+        - Fibras: Real {prom_d_fibr:.1f} g vs Ideal {fibr_rec:.1f} g
+        
+        Redacta una recomendación médica/nutricional breve (máximo 4-5 líneas) analizando si debe subir/bajar nutrientes o ajustar calorías para acercarse a su peso ideal.
+        """
+        
+        # Llamada a Groq/IA dentro de la función sin tocar el resto del programa
+        res_ia = client_groq.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt_ia}],
+            temperature=0.3,
+            max_tokens=300
+        )
+        recomendacion_actualizada = res_ia.choices[0].message.content.strip()
+    except Exception:
+        # Si no se puede contactar a la IA en el momento, usa la recomendación recibida por parámetro
+        recomendacion_actualizada = recomendacion
+
+    # --- CONSTRUCCIÓN DE LA TABLA COMPARATIVA CON VALORES IDEALES ---
     table_comp = [
-        [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Valor Recomendado / Objetivo</b>", header_style)],
-        [Paragraph("Calorías", body_style), Paragraph(f"{prom_d_cons:.1f} kcal", body_style), Paragraph(f"{get_val:.1f} kcal (GET)", body_style)],
+        [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Valor Ideal (Peso Objetivo)</b>", header_style)],
+        [Paragraph("Calorías", body_style), Paragraph(f"{prom_d_cons:.1f} kcal", body_style), Paragraph(f"{get_ideal:.1f} kcal (GET)", body_style)],
         [Paragraph("Proteínas", body_style), Paragraph(f"{prom_d_prot:.1f} g", body_style), Paragraph(f"{prot_rec:.1f} g", body_style)],
         [Paragraph("Grasas", body_style), Paragraph(f"{prom_d_gras:.1f} g", body_style), Paragraph(f"{gras_rec:.1f} g", body_style)],
         [Paragraph("Carbohidratos", body_style), Paragraph(f"{prom_d_carb:.1f} g", body_style), Paragraph(f"{carb_rec:.1f} g", body_style)],
@@ -936,13 +978,13 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(t_comp)
     story.append(Spacer(1, 12))
 
-    story.append(Paragraph(f"• <b>PERFIL USADO PARA EL CÁLCULO ({mes_str}):</b> Edad: {edad:.0f} | Peso: {peso:.1f}kg | Altura: {altura:.1f}cm | Ocupación: {actividad}", body_style))
-    story.append(Paragraph(f"• <b>BALANCE CALÓRICO NETO REAL:</b> {bal_calorico:.1f} kcal", body_style))
-    story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO:</b> {cambio_peso_kg:.2f} kg ({cambio_peso_kg*1000:.1f} g)", body_style))
+    story.append(Paragraph(f"• <b>PERFIL BASE ({mes_str}):</b> Peso Actual: {peso_actual:.1f} kg | Peso Ideal Registrado: {peso_ideal:.1f} kg | Altura: {altura:.1f} cm", body_style))
+    story.append(Paragraph(f"• <b>BALANCE CALÓRICO NETO PROYECTADO:</b> {bal_calorico:.1f} kcal", body_style))
+    story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {cambio_peso_kg:.2f} kg ({cambio_peso_kg*1000:.1f} g)", body_style))
 
     story.append(Spacer(1, 10))
-    story.append(Paragraph("<b>Recomendación de la IA:</b>", sub_style))
-    story.append(Paragraph(f"<i>{recomendacion}</i>", body_style))
+    story.append(Paragraph("<b>Recomendación Nutricional Personalizada (IA):</b>", sub_style))
+    story.append(Paragraph(f"<i>{recomendacion_actualizada}</i>", body_style))
 
     doc.build(story)
     buffer.seek(0)
