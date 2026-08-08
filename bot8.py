@@ -1819,9 +1819,6 @@ async def generar_y_enviar_pdf_diario(query, user_id, fecha_str, context):
         filename=f"Diario_{fecha_str}.pdf"
     )
 
-import inspect
-import pandas as pd
-
  
 # ==========================================
 # SERVIDOR FLASK (Web Service)
@@ -1843,8 +1840,7 @@ def run_flask():
     # use_reloader=False es fundamental para evitar conflictos cuando corre en un hilo secundario
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
-
-
+import pandas as pd
 
 async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     try:
@@ -1858,7 +1854,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
                 await query_or_update.message.reply_text(txt, parse_mode="Markdown")
             return
 
-        # Filtrar mes
+        # Filtrar registros del mes para el resumen diario
         df_mes = df_datos[df_datos['Fecha'].str.startswith(mes_str)] if 'Fecha' in df_datos.columns else pd.DataFrame()
         if df_mes.empty:
             txt = f"📊 No hay registros para el mes `{mes_str}`."
@@ -1872,7 +1868,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         if dias_registrados == 0:
             dias_registrados = 1
 
-        # 1. Totales Acumulados
+        # 1. Totales Acumulados Nutricionales
         tot_cons = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum() if 'Calorias' in df_mes.columns else 0.0
         tot_quem = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
         bal_neto = tot_cons - tot_quem
@@ -1882,44 +1878,29 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         tot_carb = df_mes['Carbohidratos'].sum() if 'Carbohidratos' in df_mes.columns else 0.0
         tot_fibr = df_mes['Fibras'].sum() if 'Fibras' in df_mes.columns else 0.0
 
-        # 2. Promedios Diarios Nutricionales
+        # 2. Promedios Diarios del Mes
         prom_cal = tot_cons / dias_registrados
         prom_prot = tot_prot / dias_registrados
         prom_gras = tot_gras / dias_registrados
         prom_carb = tot_carb / dias_registrados
         prom_fibr = tot_fibr / dias_registrados
 
-        # 3. Lectura de Datos Biométricos desde el Excel
-        # Cálculo del Peso Promedio Real del mes (uso interno)
-        col_peso = next((c for c in ['Peso', 'Peso Actual', 'peso'] if c in df_mes.columns), None)
-        if col_peso:
-            pesos_validos = pd.to_numeric(df_mes[col_peso], errors='coerce').dropna()
-            pesos_validos = pesos_validos[pesos_validos > 0]
-            peso_prom_mes = pesos_validos.mean() if not pesos_validos.empty else 0.0
-        else:
-            peso_prom_mes = 0.0
+        # 3. Lectura de Peso ESPECÍFICO del Mes Solicitado (Para Contexto de la IA)
+        df_perfil_mes = df_datos[df_datos['MES'] == mes_str] if 'MES' in df_datos.columns else pd.DataFrame()
+        
+        def obtener_y_escalar(df, col_name, val_defecto):
+            if col_name in df.columns:
+                vals = pd.to_numeric(df[col_name], errors='coerce').dropna()
+                if not vals.empty and vals.iloc[-1] > 0:
+                    val = vals.iloc[-1]
+                    return val / 1000.0 if val > 500 else val
+            return val_defecto
 
-        # Función auxiliar para extraer datos biométricos del perfil
-        def obtener_val_bio(columnas, valor_defecto):
-            for col in columnas:
-                if col in df_datos.columns:
-                    vals = df_datos[col].dropna()
-                    if not vals.empty:
-                        return vals.iloc[-1]
-            return valor_defecto
+        # Obtiene peso del mes solicitado (no el actual)
+        peso_mes_especifico = float(obtener_y_escalar(df_perfil_mes, 'PESO', 0.0))
+        peso_ideal = float(obtener_y_escalar(df_perfil_mes, 'Peso_ideal', 75.0))
 
-        peso_ideal = float(obtener_val_bio(['Peso Ideal', 'Peso ideal', 'peso_ideal'], 0.0))
-        edad = int(obtener_val_bio(['Edad', 'edad'], 64))
-        sexo = str(obtener_val_bio(['Sexo', 'sexo', 'Genero'], 'Masculino'))
-        altura = float(obtener_val_bio(['Altura', 'Estatura', 'altura'], 170.0))
-
-        # Meta Intermedia Dinámica (Zanahoria que se acerca)
-        if peso_prom_mes > 0 and peso_ideal > 0:
-            peso_meta_intermedia = (peso_prom_mes + peso_ideal) / 2
-        else:
-            peso_meta_intermedia = peso_ideal if peso_ideal > 0 else peso_prom_mes
-
-        # 4. Metas Nutricionales Diarias
+        # 4. Metas Nutricionales
         metas = obtener_metas_usuario(user_id) if 'obtener_metas_usuario' in globals() else {}
         ideal_cal = metas.get('calorias', 2000)
         ideal_prot = metas.get('proteinas', 120.0)
@@ -1927,33 +1908,28 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         ideal_carb = metas.get('carbohidratos', 220.0)
         ideal_fibr = metas.get('fibras', 25.0)
 
-        # 5. Construcción del texto del prompt para la IA
+        # 5. Prompt de la IA con el PESO ESPECÍFICO del mes
+        str_contexto_peso = f"- Peso registrado en el mes {mes_str}: {peso_mes_especifico:.1f} kg\n" if peso_mes_especifico > 0 else ""
+
         prompt_para_ia = (
-            f"DATOS BIOMÉTRICOS Y METAS DEL PACIENTE:\n"
-            f"- Edad: {edad} años, Sexo: {sexo}, Altura: {altura} cm\n"
-            f"- Peso Promedio Registrado este Mes: {peso_prom_mes:.1f} kg\n"
-            f"- Meta Progresiva (Siguiente Hito Intermedio): {peso_meta_intermedia:.1f} kg\n"
-            f"- Peso Ideal Objetivo Final: {peso_ideal:.1f} kg\n\n"
-            f"CONSUMO PROMEDIO DIARIO DEL MES ({dias_registrados} días con registro):\n"
+            f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
+            f"{str_contexto_peso}"
+            f"CONSUMO PROMEDIO DIARIO ({dias_registrados} días registrados):\n"
             f"- Calorías: {prom_cal:.0f} kcal (Meta: {ideal_cal:.0f} kcal)\n"
             f"- Proteínas: {prom_prot:.1f} g (Meta: {ideal_prot:.1f} g)\n"
             f"- Grasas: {prom_gras:.1f} g (Meta: {ideal_gras:.1f} g)\n"
             f"- Carbohidratos: {prom_carb:.1f} g (Meta: {ideal_carb:.1f} g)\n"
             f"- Fibras: {prom_fibr:.1f} g (Meta: {ideal_fibr:.1f} g)\n\n"
-            f"Instrucción: Evalúa los nutrientes consumidos contra las metas y da un consejo enfocado en lograr gradualmente la Meta Progresiva de {peso_meta_intermedia:.1f} kg."
+            f"Instrucción: Evalúa los macronutrientes de este mes específico ({mes_str}). "
+            f"Ten en cuenta los datos de consumo de este mes en particular para dar un consejo personalizado y no repetitivo respecto a otros meses."
         )
 
-        # Consulta limpia pasándole el string resultante
         if 'obtener_recomendacion_ia' in globals():
             recomendacion_ia = obtener_recomendacion_ia(prompt_para_ia)
         else:
             recomendacion_ia = "Mantené un consumo equilibrado de alimentos y agua."
 
-        # 6. Formato del Mensaje en Pantalla (Sin Peso Promedio)
-        str_meta_progresiva = ""
-        if peso_meta_intermedia > 0:
-            str_meta_progresiva = f"• **Meta Progresiva (Intermedia):** `{peso_meta_intermedia:.1f} kg` *(Ideal Final: {peso_ideal:.1f} kg)*\n"
-
+        # 6. Formato Final (SIN línea de peso en pantalla)
         txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
             f"• Días con registro: `{dias_registrados}`\n"
@@ -1961,13 +1937,12 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             f"• **Total Quemadas:** `{tot_quem:.0f} kcal`\n"
             f"• **Balance Neto:** `{bal_neto:.0f} kcal`\n\n"
             f"📈 **Promedio Diario vs. Objetivos:**\n"
-            f"{str_meta_progresiva}"
             f"• **Calorías:** `{prom_cal:.0f} kcal` / Meta: `{ideal_cal:.0f} kcal`\n"
             f"• **Proteínas:** `{prom_prot:.1f} g` / Meta: `{ideal_prot:.1f} g`\n"
             f"• **Grasas:** `{prom_gras:.1f} g` / Meta: `{ideal_gras:.1f} g`\n"
             f"• **Carbohidratos:** `{prom_carb:.1f} g` / Meta: `{ideal_carb:.1f} g`\n"
             f"• **Fibras:** `{prom_fibr:.1f} g` / Meta: `{ideal_fibr:.1f} g`\n\n"
-            f"🤖 **Recomendación de la IA (Estrategia Progresiva):**\n"
+            f"🤖 **Recomendación de la IA:**\n"
             f"{recomendacion_ia}\n\n"
             f"📄 Podés descargar el reporte completo en PDF a continuación:"
         )
