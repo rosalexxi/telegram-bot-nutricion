@@ -191,56 +191,28 @@ def calcular_proteina_sugerida(user_id=123456789):
         ahora_mes = obtener_ahora_arg().strftime("%Y-%m")
         perfil = obtener_perfil_usuario(user_id=user_id, mes_target=ahora_mes)
         if not perfil:
-            peso, altura, genero, contextura = 75.0, 170.0, "masculino", "mediana"
+            peso, altura = 75.0, 170.0
+            peso_ideal = 75.0
         else:
             peso = parse_raw_val(perfil.get('Peso', 75.0))
             altura = parse_raw_val(perfil.get('Altura', 170.0))
-            genero = str(perfil.get('Sexo', perfil.get('Genero', 'masculino')))
-            contextura = str(perfil.get('Contextura', 'mediana'))
+            peso_ideal = parse_raw_val(perfil.get('Peso_ideal', perfil.get('PesoIdeal', peso)))
     except Exception:
-        peso, altura, genero, contextura = 75.0, 170.0, "masculino", "mediana"
+        peso, altura = 75.0, 170.0
+        peso_ideal = 75.0
 
-    altura_m = altura / 100.0
-    
-    if str(genero).lower() in ["femenino", "f", "mujer"]:
-        peso_ideal_base = 45.5 + 2.3 * ((altura / 2.54) - 60)
-    else:
-        peso_ideal_base = 50.0 + 2.3 * ((altura / 2.54) - 60)
-        
-    if peso_ideal_base <= 0:
-        peso_ideal_base = 22 * (altura_m ** 2)
+    if peso_ideal <= 0:
+        peso_ideal = peso
 
-    ctx = str(contextura).lower()
-    if "peque" in ctx or "chica" in ctx:
-        peso_ideal_ref = peso_ideal_base * 0.90
-    elif "mediana" in ctx:
-        peso_ideal_ref = peso_ideal_base
-    else:
-        peso_ideal_ref = peso_ideal_base * 1.20
-
-    peso_efectivo = (peso + peso_ideal_ref) / 2.0
+    peso_efectivo = (peso + peso_ideal) / 2.0
     return peso_efectivo * 1.3
 
-def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", actividad="sedentario", contextura="grande"):
-    altura_m = altura_cm / 100.0
-    
-    if str(genero).lower() in ["femenino", "f", "mujer"]:
-        peso_ideal_base = 45.5 + 2.3 * ((altura_cm / 2.54) - 60)
-    else:
-        peso_ideal_base = 50.0 + 2.3 * ((altura_cm / 2.54) - 60)
-    
-    if peso_ideal_base <= 0:
-        peso_ideal_base = 22 * (altura_m ** 2)
 
-    ctx = str(contextura).lower()
-    if "peque" in ctx or "chica" in ctx:
-        peso_ideal_referencia = peso_ideal_base * 0.90
-    elif "mediana" in ctx:
-        peso_ideal_referencia = peso_ideal_base
-    else:
-        peso_ideal_referencia = peso_ideal_base * 1.20
+def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", actividad="sedentario", contextura="grande", peso_ideal=None):
+    if peso_ideal is None or float(peso_ideal) <= 0:
+        peso_ideal = peso_actual
 
-    peso_efectivo = (peso_actual + peso_ideal_referencia) / 2.0
+    peso_efectivo = (peso_actual + float(peso_ideal)) / 2.0
     
     if str(genero).lower() in ["femenino", "f", "mujer"]:
         tmb = 655 + (9.6 * peso_efectivo) + (1.8 * altura_cm) - (4.7 * edad)
