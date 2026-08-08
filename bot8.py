@@ -1844,145 +1844,140 @@ def run_flask():
 # PANTALLA RESUMEN MES
 # ==========================================
 
-
-async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    if query:
-        await query.answer()
-        mes_str = query.data.replace("resumen_mes_", "")
-        chat_id = query.message.chat_id
-    else:
-        mes_str = datetime.now().strftime("%Y-%m")
-        chat_id = update.effective_chat.id
-
+async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     try:
-        # --- LECTURA Y CÁLCULO MATEMÁTICO DE DATOS BIOMÉTRICOS ---
-        sheet_perfil = sheet_datos.worksheet("Perfil")
-        registros_perfil = sheet_perfil.get_all_records()
+        df_datos = obtener_datos_usuario(user_id)
         
-        # Buscar el registro específico para el mes seleccionado
-        perfil_mes = next((row for row in registros_perfil if str(row.get("MES", "")).strip() == mes_str), None)
-
-        if perfil_mes:
-            # Función de limpieza matemática para corregir escala x1000 si existiera
-            def parse_num(val, default_val):
-                try:
-                    num = float(str(val).replace(",", "."))
-                    if num > 1000:
-                        num = num / 1000.0
-                    return num if num > 0 else default_val
-                except (ValueError, TypeError):
-                    return default_val
-
-            edad = int(parse_num(perfil_mes.get("EDAD"), 64))
-            altura = parse_num(perfil_mes.get("ALTURA"), 172.0)
-            peso_real = parse_num(perfil_mes.get("PESO"), 108.5)
-            peso_ideal_base = parse_num(perfil_mes.get("Peso_ideal"), 75.0)
-            genero = str(perfil_mes.get("GENERO", "M")).strip().upper()
-            ocupacion = str(perfil_mes.get("OCUPACION", "Jubilado")).strip()
-        else:
-            edad, altura, peso_real, peso_ideal_base = 64, 172.0, 108.5, 75.0
-            genero, ocupacion = "M", "Jubilado"
-
-        # MATEMÁTICA: Peso promedio como meta progresiva
-        peso_promedio = (peso_real + peso_ideal_base) / 2.0
-
-        # RECALCULAR TMB Y GET BASADO EN EL PESO PROMEDIO
-        if genero == "M":
-            tmb = (10 * peso_promedio) + (6.25 * altura) - (5 * edad) + 5
-        else:
-            tmb = (10 * peso_promedio) + (6.25 * altura) - (5 * edad) - 161
-
-        factor_act = 1.2 if "Jubilado" in ocupacion or "Sedentario" in ocupacion else 1.375
-        get_meta = tmb * factor_act
-
-        # Recálculo de Objetivos Dinámicos del Mes
-        meta_calorias = round(get_meta)
-        meta_proteinas = round(peso_promedio * 1.5, 1)
-        meta_grasas = round((get_meta * 0.25) / 9, 1)
-        meta_carbos = round((get_meta * 0.50) / 4, 1)
-        meta_fibras = 25.0
-
-        # --- LECTURA DE CONSUMOS DIARIOS (CÓDIGO ORIGINAL) ---
-        sheet_consumo = sheet_datos.worksheet("Consumo_Diario")
-        registros_consumo = sheet_consumo.get_all_records()
-        
-        registros_filtrados = [r for r in registros_consumo if str(r.get("FECHA", "")).startswith(mes_str)]
-        
-        if not registros_filtrados:
-            msg = f"⚠️ No hay registros de consumo para el mes {mes_str}."
-            if query: await query.edit_message_text(msg)
-            else: await context.bot.send_message(chat_id=chat_id, text=msg)
+        if df_datos is None or df_datos.empty:
+            txt = f"📊 No hay registros ingresados para el usuario `{user_id}`."
+            if hasattr(query_or_update, 'edit_message_text'):
+                await query_or_update.edit_message_text(txt, parse_mode="Markdown")
+            else:
+                await query_or_update.message.reply_text(txt, parse_mode="Markdown")
             return
 
-        dias_unicos = len(set(r.get("FECHA") for r in registros_filtrados if r.get("FECHA")))
-        dias_unicos = max(dias_unicos, 1)
+        # Filtrar registros del mes para el resumen diario
+        df_mes = df_datos[df_datos['Fecha'].str.startswith(mes_str)] if 'Fecha' in df_datos.columns else pd.DataFrame()
+        if df_mes.empty:
+            txt = f"📊 No hay registros para el mes `{mes_str}`."
+            if hasattr(query_or_update, 'edit_message_text'):
+                await query_or_update.edit_message_text(txt, parse_mode="Markdown")
+            else:
+                await query_or_update.message.reply_text(txt, parse_mode="Markdown")
+            return
 
-        total_kcal = sum(float(r.get("CALORIAS", 0) or 0) for r in registros_filtrados)
-        total_prot = sum(float(r.get("PROTEINAS", 0) or 0) for r in registros_filtrados)
-        total_gras = sum(float(r.get("GRASAS", 0) or 0) for r in registros_filtrados)
-        total_carb = sum(float(r.get("CARBOHIDRATOS", 0) or 0) for r in registros_filtrados)
-        total_fibra = sum(float(r.get("FIBRA", 0) or 0) for r in registros_filtrados)
+        dias_registrados = df_mes['Fecha'].nunique()
+        if dias_registrados == 0:
+            dias_registrados = 1
 
-        prom_kcal = round(total_kcal / dias_unicos, 1)
-        prom_prot = round(total_prot / dias_unicos, 1)
-        prom_gras = round(total_gras / dias_unicos, 1)
-        prom_carb = round(total_carb / dias_unicos, 1)
-        prom_fibra = round(total_fibra / dias_unicos, 1)
+        # 1. Totales Acumulados
+        tot_cons_mes = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum() if 'Calorias' in df_mes.columns else 0.0
+        tot_quem_mes = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
 
-        # --- DATOS CORREGIDOS ENVIADOS A LA IA ---
-        prompt_ia = f"""
-        Actúa como un médico nutricionista experto. Analiza el siguiente resumen mensual:
-
-        PERFIL PACIENTE DEL MES {mes_str}:
-        - Edad: {edad} años, Género: {genero}, Altura: {altura} cm
-        - Peso Actual Registrado: {peso_real} kg
-        - Peso Meta Progresivo del Mes: {peso_promedio:.1f} kg
+        # 2. Promedios Diarios
+        prom_cons = tot_cons_mes / dias_registrados
+        prom_quem = tot_quem_mes / dias_registrados
+        prom_bal_neto = prom_cons - prom_quem
         
-        VALORES PROMEDIO DIARIOS CONSUMIDOS VS METAS CALCULADAS:
-        - Calorías: {prom_kcal} kcal / Meta: {meta_calorias} kcal
-        - Proteínas: {prom_prot} g / Meta: {meta_proteinas} g
-        - Grasas: {prom_gras} g / Meta: {meta_grasas} g
-        - Carbohidratos: {prom_carb} g / Meta: {meta_carbos} g
-        - Fibra: {prom_fibra} g / Meta: {meta_fibras} g
+        tot_prot = df_mes['Proteinas'].sum() if 'Proteinas' in df_mes.columns else 0.0
+        tot_gras = df_mes['Grasas'].sum() if 'Grasas' in df_mes.columns else 0.0
+        tot_carb = df_mes['Carbohidratos'].sum() if 'Carbohidratos' in df_mes.columns else 0.0
+        tot_fibr = df_mes['Fibras'].sum() if 'Fibras' in df_mes.columns else 0.0
 
-        Escribe un análisis breve, claro y motivador (máximo 150 palabras) evaluando el progreso.
-        Ten en cuenta que el plan está estructurado para trabajar de forma progresiva desde su peso actual ({peso_real} kg) hacia el peso meta del mes ({peso_promedio:.1f} kg). NO menciones ningún otro peso ideal.
-        """
+        prom_cal = tot_cons_mes / dias_registrados
+        prom_prot = tot_prot / dias_registrados
+        prom_gras = tot_gras / dias_registrados
+        prom_carb = tot_carb / dias_registrados
+        prom_fibr = tot_fibr / dias_registrados
 
-        chat_completion = client_groq.chat.completions.create(
-            messages=[{"role": "user", "content": prompt_ia}],
-            model="llama-3.3-70b-versatile",
-            temperature=0.4
-        )
-        recomendacion_ia = chat_completion.choices[0].message.content
-
-        # --- MENSAJE DE SALIDA (ESTRUCTURA ORIGINAL) ---
-        texto_resumen = (
-            f"📊 **Reporte Nutricional Mensual ({mes_str})**:\n\n"
-            f"📈 **Promedio Diario vs. Objetivos:**\n"
-            f"• Calorías: {prom_kcal} kcal / Meta: {meta_calorias} kcal\n"
-            f"• Proteínas: {prom_prot} g / Meta: {meta_proteinas} g\n"
-            f"• Grasas: {prom_gras} g / Meta: {meta_grasas} g\n"
-            f"• Carbohidratos: {prom_carb} g / Meta: {meta_carbos} g\n"
-            f"• Fibras: {prom_fibra} g / Meta: {meta_fibras} g\n\n"
-            f"🤖 **Recomendación de la IA:**\n{recomendacion_ia}"
-        )
-
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"pdf_mes_{mes_str}")]])
+        # 3. Lectura de Pesos y Cálculo del Peso Promedio Meta Progresivo
+        df_perfil_mes = df_datos[df_datos['MES'] == mes_str] if 'MES' in df_datos.columns else pd.DataFrame()
         
-        if query:
-            await query.edit_message_text(texto=texto_resumen, parse_mode="Markdown", reply_markup=keyboard)
+        def obtener_y_escalar(df, col_name, val_defecto):
+            if col_name in df.columns:
+                vals = pd.to_numeric(df[col_name], errors='coerce').dropna()
+                if not vals.empty and vals.iloc[-1] > 0:
+                    val = vals.iloc[-1]
+                    return val / 1000.0 if val > 500 else val
+            return val_defecto
+
+        peso_mes_especifico = float(obtener_y_escalar(df_perfil_mes, 'PESO', 0.0))
+        peso_ideal_base = float(obtener_y_escalar(df_perfil_mes, 'Peso_ideal', 75.0))
+
+        # MATEMÁTICA: Peso Promedio intermedio como Meta Progresiva del mes
+        if peso_mes_especifico > 0:
+            peso_promedio = (peso_mes_especifico + peso_ideal_base) / 2.0
         else:
-            await context.bot.send_message(chat_id=chat_id, text=texto_resumen, parse_mode="Markdown", reply_markup=keyboard)
+            peso_promedio = peso_ideal_base
+
+        # 4. Metas Nutricionales
+        metas = obtener_metas_usuario(user_id) if 'obtener_metas_usuario' in globals() else {}
+        ideal_cal = metas.get('calorias', 2000)
+        ideal_prot = metas.get('proteinas', 120.0)
+        ideal_gras = metas.get('grasas', 65.0)
+        ideal_carb = metas.get('carbohidratos', 220.0)
+        ideal_fibr = metas.get('fibras', 25.0)
+
+        # 5. Prompt de la IA con el Peso Actual y el Peso Meta Progresivo (Sin mostrar Peso Ideal)
+        str_contexto_peso = (
+            f"- Peso registrado en el mes {mes_str}: {peso_mes_especifico:.1f} kg\n"
+            f"- Peso Meta Progresivo del mes: {peso_promedio:.1f} kg\n"
+        ) if peso_mes_especifico > 0 else ""
+
+        prompt_para_ia = (
+            f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
+            f"{str_contexto_peso}"
+            f"CONSUMO PROMEDIO DIARIO ({dias_registrados} días registrados):\n"
+            f"- Calorías: {prom_cal:.0f} kcal (Meta: {ideal_cal:.0f} kcal)\n"
+            f"- Proteínas: {prom_prot:.1f} g (Meta: {ideal_prot:.1f} g)\n"
+            f"- Grasas: {prom_gras:.1f} g (Meta: {ideal_gras:.1f} g)\n"
+            f"- Carbohidratos: {prom_carb:.1f} g (Meta: {ideal_carb:.1f} g)\n"
+            f"- Fibras: {prom_fibr:.1f} g (Meta: {ideal_fibr:.1f} g)\n\n"
+            f"Instrucción: Evalúa los macronutrientes de este mes específico ({mes_str}). "
+            f"Considera que el objetivo actual es avanzar de forma progresiva desde el peso actual ({peso_mes_especifico:.1f} kg) "
+            f"hacia la meta intermedia del mes ({peso_promedio:.1f} kg). NO menciones ningún otro peso ideal definitivo. "
+            f"Da un consejo personalizado y no repetitivo respecto a otros meses."
+        )
+
+        if 'obtener_recomendacion_ia' in globals():
+            recomendacion_ia = obtener_recomendacion_ia(prompt_para_ia)
+        else:
+            recomendacion_ia = "Mantené un consumo equilibrado de alimentos y agua."
+
+        # 6. Formato Final (SIN línea de peso en pantalla)
+        txt = (
+            f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
+            f"• **Promedio Consumidas:** `{prom_cons:.0f} kcal` / día\n"
+            f"• **Promedio Quemadas:** `{prom_quem:.0f} kcal` / día\n"
+            f"• **Balance Neto Diario:** `{prom_bal_neto:.0f} kcal` / día\n\n"
+            f"• Días con registro: `{dias_registrados}`\n"
+            f"📈 **Promedio Diario vs. Objetivos:**\n"
+            f"• **Calorías:** `{prom_cal:.0f} kcal` / Meta: `{ideal_cal:.0f} kcal`\n"
+            f"• **Proteínas:** `{prom_prot:.1f} g` / Meta: `{ideal_prot:.1f} g`\n"
+            f"• **Grasas:** `{prom_gras:.1f} g` / Meta: `{ideal_gras:.1f} g`\n"
+            f"• **Carbohidratos:** `{prom_carb:.1f} g` / Meta: `{ideal_carb:.1f} g`\n"
+            f"• **Fibras:** `{prom_fibr:.1f} g` / Meta: `{ideal_fibr:.1f} g`\n\n"
+            f"🤖 **Recomendación de la IA:**\n"
+            f"{recomendacion_ia}\n\n"
+            f"📄 Podés descargar el reporte completo en PDF a continuación:"
+        )
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"descargar_pdf_resumen_{mes_str}")]
+        ])
+
+        if hasattr(query_or_update, 'edit_message_text'):
+            await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
+        else:
+            await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
 
     except Exception as e:
-        logger.error(f"Error en mostrar_resumen_mes: {e}")
-        error_msg = f"❌ Ocurrió un error al generar el resumen del mes {mes_str}."
-        if query: await query.edit_message_text(error_msg)
-        else: await context.bot.send_message(chat_id=chat_id, text=error_msg)
-
-
+        error_txt = f"⚠️ Ocurrió un error al procesar el resumen: `{str(e)}`"
+        if hasattr(query_or_update, 'edit_message_text'):
+            await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
+        else:
+            await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
+        
 # ==========================================
 # INICIALIZACIÓN PRINCIPAL Y BOT DE TELEGRAM
 # ==========================================
