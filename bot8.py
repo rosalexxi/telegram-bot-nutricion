@@ -1882,7 +1882,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         tot_fibr = df_mes['Fibras'].sum() if 'Fibras' in df_mes.columns else 0.0
 
         # 2. Promedios Diarios del Mes
-        prom_cal = tot_cons / dias_registrados
+        prom_cal = tot_cons_mes / dias_registrados
         prom_prot = tot_prot / dias_registrados
         prom_gras = tot_gras / dias_registrados
         prom_carb = tot_carb / dias_registrados
@@ -1965,7 +1965,6 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
         else:
             await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
-
 
 # ==========================================
 # MAIN LOOP / INICIALIZACIÓN
