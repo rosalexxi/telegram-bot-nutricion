@@ -1531,9 +1531,160 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 # PANTALLA RESUMEN MES
 # ==========================================
 
-# ==========================================
-# 3. PANTALLA RESUMEN MES (INTEGRACIÓN)
-# ==========================================
+
+import io
+import pandas as pd
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+# ==================================================
+# 1. RECOMENDACIÓN EXTENSA PARA PDF (~500 - 600 PALABRAS)
+# ==================================================
+
+def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = None) -> str:
+    """
+    Genera un informe nutricional detallado y extenso (~500-600 palabras)
+    con diagnóstico integral, alimentos a incorporar y alimentos a evitar.
+    """
+    if biometria is None:
+        biometria = {}
+
+    peso_act = biometria.get('peso_actual', 0.0)
+    peso_id = biometria.get('peso_ideal', 0.0)
+    
+    cal_r, cal_m = promedios.get('calorias', 0), metas.get('calorias', 2000)
+    prot_r, prot_m = promedios.get('proteinas', 0), metas.get('proteinas', 100)
+    gras_r, gras_m = promedios.get('grasas', 0), metas.get('grasas', 55)
+    carb_r, carb_m = promedios.get('carbohidratos', 0), metas.get('carbohidratos', 200)
+    fibr_r, fibr_m = promedios.get('fibras', 0), metas.get('fibras', 25)
+
+    bloques = []
+
+    # Seccion 1: Diagnostico
+    bloques.append(
+        "<b>1. DIAGNÓSTICO NUTRICIONAL INTEGRAL DEL MES</b>\n"
+        f"Tras analizar minuciosamente tus registros diarios frente a los requerimientos teóricos calculados para tu perfil, "
+        f"se observan tendencias clave en tu patron de alimentacion. En cuanto al balance energetico, registras un promedio "
+        f"de <b>{cal_r:.0f} kcal/dia</b> frente a un objetivo de <b>{cal_m:.0f} kcal/dia</b>. "
+        f"Al evaluar la distribucion de macronutrientes, tu ingesta proteica promedia <b>{prot_r:.1f}g</b> (meta: {prot_m:.1f}g), "
+        f"las grasas alcanzan <b>{gras_r:.1f}g</b> (meta: {gras_m:.1f}g), los carbohidratos se ubican en <b>{carb_r:.1f}g</b> "
+        f"(meta: {carb_m:.1f}g) y la fibra aporta <b>{fibr_r:.1f}g</b> (meta: {fibr_m:.1f}g). "
+        f"Este perfil refleja desvíos específicos que requieren ajustes estratégicos para optimizar el metabolismo, mejorar la composición "
+        f"corporal de forma progresiva y asegurar la saciedad sin comprometer el nivel de energía diario."
+    )
+
+    # Seccion 2: Analisis por Macronutriente
+    lineas_analisis = ["<b>2. ANÁLISIS DE BRECHAS Y DESVÍOS ESPECÍFICOS</b>"]
+    
+    # Calorias
+    if cal_r > cal_m * 1.1:
+        lineas_analisis.append(f"• <b>Exceso Calórico:</b> Estás consumiendo un {((cal_r/cal_m)-1)*100:.1f}% por encima de la meta. Es prioritario reducir la densidad calórica de los platos para no enlentecer la pérdida de peso.")
+    elif cal_r < cal_m * 0.85:
+        lineas_analisis.append(f"• <b>Déficit Calórico Pronunciado:</b> Tu ingesta está un {((1-(cal_r/cal_m))*100):.1f}% por debajo. Ojo con restringir demasiado, ya que puede ralentizar el metabolismo y generar pérdida de masa muscular.")
+    else:
+        lineas_analisis.append("• <b>Calorías Normocalóricas/Equilibradas:</b> Tu consumo energético total se mantiene alineado con las metas planificadas.")
+
+    # Fibra
+    if fibr_r < fibr_m * 0.85:
+        lineas_analisis.append(f"• <b>Déficit de Fibras ({fibr_r:.1f}g vs {fibr_m:.1f}g):</b> La baja ingesta dificulta la salud intestinal, perjudica el control glucémico y reduce la saciedad a largo plazo.")
+    else:
+        lineas_analisis.append(f"• <b>Nivel Nutritivo de Fibra Óptimo:</b> Estás cubriendo adecuadamente la cuota de digestibilidad y salud microbiana.")
+
+    # Grasas
+    if gras_r > gras_m * 1.15:
+        lineas_analisis.append(f"• <b>Exceso de Grasas ({gras_r:.1f}g vs {gras_m:.1f}g):</b> Un aporte elevado de grasas (especialmente saturadas) suma calorías rápidamente sin aportar volumen ni saciedad duradera.")
+    elif gras_r < gras_m * 0.8:
+        lineas_analisis.append(f"• <b>Déficit de Grasas Saludables:</b> Requiere atención para mantener un perfil hormonal óptimo.")
+    else:
+        lineas_analisis.append(f"• <b>Balance de Grasas Adecuado:</b> Ingesta lipídica controlada dentro de los rangos meta.")
+
+    # Carbohidratos
+    if carb_r < carb_m * 0.85:
+        lineas_analisis.append(f"• <b>Déficit de Carbohidratos Complejos ({carb_r:.1f}g vs {carb_m:.1f}g):</b> Esto puede ocasionar fatiga, bajo rendimiento físico y antojos de azúcares al final de la jornada.")
+    elif carb_r > carb_m * 1.15:
+        lineas_analisis.append(f"• <b>Exceso de Carbohidratos:</b> Es conveniente reemplazar carbohidratos refinados por opciones complejas de menor índice glucémico.")
+    else:
+        lineas_analisis.append(f"• <b>Nivel de Carbohidratos Estable:</b> Buen balance de hidratos para energía constante.")
+
+    # Proteinas
+    if prot_r < prot_m * 0.85:
+        lineas_analisis.append(f"• <b>Déficit Proteico ({prot_r:.1f}g vs {prot_m:.1f}g):</b> Fundamental aumentar su presencia para preservar la masa magra y aumentar la termogénesis alimentaria.")
+
+    bloques.append("\n".join(lineas_analisis))
+
+    # Seccion 3: Alimentos Sugeridos (Incorporar)
+    lineas_inc = ["<b>3. ALIMENTOS Y COMIDAS QUE DEBERÍAS INGERIR (PARA SUPLIR DÉFICITS)</b>"]
+    if fibr_r < fibr_m * 0.85:
+        lineas_inc.append("• <b>Para la Fibra:</b> Incorporá 1 porción diaria de legumbres (lentejas, garbanzos, porotos) en ensaladas o guisos magros. Sumá 1 a 2 cucharadas de semillas (chía o lino hidratadas) en tus desayunos, y consumí frutas enteras con cáscara (manzana, pera, frutos rojos).")
+    if carb_r < carb_m * 0.85:
+        lineas_inc.append("• <b>Para Carbohidratos Complejos:</b> Sumá fuentes de absorción lenta como avena integral, quinoa, arroz integral, batata, choclo o mandioca hervida. Te darán energía sostenida sin picos glucémicos.")
+    if prot_r < prot_m * 0.85:
+        lineas_inc.append("• <b>Para Proteínas Magras:</b> Priorizá pechuga de pollo/pavo, claras de huevo, atún al natural, cortes vacunos magros (peceto, cuadril, bola de lomo), queso blanco magro y yogur griego natural sin azúcar.")
+    if len(lineas_inc) == 1:
+        lineas_inc.append("• Mantené la variedad de vegetales de hoja verde, hortalizas multicolores y cereales integrales para sostener tus excelentes promedios.")
+    bloques.append("\n".join(lineas_inc))
+
+    # Seccion 4: Alimentos a Reducir/Omitir (Excesos)
+    lineas_red = ["<b>4. ALIMENTOS Y COMIDAS QUE DEBERÍAS REDUCIR O EVITAR (PARA CORREGIR EXCESOS)</b>"]
+    if gras_r > gras_m * 1.15:
+        lineas_red.append("• <b>Grasas y Frituras:</b> Evitá carnes vacunas de corte graso (costilla, asado, entraña), fiambres, embutidos (chorizos, salchichas), aderezos industriales (mayonesa, salsa golf), frituras y manteca/crema. Reemplazalos por aceite de oliva en crudo (1 cucharadita) y cocciones al horno o plancha.")
+    if carb_r > carb_m * 1.15 or cal_r > cal_m * 1.1:
+        lineas_red.append("• <b>Ultraprocesados y Azúcares:</b> Reducí al mínimo productos de panadería refinados, galletitas dulces/saladas, gaseosas azucaradas, jugos industriales y harinas blancas refinadas.")
+    if len(lineas_red) == 1:
+        lineas_red.append("• Moderá el uso de aceites al cocinar y controlá las porciones de frutos secos o quesos duros para no sobrepasar la densidad calórica.")
+    bloques.append("\n".join(lineas_red))
+
+    # Seccion 5: Plan de Accion y Cierre
+    bloques.append(
+        "<b>5. RECOMENDACIÓN GENERAL Y ESTRATEGIA DE HÁBITOS</b>\n"
+        "Para consolidar estos cambios, asegurá una ingesta de agua potable de al menos <b>2 a 2.5 litros diarios</b>. "
+        "La hidratación adecuada optimiza la función renal, mejora el tránsito intestinal favorecido por la fibra y ayuda a "
+        "diferenciar la sed real de la ansiedad. Organizá tus compras semanales en base a las fuentes proteicas magras y vegetales frescos "
+        "sugeridos, garantizando platos estructurados con la regla del plato (50% vegetales, 25% proteína magra, 25% carbohidrato complejo)."
+    )
+
+    return "\n\n".join(bloques)
+
+# ==================================================
+# 2. RECOMENDACIÓN BREVE PARA PANTALLA (~100 PALABRAS)
+# ==================================================
+
+def obtener_recomendacion_ia(resumen_texto: str) -> str:
+    if 'client_ai' not in globals() or not client_ai:
+        return (
+            "Ajustá tu balance diario moderando las grasas saturadas e incrementando fibras con legumbres, "
+            "semillas y vegetales frescos. Priorizá proteínas magras y carbohidratos complejos. "
+            "¡Mantené la constancia y asegurá 2 litros de agua al día!"
+        )
+    
+    prompt = (
+        "Basado en el siguiente resumen nutricional, redactá una recomendación BREVE, DIRECTA Y MOTIVADORA "
+        "de EXACTAMENTE 90 a 110 PALABRAS (no te pases de 120 palabras). "
+        "Resumí los desvíos principales de fibra, grasas o carbohidratos y menciona 2 o 3 alimentos concretos a incorporar y a evitar:\n\n"
+        f"{resumen_texto}"
+    )
+
+    try:
+        response = client_ai.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=200
+        )
+        return response.choices[0].message.content.strip()
+    except Exception:
+        return (
+            "Ajustá tu balance diario moderando las grasas saturadas e incrementando fibras con legumbres, "
+            "semillas y vegetales frescos. Priorizá proteínas magras y carbohidratos complejos. "
+            "¡Mantené la constancia y asegurá 2 litros de agua al día!"
+        )
+
+# ==================================================
+# 3. MOSTRAR RESUMEN MES (TELEGRAM HANDLER)
+# ==================================================
 
 async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     try:
@@ -1611,7 +1762,6 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
                     
                     p_ideal_raw = perfil_mes.get("peso_ideal") or perfil_mes.get("peso ideal")
                     peso_ideal_base = parse_val(p_ideal_raw, 75.0)
-                    
                     genero = str(perfil_mes.get("genero", "M")).strip().upper()
 
         except Exception as err_perfil:
@@ -1652,8 +1802,15 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             'fibras': ideal_fibr
         }
 
-        # Genera la recomendación extensa (~250 palabras) para el PDF
-        recomendacion_pdf = generar_recomendacion_ia(dict_promedios, dict_metas)
+        dict_biometria = {
+            'peso_actual': peso_mes_especifico,
+            'peso_ideal': peso_ideal_base,
+            'altura': altura,
+            'edad': edad
+        }
+
+        # Genera la recomendación extensa (~500-600 palabras) para el PDF
+        recomendacion_pdf = generar_recomendacion_ia(dict_promedios, dict_metas, dict_biometria)
 
         # Genera la recomendación corta (~100 palabras) para pantalla
         str_contexto_peso = (
@@ -1672,7 +1829,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         )
         recomendacion_pantalla = obtener_recomendacion_ia(prompt_para_ia_pantalla)
 
-        # Guarda la recomendación extensa en context.user_data para que la tome el PDF
+        # Guarda la recomendación extensa en context.user_data para que la recupere el PDF
         if hasattr(query_or_update, 'user_data'):
             query_or_update.user_data['ultima_recomendacion_ia'] = recomendacion_pdf
 
@@ -1708,11 +1865,9 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
         else:
             await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
-            
-            
 
 # ==================================================
-# GENERAR PDF RESUMEN MES CON RECOMENDACIONES DETALLADAS
+# 4. GENERAR PDF RESUMEN BYTES
 # ==================================================
 
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
@@ -1866,7 +2021,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
 
     # --- PROCESAMIENTO CORRECTO DEL TEXTO MULTILÍNEA PARA PDF ---
     if isinstance(recomendacion, str):
-        # Separa por párrafos/bloques y convierte saltos de línea a tags <br/> compatibles con ReportLab
         bloques = recomendacion.split('\n\n')
         for bloque in bloques:
             if bloque.strip():
@@ -1878,104 +2032,8 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     buffer.seek(0)
     return buffer
 
-# ==================================================
-# 1. RECOMENDACIÓN EXTENSA PARA PDF (~250 PALABRAS)
-# ==================================================
 
-def generar_recomendacion_ia(promedios: dict, metas: dict) -> str:
-    """
-    Genera un texto detallado y extenso (~1000 palabras) con recomendaciones nutricionales 
-    y alimentos sugeridos evaluando brechas respecto a los objetivos.
-    """
-    lineas = []
-    lineas.append("Recomendaciones Nutricionales Personalizadas y Plan de Acción:")
-    lineas.append("------------------------------------------------------------------")
-    lineas.append("Tras analizar tu registro promedio diario en comparación con tus metas teóricas, te sugerimos los siguientes ajustes estratégicos en tu alimentación cotidiana:\n")
 
-    # 1. Fibras
-    fib_real = promedios.get('fibras', 0)
-    fib_meta = metas.get('fibras', 25.0)
-    if fib_real < (fib_meta * 0.85):
-        lineas.append(
-            f"• Incrementar el aporte de Fibras (Consumo: {fib_real:.1f}g / Meta: {fib_meta:.1f}g):\n"
-            f"  Se observa una brecha respecto al objetivo. Para mejorar la salud intestinal y la saciedad, incorporá al menos 1 porción diaria de legumbres (lentejas, garbanzos o porotos) en ensaladas o guisos magros. Sumá 1 a 2 cucharadas de semillas (chía, lino o sésamo) en tus desayunos y priorizá verduras crujientes y frutas enteras con cáscara (manzana, pera)."
-        )
-    else:
-        lineas.append(
-            f"• Nivel de Fibra (Consumo: {fib_real:.1f}g / Meta: {fib_meta:.1f}g):\n"
-            f"  Excelente cobertura de fibra diaria. Mantené el consumo de vegetales variados y legumbres asegurando una hidratación adecuada."
-        )
-
-    # 2. Grasas
-    gras_real = promedios.get('grasas', 0)
-    gras_meta = metas.get('grasas', 55.0)
-    if gras_real > (gras_meta * 1.15):
-        lineas.append(
-            f"• Moderar y Seleccionar Fuentes de Grasas (Consumo: {gras_real:.1f}g / Meta: {gras_meta:.1f}g):\n"
-            f"  Registrás un promedio por encima de la meta recomendada. Te sugerimos reducir la frecuencia de carnes vacunas grasas, embutidos y quesos curados. Priorizá cortes magros (pollo sin piel, pescado, peceto), cocciones al horno o plancha, y reemplazá grasas saturadas por opciones de alta calidad como palta, aceite de oliva en crudo o frutos secos en porciones controladas."
-        )
-    else:
-        lineas.append(
-            f"• Aporte de Grasas (Consumo: {gras_real:.1f}g / Meta: {gras_meta:.1f}g):\n"
-            f"  Ingesta de grasas dentro del rango. Priorizá siempre fuentes insaturadas saludables como aceite de oliva extra virgen y frutos secos."
-        )
-
-    # 3. Carbohidratos
-    carb_real = promedios.get('carbohidratos', 0)
-    carb_meta = metas.get('carbohidratos', 250.0)
-    if carb_real < (carb_meta * 0.85):
-        lineas.append(
-            f"• Ajustar Carbohidratos Complejos (Consumo: {carb_real:.1f}g / Meta: {carb_meta:.1f}g):\n"
-            f"  Tu ingesta actual está por debajo del objetivo. Para sostener un nivel óptimo de energía y evitar la fatiga, sumá carbohidratos de lenta absorción como avena integral en meriendas, o porciones de arroz integral, quinoa, batata o choclo en tus comidas principales."
-        )
-    else:
-        lineas.append(
-            f"• Control de Carbohidratos (Consumo: {carb_real:.1f}g / Meta: {carb_meta:.1f}g):\n"
-            f"  Nivel de carbohidratos equilibrado. Asegurate de que la mayoría provenga de granos enteros y vegetales en lugar de azúcares refinados."
-        )
-
-    # 4. Proteínas
-    prot_real = promedios.get('proteinas', 0)
-    prot_meta = metas.get('proteinas', 130.0)
-    if prot_real < (prot_meta * 0.85):
-        lineas.append(
-            f"• Reforzar Ingesta Proteica (Consumo: {prot_real:.1f}g / Meta: {prot_meta:.1f}g):\n"
-            f"  Asegurá una porción de proteína magra en cada comida principal (huevos, pechuga de pollo, atún al natural o magros vacunos) para preservar la masa muscular durante la pérdida de peso."
-        )
-
-    # 5. Cierre
-    lineas.append(
-        "• Recomendación General e Hidratación:\n"
-        "  Consumí al menos 2 a 2.5 litros de agua al día. La hidratación constante es fundamental para optimizar el metabolismo, facilitar el tránsito intestinal favorecido por la fibra y mantener un rendimiento sostenido."
-    )
-
-    return "\n\n".join(lineas)
-
-# ==================================================
-# 2. RECOMENDACIÓN BREVE PARA PANTALLA (~100 PALABRAS)
-# ==================================================
-
-def obtener_recomendacion_ia(resumen_texto):
-    if not client_ai:
-        return "Mantené un consumo equilibrado ajustando porciones de grasas y sumando más fibra y agua a tu día a día."
-    
-    prompt = (
-        "Basado en este resumen nutricional, redacta una recomendación BREVE, DIRECTA Y MOTIVADORA "
-        "de EXACTAMENTE 120 a 150 PALABRAS (no te pases de 100 palabras). "
-        "Menciona de forma concisa si falta fibra o si hay que ajustar grasas/carbohidratos y qué alimentos sumar u omitir:\n\n"
-        f"{resumen_texto}"
-    )
-
-    try:
-        response = client_ai.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=180
-        )
-        return response.choices[0].message.content.strip()
-    except Exception:
-        return "Ajustá tu balance diario moderando las grasas saturadas de carnes pesadas e incrementando fibras con legumbres, semillas y frutas enteras. ¡Mantené la constancia y una buena hidratación!"
 
 # ==========================================
 # MAIN EXECUTION
