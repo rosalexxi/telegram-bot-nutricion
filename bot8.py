@@ -1379,18 +1379,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cb_base = parse_raw_val(plantilla_encontrada.get('Carbohidratos', 0))
             f_base = parse_raw_val(plantilla_encontrada.get('Fibras', 0))
 
-            # ENCAPSULAMIENTO: Extrae la columna 'Descripcion' sin importar cómo venga escrita en la clave
+            # Extrae la columna 'Descripcion'
             val_descripcion = None
             for k, v in plantilla_encontrada.items():
                 if str(k).strip().lower() in ['descripcion', 'descripción']:
                     val_descripcion = v
                     break
 
-            # Si no encontró la descripción, usa el Nombre como respaldo
             texto_final = str(val_descripcion).strip() if val_descripcion else str(plantilla_encontrada.get('Nombre', 'Comida')).strip()
 
+            # ELIMINA EL ÚLTIMO CARÁCTER ESPECIAL (ej. '§')
+            if texto_final:
+                texto_final = texto_final[:-1].strip()
+
             item_generado = {
-                # Mantiene el texto real ("Gelatina light con duraznos en almibar §")
+                # Queda la descripción limpia (ej: "Gelatina light con duraznos en almibar")
                 "alimento": texto_final,
                 "peso": p_base * multiplicador,
                 "calorias": c_base * multiplicador,
@@ -1408,6 +1411,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(f"❌ No se encontró la plantilla `*{nombre_plantilla}`.", parse_mode="Markdown")
             return
+            
+            
 #============================================================================================================================
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
