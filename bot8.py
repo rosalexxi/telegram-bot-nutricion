@@ -5,6 +5,7 @@ import json
 import base64
 import threading
 import inspect
+import logging
 
 from datetime import datetime, date, timedelta, time
 import pytz
@@ -32,6 +33,16 @@ from telegram.ext import (
     filters,
     ConversationHandler
 )
+
+logger = logging.getLogger(__name__)
+
+# Definición de franjas horarias (sin tildes)
+FRANJAS_COMIDAS = {
+    "Desayuno": (6, 11),
+    "Almuerzo": (11, 16),
+    "Merienda": (16, 19),
+    "Cena": (19, 24)
+}
 
 load_dotenv()
 
@@ -1720,7 +1731,12 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         prom_carb = tot_carb / dias_registrados
         prom_fibr = tot_fibr / dias_registrados
 
-        edad, altura, peso_mes_especifico, peso_ideal_base, genero = 64, 172.0, 0.0, 75.0, "M"
+        # --- LECTURA DE DATOS BIOMÉTRICOS SIN VALORES POR DEFECTO ---
+        edad = None
+        altura = None
+        peso_mes_especifico = None
+        peso_ideal_base = None
+        genero = "M"
 
         try:
             gc = get_gspread_client()
@@ -1738,28 +1754,42 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
                         break
 
                 if perfil_mes:
-                    def parse_val(v, default):
+                    def parse_val_strict(v):
                         try:
                             n = parse_float_from_sheets(v)
                             if n == 0:
-                                return default
+                                return None
                             return n / 1000.0 if n > 500 else n
                         except:
-                            return default
+                            return None
 
-                    edad = int(parse_val(perfil_mes.get("edad"), 64))
-                    altura = parse_val(perfil_mes.get("altura"), 172.0)
-                    peso_mes_especifico = parse_val(perfil_mes.get("peso"), 0.0)
+                    v_edad = perfil_mes.get("edad")
+                    edad = int(parse_val_strict(v_edad)) if parse_val_strict(v_edad) else None
+                    altura = parse_val_strict(perfil_mes.get("altura"))
+                    peso_mes_especifico = parse_val_strict(perfil_mes.get("peso"))
                     
                     p_ideal_raw = perfil_mes.get("peso_ideal") or perfil_mes.get("peso ideal")
-                    peso_ideal_base = parse_val(p_ideal_raw, 75.0)
-                    genero = str(perfil_mes.get("genero", "M")).strip().upper()
+                    peso_ideal_base = parse_val_strict(p_ideal_raw)
+                    
+                    gen_raw = perfil_mes.get("genero")
+                    if gen_raw:
+                        genero = str(gen_raw).strip().upper()
 
         except Exception as err_perfil:
             print(f"Error accediendo a Perfil_{user_id}: {err_perfil}")
 
-        if peso_mes_especifico == 0.0:
-            peso_mes_especifico = 108.5
+        # Validación estricta: si falta alguno de los parámetros biométricos, no se procesa ni llama al PDF
+        if None in (edad, altura, peso_mes_especifico, peso_ideal_base):
+            txt_incompleto = (
+                f"⚠️ **Datos biométricos incompletos para el mes `{mes_str}`.**\n\n"
+                f"No se ingresaron o están incompletos los datos de edad, altura, peso o peso ideal en tu perfil para este mes. "
+                f"Por favor, completá tu perfil del mes para generar el resumen y el reporte PDF."
+            )
+            if hasattr(query_or_update, 'edit_message_text'):
+                await query_or_update.edit_message_text(txt_incompleto, parse_mode="Markdown")
+            else:
+                await query_or_update.message.reply_text(txt_incompleto, parse_mode="Markdown")
+            return
 
         peso_promedio = (peso_mes_especifico + peso_ideal_base) / 2.0
 
@@ -1856,10 +1886,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
         else:
             await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
-
-# ==================================================
-# 4. GENERAR PDF RESUMEN BYTES
-# ==================================================
+            
 
 # ==================================================
 # GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
@@ -2080,20 +2107,148 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     doc.build(story)
     buffer.seek(0)
     return buffer
+
+# ==================================================
+# 4. GENERAR MENSAJES RECORDATORIOS
+# ==================================================
+
+
+async def ejecutar_recordatorio_comidas(context, momento: str):
+    """
+    Funcion consolidada para verificar y enviar alertas de comidas pendientes.
+    Revisa la pestana 'Usuarios' y consulta las comidas del dia actual y anterior.
+    """
+    try:
+        # 1. Leer usuarios desde la pestana central 'Usuarios'
+        sheet_usuarios = sheet_spreadsheet.worksheet("Usuarios")
+        registros_usuarios = sheet_usuarios.get_all_records()
+        
+        usuarios_validos = []
+        for u in registros_usuarios:
+            estado = str(u.get("Estado", "")).strip().lower()
+            notif = str(u.get("Notificaciones", "")).strip().lower()
+            user_id = u.get("User ID")
+            
+            # Valida estado activo y notificaciones activas (acepta 'si' o 'sí')
+            if estado == "activo" and notif in ["si", "sí"] and user_id:
+                usuarios_validos.append(user_id)
+
+    except Exception as e:
+        logger.error(f"Error al acceder a la pestana 'Usuarios': {e}")
+        return
+
+    # Fechas de referencia
+    hoy = datetime.now()
+    ayer = hoy - timedelta(days=1)
+    str_hoy = hoy.strftime("%Y-%m-%d")
+    str_ayer = ayer.strftime("%Y-%m-%d")
+
+    # 2. Procesar cada usuario
+    for user_id in usuarios_validos:
+        try:
+            nombre_hoja_usuario = f"comidas_{user_id}"
+            sheet_usuario = sheet_spreadsheet.worksheet(nombre_hoja_usuario)
+            registros_comidas = sheet_usuario.get_all_records()
+
+            comidas_ayer = set()
+            comidas_hoy = set()
+
+            # Clasificar registros cargados por dia y franja horaria
+            for reg in registros_comidas:
+                fecha_reg = str(reg.get("Fecha", "")).strip()
+                hora_str = str(reg.get("Hora", "")).strip()
+
+                if hora_str:
+                    try:
+                        hora_obj = datetime.strptime(hora_str, "%H:%M").time()
+                        for nombre_comida, (inicio, fin) in FRANJAS_COMIDAS.items():
+                            if inicio <= hora_obj.hour < fin:
+                                if fecha_reg == str_ayer:
+                                    comidas_ayer.add(nombre_comida)
+                                elif fecha_reg == str_hoy:
+                                    comidas_hoy.add(nombre_comida)
+                    except ValueError:
+                        continue
+
+            # 3. Evaluar faltantes
+            faltantes = []
+            todas_comidas = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
+
+            # Comidas no registradas del dia anterior
+            for c in todas_comidas:
+                if c not in comidas_ayer:
+                    faltantes.append(f"{c} de ayer")
+
+            # Comidas no registradas del dia actual (solo en la alerta de la tarde)
+            if momento == 'tarde':
+                if "Desayuno" not in comidas_hoy:
+                    faltantes.append("Desayuno de hoy")
+                if "Almuerzo" not in comidas_hoy:
+                    faltantes.append("Almuerzo de hoy")
+
+            # 4. Enviar mensaje por Telegram si existen faltantes
+            if faltantes:
+                lista_formateada = "\n• " + "\n• ".join(faltantes)
+                mensaje = (
+                    f"📌 **Recordatorio de comidas pendientes:**\n"
+                    f"{lista_formateada}\n\n"
+                    f"Si ya las consumiste, podes registrarlas en cualquier momento."
+                )
+                await context.bot.send_message(
+                    chat_id=user_id, 
+                    text=mensaje, 
+                    parse_mode="Markdown"
+                )
+                logger.info(f"Recordatorio de comidas enviado con exito a {user_id}")
+
+        except Exception as e:
+            logger.error(f"Error procesando recordatorio para {user_id} en {nombre_hoja_usuario}: {e}")
+
     
 # ==========================================
 # MAIN EXECUTION
 # ==========================================
 
+
+# --- FUNCIONES WRAPPER PARA LA JOBQUEUE ---
+async def job_recordatorio_manana(context):
+    """Tarea programada para las 09:00 hs"""
+    await ejecutar_recordatorio_comidas(context, momento='manana')
+
+async def job_recordatorio_tarde(context):
+    """Tarea programada para las 16:00 hs"""
+    await ejecutar_recordatorio_comidas(context, momento='tarde')
+
 def main():
+    # Hilo secundario para mantener el servidor web (Flask) activo
     threading.Thread(target=run_flask, daemon=True).start()
 
     if not TELEGRAM_TOKEN:
         print("❌ TELEGRAM_BOT_TOKEN no configurado.")
         return
 
+    # Inicialización de la aplicación de Telegram
     app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
+    # --- CONFIGURACIÓN DE TAREAS PROGRAMADAS (JOB QUEUE) ---
+    job_queue = app_bot.job_queue
+    tz = pytz.timezone('America/Argentina/Buenos_Aires')
+
+    # Recordatorio Mañana: 09:00 hs todos los días
+    job_queue.run_daily(
+        job_recordatorio_manana, 
+        time=time(hour=9, minute=0, second=0, tzinfo=tz),
+        name="recordatorio_comidas_manana"
+    )
+
+    # Recordatorio Tarde: 16:00 hs todos los días
+    job_queue.run_daily(
+        job_recordatorio_tarde, 
+        time=time(hour=16, minute=0, second=0, tzinfo=tz),
+        name="recordatorio_comidas_tarde"
+    )
+
+    # --- HANDLERS DE COMANDOS ---
     app_bot.add_handler(CommandHandler("start", cmd_start))
     app_bot.add_handler(CommandHandler("comidas", cmd_comidas))
     app_bot.add_handler(CommandHandler("actividad", cmd_actividad))
@@ -2103,12 +2258,13 @@ def main():
     app_bot.add_handler(CommandHandler("diario", cmd_diario))
     app_bot.add_handler(CommandHandler("resumen", cmd_resumen))
 
+    # --- HANDLERS DE MENSAJES Y CALLBACKS ---
     app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app_bot.add_handler(CallbackQueryHandler(handle_callback_query))
 
-    print("🤖 Bot Nutricional iniciado correctamente en Telegram...")
+    print("🤖 Bot Nutricional iniciado correctamente en Telegram con tareas programadas (09:00 hs y 16:00 hs)...")
     app_bot.run_polling()
 
 if __name__ == "__main__":
