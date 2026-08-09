@@ -317,116 +317,6 @@ def guardar_presion_en_sheets(user_id, alta, baja, pulsaciones):
         to_sheet_int(pulsaciones) if pulsaciones is not None else 0
     ])
 
-def guardar_perfil_en_sheets(user_id, edad, peso, altura, genero="masculino", ocupacion="Sedentario", mes=None, reescribir=True):
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
-    ahora = obtener_ahora_arg()
-    if not mes:
-        mes = ahora.strftime("%Y-%m")
-    
-    nueva_fila = [
-        to_sheet_int(edad), 
-        to_sheet_int(peso), 
-        to_sheet_int(altura), 
-        str(genero), 
-        str(ocupacion), 
-        str(mes), 
-        ahora.strftime("%Y-%m-%d %H:%M:%S")
-    ]
-
-    fila_a_actualizar = None
-
-    if reescribir:
-        records = ws.get_all_records()
-        for idx, row in enumerate(records, start=2):
-            mes_en_fila = str(row.get('Mes', row.get(list(row.keys())[5], ''))).strip()
-            if mes_en_fila == str(mes):
-                fila_a_actualizar = idx
-                break
-
-    if fila_a_actualizar:
-        ws.update(f"A{fila_a_actualizar}:G{fila_a_actualizar}", [nueva_fila])
-    else:
-        ws.append_row(nueva_fila)
-
-def obtener_perfil_usuario(user_id, mes_target=None):
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
-        records = ws.get_all_records()
-        if not records:
-            return None
-        
-        perfil_raw = None
-        if mes_target:
-            for r in reversed(records):
-                m_val = str(r.get('MES', r.get('Mes', ''))).strip()
-                if m_val == mes_target:
-                    perfil_raw = r
-                    break
-        
-        if not perfil_raw:
-            perfil_raw = records[-1]
-        
-        perfil = {}
-        for k, v in perfil_raw.items():
-            k_upper = str(k).strip().upper()
-            if k_upper == 'EDAD':
-                perfil['Edad'] = parse_float_from_sheets(v)
-            elif k_upper == 'PESO':
-                perfil['Peso'] = parse_float_from_sheets(v)
-            elif k_upper == 'ALTURA':
-                perfil['Altura'] = parse_float_from_sheets(v)
-            elif k_upper in ['GENERO', 'SEXO']:
-                perfil['Sexo'] = str(v)
-            elif k_upper == 'OCUPACION':
-                perfil['Ocupacion'] = str(v)
-            elif k_upper == 'MES':
-                perfil['Mes'] = str(v)
-
-        return perfil
-    except Exception as e:
-        print(f"Error obteniendo perfil del usuario {user_id}: {e}")
-        return None
-
-def obtener_datos_usuario(user_id):
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws = get_or_create_worksheet(sh, f"User_{user_id}")
-        records = ws.get_all_records()
-        if not records:
-            return pd.DataFrame()
-        
-        df = pd.DataFrame(records)
-        col_map = {}
-        for c in df.columns:
-            c_lower = str(c).lower()
-            if 'fecha' in c_lower: col_map[c] = 'Fecha'
-            elif 'momento' in c_lower or 'actividad' in c_lower: col_map[c] = 'Momento'
-            elif 'alimento' in c_lower or 'detalle' in c_lower: col_map[c] = 'Alimento'
-            elif 'peso' in c_lower: col_map[c] = 'Peso'
-            elif 'calor' in c_lower: col_map[c] = 'Calorias'
-            elif 'prote' in c_lower: col_map[c] = 'Proteinas'
-            elif 'grasa' in c_lower: col_map[c] = 'Grasas'
-            elif 'hidrat' in c_lower or 'carbo' in c_lower: col_map[c] = 'Carbohidratos'
-            elif 'fibra' in c_lower: col_map[c] = 'Fibras'
-
-        df = df.rename(columns=col_map)
-        if "Fecha" in df.columns and not df.empty:
-            df['Fecha'] = df['Fecha'].astype(str).str.strip()
-            for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
-                if col in df.columns:
-                    df[col] = df[col].apply(parse_float_from_sheets)
-                else:
-                    df[col] = 0.0
-        return df
-    except Exception as e:
-        print(f"Error al obtener datos del usuario {user_id}: {e}")
-        return pd.DataFrame()
-
 def obtener_datos_presion(user_id):
     try:
         gc = get_gspread_client()
@@ -1105,6 +995,10 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
         await query_or_update.edit_message_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
     else:
         await query_or_update.message.reply_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
+
+#=============================================================================================
+#           COMANDOS Y FUNCIONES DEL PERFIL Y BIOMETRICOS
+#===============================================================================================
         
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1225,6 +1119,188 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     await update.message.reply_text(txt, parse_mode="Markdown")
+    
+def guardar_perfil_en_sheets(user_id, edad=None, peso=None, altura=None, genero="masculino", ocupacion="Sedentario", mes=None, reescribir=True):
+    """
+    Guarda o actualiza únicamente el peso del usuario.
+    Mantiene la firma por compatibilidad, pero IGNORA edad, altura, género u ocupación pasados por parámetro,
+    preservando los datos del administrador y recalculando la edad vía la columna 'cumple'.
+    """
+    gc = get_gspread_client()
+    sh = gc.open(SPREADSHEET_NAME)
+    ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
+    ahora = obtener_ahora_arg()
+    
+    if not mes:
+        mes = ahora.strftime("%Y-%m")
+    
+    records = ws.get_all_records()
+    
+    # Variables biométricas base (se completan EXCLUSIVAMENTE desde la planilla)
+    edad_final = 0
+    altura_final = 0
+    genero_final = "masculino"
+    ocupacion_final = "Sedentario"
+    fecha_cumple_str = ""
+    fila_a_actualizar = None
+
+    # 1. Recuperar los datos del administrador guardados previamente en la hoja
+    if records:
+        ultimo_registro = records[-1]
+        
+        # Ignoramos lo que venga por parámetro y leemos lo que está en el Excel
+        edad_final = ultimo_registro.get('Edad', ultimo_registro.get('edad', 0))
+        altura_final = ultimo_registro.get('Altura', ultimo_registro.get('altura', 0))
+        genero_final = ultimo_registro.get('Genero', ultimo_registro.get('genero', 'masculino'))
+        ocupacion_final = ultimo_registro.get('Ocupacion', ultimo_registro.get('ocupacion', 'Sedentario'))
+        fecha_cumple_str = str(ultimo_registro.get('cumple', ultimo_registro.get('Cumpleaños', ''))).strip()
+
+        # Verificar si existe el registro del mes actual
+        if reescribir:
+            for idx, row in enumerate(records, start=2):
+                mes_en_fila = str(row.get('Mes', row.get(list(row.keys())[5] if len(row.keys()) > 5 else '', ''))).strip()
+                if mes_en_fila == str(mes):
+                    fila_a_actualizar = idx
+                    break
+
+    # 2. RECALCULAR EDAD AUTOMÁTICAMENTE (Invalida cualquier 'edad' pasada por parámetro)
+    if fecha_cumple_str:
+        try:
+            if "-" in fecha_cumple_str:
+                partes = fecha_cumple_str.split("-")
+                fnac = datetime.strptime(fecha_cumple_str, "%Y-%m-%d") if len(partes[0]) == 4 else datetime.strptime(fecha_cumple_str, "%d-%m-%Y")
+            elif "/" in fecha_cumple_str:
+                fnac = datetime.strptime(fecha_cumple_str, "%d/%m/%Y")
+            else:
+                fnac = None
+
+            if fnac:
+                edad_calculada = ahora.year - fnac.year - ((ahora.month, ahora.day) < (fnac.month, fnac.day))
+                if edad_calculada > 0:
+                    edad_final = edad_calculada  # Reemplaza la edad con la calculada por cumpleaños
+        except Exception as e:
+            print(f"Error al calcular edad desde fecha 'cumple' ({fecha_cumple_str}): {e}")
+
+    # 3. Armar la fila con los datos fijos del admin + el NUEVO peso ingresado
+    nueva_fila = [
+        to_sheet_int(edad_final), 
+        to_sheet_int(peso),  # Único valor real actualizado por el usuario
+        to_sheet_int(altura_final), 
+        str(genero_final), 
+        str(ocupacion_final), 
+        str(mes), 
+        ahora.strftime("%Y-%m-%d %H:%M:%S"),
+        str(fecha_cumple_str)
+    ]
+
+    # 4. Guardar en la hoja del perfil (sobrescribir o agregar)
+    if fila_a_actualizar:
+        ws.update(f"A{fila_a_actualizar}:H{fila_a_actualizar}", [nueva_fila])
+    else:
+        ws.append_row(nueva_fila)
+
+    # 5. Actualizar la fecha del peso en la pestaña general 'usuarios'
+    try:
+        ws_usuarios = sh.worksheet("usuarios")
+        cell = ws_usuarios.find(str(user_id))
+        if cell:
+            headers = ws_usuarios.row_values(1)
+            fecha_str = ahora.strftime("%Y-%m-%d %H:%M:%S")
+            
+            if "fecha_peso" in headers:
+                col_idx = headers.index("fecha_peso") + 1
+            elif "user_id" in headers:
+                col_idx = headers.index("user_id") + 1
+            else:
+                col_idx = 2
+                
+            ws_usuarios.update_cell(cell.row, col_idx, fecha_str)
+    except Exception as e:
+        print(f"Error al actualizar la fecha en la hoja usuarios: {e}")
+               
+def obtener_perfil_usuario(user_id, mes_target=None):
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
+        records = ws.get_all_records()
+        if not records:
+            return None
+        
+        perfil_raw = None
+        if mes_target:
+            for r in reversed(records):
+                m_val = str(r.get('MES', r.get('Mes', ''))).strip()
+                if m_val == mes_target:
+                    perfil_raw = r
+                    break
+        
+        if not perfil_raw:
+            perfil_raw = records[-1]
+        
+        perfil = {}
+        for k, v in perfil_raw.items():
+            k_upper = str(k).strip().upper()
+            if k_upper == 'EDAD':
+                perfil['Edad'] = parse_float_from_sheets(v)
+            elif k_upper == 'PESO':
+                perfil['Peso'] = parse_float_from_sheets(v)
+            elif k_upper == 'ALTURA':
+                perfil['Altura'] = parse_float_from_sheets(v)
+            elif k_upper in ['GENERO', 'SEXO']:
+                perfil['Sexo'] = str(v)
+            elif k_upper == 'OCUPACION':
+                perfil['Ocupacion'] = str(v)
+            elif k_upper == 'MES':
+                perfil['Mes'] = str(v)
+
+        return perfil
+    except Exception as e:
+        print(f"Error obteniendo perfil del usuario {user_id}: {e}")
+        return None
+        
+def obtener_datos_usuario(user_id):
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = get_or_create_worksheet(sh, f"User_{user_id}")
+        records = ws.get_all_records()
+        if not records:
+            return pd.DataFrame()
+        
+        df = pd.DataFrame(records)
+        col_map = {}
+        for c in df.columns:
+            c_lower = str(c).lower()
+            if 'fecha' in c_lower: col_map[c] = 'Fecha'
+            elif 'momento' in c_lower or 'actividad' in c_lower: col_map[c] = 'Momento'
+            elif 'alimento' in c_lower or 'detalle' in c_lower: col_map[c] = 'Alimento'
+            elif 'peso' in c_lower: col_map[c] = 'Peso'
+            elif 'calor' in c_lower: col_map[c] = 'Calorias'
+            elif 'prote' in c_lower: col_map[c] = 'Proteinas'
+            elif 'grasa' in c_lower: col_map[c] = 'Grasas'
+            elif 'hidrat' in c_lower or 'carbo' in c_lower: col_map[c] = 'Carbohidratos'
+            elif 'fibra' in c_lower: col_map[c] = 'Fibras'
+
+        df = df.rename(columns=col_map)
+        if "Fecha" in df.columns and not df.empty:
+            df['Fecha'] = df['Fecha'].astype(str).str.strip()
+            for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
+                if col in df.columns:
+                    df[col] = df[col].apply(parse_float_from_sheets)
+                else:
+                    df[col] = 0.0
+        return df
+    except Exception as e:
+        print(f"Error al obtener datos del usuario {user_id}: {e}")
+        return pd.DataFrame()
+
+#=============================================================================================
+#           
+#===============================================================================================
+
+
+    
 
 async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
