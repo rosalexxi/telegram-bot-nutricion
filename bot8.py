@@ -1349,28 +1349,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar imagen: {e}")
 
+#=============================================================================================
+# INGRESO DE COMIDAS PRECARGADAS
+#===============================================================================================
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.strip()
 
-    if context.user_data.get('awaiting_edit_item_val'):
-        context.user_data['awaiting_edit_item_val'] = False
-        idx = context.user_data.get('editing_item_idx', 0)
-        items = context.user_data.get('pending_items', [])
-        
-        if 0 <= idx < len(items):
-            msg = await update.message.reply_text("⏳ Reprocesando alimento con la IA...")
-            try:
-                data = analizar_con_groq(raw_text)
-                nuevos_items = data.get("items", [])
-                if nuevos_items:
-                    items[idx] = nuevos_items[0]
-                    context.user_data['pending_items'] = items
-                await render_confirmation_screen(msg, context)
-            except Exception as e:
-                await msg.edit_text(f"❌ Error al editar el ítem: {e}")
-        return
-
+    # EVALUACIÓN Y PROCESAMIENTO DE COMIDAS PRECARGADAS EN PLANTILLAS
     if raw_text.startswith('*'):
         contenido = raw_text[1:].strip()
         partes = [p.strip() for p in contenido.split(',')]
@@ -1392,8 +1379,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cb_base = parse_raw_val(plantilla_encontrada.get('Carbohidratos', 0))
             f_base = parse_raw_val(plantilla_encontrada.get('Fibras', 0))
 
+            # ENCAPSULAMIENTO: Extrae la columna 'Descripcion' sin importar cómo venga escrita en la clave
+            val_descripcion = None
+            for k, v in plantilla_encontrada.items():
+                if str(k).strip().lower() in ['descripcion', 'descripción']:
+                    val_descripcion = v
+                    break
+
+            # Si no encontró la descripción, usa el Nombre como respaldo
+            texto_final = str(val_descripcion).strip() if val_descripcion else str(plantilla_encontrada.get('Nombre', 'Comida')).strip()
+
             item_generado = {
-                "alimento": f"§{plantilla_encontrada.get('Nombre', 'Comida')}",
+                # Mantiene el texto real ("Gelatina light con duraznos en almibar §")
+                "alimento": texto_final,
                 "peso": p_base * multiplicador,
                 "calorias": c_base * multiplicador,
                 "proteinas": pr_base * multiplicador,
@@ -1410,13 +1408,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(f"❌ No se encontró la plantilla `*{nombre_plantilla}`.", parse_mode="Markdown")
             return
-
-    msg = await update.message.reply_text("⏳ Analizando alimento con IA...")
-    try:
-        data = analizar_con_groq(raw_text)
-        await procesar_y_mostrar_confirmacion(data, msg, context)
-    except Exception as e:
-        await msg.edit_text(f"❌ Error al consultar la IA: {e}")
+#============================================================================================================================
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1964,7 +1956,7 @@ def obtener_recomendacion_ia(resumen_texto):
     
     prompt = (
         "Basado en este resumen nutricional, redacta una recomendación BREVE, DIRECTA Y MOTIVADORA "
-        "de EXACTAMENTE 80 a 100 PALABRAS (no te pases de 100 palabras). "
+        "de EXACTAMENTE 120 a 150 PALABRAS (no te pases de 100 palabras). "
         "Menciona de forma concisa si falta fibra o si hay que ajustar grasas/carbohidratos y qué alimentos sumar u omitir:\n\n"
         f"{resumen_texto}"
     )
