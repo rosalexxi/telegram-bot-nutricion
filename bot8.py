@@ -1120,11 +1120,10 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(txt, parse_mode="Markdown")
     
-def guardar_perfil_en_sheets(user_id, edad=None, peso=None, altura=None, genero="masculino", ocupacion="Sedentario", mes=None, reescribir=True):
+def guardar_perfil_en_sheets(user_id, peso, mes=None):
     """
-    Guarda o actualiza únicamente el peso del usuario.
-    Mantiene la firma por compatibilidad, pero IGNORA edad, altura, género u ocupación pasados por parámetro,
-    preservando los datos del administrador y recalculando la edad vía la columna 'cumple'.
+    Guarda/actualiza únicamente el peso del usuario manteniendo intactos
+    los encabezados exactos del Excel para no romper otras funciones del sistema.
     """
     gc = get_gspread_client()
     sh = gc.open(SPREADSHEET_NAME)
@@ -1136,34 +1135,34 @@ def guardar_perfil_en_sheets(user_id, edad=None, peso=None, altura=None, genero=
     
     records = ws.get_all_records()
     
-    # Variables biométricas base (se completan EXCLUSIVAMENTE desde la planilla)
     edad_final = 0
     altura_final = 0
     genero_final = "masculino"
-    ocupacion_final = "Sedentario"
+    ocupacion_final = "Jubilado"
+    peso_ideal_final = ""
     fecha_cumple_str = ""
     fila_a_actualizar = None
 
-    # 1. Recuperar los datos del administrador guardados previamente en la hoja
+    # 1. Recuperar los datos biométricos respetando los encabezados tal cual están en la planilla
     if records:
         ultimo_registro = records[-1]
         
-        # Ignoramos lo que venga por parámetro y leemos lo que está en el Excel
-        edad_final = ultimo_registro.get('Edad', ultimo_registro.get('edad', 0))
-        altura_final = ultimo_registro.get('Altura', ultimo_registro.get('altura', 0))
-        genero_final = ultimo_registro.get('Genero', ultimo_registro.get('genero', 'masculino'))
-        ocupacion_final = ultimo_registro.get('Ocupacion', ultimo_registro.get('ocupacion', 'Sedentario'))
-        fecha_cumple_str = str(ultimo_registro.get('cumple', ultimo_registro.get('Cumpleaños', ''))).strip()
+        # Búsqueda directa por las claves exactas en MAYÚSCULAS/minúsculas
+        edad_final = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', ultimo_registro.get('edad', 0)))
+        altura_final = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', ultimo_registro.get('altura', 0)))
+        genero_final = ultimo_registro.get('GENERO', ultimo_registro.get('Genero', ultimo_registro.get('Sexo', 'masculino')))
+        ocupacion_final = ultimo_registro.get('OCUPACION', ultimo_registro.get('Ocupacion', ultimo_registro.get('ocupacion', 'Jubilado')))
+        peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
+        fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
 
-        # Verificar si existe el registro del mes actual
-        if reescribir:
-            for idx, row in enumerate(records, start=2):
-                mes_en_fila = str(row.get('Mes', row.get(list(row.keys())[5] if len(row.keys()) > 5 else '', ''))).strip()
-                if mes_en_fila == str(mes):
-                    fila_a_actualizar = idx
-                    break
+        # Verificar si ya existe fila registrada para el mes actual
+        for idx, row in enumerate(records, start=2):
+            mes_en_fila = str(row.get('MES', row.get('Mes', row.get('mes', '')))).strip()
+            if mes_en_fila == str(mes):
+                fila_a_actualizar = idx
+                break
 
-    # 2. RECALCULAR EDAD AUTOMÁTICAMENTE (Invalida cualquier 'edad' pasada por parámetro)
+    # 2. Recalcular la edad automáticamente desde 'Cumple'
     if fecha_cumple_str:
         try:
             if "-" in fecha_cumple_str:
@@ -1177,47 +1176,49 @@ def guardar_perfil_en_sheets(user_id, edad=None, peso=None, altura=None, genero=
             if fnac:
                 edad_calculada = ahora.year - fnac.year - ((ahora.month, ahora.day) < (fnac.month, fnac.day))
                 if edad_calculada > 0:
-                    edad_final = edad_calculada  # Reemplaza la edad con la calculada por cumpleaños
+                    edad_final = edad_calculada
         except Exception as e:
-            print(f"Error al calcular edad desde fecha 'cumple' ({fecha_cumple_str}): {e}")
+            print(f"Error al calcular edad desde Cumple ({fecha_cumple_str}): {e}")
 
-    # 3. Armar la fila con los datos fijos del admin + el NUEVO peso ingresado
+    # 3. Armar la fila exactamente con la estructura A-I de la planilla
     nueva_fila = [
-        to_sheet_int(edad_final), 
-        to_sheet_int(peso),  # Único valor real actualizado por el usuario
-        to_sheet_int(altura_final), 
-        str(genero_final), 
-        str(ocupacion_final), 
-        str(mes), 
-        ahora.strftime("%Y-%m-%d %H:%M:%S"),
-        str(fecha_cumple_str)
+        to_sheet_int(edad_final),            # A: EDAD
+        to_sheet_int(peso),                  # B: PESO
+        to_sheet_int(altura_final),          # C: ALTURA
+        str(genero_final),                   # D: GENERO
+        str(ocupacion_final),                # E: OCUPACION
+        str(mes),                            # F: MES
+        ahora.strftime("%Y-%m-%d %H:%M:%S"),  # G: Fecha_Actualizacion
+        to_sheet_int(peso_ideal_final) if peso_ideal_final != "" else "", # H: Peso_ideal
+        str(fecha_cumple_str)                # I: Cumple
     ]
 
-    # 4. Guardar en la hoja del perfil (sobrescribir o agregar)
+    # 4. Actualizar rango A:I o agregar nueva fila
     if fila_a_actualizar:
-        ws.update(f"A{fila_a_actualizar}:H{fila_a_actualizar}", [nueva_fila])
+        ws.update(f"A{fila_a_actualizar}:I{fila_a_actualizar}", [nueva_fila])
     else:
         ws.append_row(nueva_fila)
 
-    # 5. Actualizar la fecha del peso en la pestaña general 'usuarios'
+    # 5. Actualizar la columna 'Ultimo Mes Peso' en la pestaña general 'usuarios'
     try:
         ws_usuarios = sh.worksheet("usuarios")
         cell = ws_usuarios.find(str(user_id))
+        
         if cell:
             headers = ws_usuarios.row_values(1)
-            fecha_str = ahora.strftime("%Y-%m-%d %H:%M:%S")
             
-            if "fecha_peso" in headers:
+            # Buscar 'Ultimo Mes Peso' exactamente como está en tu columna D
+            if "Ultimo Mes Peso" in headers:
+                col_idx = headers.index("Ultimo Mes Peso") + 1
+            elif "fecha_peso" in headers:
                 col_idx = headers.index("fecha_peso") + 1
-            elif "user_id" in headers:
-                col_idx = headers.index("user_id") + 1
             else:
-                col_idx = 2
+                col_idx = 4  # Columna D por defecto
                 
-            ws_usuarios.update_cell(cell.row, col_idx, fecha_str)
+            ws_usuarios.update_cell(cell.row, col_idx, str(mes))
     except Exception as e:
-        print(f"Error al actualizar la fecha en la hoja usuarios: {e}")
-               
+        print(f"Error al actualizar pestaña usuarios: {e}")  
+         
 def obtener_perfil_usuario(user_id, mes_target=None):
     try:
         gc = get_gspread_client()
@@ -1299,8 +1300,6 @@ def obtener_datos_usuario(user_id):
 #           
 #===============================================================================================
 
-
-    
 
 async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
