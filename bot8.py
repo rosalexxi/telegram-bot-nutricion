@@ -1097,7 +1097,6 @@ def guardar_perfil_en_sheets(user_id, peso, mes=None):
     except Exception as e:
         print(f"Error al actualizar la pestaña usuarios: {e}")
 
-
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.replace('/perfil', '').strip()
@@ -1107,14 +1106,14 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # CASO 1: Ingreso de peso (/perfil 120)
     if raw_text:
         try:
-            # Limpiar el texto ingresado para obtener solo números
+            # Limpiar el texto para obtener únicamente el número
             texto_limpio = raw_text.split()[0].replace(',', '.')
             nuevo_peso = float(texto_limpio)
             
             # Guardar en Google Sheets
             guardar_perfil_en_sheets(user_id, nuevo_peso, mes_actual)
             
-            # Obtener datos del perfil recién guardado para recalcular métricas
+            # NOMBRE CORREGIDO: obtener_perfil_usuario (con guiones bajos)
             perfil_actualizado = obtener_perfil_usuario(user_id, mes_target=mes_actual)
             
             if perfil_actualizado:
@@ -1140,7 +1139,6 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Por favor, ingresá un número válido para el peso. Ejemplo: `/perfil 82.5`", parse_mode="Markdown")
             return
         except Exception as e:
-            # Captura de errores inesperados para que la aplicación no quede en silencio
             print(f"Error al procesar /perfil en Sheets: {e}")
             await update.message.reply_text(f"⚠️ Ocurrió un error al intentar guardar en la planilla: {e}", parse_mode="Markdown")
             return
@@ -1176,7 +1174,88 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(txt, parse_mode="Markdown")
     except Exception as e:
         print(f"Error al consultar /perfil: {e}")
-        await update.message.reply_text(f"⚠️ Ocurrió un error al leer tu perfil: {e}", parse_mode="Markdown")        
+        await update.message.reply_text(f"⚠️ Ocurrió un error al leer tu perfil: {e}", parse_mode="Markdown")
+
+async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    raw_text = update.message.text.replace('/perfil', '').strip()
+    ahora = obtener_ahora_arg()
+    mes_actual = ahora.strftime("%Y-%m")
+
+    # CASO 1: Ingreso de peso (/perfil 120)
+    if raw_text:
+        try:
+            # Limpiar el texto para obtener únicamente el número
+            texto_limpio = raw_text.split()[0].replace(',', '.')
+            nuevo_peso = float(texto_limpio)
+            
+            # Guardar en Google Sheets
+            guardar_perfil_en_sheets(user_id, nuevo_peso, mes_actual)
+            
+            # NOMBRE CORREGIDO: obtener_perfil_usuario (con guiones bajos)
+            perfil_actualizado = obtener_perfil_usuario(user_id, mes_target=mes_actual)
+            
+            if perfil_actualizado:
+                edad = parse_raw_val(perfil_actualizado.get('EDAD', perfil_actualizado.get('Edad', 64)))
+                altura = parse_raw_val(perfil_actualizado.get('ALTURA', perfil_actualizado.get('Altura', 170)))
+                genero = str(perfil_actualizado.get('GENERO', perfil_actualizado.get('Genero', 'masculino')))
+                ocupacion = str(perfil_actualizado.get('OCUPACION', perfil_actualizado.get('Ocupacion', 'Jubilado')))
+            else:
+                edad, altura, genero, ocupacion = 64.0, 170.0, "masculino", "Jubilado"
+
+            tmb, get_val = calcular_tmb_y_get(nuevo_peso, altura, edad, genero, ocupacion)
+            
+            await update.message.reply_text(
+                f"✅ **Peso actualizado correctamente para el mes `{mes_actual}`:**\n"
+                f"• Nuevo Peso: `{nuevo_peso:.1f}` kg\n"
+                f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
+                f"• **GET Estimado:** `{get_val:.0f} kcal/día`",
+                parse_mode="Markdown"
+            )
+            return
+
+        except ValueError:
+            await update.message.reply_text("❌ Por favor, ingresá un número válido para el peso. Ejemplo: `/perfil 82.5`", parse_mode="Markdown")
+            return
+        except Exception as e:
+            print(f"Error al procesar /perfil en Sheets: {e}")
+            await update.message.reply_text(f"⚠️ Ocurrió un error al intentar guardar en la planilla: {e}", parse_mode="Markdown")
+            return
+
+    # CASO 2: Consulta (/perfil solo)
+    try:
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
+
+        if perfil:
+            peso = parse_raw_val(perfil.get('PESO', perfil.get('Peso')))
+            altura = parse_raw_val(perfil.get('ALTURA', perfil.get('Altura')))
+            edad = parse_raw_val(perfil.get('EDAD', perfil.get('Edad')))
+            genero = str(perfil.get('GENERO', perfil.get('Genero', 'masculino')))
+            ocupacion = str(perfil.get('OCUPACION', perfil.get('Ocupacion', 'Jubilado')))
+
+            tmb, get_val = calcular_tmb_y_get(peso, altura, edad, genero, ocupacion)
+            
+            txt = (
+                f"👤 **Perfil Biométrico Actual ({mes_actual}):**\n\n"
+                f"• Edad: `{edad:.0f}` años\n"
+                f"• Peso: `{peso:.1f}` kg\n"
+                f"• Altura: `{altura:.1f}` cm\n"
+                f"• Género: `{genero}`\n"
+                f"• Ocupación: `{ocupacion}`\n"
+                f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
+                f"• **GET Estimado:** `{get_val:.0f} kcal/día`\n\n"
+                f"📌 **Para actualizar solo tu peso mensual:**\n"
+                f"`/perfil 82.5`"
+            )
+        else:
+            txt = f"👤 **Perfil no registrado para este mes.** Podés cargar tu peso ejecutando:\n`/perfil 82.5`"
+
+        await update.message.reply_text(txt, parse_mode="Markdown")
+    except Exception as e:
+        print(f"Error al consultar /perfil: {e}")
+        await update.message.reply_text(f"⚠️ Ocurrió un error al leer tu perfil: {e}", parse_mode="Markdown")
+        
+        
 def obtener_datos_usuario(user_id):
     try:
         gc = get_gspread_client()
