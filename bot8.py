@@ -500,179 +500,10 @@ def analizar_imagen_con_groq(base64_image):
     )
     return json.loads(response.choices[0].message.content)
 
-def obtener_recomendacion_ia(resumen_texto):
-    if not client_ai:
-        return "No se pudo obtener recomendación de IA (API Key no configurada)."
-    
-    prompt = f"Basado en este resumen mensual y métricas del paciente, da una recomendación nutricional breve, profesional y motivadora (máximo 4 oraciones):\n\n{resumen_texto}"
-
-    try:
-        response = client_ai.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=200
-        )
-        return response.choices[0].message.content.strip()
-    except Exception:
-        return "Mantené una dieta equilibrada rica en fibra y agua, ajustando las porciones según tu actividad diaria."
-
 # ==========================================
 # GENERADORES DE PDF
 # ==========================================
 
-def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
-    styles = getSampleStyleSheet()
-    
-    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
-    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#2563EB'), spaceBefore=6, spaceAfter=4)
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8, leading=11, textColor=colors.HexColor('#1E293B'))
-    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
-
-    story = [
-        Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str}</b>", title_style),
-        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
-        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=8)
-    ]
-
-    headers_h1 = ["Fecha", "Cal. Consumid.", "Cal. Quemad.", "Bal. Neto", "Proteinas (g)", "Grasas (g)", "Carbohidratos (g)", "Fibras (g)"]
-    table_data_h1 = [[Paragraph(h, header_style) for h in headers_h1]]
-
-    tot_cons, tot_quem, tot_prot, tot_gras, tot_carb, tot_fibr = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-
-    if not df_mes.empty:
-        fechas_unicas = sorted(df_mes['Fecha'].unique())
-        dias_con_registro = len(fechas_unicas)
-
-        for f in fechas_unicas:
-            sub = df_mes[df_mes['Fecha'] == f]
-            
-            c_cons = sub[sub['Calorias'] > 0]['Calorias'].sum()
-            c_quem = abs(sub[sub['Calorias'] < 0]['Calorias'].sum())
-            b_neto = c_cons - c_quem
-            
-            prot = float(sub['Proteinas'].sum())
-            gras = float(sub['Grasas'].sum())
-            carb = float(sub['Carbohidratos'].sum())
-            fibr = float(sub['Fibras'].sum())
-
-            tot_cons += c_cons
-            tot_quem += c_quem
-            tot_prot += prot
-            tot_gras += gras
-            tot_carb += carb
-            tot_fibr += fibr
-
-            table_data_h1.append([
-                Paragraph(str(f), body_style),
-                Paragraph(f"{c_cons:.1f} kcal", body_style),
-                Paragraph(f"{c_quem:.1f} kcal", body_style),
-                Paragraph(f"{b_neto:.1f} kcal", body_style),
-                Paragraph(f"{prot:.1f} g", body_style),
-                Paragraph(f"{gras:.1f} g", body_style),
-                Paragraph(f"{carb:.1f} g", body_style),
-                Paragraph(f"{fibr:.1f} g", body_style)
-            ])
-        
-        tot_neto = tot_cons - tot_quem
-        table_data_h1.append([
-            Paragraph("<b>TOTAL MES</b>", body_style),
-            Paragraph(f"<b>{tot_cons:.1f} kcal</b>", body_style),
-            Paragraph(f"<b>{tot_quem:.1f} kcal</b>", body_style),
-            Paragraph(f"<b>{tot_neto:.1f} kcal</b>", body_style),
-            Paragraph(f"<b>{tot_prot:.1f} g</b>", body_style),
-            Paragraph(f"<b>{tot_gras:.1f} g</b>", body_style),
-            Paragraph(f"<b>{tot_carb:.1f} g</b>", body_style),
-            Paragraph(f"<b>{tot_fibr:.1f} g</b>", body_style)
-        ])
-
-        div = dias_con_registro if dias_con_registro > 0 else 1
-        table_data_h1.append([
-            Paragraph("<b>PROM. DIARIO</b>", body_style),
-            Paragraph(f"<b>{(tot_cons/div):.1f} kcal</b>", body_style),
-            Paragraph(f"<b>{(tot_quem/div):.1f} kcal</b>", body_style),
-            Paragraph(f"<b>{(tot_neto/div):.1f} kcal</b>", body_style),
-            Paragraph(f"<b>{(tot_prot/div):.1f} g</b>", body_style),
-            Paragraph(f"<b>{(tot_gras/div):.1f} g</b>", body_style),
-            Paragraph(f"<b>{(tot_carb/div):.1f} g</b>", body_style),
-            Paragraph(f"<b>{(tot_fibr/div):.1f} g</b>", body_style)
-        ])
-
-    t1 = Table(table_data_h1, colWidths=[65, 75, 70, 70, 65, 60, 80, 55])
-    t1.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-        ('BACKGROUND', (0, -2), (-1, -1), colors.HexColor('#F1F5F9'))
-    ]))
-    story.append(t1)
-
-    story.append(PageBreak())
-    story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes</b>", title_style))
-    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10))
-
-    # --- DATOS BIOMÉTRICOS ---
-    edad = parse_raw_val(perfil.get('Edad')) if perfil else 64
-    peso_actual = parse_raw_val(perfil.get('Peso')) if perfil else 108.5
-    altura = parse_raw_val(perfil.get('Altura')) if perfil else 172.0
-    genero = str(perfil.get('Sexo', perfil.get('Genero', 'M'))).strip().upper() if perfil else 'M'
-    actividad = str(perfil.get('Ocupacion', 'sedentario')) if perfil else 'sedentario'
-    
-    peso_ideal_excel = parse_raw_val(perfil.get('Peso_ideal', perfil.get('Peso_Ideal', 75.0))) if perfil else 75.0
-    if peso_ideal_excel <= 0:
-        peso_ideal_excel = peso_actual * 0.85
-
-    peso_ideal_promedio = (peso_actual + peso_ideal_excel) / 2.0 if peso_actual > 0 else peso_ideal_excel
-
-    tmb_ideal, get_ideal = calcular_tmb_y_get(peso_actual, altura, edad, genero, actividad, peso_ideal=peso_ideal_excel)
-
-    dias_activos = df_mes['Fecha'].nunique() if not df_mes.empty else 1
-    get_total_ideal = get_ideal * dias_activos
-    bal_calorico = tot_cons - get_total_ideal - tot_quem
-    cambio_peso_kg = bal_calorico / 7700.0
-
-    prot_rec = peso_ideal_promedio * 1.5 if peso_ideal_promedio > 0 else 90.0
-    gras_rec = (get_ideal * 0.25) / 9.0
-    carb_rec = (get_ideal * 0.50) / 4.0
-    fibr_rec = 25.0
-
-    prom_d_cons = (tot_cons / dias_activos) if dias_activos > 0 else 0
-    prom_d_prot = (tot_prot / dias_activos) if dias_activos > 0 else 0
-    prom_d_gras = (tot_gras / dias_activos) if dias_activos > 0 else 0
-    prom_d_carb = (tot_carb / dias_activos) if dias_activos > 0 else 0
-    prom_d_fibr = (tot_fibr / dias_activos) if dias_activos > 0 else 0
-
-    table_comp = [
-        [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Valor Ideal (Peso Promedio)</b>", header_style)],
-        [Paragraph("Calorías", body_style), Paragraph(f"{prom_d_cons:.1f} kcal", body_style), Paragraph(f"{get_ideal:.1f} kcal (GET)", body_style)],
-        [Paragraph("Proteínas", body_style), Paragraph(f"{prom_d_prot:.1f} g", body_style), Paragraph(f"{prot_rec:.1f} g", body_style)],
-        [Paragraph("Grasas", body_style), Paragraph(f"{prom_d_gras:.1f} g", body_style), Paragraph(f"{gras_rec:.1f} g", body_style)],
-        [Paragraph("Carbohidratos", body_style), Paragraph(f"{prom_d_carb:.1f} g", body_style), Paragraph(f"{carb_rec:.1f} g", body_style)],
-        [Paragraph("Fibras", body_style), Paragraph(f"{prom_d_fibr:.1f} g", body_style), Paragraph(f"{fibr_rec:.1f} g", body_style)]
-    ]
-    t_comp = Table(table_comp, colWidths=[150, 185, 185])
-    t_comp.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
-    ]))
-    story.append(t_comp)
-    story.append(Spacer(1, 12))
-
-    story.append(Paragraph(f"• <b>PERFIL BASE ({mes_str}):</b> Peso Actual: {peso_actual:.1f} kg | Peso Ideal Calculado (Promedio): {peso_ideal_promedio:.1f} kg | Altura: {altura:.1f} cm", body_style))
-    story.append(Paragraph(f"• <b>BALANCE CALÓRICO NETO PROYECTADO:</b> {bal_calorico:.1f} kcal", body_style))
-    story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {cambio_peso_kg:.2f} kg ({cambio_peso_kg*1000:.1f} g)", body_style))
-
-    story.append(Spacer(1, 10))
-    story.append(Paragraph("<b>Recomendación Nutricional Personalizada (IA):</b>", sub_style))
-    story.append(Paragraph(f"<i>{recomendacion}</i>", body_style))
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
 
 def generar_pdf_instrucciones_bytes():
     buffer = io.BytesIO()
@@ -921,170 +752,6 @@ def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
     doc.build(story)
     buffer.seek(0)
     return buffer
-
-# ==========================================
-# PANTALLA RESUMEN MES
-# ==========================================
-
-async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
-    try:
-        df_datos = obtener_datos_usuario(user_id)
-        
-        if df_datos is None or df_datos.empty:
-            txt = f"📊 No hay registros ingresados para el usuario `{user_id}`."
-            if hasattr(query_or_update, 'edit_message_text'):
-                await query_or_update.edit_message_text(txt, parse_mode="Markdown")
-            else:
-                await query_or_update.message.reply_text(txt, parse_mode="Markdown")
-            return
-
-        df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)] if 'Fecha' in df_datos.columns else pd.DataFrame()
-        if df_mes.empty:
-            txt = f"📊 No hay registros para el mes `{mes_str}`."
-            if hasattr(query_or_update, 'edit_message_text'):
-                await query_or_update.edit_message_text(txt, parse_mode="Markdown")
-            else:
-                await query_or_update.message.reply_text(txt, parse_mode="Markdown")
-            return
-
-        dias_registrados = df_mes['Fecha'].nunique()
-        if dias_registrados == 0:
-            dias_registrados = 1
-
-        tot_cons_mes = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum() if 'Calorias' in df_mes.columns else 0.0
-        tot_quem_mes = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
-
-        prom_cons = tot_cons_mes / dias_registrados
-        prom_quem = tot_quem_mes / dias_registrados
-        prom_bal_neto = prom_cons - prom_quem
-        
-        tot_prot = df_mes['Proteinas'].sum() if 'Proteinas' in df_mes.columns else 0.0
-        tot_gras = df_mes['Grasas'].sum() if 'Grasas' in df_mes.columns else 0.0
-        tot_carb = df_mes['Carbohidratos'].sum() if 'Carbohidratos' in df_mes.columns else 0.0
-        tot_fibr = df_mes['Fibras'].sum() if 'Fibras' in df_mes.columns else 0.0
-
-        prom_cal = tot_cons_mes / dias_registrados
-        prom_prot = tot_prot / dias_registrados
-        prom_gras = tot_gras / dias_registrados
-        prom_carb = tot_carb / dias_registrados
-        prom_fibr = tot_fibr / dias_registrados
-
-        edad, altura, peso_mes_especifico, peso_ideal_base, genero = 64, 172.0, 0.0, 75.0, "M"
-
-        try:
-            gc = get_gspread_client()
-            sh = gc.open(SPREADSHEET_NAME)
-            ws_perfil = get_or_create_worksheet(sh, f"Perfil_{user_id}")
-            registros_perfil = ws_perfil.get_all_records()
-
-            if registros_perfil:
-                perfil_mes = None
-                for r in registros_perfil:
-                    r_lower = {str(k).strip().lower(): v for k, v in r.items()}
-                    val_mes = str(r_lower.get("mes", "")).strip()
-                    if val_mes == str(mes_str).strip():
-                        perfil_mes = r_lower
-                        break
-
-                if perfil_mes:
-                    def parse_val(v, default):
-                        try:
-                            n = parse_float_from_sheets(v)
-                            if n == 0:
-                                return default
-                            return n / 1000.0 if n > 500 else n
-                        except:
-                            return default
-
-                    edad = int(parse_val(perfil_mes.get("edad"), 64))
-                    altura = parse_val(perfil_mes.get("altura"), 172.0)
-                    peso_mes_especifico = parse_val(perfil_mes.get("peso"), 0.0)
-                    
-                    p_ideal_raw = perfil_mes.get("peso_ideal") or perfil_mes.get("peso ideal")
-                    peso_ideal_base = parse_val(p_ideal_raw, 75.0)
-                    
-                    genero = str(perfil_mes.get("genero", "M")).strip().upper()
-
-        except Exception as err_perfil:
-            print(f"Error accediendo a Perfil_{user_id}: {err_perfil}")
-
-        if peso_mes_especifico == 0.0:
-            peso_mes_especifico = 108.5
-
-        peso_promedio = (peso_mes_especifico + peso_ideal_base) / 2.0
-
-        if genero == "M":
-            tmb = (10 * peso_promedio) + (6.25 * altura) - (5 * edad) + 5
-        else:
-            tmb = (10 * peso_promedio) + (6.25 * altura) - (5 * edad) - 161
-
-        factor_act = 1.2
-        get_meta = tmb * factor_act
-
-        ideal_cal = round(get_meta)
-        ideal_prot = round(peso_promedio * 1.5, 1)
-        ideal_gras = round((get_meta * 0.25) / 9, 1)
-        ideal_carb = round((get_meta * 0.50) / 4, 1)
-        ideal_fibr = 25.0
-
-        str_contexto_peso = (
-            f"- Peso registrado en el mes {mes_str}: {peso_mes_especifico:.1f} kg\n"
-            f"- Peso Meta Progresivo objetivo del mes: {peso_promedio:.1f} kg\n"
-        )
-
-        prompt_para_ia = (
-            f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
-            f"{str_contexto_peso}"
-            f"CONSUMO PROMEDIO DIARIO ({dias_registrados} días registrados):\n"
-            f"- Calorías: {prom_cal:.0f} kcal (Meta: {ideal_cal:.0f} kcal)\n"
-            f"- Proteínas: {prom_prot:.1f} g (Meta: {ideal_prot:.1f} g)\n"
-            f"- Grasas: {prom_gras:.1f} g (Meta: {ideal_gras:.1f} g)\n"
-            f"- Carbohidratos: {prom_carb:.1f} g (Meta: {ideal_carb:.1f} g)\n"
-            f"- Fibras: {prom_fibr:.1f} g (Meta: {ideal_fibr:.1f} g)\n\n"
-            f"Instrucción: Evalúa los macronutrientes de este mes específico ({mes_str}). "
-            f"Considera que el objetivo actual es avanzar de forma progresiva desde el peso actual del mes ({peso_mes_especifico:.1f} kg) "
-            f"hacia la meta intermedia ({peso_promedio:.1f} kg). NO menciones ningún otro peso ideal definitivo. "
-            f"Da un consejo personalizado y no repetitivo respecto a otros meses."
-        )
-
-        recomendacion_ia = obtener_recomendacion_ia(prompt_para_ia)
-
-        # Se almacena en context.user_data para su reutilización al descargar PDF
-        if hasattr(query_or_update, 'user_data'):
-            query_or_update.user_data['ultima_recomendacion_ia'] = recomendacion_ia
-
-        txt = (
-            f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
-            f"• **Promedio Consumidas:** `{prom_cons:.0f} kcal` / día\n"
-            f"• **Promedio Quemadas:** `{prom_quem:.0f} kcal` / día\n"
-            f"• **Balance Neto Diario:** `{prom_bal_neto:.0f} kcal` / día\n\n"
-            f"• Días con registro: `{dias_registrados}`\n"
-            f"📈 **Promedio Diario vs. Objetivos:**\n"
-            f"• **Calorías:** `{prom_cal:.0f} kcal` / Meta: `{ideal_cal:.0f} kcal`\n"
-            f"• **Proteínas:** `{prom_prot:.1f} g` / Meta: `{ideal_prot:.1f} g`\n"
-            f"• **Grasas:** `{prom_gras:.1f} g` / Meta: `{ideal_gras:.1f} g`\n"
-            f"• **Carbohidratos:** `{prom_carb:.1f} g` / Meta: `{ideal_carb:.1f} g`\n"
-            f"• **Fibras:** `{prom_fibr:.1f} g` / Meta: `{ideal_fibr:.1f} g`\n\n"
-            f"🤖 **Recomendación de la IA:**\n"
-            f"{recomendacion_ia}\n\n"
-            f"📄 Podés descargar el reporte completo en PDF a continuación:"
-        )
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"descargar_pdf_resumen_{mes_str}")]
-        ])
-
-        if hasattr(query_or_update, 'edit_message_text'):
-            await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
-        else:
-            await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
-
-    except Exception as e:
-        error_txt = f"⚠️ Ocurrió un error al procesar el resumen: `{str(e)}`"
-        if hasattr(query_or_update, 'edit_message_text'):
-            await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
-        else:
-            await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
 
 async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
     df_datos = obtener_datos_usuario(user_id)
@@ -1862,6 +1529,458 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
     elif data == "cancel_act":
         await query.edit_message_text("❌ Registro de actividad cancelado.")
+
+# ==========================================
+# PANTALLA RESUMEN MES
+# ==========================================
+
+# ==========================================
+# 3. PANTALLA RESUMEN MES (INTEGRACIÓN)
+# ==========================================
+
+async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
+    try:
+        df_datos = obtener_datos_usuario(user_id)
+        
+        if df_datos is None or df_datos.empty:
+            txt = f"📊 No hay registros ingresados para el usuario `{user_id}`."
+            if hasattr(query_or_update, 'edit_message_text'):
+                await query_or_update.edit_message_text(txt, parse_mode="Markdown")
+            else:
+                await query_or_update.message.reply_text(txt, parse_mode="Markdown")
+            return
+
+        df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)] if 'Fecha' in df_datos.columns else pd.DataFrame()
+        if df_mes.empty:
+            txt = f"📊 No hay registros para el mes `{mes_str}`."
+            if hasattr(query_or_update, 'edit_message_text'):
+                await query_or_update.edit_message_text(txt, parse_mode="Markdown")
+            else:
+                await query_or_update.message.reply_text(txt, parse_mode="Markdown")
+            return
+
+        dias_registrados = df_mes['Fecha'].nunique()
+        if dias_registrados == 0:
+            dias_registrados = 1
+
+        tot_cons_mes = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum() if 'Calorias' in df_mes.columns else 0.0
+        tot_quem_mes = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
+
+        prom_cons = tot_cons_mes / dias_registrados
+        prom_quem = tot_quem_mes / dias_registrados
+        prom_bal_neto = prom_cons - prom_quem
+        
+        tot_prot = df_mes['Proteinas'].sum() if 'Proteinas' in df_mes.columns else 0.0
+        tot_gras = df_mes['Grasas'].sum() if 'Grasas' in df_mes.columns else 0.0
+        tot_carb = df_mes['Carbohidratos'].sum() if 'Carbohidratos' in df_mes.columns else 0.0
+        tot_fibr = df_mes['Fibras'].sum() if 'Fibras' in df_mes.columns else 0.0
+
+        prom_cal = tot_cons_mes / dias_registrados
+        prom_prot = tot_prot / dias_registrados
+        prom_gras = tot_gras / dias_registrados
+        prom_carb = tot_carb / dias_registrados
+        prom_fibr = tot_fibr / dias_registrados
+
+        edad, altura, peso_mes_especifico, peso_ideal_base, genero = 64, 172.0, 0.0, 75.0, "M"
+
+        try:
+            gc = get_gspread_client()
+            sh = gc.open(SPREADSHEET_NAME)
+            ws_perfil = get_or_create_worksheet(sh, f"Perfil_{user_id}")
+            registros_perfil = ws_perfil.get_all_records()
+
+            if registros_perfil:
+                perfil_mes = None
+                for r in registros_perfil:
+                    r_lower = {str(k).strip().lower(): v for k, v in r.items()}
+                    val_mes = str(r_lower.get("mes", "")).strip()
+                    if val_mes == str(mes_str).strip():
+                        perfil_mes = r_lower
+                        break
+
+                if perfil_mes:
+                    def parse_val(v, default):
+                        try:
+                            n = parse_float_from_sheets(v)
+                            if n == 0:
+                                return default
+                            return n / 1000.0 if n > 500 else n
+                        except:
+                            return default
+
+                    edad = int(parse_val(perfil_mes.get("edad"), 64))
+                    altura = parse_val(perfil_mes.get("altura"), 172.0)
+                    peso_mes_especifico = parse_val(perfil_mes.get("peso"), 0.0)
+                    
+                    p_ideal_raw = perfil_mes.get("peso_ideal") or perfil_mes.get("peso ideal")
+                    peso_ideal_base = parse_val(p_ideal_raw, 75.0)
+                    
+                    genero = str(perfil_mes.get("genero", "M")).strip().upper()
+
+        except Exception as err_perfil:
+            print(f"Error accediendo a Perfil_{user_id}: {err_perfil}")
+
+        if peso_mes_especifico == 0.0:
+            peso_mes_especifico = 108.5
+
+        peso_promedio = (peso_mes_especifico + peso_ideal_base) / 2.0
+
+        if genero == "M":
+            tmb = (10 * peso_promedio) + (6.25 * altura) - (5 * edad) + 5
+        else:
+            tmb = (10 * peso_promedio) + (6.25 * altura) - (5 * edad) - 161
+
+        factor_act = 1.2
+        get_meta = tmb * factor_act
+
+        ideal_cal = round(get_meta)
+        ideal_prot = round(peso_promedio * 1.5, 1)
+        ideal_gras = round((get_meta * 0.25) / 9, 1)
+        ideal_carb = round((get_meta * 0.50) / 4, 1)
+        ideal_fibr = 25.0
+
+        dict_promedios = {
+            'calorias': prom_cal,
+            'proteinas': prom_prot,
+            'grasas': prom_gras,
+            'carbohidratos': prom_carb,
+            'fibras': prom_fibr
+        }
+
+        dict_metas = {
+            'calorias': ideal_cal,
+            'proteinas': ideal_prot,
+            'grasas': ideal_gras,
+            'carbohidratos': ideal_carb,
+            'fibras': ideal_fibr
+        }
+
+        # Genera la recomendación extensa (~250 palabras) para el PDF
+        recomendacion_pdf = generar_recomendacion_ia(dict_promedios, dict_metas)
+
+        # Genera la recomendación corta (~100 palabras) para pantalla
+        str_contexto_peso = (
+            f"- Peso registrado en el mes {mes_str}: {peso_mes_especifico:.1f} kg\n"
+            f"- Peso Meta Progresivo objetivo del mes: {peso_promedio:.1f} kg\n"
+        )
+        prompt_para_ia_pantalla = (
+            f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
+            f"{str_contexto_peso}"
+            f"CONSUMO PROMEDIO DIARIO ({dias_registrados} días registrados):\n"
+            f"- Calorías: {prom_cal:.0f} kcal (Meta: {ideal_cal:.0f} kcal)\n"
+            f"- Proteínas: {prom_prot:.1f} g (Meta: {ideal_prot:.1f} g)\n"
+            f"- Grasas: {prom_gras:.1f} g (Meta: {ideal_gras:.1f} g)\n"
+            f"- Carbohidratos: {prom_carb:.1f} g (Meta: {ideal_carb:.1f} g)\n"
+            f"- Fibras: {prom_fibr:.1f} g (Meta: {ideal_fibr:.1f} g)\n"
+        )
+        recomendacion_pantalla = obtener_recomendacion_ia(prompt_para_ia_pantalla)
+
+        # Guarda la recomendación extensa en context.user_data para que la tome el PDF
+        if hasattr(query_or_update, 'user_data'):
+            query_or_update.user_data['ultima_recomendacion_ia'] = recomendacion_pdf
+
+        txt = (
+            f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
+            f"• **Promedio Consumidas:** `{prom_cons:.0f} kcal` / día\n"
+            f"• **Promedio Quemadas:** `{prom_quem:.0f} kcal` / día\n"
+            f"• **Balance Neto Diario:** `{prom_bal_neto:.0f} kcal` / día\n\n"
+            f"• Días con registro: `{dias_registrados}`\n"
+            f"📈 **Promedio Diario vs. Objetivos:**\n"
+            f"• **Calorías:** `{prom_cal:.0f} kcal` / Meta: `{ideal_cal:.0f} kcal`\n"
+            f"• **Proteínas:** `{prom_prot:.1f} g` / Meta: `{ideal_prot:.1f} g`\n"
+            f"• **Grasas:** `{prom_gras:.1f} g` / Meta: `{ideal_gras:.1f} g`\n"
+            f"• **Carbohidratos:** `{prom_carb:.1f} g` / Meta: `{ideal_carb:.1f} g`\n"
+            f"• **Fibras:** `{prom_fibr:.1f} g` / Meta: `{ideal_fibr:.1f} g`\n\n"
+            f"🤖 **Recomendación de la IA:**\n"
+            f"{recomendacion_pantalla}\n\n"
+            f"📄 Podés descargar el reporte completo en PDF a continuación:"
+        )
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"descargar_pdf_resumen_{mes_str}")]
+        ])
+
+        if hasattr(query_or_update, 'edit_message_text'):
+            await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
+        else:
+            await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
+
+    except Exception as e:
+        error_txt = f"⚠️ Ocurrió un error al procesar el resumen: `{str(e)}`"
+        if hasattr(query_or_update, 'edit_message_text'):
+            await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
+        else:
+            await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
+            
+            
+# ==========================================
+# GENERAR PDF PARA EL RESUMEN MES
+# ==========================================    
+
+
+def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
+    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#2563EB'), spaceBefore=6, spaceAfter=4)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8, leading=11, textColor=colors.HexColor('#1E293B'))
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
+
+    story = [
+        Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str}</b>", title_style),
+        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=8)
+    ]
+
+    headers_h1 = ["Fecha", "Cal. Consumid.", "Cal. Quemad.", "Bal. Neto", "Proteinas (g)", "Grasas (g)", "Carbohidratos (g)", "Fibras (g)"]
+    table_data_h1 = [[Paragraph(h, header_style) for h in headers_h1]]
+
+    tot_cons, tot_quem, tot_prot, tot_gras, tot_carb, tot_fibr = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+
+    if not df_mes.empty:
+        fechas_unicas = sorted(df_mes['Fecha'].unique())
+        dias_con_registro = len(fechas_unicas)
+
+        for f in fechas_unicas:
+            sub = df_mes[df_mes['Fecha'] == f]
+            
+            c_cons = sub[sub['Calorias'] > 0]['Calorias'].sum()
+            c_quem = abs(sub[sub['Calorias'] < 0]['Calorias'].sum())
+            b_neto = c_cons - c_quem
+            
+            prot = float(sub['Proteinas'].sum())
+            gras = float(sub['Grasas'].sum())
+            carb = float(sub['Carbohidratos'].sum())
+            fibr = float(sub['Fibras'].sum())
+
+            tot_cons += c_cons
+            tot_quem += c_quem
+            tot_prot += prot
+            tot_gras += gras
+            tot_carb += carb
+            tot_fibr += fibr
+
+            table_data_h1.append([
+                Paragraph(str(f), body_style),
+                Paragraph(f"{c_cons:.1f} kcal", body_style),
+                Paragraph(f"{c_quem:.1f} kcal", body_style),
+                Paragraph(f"{b_neto:.1f} kcal", body_style),
+                Paragraph(f"{prot:.1f} g", body_style),
+                Paragraph(f"{gras:.1f} g", body_style),
+                Paragraph(f"{carb:.1f} g", body_style),
+                Paragraph(f"{fibr:.1f} g", body_style)
+            ])
+        
+        tot_neto = tot_cons - tot_quem
+        table_data_h1.append([
+            Paragraph("<b>TOTAL MES</b>", body_style),
+            Paragraph(f"<b>{tot_cons:.1f} kcal</b>", body_style),
+            Paragraph(f"<b>{tot_quem:.1f} kcal</b>", body_style),
+            Paragraph(f"<b>{tot_neto:.1f} kcal</b>", body_style),
+            Paragraph(f"<b>{tot_prot:.1f} g</b>", body_style),
+            Paragraph(f"<b>{tot_gras:.1f} g</b>", body_style),
+            Paragraph(f"<b>{tot_carb:.1f} g</b>", body_style),
+            Paragraph(f"<b>{tot_fibr:.1f} g</b>", body_style)
+        ])
+
+        div = dias_con_registro if dias_con_registro > 0 else 1
+        table_data_h1.append([
+            Paragraph("<b>PROM. DIARIO</b>", body_style),
+            Paragraph(f"<b>{(tot_cons/div):.1f} kcal</b>", body_style),
+            Paragraph(f"<b>{(tot_quem/div):.1f} kcal</b>", body_style),
+            Paragraph(f"<b>{(tot_neto/div):.1f} kcal</b>", body_style),
+            Paragraph(f"<b>{(tot_prot/div):.1f} g</b>", body_style),
+            Paragraph(f"<b>{(tot_gras/div):.1f} g</b>", body_style),
+            Paragraph(f"<b>{(tot_carb/div):.1f} g</b>", body_style),
+            Paragraph(f"<b>{(tot_fibr/div):.1f} g</b>", body_style)
+        ])
+
+    t1 = Table(table_data_h1, colWidths=[65, 75, 70, 70, 65, 60, 80, 55])
+    t1.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('BACKGROUND', (0, -2), (-1, -1), colors.HexColor('#F1F5F9'))
+    ]))
+    story.append(t1)
+
+    story.append(PageBreak())
+    story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes</b>", title_style))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10))
+
+    # --- DATOS BIOMÉTRICOS ---
+    edad = parse_raw_val(perfil.get('Edad')) if perfil else 64
+    peso_actual = parse_raw_val(perfil.get('Peso')) if perfil else 108.5
+    altura = parse_raw_val(perfil.get('Altura')) if perfil else 172.0
+    genero = str(perfil.get('Sexo', perfil.get('Genero', 'M'))).strip().upper() if perfil else 'M'
+    actividad = str(perfil.get('Ocupacion', 'sedentario')) if perfil else 'sedentario'
+    
+    peso_ideal_excel = parse_raw_val(perfil.get('Peso_ideal', perfil.get('Peso_Ideal', 75.0))) if perfil else 75.0
+    if peso_ideal_excel <= 0:
+        peso_ideal_excel = peso_actual * 0.85
+
+    peso_ideal_promedio = (peso_actual + peso_ideal_excel) / 2.0 if peso_actual > 0 else peso_ideal_excel
+
+    tmb_ideal, get_ideal = calcular_tmb_y_get(peso_actual, altura, edad, genero, actividad, peso_ideal=peso_ideal_excel)
+
+    dias_activos = df_mes['Fecha'].nunique() if not df_mes.empty else 1
+    get_total_ideal = get_ideal * dias_activos
+    bal_calorico = tot_cons - get_total_ideal - tot_quem
+    cambio_peso_kg = bal_calorico / 7700.0
+
+    prot_rec = peso_ideal_promedio * 1.5 if peso_ideal_promedio > 0 else 90.0
+    gras_rec = (get_ideal * 0.25) / 9.0
+    carb_rec = (get_ideal * 0.50) / 4.0
+    fibr_rec = 25.0
+
+    prom_d_cons = (tot_cons / dias_activos) if dias_activos > 0 else 0
+    prom_d_prot = (tot_prot / dias_activos) if dias_activos > 0 else 0
+    prom_d_gras = (tot_gras / dias_activos) if dias_activos > 0 else 0
+    prom_d_carb = (tot_carb / dias_activos) if dias_activos > 0 else 0
+    prom_d_fibr = (tot_fibr / dias_activos) if dias_activos > 0 else 0
+
+    table_comp = [
+        [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Valor Ideal (Peso Promedio)</b>", header_style)],
+        [Paragraph("Calorías", body_style), Paragraph(f"{prom_d_cons:.1f} kcal", body_style), Paragraph(f"{get_ideal:.1f} kcal (GET)", body_style)],
+        [Paragraph("Proteínas", body_style), Paragraph(f"{prom_d_prot:.1f} g", body_style), Paragraph(f"{prot_rec:.1f} g", body_style)],
+        [Paragraph("Grasas", body_style), Paragraph(f"{prom_d_gras:.1f} g", body_style), Paragraph(f"{gras_rec:.1f} g", body_style)],
+        [Paragraph("Carbohidratos", body_style), Paragraph(f"{prom_d_carb:.1f} g", body_style), Paragraph(f"{carb_rec:.1f} g", body_style)],
+        [Paragraph("Fibras", body_style), Paragraph(f"{prom_d_fibr:.1f} g", body_style), Paragraph(f"{fibr_rec:.1f} g", body_style)]
+    ]
+    t_comp = Table(table_comp, colWidths=[150, 185, 185])
+    t_comp.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+    ]))
+    story.append(t_comp)
+    story.append(Spacer(1, 10))
+
+    story.append(Paragraph(f"• <b>PERFIL BASE ({mes_str}):</b> Peso Actual: {peso_actual:.1f} kg | Peso Ideal Calculado (Promedio): {peso_ideal_promedio:.1f} kg | Altura: {altura:.1f} cm", body_style))
+    story.append(Paragraph(f"• <b>BALANCE CALÓRICO NETO PROYECTADO:</b> {bal_calorico:.1f} kcal", body_style))
+    story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {cambio_peso_kg:.2f} kg ({cambio_peso_kg*1000:.1f} g)", body_style))
+
+    story.append(Spacer(1, 10))
+    story.append(Paragraph("<b>Recomendación Nutricional Personalizada (IA):</b>", sub_style))
+
+    # Formateo del texto extenso de recomendación respetando los saltos de línea
+    lineas_recom = str(recomendacion).split('\n')
+    for linea in lineas_recom:
+        linea_str = linea.strip()
+        if linea_str:
+            # Reemplazar espacios múltiples para evitar desbordes visuales
+            linea_formateada = linea_str.replace('  ', '&nbsp;&nbsp;')
+            story.append(Paragraph(f"{linea_formateada}", body_style))
+            story.append(Spacer(1, 3))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+
+
+
+# ==================================================
+# 1. RECOMENDACIÓN EXTENSA PARA PDF (~250 PALABRAS)
+# ==================================================
+
+def generar_recomendacion_ia(promedios: dict, metas: dict) -> str:
+    """
+    Genera un texto detallado y extenso (~250 palabras) con recomendaciones nutricionales 
+    y alimentos sugeridos evaluando brechas respecto a los objetivos.
+    """
+    lineas = []
+    lineas.append("Recomendaciones Nutricionales Personalizadas y Plan de Acción:")
+    lineas.append("------------------------------------------------------------------")
+    lineas.append("Tras analizar tu registro promedio diario en comparación con tus metas teóricas, te sugerimos los siguientes ajustes estratégicos en tu alimentación cotidiana:\n")
+
+    # 1. Fibras
+    fib_real = promedios.get('fibras', 0)
+    fib_meta = metas.get('fibras', 25.0)
+    if fib_real < (fib_meta * 0.85):
+        lineas.append(
+            f"• Incrementar el aporte de Fibras (Consumo: {fib_real:.1f}g / Meta: {fib_meta:.1f}g):\n"
+            f"  Se observa una brecha respecto al objetivo. Para mejorar la salud intestinal y la saciedad, incorporá al menos 1 porción diaria de legumbres (lentejas, garbanzos o porotos) en ensaladas o guisos magros. Sumá 1 a 2 cucharadas de semillas (chía, lino o sésamo) en tus desayunos y priorizá verduras crujientes y frutas enteras con cáscara (manzana, pera)."
+        )
+    else:
+        lineas.append(
+            f"• Nivel de Fibra (Consumo: {fib_real:.1f}g / Meta: {fib_meta:.1f}g):\n"
+            f"  Excelente cobertura de fibra diaria. Mantené el consumo de vegetales variados y legumbres asegurando una hidratación adecuada."
+        )
+
+    # 2. Grasas
+    gras_real = promedios.get('grasas', 0)
+    gras_meta = metas.get('grasas', 55.0)
+    if gras_real > (gras_meta * 1.15):
+        lineas.append(
+            f"• Moderar y Seleccionar Fuentes de Grasas (Consumo: {gras_real:.1f}g / Meta: {gras_meta:.1f}g):\n"
+            f"  Registrás un promedio por encima de la meta recomendada. Te sugerimos reducir la frecuencia de carnes vacunas grasas, embutidos y quesos curados. Priorizá cortes magros (pollo sin piel, pescado, peceto), cocciones al horno o plancha, y reemplazá grasas saturadas por opciones de alta calidad como palta, aceite de oliva en crudo o frutos secos en porciones controladas."
+        )
+    else:
+        lineas.append(
+            f"• Aporte de Grasas (Consumo: {gras_real:.1f}g / Meta: {gras_meta:.1f}g):\n"
+            f"  Ingesta de grasas dentro del rango. Priorizá siempre fuentes insaturadas saludables como aceite de oliva extra virgen y frutos secos."
+        )
+
+    # 3. Carbohidratos
+    carb_real = promedios.get('carbohidratos', 0)
+    carb_meta = metas.get('carbohidratos', 250.0)
+    if carb_real < (carb_meta * 0.85):
+        lineas.append(
+            f"• Ajustar Carbohidratos Complejos (Consumo: {carb_real:.1f}g / Meta: {carb_meta:.1f}g):\n"
+            f"  Tu ingesta actual está por debajo del objetivo. Para sostener un nivel óptimo de energía y evitar la fatiga, sumá carbohidratos de lenta absorción como avena integral en meriendas, o porciones de arroz integral, quinoa, batata o choclo en tus comidas principales."
+        )
+    else:
+        lineas.append(
+            f"• Control de Carbohidratos (Consumo: {carb_real:.1f}g / Meta: {carb_meta:.1f}g):\n"
+            f"  Nivel de carbohidratos equilibrado. Asegurate de que la mayoría provenga de granos enteros y vegetales en lugar de azúcares refinados."
+        )
+
+    # 4. Proteínas
+    prot_real = promedios.get('proteinas', 0)
+    prot_meta = metas.get('proteinas', 130.0)
+    if prot_real < (prot_meta * 0.85):
+        lineas.append(
+            f"• Reforzar Ingesta Proteica (Consumo: {prot_real:.1f}g / Meta: {prot_meta:.1f}g):\n"
+            f"  Asegurá una porción de proteína magra en cada comida principal (huevos, pechuga de pollo, atún al natural o magros vacunos) para preservar la masa muscular durante la pérdida de peso."
+        )
+
+    # 5. Cierre
+    lineas.append(
+        "• Recomendación General e Hidratación:\n"
+        "  Consumí al menos 2 a 2.5 litros de agua al día. La hidratación constante es fundamental para optimizar el metabolismo, facilitar el tránsito intestinal favorecido por la fibra y mantener un rendimiento sostenido."
+    )
+
+    return "\n\n".join(lineas)
+
+# ==================================================
+# 2. RECOMENDACIÓN BREVE PARA PANTALLA (~100 PALABRAS)
+# ==================================================
+
+def obtener_recomendacion_ia(resumen_texto):
+    if not client_ai:
+        return "Mantené un consumo equilibrado ajustando porciones de grasas y sumando más fibra y agua a tu día a día."
+    
+    prompt = (
+        "Basado en este resumen nutricional, redacta una recomendación BREVE, DIRECTA Y MOTIVADORA "
+        "de EXACTAMENTE 80 a 100 PALABRAS (no te pases de 100 palabras). "
+        "Menciona de forma concisa si falta fibra o si hay que ajustar grasas/carbohidratos y qué alimentos sumar u omitir:\n\n"
+        f"{resumen_texto}"
+    )
+
+    try:
+        response = client_ai.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=180
+        )
+        return response.choices[0].message.content.strip()
+    except Exception:
+        return "Ajustá tu balance diario moderando las grasas saturadas de carnes pesadas e incrementando fibras con legumbres, semillas y frutas enteras. ¡Mantené la constancia y una buena hidratación!"
 
 # ==========================================
 # MAIN EXECUTION
