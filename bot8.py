@@ -1887,7 +1887,7 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
 
 def generar_recomendacion_ia(promedios: dict, metas: dict) -> str:
     """
-    Genera un texto detallado y extenso (~250 palabras) con recomendaciones nutricionales 
+    Genera un texto detallado y extenso (~1000 palabras) con recomendaciones nutricionales 
     y alimentos sugeridos evaluando brechas respecto a los objetivos.
     """
     lineas = []
