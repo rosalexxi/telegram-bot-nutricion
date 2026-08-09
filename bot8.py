@@ -6,6 +6,7 @@ import base64
 import threading
 import inspect
 import logging
+import unicodedata
 
 from datetime import datetime, date, timedelta, time
 import pytz
@@ -57,6 +58,10 @@ if GROQ_API_KEY:
     client_ai = Groq(api_key=GROQ_API_KEY)
 else:
     client_ai = None
+
+# =======================================================================
+#                               PAGINA WEB
+# =======================================================================
 
 # Servidor Flask para Web Service en Render con Interfaz Interactiva
 app = Flask(__name__)
@@ -153,9 +158,9 @@ def run_flask():
 # Estados de conversación para Perfil y Fecha personalizada
 AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT_ITEM = range(4)
 
-# ==========================================
-# FUNCIONES AUXILIARES Y FORMATO
-# ==========================================
+# =========================================================================
+#                 FUNCIONES AUXILIARES Y FORMATO
+# ==========================================================================
 def parse_raw_val(val):
     if val is None or val == "":
         return 0.0
@@ -244,9 +249,9 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", activid
 
     return tmb, get_val
     
-# ==========================================
-# GOOGLE SHEETS OPERACIONES
-# ==========================================
+# =======================================================================
+#                          GOOGLE SHEETS OPERACIONES
+# ========================================================================
 def get_gspread_client():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     if os.path.exists(GOOGLE_SHEETS_KEY_PATH):
@@ -500,7 +505,6 @@ def guardar_perfil_en_sheets(user_id, peso, mes=None, edad=None, altura=None, ge
     except Exception as e:
         print(f"Error al actualizar la pestaña usuarios: {e}")
 
-
 def obtener_perfil_usuario(user_id, mes_target=None):
     try:
         gc = get_gspread_client()
@@ -579,7 +583,7 @@ def obtener_datos_usuario(user_id):
         return pd.DataFrame()
 
 # =========================================================================================================================
-# 
+#               DATOS PLANILLAS
 # ============================================================================================================================
 
 def obtener_datos_presion(user_id):
@@ -619,9 +623,9 @@ def obtener_plantillas_comidas():
     except Exception:
         return []
 
-# ==========================================
-# PROCESAMIENTO IA (TEXTO, VOZ Y FOTO)
-# ==========================================
+# ====================================================================
+#               PROCESAMIENTO IA (TEXTO, VOZ Y FOTO)
+# ========================================================================
 def analizar_con_groq(prompt_text):
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
@@ -666,10 +670,44 @@ def analizar_imagen_con_groq(base64_image):
     )
     return json.loads(response.choices[0].message.content)
 
-# ==========================================
-# GENERADORES DE PDF
-# ==========================================
+async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    plantillas = obtener_plantillas_comidas()
+    if not plantillas:
+        await update.message.reply_text("📋 No hay comidas predeterminadas registradas en la hoja 'Plantillas_Comidas'.")
+        return
 
+    txt = "📋 **Listado de Comidas Predeterminadas:**\n\n"
+    for p in plantillas:
+        nombre = p.get('Nombre', '')
+        descripcion = p.get('Descripcion') or p.get('Momento', '')
+        txt += f"• **{nombre}**: {descripcion}\n"
+
+    txt += "\n📄 Te adjuntamos el archivo en PDF completo con todos los macronutrientes a continuación."
+    await update.message.reply_text(txt, parse_mode="Markdown")
+
+    pdf_bytes = generar_pdf_comidas_bytes(plantillas)
+    await context.bot.send_document(
+        chat_id=update.effective_chat.id,
+        document=pdf_bytes,
+        filename="Comidas_Predeterminadas.pdf"
+    )
+
+async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ahora = obtener_ahora_arg()
+    mes_actual = ahora.strftime("%Y-%m")
+    mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual}")],
+        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
+        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_otro")]
+    ])
+
+    await update.message.reply_text("📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", reply_markup=keyboard, parse_mode="Markdown")
+
+# =================================================================
+#                 GENERADORES DE PDF
+# ==================================================================
 
 def generar_pdf_instrucciones_bytes():
     buffer = io.BytesIO()
@@ -919,46 +957,9 @@ def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
     buffer.seek(0)
     return buffer
 
-async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
-    df_datos = obtener_datos_usuario(user_id)
-    df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)] if not df_datos.empty and 'Fecha' in df_datos.columns else pd.DataFrame()
-    
-    df_presion = obtener_datos_presion(user_id)
-    df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if not df_presion.empty and 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
-    
-    perfil = obtener_perfil_usuario(user_id, mes_target=mes_str)
-    
-    recomendacion = context.user_data.get('ultima_recomendacion_ia') if context and hasattr(context, 'user_data') else None
-    
-    if not recomendacion:
-        dias_act = df_mes['Fecha'].nunique() if not df_mes.empty else 1
-        p_act = parse_raw_val(perfil.get('Peso')) if perfil else 108.5
-        p_id = parse_raw_val(perfil.get('Peso_ideal', perfil.get('Peso_Ideal', 75.0))) if perfil else 75.0
-        p_prom = (p_act + p_id) / 2.0
-        
-        tot_c = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum() if not df_mes.empty else 0
-        prompt_ia = f"Resumen {mes_str}: Consumo diario {(tot_c/dias_act):.0f} kcal. Peso actual: {p_act:.1f}kg, Meta intermedia: {p_prom:.1f}kg. Da un consejo nutricional."
-        recomendacion = obtener_recomendacion_ia(prompt_ia)
-
-    tmb_val, _ = calcular_tmb_y_get(
-        perfil.get('Peso', 108.5) if perfil else 108.5,
-        perfil.get('Altura', 172.0) if perfil else 172.0,
-        perfil.get('Edad', 64) if perfil else 64,
-        perfil.get('Sexo', 'M') if perfil else 'M',
-        perfil.get('Ocupacion', 'sedentario') if perfil else 'sedentario'
-    )
-
-    pdf_bytes = generar_pdf_resumen_bytes(mes_str, df_mes, df_p_mes, perfil, tmb_val, recomendacion, user_id)
-    
-    await context.bot.send_document(
-        chat_id=query.message.chat_id,
-        document=pdf_bytes,
-        filename=f"Reporte_Nutricional_{mes_str}.pdf"
-    )
-
-# ==========================================
-# INTERFAZ Y RENDER DE CONFIRMACIÓN
-# ==========================================
+# ================================================================
+#                  INTERFAZ Y RENDER DE CONFIRMACIÓN
+# =================================================================
 
 async def render_confirmation_screen(msg_or_query, context):
     items = context.user_data.get('pending_items', [])
@@ -1035,9 +1036,9 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 
     await render_confirmation_screen(msg_obj, context)
 
-# ==========================================
-# HANDLERS DE TELEGRAM
-# ==========================================
+# ===============================================================================
+#                 HANDLERS DE TELEGRAM
+# =================================================================================
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "👋 ¡Hola! Bienvenido a tu Bot Nutricional Personalizado.\n\n"
@@ -1069,28 +1070,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=update.effective_chat.id,
         document=pdf_buf,
         filename="Manual_Bot_Nutricional.pdf"
-    )
-
-async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    plantillas = obtener_plantillas_comidas()
-    if not plantillas:
-        await update.message.reply_text("📋 No hay comidas predeterminadas registradas en la hoja 'Plantillas_Comidas'.")
-        return
-
-    txt = "📋 **Listado de Comidas Predeterminadas:**\n\n"
-    for p in plantillas:
-        nombre = p.get('Nombre', '')
-        descripcion = p.get('Descripcion') or p.get('Momento', '')
-        txt += f"• **{nombre}**: {descripcion}\n"
-
-    txt += "\n📄 Te adjuntamos el archivo en PDF completo con todos los macronutrientes a continuación."
-    await update.message.reply_text(txt, parse_mode="Markdown")
-
-    pdf_bytes = generar_pdf_comidas_bytes(plantillas)
-    await context.bot.send_document(
-        chat_id=update.effective_chat.id,
-        document=pdf_bytes,
-        filename="Comidas_Predeterminadas.pdf"
     )
 
 async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1351,18 +1330,9 @@ async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
     await update.message.reply_text("📅 **Consulta de Diario:** Seleccioná qué día querés revisar:", reply_markup=keyboard, parse_mode="Markdown")
 
-async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ahora = obtener_ahora_arg()
-    mes_actual = ahora.strftime("%Y-%m")
-    mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual}")],
-        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
-        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_otro")]
-    ])
-
-    await update.message.reply_text("📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", reply_markup=keyboard, parse_mode="Markdown")
+#===============================================================================================
+#                       MANEJADORES HADNLE
+#===============================================================================================
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("🎙️ Procesando audio con IA...")
@@ -1396,15 +1366,51 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar imagen: {e}")
 
-#=============================================================================================
-# INGRESO DE COMIDAS PRECARGADAS
 #===============================================================================================
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    raw_text = update.message.text.strip()
+    raw_text = update.message.text.strip() if update.message and update.message.text else ""
 
-    # EVALUACIÓN Y PROCESAMIENTO DE COMIDAS PRECARGADAS EN PLANTILLAS
+    if not raw_text:
+        return
+
+    # =========================================================================
+    # ESCENARIO 1: EL USUARIO ESTÁ EDITANDO UN ÍTEM DE UNA COMIDA PENDIENTE
+    # =========================================================================
+    if context.user_data.get('awaiting_edit_item_val'):
+        idx = context.user_data.get('editing_item_idx')
+        items = context.user_data.get('pending_items', [])
+
+        if items and 0 <= idx < len(items):
+            msg_espera = await update.message.reply_text("⏳ Actualizando ítem...")
+            try:
+                # Re-evaluamos el nuevo texto ingresado con la IA
+                nuevo_analisis = analizar_con_groq(raw_text)
+                items_nuevos = nuevo_analisis.get('items', [])
+
+                if items_nuevos:
+                    items[idx] = items_nuevos[0]
+                    context.user_data['pending_items'] = items
+                    await msg_espera.edit_text("✏️ Ítem actualizado correctamente.")
+                else:
+                    await msg_espera.edit_text("⚠️ No se pudieron interpretar los datos para actualizar el ítem.")
+
+            except Exception as e:
+                print(f"Error editando ítem: {e}")
+                await msg_espera.edit_text(f"❌ Error al procesar la edición: {e}")
+
+        # Limpiamos los estados temporales de edición
+        context.user_data['awaiting_edit_item_val'] = False
+        context.user_data.pop('editing_item_idx', None)
+
+        # Volvemos a mostrar la pantalla de confirmación con los datos actualizados
+        await render_confirmation_screen(update, context)
+        return
+
+    # =========================================================================
+    # ESCENARIO 2: EVALUACIÓN Y PROCESAMIENTO DE COMIDAS PRECARGADAS (*)
+    # =========================================================================
     if raw_text.startswith('*'):
         contenido = raw_text[1:].strip()
         partes = [p.strip() for p in contenido.split(',')]
@@ -1426,7 +1432,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cb_base = parse_raw_val(plantilla_encontrada.get('Carbohidratos', 0))
             f_base = parse_raw_val(plantilla_encontrada.get('Fibras', 0))
 
-            # Extrae la columna 'Descripcion'
             val_descripcion = None
             for k, v in plantilla_encontrada.items():
                 if str(k).strip().lower() in ['descripcion', 'descripción']:
@@ -1435,12 +1440,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             texto_final = str(val_descripcion).strip() if val_descripcion else str(plantilla_encontrada.get('Nombre', 'Comida')).strip()
 
-            # ELIMINA EL ÚLTIMO CARÁCTER ESPECIAL (ej. '§')
             if texto_final:
                 texto_final = texto_final[:-1].strip()
 
             item_generado = {
-                # Queda la descripción limpia (ej: "Gelatina light con duraznos en almibar")
                 "alimento": texto_final,
                 "peso": p_base * multiplicador,
                 "calorias": c_base * multiplicador,
@@ -1458,8 +1461,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(f"❌ No se encontró la plantilla `*{nombre_plantilla}`.", parse_mode="Markdown")
             return
-            
-            
+
+    # =========================================================================
+    # ESCENARIO 3: INGRESO LIBRE DE COMIDA POR TEXTO A TRAVÉS DE LA IA
+    # =========================================================================
+    msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
+    try:
+        data = analizar_con_groq(raw_text)
+        await procesar_y_mostrar_confirmacion(data, msg, context)
+    except Exception as e:
+        await msg.edit_text(f"❌ Error al procesar el texto: {e}")                       
 #============================================================================================================================
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1574,13 +1585,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == "cancel_act":
         await query.edit_message_text("❌ Registro de actividad cancelado.")
 
-# ==========================================
-# PANTALLA RESUMEN MES
-# ==========================================
+# ===========================================================================
+#               PANTALLA Y PDF RESUMEN MES
+# ===========================================================================
 
-# ==================================================
+# ==============================================================================
 # 1. RECOMENDACIÓN EXTENSA PARA PDF (~500 - 600 PALABRAS)
-# ==================================================
+# ================================================================================
 
 def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = None) -> str:
     """
@@ -1686,9 +1697,9 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
 
     return "\n\n".join(bloques)
 
-# ==================================================
+# =========================================================================
 # 2. RECOMENDACIÓN BREVE PARA PANTALLA (~100 PALABRAS)
-# ==================================================
+# =========================================================================
 
 def obtener_recomendacion_ia(resumen_texto: str) -> str:
     if 'client_ai' not in globals() or not client_ai:
@@ -1720,9 +1731,9 @@ def obtener_recomendacion_ia(resumen_texto: str) -> str:
             "¡Mantené la constancia y asegurá 2 litros de agua al día!"
         )
 
-# ==================================================
+# ========================================================================
 # 3. MOSTRAR RESUMEN MES (TELEGRAM HANDLER)
-# ==================================================
+# ========================================================================
 
 async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     try:
@@ -1924,9 +1935,9 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
             
 
-# ==================================================
-# GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
-# ==================================================
+# ======================================================================
+#      GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
+# ====================================================================
 
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
     buffer = io.BytesIO()
@@ -2144,10 +2155,48 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     buffer.seek(0)
     return buffer
 
-# ==================================================
-# 4. GENERAR MENSAJES RECORDATORIOS
-# ==================================================
 
+
+async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
+    df_datos = obtener_datos_usuario(user_id)
+    df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)] if not df_datos.empty and 'Fecha' in df_datos.columns else pd.DataFrame()
+    
+    df_presion = obtener_datos_presion(user_id)
+    df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if not df_presion.empty and 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
+    
+    perfil = obtener_perfil_usuario(user_id, mes_target=mes_str)
+    
+    recomendacion = context.user_data.get('ultima_recomendacion_ia') if context and hasattr(context, 'user_data') else None
+    
+    if not recomendacion:
+        dias_act = df_mes['Fecha'].nunique() if not df_mes.empty else 1
+        p_act = parse_raw_val(perfil.get('Peso')) if perfil else 108.5
+        p_id = parse_raw_val(perfil.get('Peso_ideal', perfil.get('Peso_Ideal', 75.0))) if perfil else 75.0
+        p_prom = (p_act + p_id) / 2.0
+        
+        tot_c = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum() if not df_mes.empty else 0
+        prompt_ia = f"Resumen {mes_str}: Consumo diario {(tot_c/dias_act):.0f} kcal. Peso actual: {p_act:.1f}kg, Meta intermedia: {p_prom:.1f}kg. Da un consejo nutricional."
+        recomendacion = obtener_recomendacion_ia(prompt_ia)
+
+    tmb_val, _ = calcular_tmb_y_get(
+        perfil.get('Peso', 108.5) if perfil else 108.5,
+        perfil.get('Altura', 172.0) if perfil else 172.0,
+        perfil.get('Edad', 64) if perfil else 64,
+        perfil.get('Sexo', 'M') if perfil else 'M',
+        perfil.get('Ocupacion', 'sedentario') if perfil else 'sedentario'
+    )
+
+    pdf_bytes = generar_pdf_resumen_bytes(mes_str, df_mes, df_p_mes, perfil, tmb_val, recomendacion, user_id)
+    
+    await context.bot.send_document(
+        chat_id=query.message.chat_id,
+        document=pdf_bytes,
+        filename=f"Reporte_Nutricional_{mes_str}.pdf"
+    )
+
+# ====================================================================
+# 4. GENERAR MENSAJES RECORDATORIOS AUTOMATICOS
+# =====================================================================
 
 async def ejecutar_recordatorio_comidas(context, momento: str):
     """
@@ -2241,9 +2290,9 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
             logger.error(f"Error procesando recordatorio para {user_id} en {nombre_hoja_usuario}: {e}")
 
     
-# ==========================================
-# MAIN EXECUTION
-# ==========================================
+# ========================================================================
+#                      MAIN EXECUTION
+# =================================================================
 
 
 # --- FUNCIONES WRAPPER PARA LA JOBQUEUE ---
