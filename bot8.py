@@ -1713,10 +1713,10 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
             
             
-# ==========================================
-# GENERAR PDF PARA EL RESUMEN MES
-# ==========================================    
 
+# ==================================================
+# GENERAR PDF RESUMEN MES CON RECOMENDACIONES DETALLADAS
+# ==================================================
 
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
     buffer = io.BytesIO()
@@ -1724,8 +1724,9 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     styles = getSampleStyleSheet()
     
     title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
-    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#2563EB'), spaceBefore=6, spaceAfter=4)
+    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#2563EB'), spaceBefore=8, spaceAfter=4)
     body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8, leading=11, textColor=colors.HexColor('#1E293B'))
+    rec_style = ParagraphStyle('RecBody', parent=styles['Normal'], fontSize=8, leading=11, textColor=colors.HexColor('#0F172A'), spaceAfter=4)
     header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
 
     story = [
@@ -1809,7 +1810,7 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
 
     story.append(PageBreak())
     story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes</b>", title_style))
-    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=8))
 
     # --- DATOS BIOMÉTRICOS ---
     edad = parse_raw_val(perfil.get('Edad')) if perfil else 64
@@ -1857,31 +1858,28 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
         ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
     ]))
     story.append(t_comp)
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
 
     story.append(Paragraph(f"• <b>PERFIL BASE ({mes_str}):</b> Peso Actual: {peso_actual:.1f} kg | Peso Ideal Calculado (Promedio): {peso_ideal_promedio:.1f} kg | Altura: {altura:.1f} cm", body_style))
     story.append(Paragraph(f"• <b>BALANCE CALÓRICO NETO PROYECTADO:</b> {bal_calorico:.1f} kcal", body_style))
     story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {cambio_peso_kg:.2f} kg ({cambio_peso_kg*1000:.1f} g)", body_style))
 
-    story.append(Spacer(1, 10))
-    story.append(Paragraph("<b>Recomendación Nutricional Personalizada (IA):</b>", sub_style))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph("<b>Recomendación Nutricional Personalizada y Plan de Acción (IA):</b>", sub_style))
 
-    # Formateo del texto extenso de recomendación respetando los saltos de línea
-    lineas_recom = str(recomendacion).split('\n')
-    for linea in lineas_recom:
-        linea_str = linea.strip()
-        if linea_str:
-            # Reemplazar espacios múltiples para evitar desbordes visuales
-            linea_formateada = linea_str.replace('  ', '&nbsp;&nbsp;')
-            story.append(Paragraph(f"{linea_formateada}", body_style))
-            story.append(Spacer(1, 3))
+    # --- PROCESAMIENTO CORRECTO DEL TEXTO MULTILÍNEA PARA PDF ---
+    if isinstance(recomendacion, str):
+        # Separa por párrafos/bloques y convierte saltos de línea a tags <br/> compatibles con ReportLab
+        bloques = recomendacion.split('\n\n')
+        for bloque in bloques:
+            if bloque.strip():
+                texto_html = bloque.strip().replace('\n', '<br/>')
+                story.append(Paragraph(texto_html, rec_style))
+                story.append(Spacer(1, 4))
 
     doc.build(story)
     buffer.seek(0)
     return buffer
-
-
-
 
 # ==================================================
 # 1. RECOMENDACIÓN EXTENSA PARA PDF (~250 PALABRAS)
