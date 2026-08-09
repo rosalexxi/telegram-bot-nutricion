@@ -1861,6 +1861,10 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
 # 4. GENERAR PDF RESUMEN BYTES
 # ==================================================
 
+# ==================================================
+# GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
+# ==================================================
+
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
@@ -2023,47 +2027,60 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(Spacer(1, 8))
     story.append(Paragraph("<b>Recomendación Nutricional Personalizada y Plan de Acción (IA):</b>", sub_style))
 
-    # --- ENCAPSULACIÓN AUTÓNOMA DE LA RECOMENDACIÓN EXTENSA ---
-    # Si la recomendación recibida es muy corta (< 300 caracteres) o nula, la genera internamente
-    texto_recomendacion_final = recomendacion
-    if not isinstance(texto_recomendacion_final, str) or len(texto_recomendacion_final.strip()) < 300:
-        p_dict = {
-            'calorias': prom_d_cons,
-            'proteinas': prom_d_prot,
-            'grasas': prom_d_gras,
-            'carbohidratos': prom_d_carb,
-            'fibras': prom_d_fibr
-        }
-        m_dict = {
-            'calorias': get_ideal,
-            'proteinas': prot_rec,
-            'grasas': gras_rec,
-            'carbohidratos': carb_rec,
-            'fibras': fibr_rec
-        }
-        b_dict = {
-            'peso_actual': peso_actual,
-            'peso_ideal': peso_ideal_excel,
-            'altura': altura,
-            'edad': edad
-        }
-        texto_recomendacion_final = generar_recomendacion_ia(p_dict, m_dict, b_dict)
+    # --- REEMPLAZO FORZADO: EVALÚA ESTRUCTURA DE SECCIONES O LONGITUD DE 1200 CARACTERES ---
+    texto_final = recomendacion
+    es_texto_corto = not isinstance(texto_final, str) or len(texto_final.strip()) < 1200 or "<b>1. DIAGNÓSTICO" not in texto_final
 
-    # Renderiza todos los párrafos de la recomendación en ReportLab
-    if isinstance(texto_recomendacion_final, str):
-        bloques = texto_recomendacion_final.strip().split('\n\n')
-        for bloque in bloques:
+    if es_texto_corto:
+        p_dict = {'calorias': prom_d_cons, 'proteinas': prom_d_prot, 'grasas': prom_d_gras, 'carbohidratos': prom_d_carb, 'fibras': prom_d_fibr}
+        m_dict = {'calorias': get_ideal, 'proteinas': prot_rec, 'grasas': gras_rec, 'carbohidratos': carb_rec, 'fibras': fibr_rec}
+        b_dict = {'peso_actual': peso_actual, 'peso_ideal': peso_ideal_excel, 'altura': altura, 'edad': edad}
+        
+        if 'generar_recomendacion_ia' in globals():
+            texto_final = generar_recomendacion_ia(p_dict, m_dict, b_dict)
+        else:
+            lineas = [
+                "<b>1. DIAGNÓSTICO NUTRICIONAL INTEGRAL DEL MES</b>",
+                f"Tras analizar minuciosamente tus registros diarios frente a los requerimientos teóricos calculados para tu perfil, se observan tendencias clave en tu patrón de alimentación. En cuanto al balance energético, registras un promedio de <b>{prom_d_cons:.0f} kcal/día</b> frente a un objetivo de <b>{get_ideal:.0f} kcal/día</b>. Al evaluar la distribución de macronutrientes, tu ingesta proteica promedia <b>{prom_d_prot:.1f}g</b> (meta: {prot_rec:.1f}g), las grasas alcanzan <b>{prom_d_gras:.1f}g</b> (meta: {gras_rec:.1f}g), los carbohidratos se ubican en <b>{prom_d_carb:.1f}g</b> (meta: {carb_rec:.1f}g) y la fibra aporta <b>{prom_d_fibr:.1f}g</b> (meta: {fibr_rec:.1f}g). Este perfil refleja desvíos específicos que requieren ajustes estratégicos para optimizar el metabolismo, mejorar la composición corporal de forma progresiva y asegurar la saciedad sin comprometer el nivel de energía diario.",
+                "\n<b>2. ANÁLISIS DE BRECHAS Y DESVÍOS ESPECÍFICOS</b>"
+            ]
+            if prom_d_cons > get_ideal * 1.1:
+                lineas.append(f"• <b>Exceso Calórico:</b> Estás consumiendo un {((prom_d_cons/get_ideal)-1)*100:.1f}% por encima de la meta. Es prioritario reducir la densidad calórica de los platos.")
+            elif prom_d_cons < get_ideal * 0.85:
+                lineas.append(f"• <b>Déficit Calórico Pronunciado:</b> Tu ingesta está un {((1-(prom_d_cons/get_ideal))*100):.1f}% por debajo de lo recomendado.")
+            
+            if prom_d_fibr < fibr_rec * 0.85:
+                lineas.append(f"• <b>Déficit de Fibras ({prom_d_fibr:.1f}g vs {fibr_rec:.1f}g):</b> La baja ingesta dificulta la salud intestinal, perjudica el control glucémico y reduce la saciedad a largo plazo.")
+            if prom_d_gras > gras_rec * 1.15:
+                lineas.append(f"• <b>Exceso de Grasas ({prom_d_gras:.1f}g vs {gras_rec:.1f}g):</b> Un aporte elevado de grasas suma calorías rápidamente sin aportar volumen ni saciedad duradera.")
+            if prom_d_prot < prot_rec * 0.85:
+                lineas.append(f"• <b>Déficit Proteico ({prom_d_prot:.1f}g vs {prot_rec:.1f}g):</b> Fundamental aumentar su presencia para preservar la masa magra y aumentar la termogénesis alimentaria.")
+
+            lineas.append("\n<b>3. ALIMENTOS Y COMIDAS QUE DEBERÍAS INGERIR (PARA SUPLIR DÉFICITS)</b>")
+            if prom_d_fibr < fibr_rec * 0.85:
+                lineas.append("• <b>Para la Fibra:</b> Incorporá 1 porción diaria de legumbres (lentejas, garbanzos, porotos) en ensaladas o guisos magros. Sumá 1 a 2 cucharadas de semillas (chía o lino hidratadas) en tus desayunos, y consumí frutas enteras con cáscara (manzana, pera, frutos rojos).")
+            if prom_d_prot < prot_rec * 0.85:
+                lineas.append("• <b>Para Proteínas Magras:</b> Priorizá pechuga de pollo/pavo, claras de huevo, atún al natural, cortes vacunos magros (peceto, cuadril, bola de lomo), queso blanco magro y yogur griego natural sin azúcar.")
+
+            lineas.append("\n<b>4. ALIMENTOS Y COMIDAS QUE DEBERÍAS REDUCIR O EVITAR (PARA CORREGIR EXCESOS)</b>")
+            if prom_d_gras > gras_rec * 1.15:
+                lineas.append("• <b>Grasas y Frituras:</b> Evitá carnes vacunas de corte graso (costilla, asado, entraña), fiambres, embutidos (chorizos, salchichas), aderezos industriales (mayonesa, salsa golf), frituras y manteca/crema. Reemplazalos por aceite de oliva en crudo (1 cucharadita) y cocciones al horno o plancha.")
+
+            lineas.append("\n<b>5. RECOMENDACIÓN GENERAL Y ESTRATEGIA DE HÁBITOS</b>\nPara consolidar estos cambios, asegurá una ingesta de agua potable de al menos <b>2 a 2.5 litros diarios</b>. La hidratación adecuada optimiza la función renal, mejora el tránsito intestinal favorecido por la fibra y ayuda a diferenciar la sed real de la ansiedad. Organizá tus compras semanales en base a las fuentes proteicas magras y vegetales frescos sugeridos.")
+            
+            texto_final = "\n\n".join(lineas)
+
+    # Renderizado en ReportLab
+    if isinstance(texto_final, str):
+        for bloque in texto_final.strip().split('\n\n'):
             if bloque.strip():
-                texto_html = bloque.strip().replace('\n', '<br/>')
-                story.append(Paragraph(texto_html, rec_style))
+                story.append(Paragraph(bloque.strip().replace('\n', '<br/>'), rec_style))
                 story.append(Spacer(1, 4))
 
     doc.build(story)
     buffer.seek(0)
     return buffer
     
-    
-
 # ==========================================
 # MAIN EXECUTION
 # ==========================================
