@@ -1531,15 +1531,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 # PANTALLA RESUMEN MES
 # ==========================================
 
-
-import io
-import pandas as pd
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
 # ==================================================
 # 1. RECOMENDACIÓN EXTENSA PARA PDF (~500 - 600 PALABRAS)
 # ==================================================
@@ -1892,21 +1883,21 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
 
     tot_cons, tot_quem, tot_prot, tot_gras, tot_carb, tot_fibr = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
-    if not df_mes.empty:
+    if df_mes is not None and not df_mes.empty:
         fechas_unicas = sorted(df_mes['Fecha'].unique())
         dias_con_registro = len(fechas_unicas)
 
         for f in fechas_unicas:
             sub = df_mes[df_mes['Fecha'] == f]
             
-            c_cons = sub[sub['Calorias'] > 0]['Calorias'].sum()
-            c_quem = abs(sub[sub['Calorias'] < 0]['Calorias'].sum())
+            c_cons = sub[sub['Calorias'] > 0]['Calorias'].sum() if 'Calorias' in sub.columns else 0.0
+            c_quem = abs(sub[sub['Calorias'] < 0]['Calorias'].sum()) if 'Calorias' in sub.columns else 0.0
             b_neto = c_cons - c_quem
             
-            prot = float(sub['Proteinas'].sum())
-            gras = float(sub['Grasas'].sum())
-            carb = float(sub['Carbohidratos'].sum())
-            fibr = float(sub['Fibras'].sum())
+            prot = float(sub['Proteinas'].sum()) if 'Proteinas' in sub.columns else 0.0
+            gras = float(sub['Grasas'].sum()) if 'Grasas' in sub.columns else 0.0
+            carb = float(sub['Carbohidratos'].sum()) if 'Carbohidratos' in sub.columns else 0.0
+            fibr = float(sub['Fibras'].sum()) if 'Fibras' in sub.columns else 0.0
 
             tot_cons += c_cons
             tot_quem += c_quem
@@ -1964,29 +1955,42 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes</b>", title_style))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=8))
 
-    # --- DATOS BIOMÉTRICOS ---
-    edad = parse_raw_val(perfil.get('Edad')) if perfil else 64
-    peso_actual = parse_raw_val(perfil.get('Peso')) if perfil else 108.5
-    altura = parse_raw_val(perfil.get('Altura')) if perfil else 172.0
-    genero = str(perfil.get('Sexo', perfil.get('Genero', 'M'))).strip().upper() if perfil else 'M'
-    actividad = str(perfil.get('Ocupacion', 'sedentario')) if perfil else 'sedentario'
+    # --- DATOS BIOMÉTRICOS Y METABÓLICOS ---
+    def _parse_val(v, default):
+        try:
+            val_str = str(v).replace(',', '.').strip()
+            n = float(val_str)
+            if n == 0: return default
+            return n / 1000.0 if n > 500 else n
+        except:
+            return default
+
+    perfil_dict = perfil if isinstance(perfil, dict) else {}
+    edad = int(_parse_val(perfil_dict.get('Edad', perfil_dict.get('edad')), 64))
+    peso_actual = _parse_val(perfil_dict.get('Peso', perfil_dict.get('peso')), 108.5)
+    altura = _parse_val(perfil_dict.get('Altura', perfil_dict.get('altura')), 172.0)
     
-    peso_ideal_excel = parse_raw_val(perfil.get('Peso_ideal', perfil.get('Peso_Ideal', 75.0))) if perfil else 75.0
-    if peso_ideal_excel <= 0:
-        peso_ideal_excel = peso_actual * 0.85
+    p_ideal_raw = perfil_dict.get('Peso_ideal') or perfil_dict.get('peso_ideal') or perfil_dict.get('Peso Ideal')
+    peso_ideal_excel = _parse_val(p_ideal_raw, 75.0)
 
     peso_ideal_promedio = (peso_actual + peso_ideal_excel) / 2.0 if peso_actual > 0 else peso_ideal_excel
 
-    tmb_ideal, get_ideal = calcular_tmb_y_get(peso_actual, altura, edad, genero, actividad, peso_ideal=peso_ideal_excel)
+    genero = str(perfil_dict.get('Genero', perfil_dict.get('genero', perfil_dict.get('Sexo', 'M')))).strip().upper()
+    if genero == "M":
+        tmb_calc = (10 * peso_ideal_promedio) + (6.25 * altura) - (5 * edad) + 5
+    else:
+        tmb_calc = (10 * peso_ideal_promedio) + (6.25 * altura) - (5 * edad) - 161
 
-    dias_activos = df_mes['Fecha'].nunique() if not df_mes.empty else 1
+    get_ideal = tmb_calc * 1.2
+    dias_activos = df_mes['Fecha'].nunique() if (df_mes is not None and not df_mes.empty) else 1
+
     get_total_ideal = get_ideal * dias_activos
     bal_calorico = tot_cons - get_total_ideal - tot_quem
     cambio_peso_kg = bal_calorico / 7700.0
 
-    prot_rec = peso_ideal_promedio * 1.5 if peso_ideal_promedio > 0 else 90.0
-    gras_rec = (get_ideal * 0.25) / 9.0
-    carb_rec = (get_ideal * 0.50) / 4.0
+    prot_rec = round(peso_ideal_promedio * 1.5, 1)
+    gras_rec = round((get_ideal * 0.25) / 9.0, 1)
+    carb_rec = round((get_ideal * 0.50) / 4.0, 1)
     fibr_rec = 25.0
 
     prom_d_cons = (tot_cons / dias_activos) if dias_activos > 0 else 0
@@ -2019,9 +2023,35 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(Spacer(1, 8))
     story.append(Paragraph("<b>Recomendación Nutricional Personalizada y Plan de Acción (IA):</b>", sub_style))
 
-    # --- PROCESAMIENTO CORRECTO DEL TEXTO MULTILÍNEA PARA PDF ---
-    if isinstance(recomendacion, str):
-        bloques = recomendacion.split('\n\n')
+    # --- ENCAPSULACIÓN AUTÓNOMA DE LA RECOMENDACIÓN EXTENSA ---
+    # Si la recomendación recibida es muy corta (< 300 caracteres) o nula, la genera internamente
+    texto_recomendacion_final = recomendacion
+    if not isinstance(texto_recomendacion_final, str) or len(texto_recomendacion_final.strip()) < 300:
+        p_dict = {
+            'calorias': prom_d_cons,
+            'proteinas': prom_d_prot,
+            'grasas': prom_d_gras,
+            'carbohidratos': prom_d_carb,
+            'fibras': prom_d_fibr
+        }
+        m_dict = {
+            'calorias': get_ideal,
+            'proteinas': prot_rec,
+            'grasas': gras_rec,
+            'carbohidratos': carb_rec,
+            'fibras': fibr_rec
+        }
+        b_dict = {
+            'peso_actual': peso_actual,
+            'peso_ideal': peso_ideal_excel,
+            'altura': altura,
+            'edad': edad
+        }
+        texto_recomendacion_final = generar_recomendacion_ia(p_dict, m_dict, b_dict)
+
+    # Renderiza todos los párrafos de la recomendación en ReportLab
+    if isinstance(texto_recomendacion_final, str):
+        bloques = texto_recomendacion_final.strip().split('\n\n')
         for bloque in bloques:
             if bloque.strip():
                 texto_html = bloque.strip().replace('\n', '<br/>')
@@ -2031,9 +2061,8 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     doc.build(story)
     buffer.seek(0)
     return buffer
-
-
-
+    
+    
 
 # ==========================================
 # MAIN EXECUTION
