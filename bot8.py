@@ -399,11 +399,11 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Error al consultar /perfil: {e}")
         await update.message.reply_text(f"⚠️ Ocurrió un error al leer tu perfil: {e}", parse_mode="Markdown")
 
+
 def guardar_perfil_en_sheets(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     """
-    Guarda/actualiza el peso del usuario manteniendo compatibilidad total 
-    con llamadas de argumentos antiguos (edad, altura, genero, ocupacion)
-    para evitar rupturas en otras funciones del sistema.
+    Guarda/actualiza el peso del usuario manteniendo intactos los formatos 
+    y valores de las columnas históricas (ALTURA, EDAD, Peso_ideal) sin volver a multiplicarlos.
     """
     gc = get_gspread_client()
     sh = gc.open(SPREADSHEET_NAME)
@@ -415,32 +415,25 @@ def guardar_perfil_en_sheets(user_id, peso, mes=None, edad=None, altura=None, ge
     
     records = ws.get_all_records()
     
-    # Valores por defecto
-    edad_final = edad if edad is not None else 64
-    altura_final = altura if altura is not None else 170
+    # Variables crudas para guardar directamente en el Excel
+    edad_raw = edad if edad is not None else 64000
+    altura_raw = altura if altura is not None else 172000
     genero_final = genero if genero is not None else "masculino"
     ocupacion_final = ocupacion if ocupacion is not None else "Jubilado"
     peso_ideal_final = ""
     fecha_cumple_str = ""
     fila_a_actualizar = None
 
-    # 1. Recuperar valores existentes en la planilla si existen
+    # 1. Recuperar valores existentes en la planilla exactamente como están guardados
     if records:
         ultimo_registro = records[-1]
         
-        try:
-            val_edad = parse_raw_val(ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 0)))
-            if val_edad > 0 and edad is None:
-                edad_final = val_edad
-        except Exception:
-            pass
+        # Leemos el valor directo de la celda (ej: 172000 o 64000)
+        if edad is None:
+            edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
 
-        try:
-            val_altura = parse_raw_val(ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 0)))
-            if val_altura > 0 and altura is None:
-                altura_final = val_altura
-        except Exception:
-            pass
+        if altura is None:
+            altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
 
         if genero is None:
             genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', ultimo_registro.get('Sexo', 'masculino'))))
@@ -448,18 +441,17 @@ def guardar_perfil_en_sheets(user_id, peso, mes=None, edad=None, altura=None, ge
         if ocupacion is None:
             ocupacion_final = str(ultimo_registro.get('OCUPACION', ultimo_registro.get('Ocupacion', 'Jubilado')))
         
-        # Mantener Peso_ideal intacto sin re-multiplicar
         peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
         fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
 
-        # Verificar si el mes ya existe para actualizarlo
+        # Verificar si la fila del mes en curso ya existe
         for idx, row in enumerate(records, start=2):
             mes_en_fila = str(row.get('MES', row.get('Mes', ''))).strip()
             if mes_en_fila == str(mes):
                 fila_a_actualizar = idx
                 break
 
-    # 2. Recalcular edad automáticamente desde 'Cumple' si está disponible
+    # 2. Recalcular la edad automáticamente si cambió el año por el cumpleaños
     if fecha_cumple_str:
         try:
             if "-" in fecha_cumple_str:
@@ -473,30 +465,31 @@ def guardar_perfil_en_sheets(user_id, peso, mes=None, edad=None, altura=None, ge
             if fnac:
                 edad_calculada = ahora.year - fnac.year - ((ahora.month, ahora.day) < (fnac.month, fnac.day))
                 if edad_calculada > 0:
-                    edad_final = edad_calculada
+                    # Si se recalculó la edad en años reales, aplicamos to_sheet_int
+                    edad_raw = to_sheet_int(edad_calculada)
         except Exception as e:
             print(f"Error al calcular edad desde Cumple ({fecha_cumple_str}): {e}")
 
-    # 3. Estructura exacta de columnas A-I
+    # 3. Armado de fila: Solo se aplica to_sheet_int al PESO ingresado nuevo
     nueva_fila = [
-        to_sheet_int(edad_final),            # A: EDAD
-        to_sheet_int(peso),                  # B: PESO
-        to_sheet_int(altura_final),          # C: ALTURA
+        str(edad_raw),                       # A: EDAD (se respeta el valor leído)
+        to_sheet_int(peso),                  # B: PESO (se convierte a miles)
+        str(altura_raw),                     # C: ALTURA (se respeta el valor leído)
         str(genero_final),                   # D: GENERO
         str(ocupacion_final),                # E: OCUPACION
         str(mes),                            # F: MES
         ahora.strftime("%Y-%m-%d %H:%M:%S"),  # G: Fecha_Actualiza
-        str(peso_ideal_final),               # H: Peso_ideal (respetado como está)
+        str(peso_ideal_final),               # H: Peso_ideal
         str(fecha_cumple_str)                # I: Cumple
     ]
 
-    # 4. Guardar en Sheets
+    # 4. Actualización en Sheets
     if fila_a_actualizar:
         ws.update(f"A{fila_a_actualizar}:I{fila_a_actualizar}", [nueva_fila])
     else:
         ws.append_row(nueva_fila)
 
-    # 5. Actualizar pestaña general usuarios
+    # 5. Actualizar la pestaña usuarios
     try:
         ws_usuarios = sh.worksheet("usuarios")
         cell = ws_usuarios.find(str(user_id))
@@ -506,6 +499,7 @@ def guardar_perfil_en_sheets(user_id, peso, mes=None, edad=None, altura=None, ge
             ws_usuarios.update_cell(cell.row, col_idx, str(mes))
     except Exception as e:
         print(f"Error al actualizar la pestaña usuarios: {e}")
+
 
 def obtener_perfil_usuario(user_id, mes_target=None):
     try:
