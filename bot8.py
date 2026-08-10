@@ -1096,6 +1096,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         filename="Manual_Bot_Nutricional.pdf"
     )
 
+# ===============================================================================
+#                 ACTIVIDAD EJERCICIOS
+# =================================================================================
+
 async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     texto = update.message.text.replace('/actividad', '').strip()
@@ -1123,53 +1127,76 @@ async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-    calorias_neg = -abs(calorias_pos)
-    fecha_actual = obtener_ahora_arg().strftime("%Y-%m-%d")
+    # Extraemos el nombre limpio de la actividad
+    actividad_nombre = texto.split(',')[0].strip() if ',' in texto else texto.strip()
 
-    items = [{
-        "alimento": texto,
-        "peso": 0.0,
-        "calorias": calorias_neg,
-        "proteinas": 0.0,
-        "grasas": 0.0,
-        "carbohidratos": 0.0,
-        "fibras": 0.0
-    }]
+    # Enviamos el mensaje inicial y renderizamos la tarjeta con 2 botones (Confirmar / Anular)
+    msg = await update.message.reply_text("⏳ Procesando registro de actividad...")
+    await render_tarjeta_actividad(msg, context, actividad_nombre, int(calorias_pos), mostrar_editar=False)
+    
+# =================================================================================
 
-    guardar_en_sheets(user_id, items, fecha_actual, "Actividad Física", tipo="Actividad")
+async def render_tarjeta_actividad(target_msg, context, actividad_nombre, calorias, mostrar_editar=True):
+    """Renderiza o actualiza la tarjeta de confirmación de actividad física."""
+    context.user_data['pending_actividad'] = {
+        'nombre': actividad_nombre,
+        'calorias': calorias
+    }
 
-    await update.message.reply_text(
-        f"✅ **Actividad física registrada:**\n"
-        f"• Detalle: `{texto}`\n"
-        f"• Calorías: `{calorias_neg:.0f} kcal`",
-        parse_mode="Markdown"
+    # Selecciona la botonera según el flujo (IA = 3 botones, Manual = 2 botones)
+    if mostrar_editar:
+        fila_botones = [
+            InlineKeyboardButton("✅ Guardar", callback_data="act_save"),
+            InlineKeyboardButton("✏️ Editar", callback_data="act_edit"),
+            InlineKeyboardButton("🗑️ Borrar", callback_data="act_cancel")
+        ]
+    else:
+        fila_botones = [
+            InlineKeyboardButton("✅ Confirmar", callback_data="act_save"),
+            InlineKeyboardButton("❌ Anular", callback_data="act_cancel")
+        ]
+
+    keyboard = [fila_botones]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    txt = (
+        f"🏃 **Actividad detectada:** {actividad_nombre}\n"
+        f"🔥 **Gasto estimado:** -{calorias} kcal\n\n"
+        f"¿Deseás registrar este ejercicio en tu diario?"
     )
 
-async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
+    if hasattr(target_msg, 'edit_text'):
+        await target_msg.edit_text(txt, parse_mode="Markdown", reply_markup=reply_markup)
+    elif hasattr(target_msg, 'edit_message_text'):
+        await target_msg.edit_message_text(txt, parse_mode="Markdown", reply_markup=reply_markup)
+
+# =================================================================================
+        
+async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    texto = update.message.text.replace('/actividadia', '').strip()
+
+    if not texto:
         await update.message.reply_text(
-            "⚠️ Por favor, indicá la actividad física. Ejemplo:\n`/actividadia caminata rápida 45 min`",
+            "⚠️ Por favor ingresá la actividad para calcular.\nEjemplo: `/actividadia jugué al fútbol 1 hora`",
             parse_mode="Markdown"
         )
         return
 
-    texto_actividad = " ".join(context.args)
-    msg_espera = await update.message.reply_text("⏳ Analizando actividad física con IA...")
+    msg = await update.message.reply_text("🤖 Estimando gasto calórico con IA...")
 
     try:
-        user_id = update.effective_user.id
-        
-        prompt = (
-            f"El usuario realizó la siguiente actividad física: '{texto_actividad}'. "
-            "Estima únicamente el gasto calórico aproximado en calorías enteras positivas. "
+        prompt_actividad = (
+            f"El usuario realizó la siguiente actividad física: '{texto}'. "
+            "Calcula/estima el gasto calórico probable en calorías enteras (valor positivo). "
             "Responde strictly en formato JSON con la siguiente estructura: "
-            '{"actividad": "Nombre breve de la actividad", "calorias": 250}'
+            '{"actividad": "Nombre breve y claro de la actividad", "calorias": 250}'
         )
 
         chat_completion = client_ai.chat.completions.create(
             messages=[
                 {"role": "system", "content": "Sos un asistente experto en ciencias del deporte y nutrición."},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt_actividad}
             ],
             model="llama-3.3-70b-versatile",
             temperature=0.2,
@@ -1177,32 +1204,17 @@ async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         respuesta = json.loads(chat_completion.choices[0].message.content)
-        actividad_nombre = respuesta.get("actividad", texto_actividad)
-        calorias = abs(int(respuesta.get("calorias", 0)))
+        actividad_nombre = respuesta.get("actividad", texto)
+        calorias_estimadas = abs(int(respuesta.get("calorias", 0)))
 
-        if calorias == 0:
-            await msg_espera.edit_text("❌ No se pudieron calcular las calorías para esa actividad. Intentá ser más específico.")
-            return
-
-        keyboard = [
-            [
-                InlineKeyboardButton("✅ Guardar", callback_data=f"save_act_{calorias}_{actividad_nombre[:15]}"),
-                InlineKeyboardButton("❌ Cancelar", callback_data="cancel_act")
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await msg_espera.edit_text(
-            f"🏃 **Actividad detectada:** {actividad_nombre}\n"
-            f"🔥 **Gasto estimado:** -{calorias} kcal\n\n"
-            "¿Deseas registrar este ejercicio en tu diario?",
-            parse_mode="Markdown",
-            reply_markup=reply_markup
-        )
+        # Llama a render_tarjeta_actividad con 3 botones por defecto (Guardar, Editar, Borrar)
+        await render_tarjeta_actividad(msg, context, actividad_nombre, calorias_estimadas)
 
     except Exception as e:
-        print(f"Error en actividad_ia: {e}")
-        await msg_espera.edit_text("❌ Ocurrió un error al procesar la actividad con la IA.")
+        print(f"Error procesando actividad con IA: {e}")
+        await msg.edit_text(f"❌ Error al procesar la actividad con IA: {e}")
+        
+# =================================================================================
 
 async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
     df = obtener_datos_usuario(user_id)
@@ -1400,7 +1412,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # =========================================================================
-    # 1. SI EL USUARIO PRESIONÓ "EDITAR" Y ESTÁ ENVIANDO LA CORRECCIÓN
+    # 1.a. SI EL USUARIO PRESIONÓ "EDITAR" EN UN ALIMENTO / COMIDA
     # =========================================================================
     if context.user_data.get('awaiting_edit_item_val'):
         idx = context.user_data.get('editing_item_idx')
@@ -1410,9 +1422,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             item_previo = items[idx]
             peso_previo = item_previo.get('peso', 0.0)
 
-            msg_espera = await update.message.reply_text("⏳ Recalculando ítem con la IA...")
+            msg_espera = await update.message.reply_text("⏳ Recalculando alimento con la IA...")
             try:
-                # Se le indica a la IA que si no hay peso en el nuevo texto, mantenga el peso anterior
                 prompt_edicion = (
                     f"El usuario quiere editar un alimento.\n"
                     f"Texto ingresado por el usuario: '{raw_text}'\n"
@@ -1425,7 +1436,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 items_nuevos = nuevo_analisis.get('items', [])
 
                 if items_nuevos:
-                    # Se reemplaza el ítem editado
                     items[idx] = items_nuevos[0]
                     context.user_data['pending_items'] = items
                     
@@ -1434,11 +1444,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     except Exception:
                         pass
 
-                    # Limpiamos los indicadores de edición antes de redibujar
                     context.user_data['awaiting_edit_item_val'] = False
                     context.user_data.pop('editing_item_idx', None)
 
-                    # Redibujamos reutilizando/editando el mensaje de espera
                     await render_confirmation_screen(msg_espera, context)
                     return
                 else:
@@ -1448,9 +1456,64 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 print(f"Error editando ítem: {e}")
                 await msg_espera.edit_text(f"❌ Error al procesar la edición: {e}")
 
-        # Limpieza de seguridad en caso de fallo
         context.user_data['awaiting_edit_item_val'] = False
         context.user_data.pop('editing_item_idx', None)
+        return
+
+    # =========================================================================
+    # 1.b. SI EL USUARIO PRESIONÓ "EDITAR" EN UNA ACTIVIDAD FÍSICA
+    # =========================================================================
+    if context.user_data.get('awaiting_edit_act_val'):
+        act_pending = context.user_data.get('pending_actividad', {})
+        act_nombre = act_pending.get('nombre', 'Actividad')
+
+        msg_espera = await update.message.reply_text("⏳ Recalculando actividad física...")
+
+        try:
+            # 1. Intentar ver si el usuario ingresó un valor directo en calorías (ej: "300 cal" o "300")
+            limpio = raw_text.lower().replace("calorias", "").replace("cal", "").replace("kcal", "").strip()
+            
+            if limpio.isdigit():
+                nuevas_calorias = int(limpio)
+            else:
+                # 2. Si ingresó texto con duración/detalle (ej: "45 min" o "carrera intensa 30 min"), consultamos a la IA
+                prompt_recalculo = (
+                    f"El usuario está editando una actividad física previamente registrada como '{act_nombre}'. "
+                    f"Nueva especificación dada por el usuario: '{raw_text}'. "
+                    "Calcula/estima el nuevo gasto calórico en calorías enteras positivas. "
+                    "Responde strictly en formato JSON: "
+                    '{"actividad": "Nombre breve de la actividad", "calorias": 250}'
+                )
+
+                chat_completion = client_ai.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": "Sos un asistente experto en ciencias del deporte y nutrición."},
+                        {"role": "user", "content": prompt_recalculo}
+                    ],
+                    model="llama-3.3-70b-versatile",
+                    temperature=0.2,
+                    response_format={"type": "json_object"}
+                )
+
+                respuesta = json.loads(chat_completion.choices[0].message.content)
+                act_nombre = respuesta.get("actividad", act_nombre)
+                nuevas_calorias = abs(int(respuesta.get("calorias", 0)))
+
+            try:
+                await update.message.delete()  # Limpia el texto ingresado por el usuario
+            except Exception:
+                pass
+
+            context.user_data['awaiting_edit_act_val'] = False
+            # Llama a render_tarjeta_actividad con 3 botones (mostrar_editar=True por defecto)
+            await render_tarjeta_actividad(msg_espera, context, act_nombre, nuevas_calorias)
+            return
+
+        except Exception as e:
+            print(f"Error reeditando actividad: {e}")
+            await msg_espera.edit_text(f"❌ Error al recalcular la actividad: {e}")
+
+        context.user_data['awaiting_edit_act_val'] = False
         return
 
     # =========================================================================
@@ -1516,7 +1579,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await procesar_y_mostrar_confirmacion(data, msg, context)
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar el texto: {e}")
-
 
 #===============================================================================================
 
