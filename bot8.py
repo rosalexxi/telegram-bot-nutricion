@@ -1273,37 +1273,28 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id
     raw_text = update.message.text.replace('/presion', '').strip()
     
+    # -------------------------------------------------------------------------
+    # PRUEBA DIRECTA DEL RECORDATORIO DE COMIDAS
+    # Al escribir '/presion' llama a ejecutar_recordatorio_comidas
+    # -------------------------------------------------------------------------
     if not raw_text or raw_text.lower() in ['test', 'manana', 'tarde']:
-        await update.message.reply_text("🧪 **[Prueba Directa]** Leyendo pestaña 'Usuarios'...", parse_mode="Markdown")
-        
+        momento_test = 'tarde' if raw_text.lower() == 'tarde' else 'manana'
+        await update.message.reply_text(
+            f"🧪 **[Modo Prueba]** Ejecutando recordatorio (`momento='{momento_test}'`)...\n"
+            "Conectando a Google Sheets...",
+            parse_mode="Markdown"
+        )
         try:
-            sheet_usuarios = sheet_spreadsheet.worksheet("Usuarios")
-            registros_usuarios = sheet_usuarios.get_all_records()
-            
-            reporte_usuarios = []
-            for u in registros_usuarios:
-                uid = u.get("User ID")
-                est = u.get("Estado")
-                notif = u.get("Notificaciones")
-                reporte_usuarios.append(f"• ID: `{uid}` | Estado: `{est}` | Notif: `{notif}`")
-            
-            txt_reporte = "\n".join(reporte_usuarios) if reporte_usuarios else "⚠️ No se encontraron filas en 'Usuarios'."
-            await update.message.reply_text(f"📋 **Filas en pestaña 'Usuarios':**\n{txt_reporte}\n\nTu ID actual: `{user_id}`", parse_mode="Markdown")
-
-            # Ejecutamos la búsqueda directamente con tu user_id omitiendo el filtro
-            await update.message.reply_text(f"🔍 Buscando hoja `User_{user_id}`...", parse_mode="Markdown")
-            
-            nombre_hoja = f"User_{user_id}"
-            sheet_usuario = sheet_spreadsheet.worksheet(nombre_hoja)
-            registros_comidas = sheet_usuario.get_all_records()
-            
-            await update.message.reply_text(f"✅ Se leyeron `{len(registros_comidas)}` registros de comidas en `{nombre_hoja}`.", parse_mode="Markdown")
-
+            # Llama a la función consolidada corregida
+            await ejecutar_recordatorio_comidas(context, momento=momento_test)
+            await update.message.reply_text("✅ **[Modo Prueba]** Finalizado el proceso. Verificá si te llegó el mensaje con la lista de faltantes.")
         except Exception as e:
             await update.message.reply_text(f"❌ **Error en la prueba:** `{e}`", parse_mode="Markdown")
         return
 
-    # Flujo normal de presión arterial
+    # -------------------------------------------------------------------------
+    # FLUJO NORMAL DE PRESIÓN ARTERIAL
+    # -------------------------------------------------------------------------
     if re.match(r'^20\d{2}-\d{2}$', raw_text):
         await mostrar_resumen_presion_mes(update, user_id, raw_text)
         return
@@ -1319,9 +1310,6 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     else:
         await update.message.reply_text("❌ Formato incorrecto. Uso: `/presion 120,80,70` o `/presion 120,80` o `/presion 2026-08`", parse_mode="Markdown")
-
-
-
 
 
 async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
