@@ -23,6 +23,7 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable, KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
+
 # Telegram
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -1588,7 +1589,64 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     data = query.data
     user_id = query.from_user.id
 
-    if data.startswith("set_m_"):
+    # =========================================================================
+    # BOTONES DE ACTIVIDAD FÍSICA (NUEVO)
+    # =========================================================================
+    if data == "act_save":
+        act_data = context.user_data.get('pending_actividad', {})
+        if not act_data:
+            await query.edit_message_text("⚠️ No hay datos de actividad para guardar.")
+            return
+
+        act_nombre = act_data.get('nombre', 'Actividad Física')
+        calorias = act_data.get('calorias', 0)
+        calorias_neg = -abs(float(calorias))
+        fecha_actual = obtener_ahora_arg().strftime("%Y-%m-%d")
+
+        items = [{
+            "alimento": act_nombre,
+            "peso": 0.0,
+            "calorias": calorias_neg,
+            "proteinas": 0.0,
+            "grasas": 0.0,
+            "carbohidratos": 0.0,
+            "fibras": 0.0
+        }]
+
+        try:
+            guardar_en_sheets(user_id, items, fecha_actual, "Actividad Física", tipo="Actividad")
+            await query.edit_message_text(
+                f"✅ **Actividad física registrada con éxito:**\n"
+                f"• Detalle: `{act_nombre}`\n"
+                f"• Gasto: `{calorias_neg:.0f} kcal`",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error al guardar en Sheets: {e}")
+
+        context.user_data.pop('pending_actividad', None)
+        context.user_data['awaiting_edit_act_val'] = False
+        return
+
+    elif data == "act_edit":
+        context.user_data['awaiting_edit_act_val'] = True
+        await query.message.reply_text(
+            "✏️ **Ingresá la modificación:**\n\n"
+            "• Si ingresás un tiempo/detalle (ej: `60 min`), la IA recalculará las calorías.\n"
+            "• Si ingresás calorías (ej: `300 cal` o `300`), se asignará el valor directo."
+        )
+        return
+
+    elif data == "act_cancel" or data == "cancel_act":
+        context.user_data.pop('pending_actividad', None)
+        context.user_data['awaiting_edit_act_val'] = False
+        await query.edit_message_text("❌ Registro de actividad cancelado.")
+        return
+
+    # =========================================================================
+    # BOTONES DE COMIDAS Y OTROS COMANDOS
+    # =========================================================================
+    elif data.startswith("set_m_"):
         nuevo_momento = data.replace("set_m_", "")
         context.user_data['pending_momento'] = nuevo_momento
         await render_confirmation_screen(query, context)
@@ -1665,34 +1723,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         mes_str = data.replace("descargar_pdf_presion_", "")
         await generar_y_enviar_pdf_presion(query, user_id, mes_str, context)
 
-    elif data.startswith("save_act_"):
-        partes = data.replace("save_act_", "").split("_")
-        calorias = float(partes[0])
-        actividad = partes[1] if len(partes) > 1 else "Actividad Física"
-        
-        calorias_neg = -abs(calorias)
-        fecha_actual = obtener_ahora_arg().strftime("%Y-%m-%d")
-
-        items = [{
-            "alimento": f"Ejercicio: {actividad}",
-            "peso": 0.0,
-            "calorias": calorias_neg,
-            "proteinas": 0.0,
-            "grasas": 0.0,
-            "carbohidratos": 0.0,
-            "fibras": 0.0
-        }]
-
-        guardar_en_sheets(user_id, items, fecha_actual, "Actividad Física", tipo="Actividad")
-        await query.edit_message_text(
-            f"✅ **Actividad física registrada con éxito:**\n"
-            f"• Actividad: `{actividad}`\n"
-            f"• Gasto: `{calorias_neg:.0f} kcal`",
-            parse_mode="Markdown"
-        )
-
-    elif data == "cancel_act":
-        await query.edit_message_text("❌ Registro de actividad cancelado.")
 
 # ===========================================================================
 #               PANTALLA Y PDF RESUMEN MES
