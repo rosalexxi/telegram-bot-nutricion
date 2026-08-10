@@ -1172,7 +1172,7 @@ async def render_tarjeta_actividad(target_msg, context, actividad_nombre, calori
 
 # =================================================================================
         
-async def cmd_actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def actividad_ia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     texto = update.message.text.replace('/actividadia', '').strip()
 
