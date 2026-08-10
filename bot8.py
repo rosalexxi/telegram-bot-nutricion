@@ -1268,48 +1268,105 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
     else:
         await query_or_update.message.reply_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
         
+async def ejecutar_recordatorio_comidas(context, momento: str):
+    try:
+        sheet_usuarios = sheet_spreadsheet.worksheet("Usuarios")
+        registros_usuarios = sheet_usuarios.get_all_records()
+        
+        usuarios_validos = []
+        for u in registros_usuarios:
+            estado = str(u.get("Estado", "")).strip().lower()
+            notif = str(u.get("Notificaciones", "")).strip().lower()
+            u_id = u.get("User ID")
+            
+            if estado == "activo" and notif in ["si", "sí"] and u_id:
+                usuarios_validos.append(u_id)
 
-async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    raw_text = update.message.text.replace('/presion', '').strip()
-    
-    # -------------------------------------------------------------------------
-    # PRUEBA DEL RECORDATORIO DE COMIDAS
-    # Si escribís '/presion' solo, '/presion test', '/presion manana' o '/presion tarde'
-    # -------------------------------------------------------------------------
-    if not raw_text or raw_text.lower() in ['test', 'manana', 'tarde']:
-        momento_test = 'tarde' if raw_text.lower() == 'tarde' else 'manana'
-        await update.message.reply_text(
-            f"🧪 **[Modo Prueba]** Iniciando verificación de recordatorios (`momento='{momento_test}'`)...\n"
-            "Revisando pestaña 'Usuarios' y hojas individuales...",
-            parse_mode="Markdown"
-        )
+    except Exception as e:
+        logger.error(f"Error al acceder a 'Usuarios': {e}")
+        return
+
+    hoy = obtener_ahora_arg()
+    ayer = hoy - timedelta(days=1)
+    anteayer = hoy - timedelta(days=2)
+
+    str_hoy = hoy.strftime("%Y-%m-%d")
+    str_ayer = ayer.strftime("%Y-%m-%d")
+    str_anteayer = anteayer.strftime("%Y-%m-%d")
+
+    todas_comidas = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
+
+    for user_id in usuarios_validos:
         try:
-            # Llama a la misma función que ejecuta la JobQueue
-            await ejecutar_recordatorio_comidas(context, momento=momento_test)
-            await update.message.reply_text("✅ **[Modo Prueba]** Ejecución de recordatorio finalizada. Revisa si te llegó el mensaje con la lista de pendientes.")
+            nombre_hoja_usuario = f"User_{user_id}"
+            sheet_usuario = sheet_spreadsheet.worksheet(nombre_hoja_usuario)
+            registros_comidas = sheet_usuario.get_all_records()
+
+            comidas_anteayer = set()
+            comidas_ayer = set()
+            comidas_hoy = set()
+
+            for reg in registros_comidas:
+                fecha_reg = str(reg.get("Fecha", "")).strip()
+                # Ajustamos para leer 'Momento/Actividad' o 'Momento'
+                momento_reg = str(reg.get("Momento/Actividad") or reg.get("Momento", "")).strip().capitalize()
+
+                if fecha_reg == str_anteayer:
+                    comidas_anteayer.add(momento_reg)
+                elif fecha_reg == str_ayer:
+                    comidas_ayer.add(momento_reg)
+                elif fecha_reg == str_hoy:
+                    comidas_hoy.add(momento_reg)
+
+            faltantes = []
+
+            if momento == 'manana':
+                for c in todas_comidas:
+                    if c not in comidas_anteayer:
+                        faltantes.append(f"{c} de anteayer ({str_anteayer})")
+                for c in todas_comidas:
+                    if c not in comidas_ayer:
+                        faltantes.append(f"{c} de ayer ({str_ayer})")
+
+            elif momento == 'tarde':
+                for c in todas_comidas:
+                    if c not in comidas_ayer:
+                        faltantes.append(f"{c} de ayer ({str_ayer})")
+                if "Desayuno" not in comidas_hoy:
+                    faltantes.append("Desayuno de hoy")
+                if "Almuerzo" not in comidas_hoy:
+                    faltantes.append("Almuerzo de hoy")
+
+            # -----------------------------------------------------------------
+            # DIAGNÓSTICO EN TELEGRAM
+            # -----------------------------------------------------------------
+            if faltantes:
+                lista_formateada = "\n• " + "\n• ".join(faltantes)
+                mensaje = (
+                    f"📌 **Recordatorio de comidas pendientes:**\n"
+                    f"{lista_formateada}\n\n"
+                    f"Si ya las consumiste, podés registrarlas en cualquier momento."
+                )
+            else:
+                mensaje = (
+                    f"ℹ️ **[Diagnóstico]** No se detectaron comidas pendientes.\n\n"
+                    f"• **Anteayer ({str_anteayer}):** {list(comidas_anteayer) or 'Ninguna'}\n"
+                    f"• **Ayer ({str_ayer}):** {list(comidas_ayer) or 'Ninguna'}\n"
+                    f"• **Hoy ({str_hoy}):** {list(comidas_hoy) or 'Ninguna'}"
+                )
+
+            await context.bot.send_message(
+                chat_id=int(user_id), 
+                text=mensaje, 
+                parse_mode="Markdown"
+            )
+
         except Exception as e:
-            await update.message.reply_text(f"❌ **[Modo Prueba] Error:** `{e}`", parse_mode="Markdown")
-        return
+            logger.error(f"Error procesando recordatorio para {user_id}: {e}")
 
-    # -------------------------------------------------------------------------
-    # FLUJO NORMAL DE PRESIÓN ARTERIAL
-    # -------------------------------------------------------------------------
-    if re.match(r'^20\d{2}-\d{2}$', raw_text):
-        await mostrar_resumen_presion_mes(update, user_id, raw_text)
-        return
 
-    parts = [p.strip() for p in raw_text.replace('/', ',').replace(' ', ',').split(',') if p.strip()]
-    if len(parts) >= 2:
-        alta = float(parts[0])
-        baja = float(parts[1])
-        pulsaciones = float(parts[2]) if len(parts) > 2 else None
-        guardar_presion_en_sheets(user_id, alta, baja, pulsaciones)
-        pul_str = f" | Pulsaciones: `{pulsaciones}`" if pulsaciones is not None else ""
-        await update.message.reply_text(f"✅ **Presión registrada:**\nAlta: `{alta}` | Baja: `{baja}`{pul_str}", parse_mode="Markdown")
-        return
-    else:
-        await update.message.reply_text("❌ Formato incorrecto. Uso: `/presion 120,80,70` o `/presion 120,80` o `/presion 2026-08`", parse_mode="Markdown")
+
+
 async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
     df_presion = obtener_datos_presion(user_id)
     if df_presion.empty:
