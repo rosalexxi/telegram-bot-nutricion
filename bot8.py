@@ -2357,24 +2357,37 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
 # 4. GENERAR MENSAJES RECORDATORIOS AUTOMATICOS
 # =====================================================================
 
+
 async def ejecutar_recordatorio_comidas(context, momento: str):
+    """
+    Función consolidada para verificar y enviar alertas de comidas pendientes.
+    - momento == 'manana': Revisa ayer (1 día atrás) y anteayer (2 días atrás).
+    - momento == 'tarde': Revisa ayer entero y hoy (Desayuno y Almuerzo).
+    """
     try:
-        sheet_usuarios = sheet_spreadsheet.worksheet("Usuarios")
+        # 1. Abrir conexión con Google Sheets (igual que en guardar_presion_en_sheets)
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        
+        # Leer usuarios desde la pestaña central 'Usuarios'
+        sheet_usuarios = sh.worksheet("Usuarios")
         registros_usuarios = sheet_usuarios.get_all_records()
         
         usuarios_validos = []
         for u in registros_usuarios:
             estado = str(u.get("Estado", "")).strip().lower()
             notif = str(u.get("Notificaciones", "")).strip().lower()
-            u_id = u.get("User ID")
+            user_id = u.get("User ID")
             
-            if estado == "activo" and notif in ["si", "sí"] and u_id:
-                usuarios_validos.append(u_id)
+            # Valida estado activo y notificaciones habilitadas (acepta 'si' o 'sí')
+            if estado == "activo" and notif in ["si", "sí"] and user_id:
+                usuarios_validos.append(user_id)
 
     except Exception as e:
-        logger.error(f"Error al acceder a 'Usuarios': {e}")
+        logger.error(f"Error al acceder a la pestaña 'Usuarios': {e}")
         return
 
+    # Cálculo de fechas utilizando la hora local de Argentina
     hoy = obtener_ahora_arg()
     ayer = hoy - timedelta(days=1)
     anteayer = hoy - timedelta(days=2)
@@ -2385,20 +2398,22 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
     todas_comidas = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
 
+    # 2. Procesar cada usuario activo
     for user_id in usuarios_validos:
         try:
+            # Nombre de la pestaña individual del usuario
             nombre_hoja_usuario = f"User_{user_id}"
-            sheet_usuario = sheet_spreadsheet.worksheet(nombre_hoja_usuario)
+            sheet_usuario = sh.worksheet(nombre_hoja_usuario)
             registros_comidas = sheet_usuario.get_all_records()
 
             comidas_anteayer = set()
             comidas_ayer = set()
             comidas_hoy = set()
 
+            # Clasificar los registros del usuario leyendo la columna 'Momento/Actividad'
             for reg in registros_comidas:
                 fecha_reg = str(reg.get("Fecha", "")).strip()
-                # Ajustamos para leer 'Momento/Actividad' o 'Momento'
-                momento_reg = str(reg.get("Momento/Actividad") or reg.get("Momento", "")).strip().capitalize()
+                momento_reg = str(reg.get("Momento/Actividad", "")).strip().capitalize()
 
                 if fecha_reg == str_anteayer:
                     comidas_anteayer.add(momento_reg)
@@ -2409,26 +2424,33 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
             faltantes = []
 
+            # -----------------------------------------------------------------
+            # REVISIÓN SEGÚN EL MOMENTO DE LA EJECUCIÓN
+            # -----------------------------------------------------------------
             if momento == 'manana':
+                # Revisa Anteayer (2 días atrás)
                 for c in todas_comidas:
                     if c not in comidas_anteayer:
                         faltantes.append(f"{c} de anteayer ({str_anteayer})")
+
+                # Revisa Ayer (1 día atrás)
                 for c in todas_comidas:
                     if c not in comidas_ayer:
                         faltantes.append(f"{c} de ayer ({str_ayer})")
 
             elif momento == 'tarde':
+                # Revisa Ayer entero
                 for c in todas_comidas:
                     if c not in comidas_ayer:
                         faltantes.append(f"{c} de ayer ({str_ayer})")
+
+                # Revisa Hoy (hasta el almuerzo)
                 if "Desayuno" not in comidas_hoy:
                     faltantes.append("Desayuno de hoy")
                 if "Almuerzo" not in comidas_hoy:
                     faltantes.append("Almuerzo de hoy")
 
-            # -----------------------------------------------------------------
-            # DIAGNÓSTICO EN TELEGRAM
-            # -----------------------------------------------------------------
+            # 3. Enviar mensaje por Telegram si existen faltantes
             if faltantes:
                 lista_formateada = "\n• " + "\n• ".join(faltantes)
                 mensaje = (
@@ -2436,23 +2458,15 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                     f"{lista_formateada}\n\n"
                     f"Si ya las consumiste, podés registrarlas en cualquier momento."
                 )
-            else:
-                mensaje = (
-                    f"ℹ️ **[Diagnóstico]** No se detectaron comidas pendientes.\n\n"
-                    f"• **Anteayer ({str_anteayer}):** {list(comidas_anteayer) or 'Ninguna'}\n"
-                    f"• **Ayer ({str_ayer}):** {list(comidas_ayer) or 'Ninguna'}\n"
-                    f"• **Hoy ({str_hoy}):** {list(comidas_hoy) or 'Ninguna'}"
+                await context.bot.send_message(
+                    chat_id=int(user_id), 
+                    text=mensaje, 
+                    parse_mode="Markdown"
                 )
-
-            await context.bot.send_message(
-                chat_id=int(user_id), 
-                text=mensaje, 
-                parse_mode="Markdown"
-            )
+                logger.info(f"Recordatorio ({momento}) enviado a {user_id}")
 
         except Exception as e:
-            logger.error(f"Error procesando recordatorio para {user_id}: {e}")
-
+            logger.error(f"Error procesando recordatorio para usuario {user_id} en {nombre_hoja_usuario}: {e}")
 
 # ========================================================================
 #                      MAIN EXECUTION
