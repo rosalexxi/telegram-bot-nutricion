@@ -1273,16 +1273,28 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id
     raw_text = update.message.text.replace('/presion', '').strip()
     
-    if not raw_text:
+    # -------------------------------------------------------------------------
+    # PRUEBA DEL RECORDATORIO DE COMIDAS
+    # Si escribís '/presion' solo, '/presion test', '/presion manana' o '/presion tarde'
+    # -------------------------------------------------------------------------
+    if not raw_text or raw_text.lower() in ['test', 'manana', 'tarde']:
+        momento_test = 'tarde' if raw_text.lower() == 'tarde' else 'manana'
         await update.message.reply_text(
-            "🩺 Ingresá la presión o consultá un mes. Ejemplos:\n"
-            "• `/presion 120,80,70`\n"
-            "• `/presion 120,80`\n"
-            "• `/presion 2026-08`", 
+            f"🧪 **[Modo Prueba]** Iniciando verificación de recordatorios (`momento='{momento_test}'`)...\n"
+            "Revisando pestaña 'Usuarios' y hojas individuales...",
             parse_mode="Markdown"
         )
+        try:
+            # Llama a la misma función que ejecuta la JobQueue
+            await ejecutar_recordatorio_comidas(context, momento=momento_test)
+            await update.message.reply_text("✅ **[Modo Prueba]** Ejecución de recordatorio finalizada. Revisa si te llegó el mensaje con la lista de pendientes.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ **[Modo Prueba] Error:** `{e}`", parse_mode="Markdown")
         return
 
+    # -------------------------------------------------------------------------
+    # FLUJO NORMAL DE PRESIÓN ARTERIAL
+    # -------------------------------------------------------------------------
     if re.match(r'^20\d{2}-\d{2}$', raw_text):
         await mostrar_resumen_presion_mes(update, user_id, raw_text)
         return
@@ -1298,7 +1310,6 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     else:
         await update.message.reply_text("❌ Formato incorrecto. Uso: `/presion 120,80,70` o `/presion 120,80` o `/presion 2026-08`", parse_mode="Markdown")
-
 async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
     df_presion = obtener_datos_presion(user_id)
     if df_presion.empty:
