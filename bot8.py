@@ -1466,38 +1466,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =========================================================================
     if context.user_data.get('awaiting_edit_act_val'):
         act_pending = context.user_data.get('pending_actividad', {})
-        act_nombre = act_pending.get('nombre', 'Actividad')
+        act_nombre_previa = act_pending.get('nombre', 'Actividad')
 
         msg_espera = await update.message.reply_text("⏳ Recalculando actividad física...")
 
         try:
-            # 1. Intentar ver si el usuario ingresó un valor directo en calorías (ej: "300 cal" o "300")
+            # 1. Verificar si el usuario ingresó un valor puramente numérico o de calorías (ej: "300 cal" o "300")
             limpio = raw_text.lower().replace("calorias", "").replace("cal", "").replace("kcal", "").strip()
-            
+
             if limpio.isdigit():
                 nuevas_calorias = int(limpio)
+                act_nombre = act_nombre_previa
             else:
-                # 2. Si ingresó texto con duración/detalle (ej: "45 min" o "carrera intensa 30 min"), consultamos a la IA
+                # 2. Si ingresó tiempo o detalle (ej: "30 min" o "caminata rápida 45 min"), armamos un prompt explícito
                 prompt_recalculo = (
-                    f"El usuario está editando una actividad física previamente registrada como '{act_nombre}'. "
-                    f"Nueva especificación dada por el usuario: '{raw_text}'. "
-                    "Calcula/estima el nuevo gasto calórico en calorías enteras positivas. "
-                    "Responde strictly en formato JSON: "
+                    f"La actividad original era: '{act_nombre_previa}'. "
+                    f"El usuario ingresó esta modificación/duración: '{raw_text}'. "
+                    "Calcula de forma precisa el gasto calórico total en calorías enteras (valor positivo) "
+                    "teniendo en cuenta la nueva duración o intensidad especificada.\n"
+                    "Responde STRICTLY un objeto JSON con este formato:\n"
                     '{"actividad": "Nombre breve de la actividad", "calorias": 250}'
                 )
 
                 chat_completion = client_ai.chat.completions.create(
                     messages=[
-                        {"role": "system", "content": "Sos un asistente experto en ciencias del deporte y nutrición."},
+                        {"role": "system", "content": "Sos un asistente experto en fisiología del ejercicio y nutrición. Calcula calorías de forma proporcional al tiempo e intensidad indicados."},
                         {"role": "user", "content": prompt_recalculo}
                     ],
                     model="llama-3.3-70b-versatile",
-                    temperature=0.2,
+                    temperature=0.1,  # Temperatura baja para consistencia matemática
                     response_format={"type": "json_object"}
                 )
 
                 respuesta = json.loads(chat_completion.choices[0].message.content)
-                act_nombre = respuesta.get("actividad", act_nombre)
+                act_nombre = respuesta.get("actividad", act_nombre_previa)
                 nuevas_calorias = abs(int(respuesta.get("calorias", 0)))
 
             try:
@@ -1506,7 +1508,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
             context.user_data['awaiting_edit_act_val'] = False
-            # Llama a render_tarjeta_actividad con 3 botones (mostrar_editar=True por defecto)
+            
+            # Renderizamos la tarjeta actualizada (render_tarjeta_actividad actualiza context.user_data['pending_actividad'])
             await render_tarjeta_actividad(msg_espera, context, act_nombre, nuevas_calorias)
             return
 
@@ -1516,6 +1519,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data['awaiting_edit_act_val'] = False
         return
+
 
     # =========================================================================
     # 2. COMIDAS PRECARGADAS EN PLANTILLAS (MENSAJES QUE EMPIEZAN CON *)
