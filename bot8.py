@@ -1049,17 +1049,22 @@ async def render_confirmation_screen(msg_or_query, context):
             context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
             
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
-    items = data_json.get("items", [])
-    if not items:
-        await msg_obj.edit_text("❌ No se pudieron detectar alimentos en la consulta.")
-        return
+    try:
+        items = data_json.get("items", [])
+        if not items:
+            await msg_obj.edit_text("❌ No se pudieron detectar alimentos en la consulta.")
+            return
 
-    fecha, momento = obtener_momento_y_fecha_auto()
-    context.user_data['pending_items'] = items
-    context.user_data['pending_fecha'] = fecha
-    context.user_data['pending_momento'] = momento
+        fecha, momento = obtener_momento_y_fecha_auto()
+        context.user_data['pending_items'] = items
+        context.user_data['pending_fecha'] = fecha
+        context.user_data['pending_momento'] = momento
 
-    await render_confirmation_screen(msg_obj, context)
+        await render_confirmation_screen(msg_obj, context)
+
+    except Exception as e:
+        print(f"❌ Error en procesar_y_mostrar_confirmacion: {e}")
+        await msg_obj.edit_text(f"❌ Error al renderizar la confirmación: {e}")
 
 # ===============================================================================
 #                 HANDLERS DE TELEGRAM
