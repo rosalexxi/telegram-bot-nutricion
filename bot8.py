@@ -961,66 +961,73 @@ def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
 #                  INTERFAZ Y RENDER DE CONFIRMACIÓN
 # =================================================================
 
-async def render_confirmation_screen(target, context):
+async def render_confirmation_screen(target, context): 
     """
-    Renderiza la tarjeta de confirmación de ingesta de alimentos.
-    Funciona tanto si 'target' es un Message como si es un CallbackQuery.
+    Renderiza la tarjeta de confirmación de ingesta con la botonera completa.
     """
     try:
         items = context.user_data.get('pending_items', [])
-        fecha = context.user_data.get('pending_fecha', '')
-        momento = context.user_data.get('pending_momento', '')
+        fecha = context.user_data.get('pending_fecha', 'hoy')
+        momento = context.user_data.get('pending_momento', 'auto')
 
         if not items:
             txt_vacio = "❌ No hay ítems pendientes para confirmar."
-            if hasattr(target, 'edit_message_text'):
-                await target.edit_message_text(txt_vacio)
-            elif hasattr(target, 'edit_text'):
-                await target.edit_text(txt_vacio)
+            if hasattr(target, 'edit_message_text'): await target.edit_message_text(txt_vacio)
+            elif hasattr(target, 'edit_text'): await target.edit_text(txt_vacio)
             return
 
-        # 1. Armado del texto descriptivo de los alimentos
+        # 1. Armado del texto descriptivo
         resumen_items = []
-        tot_cal = 0
-        tot_prot = 0
-        tot_gras = 0
-        tot_carb = 0
-
+        tot_cal, tot_prot, tot_gras, tot_carb = 0, 0, 0, 0
         for i, item in enumerate(items, 1):
             nombre = item.get('alimento', 'Alimento')
             peso = item.get('peso', 0)
             cal = item.get('calorias', 0)
-            prot = item.get('proteinas', 0)
-            gras = item.get('grasas', 0)
-            carb = item.get('carbohidratos', 0)
-
             tot_cal += cal
-            tot_prot += prot
-            tot_gras += gras
-            tot_carb += carb
-
+            tot_prot += item.get('proteinas', 0)
+            tot_gras += item.get('grasas', 0)
+            tot_carb += item.get('carbohidratos', 0)
             resumen_items.append(f"{i}. **{nombre}** ({peso}g) — `{cal:.0f} kcal`")
-
+        
         texto_items = "\n".join(resumen_items)
-
         txt = (
             f"📋 **Confirmar Ingesta**\n"
             f"📅 **Fecha:** `{fecha}` | 🕒 **Momento:** `{momento}`\n\n"
             f"**Detalle de Alimentos:**\n{texto_items}\n\n"
-            f"📊 **Totales:** `{tot_cal:.0f} kcal` | P: `{tot_prot:.1f}g` | G: `{tot_gras:.1f}g` | C: `{tot_carb:.1f}g`\n\n"
-            f"¿Deseás guardar este registro?"
+            f"📊 **Totales:** `{tot_cal:.0f} kcal` | P: `{tot_prot:.1f}g` | G: `{tot_gras:.1f}g` | C: `{tot_carb:.1f}g`"
         )
 
-        # 2. Armado de la botonera
-        keyboard = [
-            [
-                InlineKeyboardButton("✅ Guardar", callback_data="confirm_save"),
-                InlineKeyboardButton("🗑️ Cancelar", callback_data="cancel_entry")
-            ]
-        ]
+        # 2. Armado de la botonera COMPLETA
+        keyboard = []
+
+        # Fila 1: Selección de Momento
+        momentos = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
+        fila_m = [InlineKeyboardButton(f"{'✅ ' if momento.lower()==m.lower() else ''}{m}", callback_data=f"set_momento_{m.lower()}") for m in momentos]
+        keyboard.append(fila_m)
+
+        # Filas por cada Ítem (Ítem, Editar, Anular)
+        for idx, item in enumerate(items):
+            nombre_corto = (item.get('alimento')[:8] + "..") if len(item.get('alimento','')) > 8 else item.get('alimento','Ítem')
+            keyboard.append([
+                InlineKeyboardButton(f"#{idx+1} {nombre_corto}", callback_data=f"item_select_{idx}"),
+                InlineKeyboardButton("✏️ Editar", callback_data=f"item_edit_{idx}"),
+                InlineKeyboardButton("❌ Anular", callback_data=f"item_del_{idx}")
+            ])
+
+        # Fila de Fechas
+        fechas = ["Hoy", "Ayer", "Otro día"]
+        fila_f = [InlineKeyboardButton(f"{'✅ ' if fecha.lower()==f.lower().replace('á','a') else ''}{f}", callback_data=f"set_fecha_{f.lower().replace('á','a')}") for f in fechas]
+        keyboard.append(fila_f)
+
+        # Fila final (Acciones)
+        keyboard.append([
+            InlineKeyboardButton("🗑️ ELIMINAR TODO", callback_data="cancel_entry"),
+            InlineKeyboardButton("💾 GUARDAR", callback_data="confirm_save")
+        ])
+
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # 3. Envío/Edición del mensaje seguro
+        # 3. Edición del mensaje
         if hasattr(target, 'edit_message_text'):
             await target.edit_message_text(txt, parse_mode="Markdown", reply_markup=reply_markup)
         elif hasattr(target, 'edit_text'):
@@ -1028,29 +1035,7 @@ async def render_confirmation_screen(target, context):
 
     except Exception as e:
         print(f"❌ ERROR EN render_confirmation_screen: {e}")
-        err_msg = f"❌ Error interno al mostrar la confirmación: {e}"
-        if hasattr(target, 'edit_message_text'):
-            await target.edit_message_text(err_msg)
-        elif hasattr(target, 'edit_text'):
-            await target.edit_text(err_msg)
-            
-async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
-    try:
-        items = data_json.get("items", [])
-        if not items:
-            await msg_obj.edit_text("❌ No se pudieron detectar alimentos en la consulta.")
-            return
 
-        fecha, momento = obtener_momento_y_fecha_auto()
-        context.user_data['pending_items'] = items
-        context.user_data['pending_fecha'] = fecha
-        context.user_data['pending_momento'] = momento
-
-        await render_confirmation_screen(msg_obj, context)
-
-    except Exception as e:
-        print(f"❌ Error en procesar_y_mostrar_confirmacion: {e}")
-        await msg_obj.edit_text(f"❌ Error al renderizar la confirmación: {e}")
 
 # ===============================================================================
 #                 HANDLERS DE TELEGRAM
@@ -1273,28 +1258,16 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id
     raw_text = update.message.text.replace('/presion', '').strip()
     
-    # -------------------------------------------------------------------------
-    # PRUEBA DIRECTA DEL RECORDATORIO DE COMIDAS
-    # Al escribir '/presion' llama a ejecutar_recordatorio_comidas
-    # -------------------------------------------------------------------------
-    if not raw_text or raw_text.lower() in ['test', 'manana', 'tarde']:
-        momento_test = 'tarde' if raw_text.lower() == 'tarde' else 'manana'
+    if not raw_text:
         await update.message.reply_text(
-            f"🧪 **[Modo Prueba]** Ejecutando recordatorio (`momento='{momento_test}'`)...\n"
-            "Conectando a Google Sheets...",
+            "🩺 Ingresá la presión o consultá un mes. Ejemplos:\n"
+            "• `/presion 120,80,70`\n"
+            "• `/presion 120,80`\n"
+            "• `/presion 2026-08`", 
             parse_mode="Markdown"
         )
-        try:
-            # Llama a la función consolidada corregida
-            await ejecutar_recordatorio_comidas(context, momento=momento_test)
-            await update.message.reply_text("✅ **[Modo Prueba]** Finalizado el proceso. Verificá si te llegó el mensaje con la lista de faltantes.")
-        except Exception as e:
-            await update.message.reply_text(f"❌ **Error en la prueba:** `{e}`", parse_mode="Markdown")
         return
 
-    # -------------------------------------------------------------------------
-    # FLUJO NORMAL DE PRESIÓN ARTERIAL
-    # -------------------------------------------------------------------------
     if re.match(r'^20\d{2}-\d{2}$', raw_text):
         await mostrar_resumen_presion_mes(update, user_id, raw_text)
         return
@@ -1310,7 +1283,6 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     else:
         await update.message.reply_text("❌ Formato incorrecto. Uso: `/presion 120,80,70` o `/presion 120,80` o `/presion 2026-08`", parse_mode="Markdown")
-
 
 async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
     df_presion = obtener_datos_presion(user_id)
@@ -2345,19 +2317,16 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
 # 4. GENERAR MENSAJES RECORDATORIOS AUTOMATICOS
 # =====================================================================
 
-
 async def ejecutar_recordatorio_comidas(context, momento: str):
     """
-    Función consolidada para verificar y enviar alertas de comidas pendientes.
-    - momento == 'manana': Revisa ayer (1 día atrás) y anteayer (2 días atrás).
+    Verifica y envía alertas de comidas pendientes por Telegram.
+    - momento == 'manana': Revisa anteayer y ayer.
     - momento == 'tarde': Revisa ayer entero y hoy (Desayuno y Almuerzo).
     """
     try:
-        # 1. Abrir conexión con Google Sheets (igual que en guardar_presion_en_sheets)
         gc = get_gspread_client()
         sh = gc.open(SPREADSHEET_NAME)
         
-        # Leer usuarios desde la pestaña central 'Usuarios'
         sheet_usuarios = sh.worksheet("Usuarios")
         registros_usuarios = sheet_usuarios.get_all_records()
         
@@ -2367,7 +2336,6 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
             notif = str(u.get("Notificaciones", "")).strip().lower()
             user_id = u.get("User ID")
             
-            # Valida estado activo y notificaciones habilitadas (acepta 'si' o 'sí')
             if estado == "activo" and notif in ["si", "sí"] and user_id:
                 usuarios_validos.append(user_id)
 
@@ -2375,7 +2343,6 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
         logger.error(f"Error al acceder a la pestaña 'Usuarios': {e}")
         return
 
-    # Cálculo de fechas utilizando la hora local de Argentina
     hoy = obtener_ahora_arg()
     ayer = hoy - timedelta(days=1)
     anteayer = hoy - timedelta(days=2)
@@ -2386,10 +2353,8 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
     todas_comidas = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
 
-    # 2. Procesar cada usuario activo
     for user_id in usuarios_validos:
         try:
-            # Nombre de la pestaña individual del usuario
             nombre_hoja_usuario = f"User_{user_id}"
             sheet_usuario = sh.worksheet(nombre_hoja_usuario)
             registros_comidas = sheet_usuario.get_all_records()
@@ -2398,10 +2363,9 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
             comidas_ayer = set()
             comidas_hoy = set()
 
-            # Clasificar los registros del usuario leyendo la columna 'Momento/Actividad'
             for reg in registros_comidas:
                 fecha_reg = str(reg.get("Fecha", "")).strip()
-                momento_reg = str(reg.get("Momento/Actividad", "")).strip().capitalize()
+                momento_reg = str(reg.get("Momento/Actividad") or reg.get("Momento", "")).strip().capitalize()
 
                 if fecha_reg == str_anteayer:
                     comidas_anteayer.add(momento_reg)
@@ -2412,33 +2376,23 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
             faltantes = []
 
-            # -----------------------------------------------------------------
-            # REVISIÓN SEGÚN EL MOMENTO DE LA EJECUCIÓN
-            # -----------------------------------------------------------------
             if momento == 'manana':
-                # Revisa Anteayer (2 días atrás)
                 for c in todas_comidas:
                     if c not in comidas_anteayer:
                         faltantes.append(f"{c} de anteayer ({str_anteayer})")
-
-                # Revisa Ayer (1 día atrás)
                 for c in todas_comidas:
                     if c not in comidas_ayer:
                         faltantes.append(f"{c} de ayer ({str_ayer})")
 
             elif momento == 'tarde':
-                # Revisa Ayer entero
                 for c in todas_comidas:
                     if c not in comidas_ayer:
                         faltantes.append(f"{c} de ayer ({str_ayer})")
-
-                # Revisa Hoy (hasta el almuerzo)
                 if "Desayuno" not in comidas_hoy:
                     faltantes.append("Desayuno de hoy")
                 if "Almuerzo" not in comidas_hoy:
                     faltantes.append("Almuerzo de hoy")
 
-            # 3. Enviar mensaje por Telegram si existen faltantes
             if faltantes:
                 lista_formateada = "\n• " + "\n• ".join(faltantes)
                 mensaje = (
@@ -2451,11 +2405,12 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                     text=mensaje, 
                     parse_mode="Markdown"
                 )
-                logger.info(f"Recordatorio ({momento}) enviado a {user_id}")
+                logger.info(f"Recordatorio ({momento}) enviado exitosamente a {user_id}")
 
         except Exception as e:
             logger.error(f"Error procesando recordatorio para usuario {user_id} en {nombre_hoja_usuario}: {e}")
 
+       
 # ========================================================================
 #                      MAIN EXECUTION
 # =================================================================
