@@ -963,8 +963,8 @@ def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
 
 async def render_confirmation_screen(msg_or_query, context):
     items = context.user_data.get('pending_items', [])
-    fecha = context.user_data.get('pending_fecha')
-    momento = context.user_data.get('pending_momento')
+    fecha = context.user_data.get('pending_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
+    momento = context.user_data.get('pending_momento', 'Comida')
 
     txt = f"📝 **Confirmación de Ingesta:**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\n\n"
     for idx, item in enumerate(items, start=1):
@@ -1018,11 +1018,36 @@ async def render_confirmation_screen(msg_or_query, context):
 
     markup = InlineKeyboardMarkup(keyboard)
 
+    # DETECCIÓN Y EDICIÓN CORRECTA DEL MENSAJE (BOTÓN O TEXTO NUEVO)
     if hasattr(msg_or_query, 'edit_message_text'):
+        # Si viene desde un callback_query (un botón)
         await msg_or_query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
-    else:
+    elif hasattr(msg_or_query, 'edit_text'):
+        # Si es un objeto de mensaje normal
         await msg_or_query.edit_text(txt, reply_markup=markup, parse_mode="Markdown")
+    else:
+        # Si viene desde update (mensaje de texto) intentamos editar el mensaje previo de la tarjeta
+        msg_id = context.user_data.get('last_menu_msg_id')
+        chat_id = msg_or_query.effective_chat.id if hasattr(msg_or_query, 'effective_chat') else None
+        
+        editado = False
+        if msg_id and chat_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    text=txt,
+                    reply_markup=markup,
+                    parse_mode="Markdown"
+                )
+                editado = True
+            except Exception:
+                editado = False
 
+        if not editado and hasattr(msg_or_query, 'message') and msg_or_query.message:
+            nuevo_msg = await msg_or_query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
+            context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
+            
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     items = data_json.get("items", [])
     if not items:
@@ -1376,23 +1401,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # =========================================================================
-    # ESCENARIO 1: EL USUARIO ESTÁ EDITANDO UN ÍTEM DE UNA COMIDA PENDIENTE
+    # 1. SI EL USUARIO PRESIONÓ "EDITAR" Y ESTÁ ENVIANDO LA CORRECCIÓN
     # =========================================================================
     if context.user_data.get('awaiting_edit_item_val'):
         idx = context.user_data.get('editing_item_idx')
         items = context.user_data.get('pending_items', [])
 
         if items and 0 <= idx < len(items):
-            msg_espera = await update.message.reply_text("⏳ Actualizando ítem...")
+            item_previo = items[idx]
+            peso_previo = item_previo.get('peso', 0.0)
+
+            msg_espera = await update.message.reply_text("⏳ Recalculando ítem con la IA...")
             try:
-                # Re-evaluamos el nuevo texto ingresado con la IA
-                nuevo_analisis = analizar_con_groq(raw_text)
+                # Se le indica a la IA que si no hay peso en el nuevo texto, mantenga el peso anterior
+                prompt_edicion = (
+                    f"El usuario quiere editar un alimento.\n"
+                    f"Texto ingresado por el usuario: '{raw_text}'\n"
+                    f"Si el usuario NO especificó un nuevo peso en gramos en su texto, "
+                    f"DEBES usar exactamente este peso anterior: {peso_previo} gramos.\n"
+                    f"Devolvé el JSON con los nutrientes recalculados para ese alimento y cantidad."
+                )
+
+                nuevo_analisis = analizar_con_groq(prompt_edicion)
                 items_nuevos = nuevo_analisis.get('items', [])
 
                 if items_nuevos:
+                    # Se reemplaza el ítem editado
                     items[idx] = items_nuevos[0]
                     context.user_data['pending_items'] = items
-                    await msg_espera.edit_text("✏️ Ítem actualizado correctamente.")
+                    await msg_espera.delete()
+                    try:
+                        await update.message.delete()  # Limpia el mensaje de texto para dejar el chat prolijo
+                    except Exception:
+                        pass
                 else:
                     await msg_espera.edit_text("⚠️ No se pudieron interpretar los datos para actualizar el ítem.")
 
@@ -1400,16 +1441,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 print(f"Error editando ítem: {e}")
                 await msg_espera.edit_text(f"❌ Error al procesar la edición: {e}")
 
-        # Limpiamos los estados temporales de edición
+        # Se limpian los indicadores de edición
         context.user_data['awaiting_edit_item_val'] = False
         context.user_data.pop('editing_item_idx', None)
 
-        # Volvemos a mostrar la pantalla de confirmación con los datos actualizados
+        # Se redibuja la pantalla con los datos corregidos
         await render_confirmation_screen(update, context)
         return
 
     # =========================================================================
-    # ESCENARIO 2: EVALUACIÓN Y PROCESAMIENTO DE COMIDAS PRECARGADAS (*)
+    # 2. COMIDAS PRECARGADAS EN PLANTILLAS (MENSAJES QUE EMPIEZAN CON *)
     # =========================================================================
     if raw_text.startswith('*'):
         contenido = raw_text[1:].strip()
@@ -1463,15 +1504,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     # =========================================================================
-    # ESCENARIO 3: INGRESO LIBRE DE COMIDA POR TEXTO A TRAVÉS DE LA IA
+    # 3. INGRESO DIRECTO DE COMIDA POR TEXTO LIBRE (IA)
     # =========================================================================
     msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
     try:
         data = analizar_con_groq(raw_text)
         await procesar_y_mostrar_confirmacion(data, msg, context)
     except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar el texto: {e}")                       
-#============================================================================================================================
+        await msg.edit_text(f"❌ Error al procesar el texto: {e}")#============================================================================================================================
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
