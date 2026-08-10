@@ -961,9 +961,9 @@ def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
 #                  INTERFAZ Y RENDER DE CONFIRMACIÓN
 # =================================================================
 
-async def render_confirmation_screen(target, context): 
+async def render_confirmation_screen(target, context):
     """
-    Renderiza la tarjeta de confirmación de ingesta de alimentos con la botonera completa.
+    Renderiza la tarjeta de confirmación de ingesta de alimentos.
     Funciona tanto si 'target' es un Message como si es un CallbackQuery.
     """
     try:
@@ -981,7 +981,10 @@ async def render_confirmation_screen(target, context):
 
         # 1. Armado del texto descriptivo de los alimentos
         resumen_items = []
-        tot_cal, tot_prot, tot_gras, tot_carb = 0, 0, 0, 0
+        tot_cal = 0
+        tot_prot = 0
+        tot_gras = 0
+        tot_carb = 0
 
         for i, item in enumerate(items, 1):
             nombre = item.get('alimento', 'Alimento')
@@ -997,8 +1000,9 @@ async def render_confirmation_screen(target, context):
             tot_carb += carb
 
             resumen_items.append(f"{i}. **{nombre}** ({peso}g) — `{cal:.0f} kcal`")
-        
+
         texto_items = "\n".join(resumen_items)
+
         txt = (
             f"📋 **Confirmar Ingesta**\n"
             f"📅 **Fecha:** `{fecha}` | 🕒 **Momento:** `{momento}`\n\n"
@@ -1007,48 +1011,16 @@ async def render_confirmation_screen(target, context):
             f"¿Deseás guardar este registro?"
         )
 
-        # 2. Armado de la botonera COMPLETA
-        keyboard = []
-
-        # Fila 1: Selección de Momento (Desayuno, Almuerzo, Merienda, Cena)
-        momentos = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
-        fila_m = [
-            InlineKeyboardButton(
-                f"{'✅ ' if momento.lower() == m.lower() else ''}{m}", 
-                callback_data=f"set_momento_{m.lower()}"
-            ) for m in momentos
+        # 2. Armado de la botonera
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Guardar", callback_data="confirm_save"),
+                InlineKeyboardButton("🗑️ Cancelar", callback_data="cancel_entry")
+            ]
         ]
-        keyboard.append(fila_m)
-
-        # Filas dinámicas por cada ítem (#1 Nombre, ✏️ Editar, ❌ Anular)
-        for idx, item in enumerate(items):
-            nombre_item = item.get('alimento', 'Ítem')
-            nombre_corto = (nombre_item[:8] + "..") if len(nombre_item) > 8 else nombre_item
-            keyboard.append([
-                InlineKeyboardButton(f"#{idx+1} {nombre_corto}", callback_data=f"item_select_{idx}"),
-                InlineKeyboardButton("✏️ Editar", callback_data=f"item_edit_{idx}"),
-                InlineKeyboardButton("❌ Anular", callback_data=f"item_del_{idx}")
-            ])
-
-        # Fila de Selección de Fecha (Hoy, Ayer, Otro día)
-        fechas = ["Hoy", "Ayer", "Otro día"]
-        fila_f = [
-            InlineKeyboardButton(
-                f"{'✅ ' if fecha.lower() == f.lower().replace('á','a') else ''}{f}", 
-                callback_data=f"set_fecha_{f.lower().replace('á','a')}"
-            ) for f in fechas
-        ]
-        keyboard.append(fila_f)
-
-        # Fila de Acciones Finales (Eliminar Todo, Guardar)
-        keyboard.append([
-            InlineKeyboardButton("🗑️ ELIMINAR TODO", callback_data="cancel_entry"),
-            InlineKeyboardButton("💾 GUARDAR", callback_data="confirm_save")
-        ])
-
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # 3. Envío / Edición del mensaje
+        # 3. Envío/Edición del mensaje seguro
         if hasattr(target, 'edit_message_text'):
             await target.edit_message_text(txt, parse_mode="Markdown", reply_markup=reply_markup)
         elif hasattr(target, 'edit_text'):
@@ -1061,34 +1033,24 @@ async def render_confirmation_screen(target, context):
             await target.edit_message_text(err_msg)
         elif hasattr(target, 'edit_text'):
             await target.edit_text(err_msg)
-
+            
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
-    """
-    Procesa el JSON devuelto por la IA o Plantilla, guarda el estado temporal
-    y llama a render_confirmation_screen para mostrar la botonera.
-    """
     try:
         items = data_json.get("items", [])
         if not items:
             await msg_obj.edit_text("❌ No se pudieron detectar alimentos en la consulta.")
             return
 
-        # Obtiene la fecha y el momento de forma automática según la hora
         fecha, momento = obtener_momento_y_fecha_auto()
-
-        # Guarda las variables temporales que luego usará la botonera y los callbacks
         context.user_data['pending_items'] = items
         context.user_data['pending_fecha'] = fecha
         context.user_data['pending_momento'] = momento
 
-        # Llama a la función que dibuja el mensaje y los botones
         await render_confirmation_screen(msg_obj, context)
 
     except Exception as e:
         print(f"❌ Error en procesar_y_mostrar_confirmacion: {e}")
         await msg_obj.edit_text(f"❌ Error al renderizar la confirmación: {e}")
-
-
 
 # ===============================================================================
 #                 HANDLERS DE TELEGRAM
