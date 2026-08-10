@@ -2234,17 +2234,18 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         filename=f"Reporte_Nutricional_{mes_str}.pdf"
     )
 
-# ====================================================================
+# =====================================================================
 # 4. GENERAR MENSAJES RECORDATORIOS AUTOMATICOS
 # =====================================================================
 
 async def ejecutar_recordatorio_comidas(context, momento: str):
     """
-    Funcion consolidada para verificar y enviar alertas de comidas pendientes.
-    Revisa la pestana 'Usuarios' y consulta las comidas del dia actual y anterior.
+    Función consolidada para verificar y enviar alertas de comidas pendientes.
+    - momento == 'manana': Revisa ayer (1 día atrás) y anteayer (2 días atrás).
+    - momento == 'tarde': Revisa ayer entero y hoy (Desayuno y Almuerzo).
     """
     try:
-        # 1. Leer usuarios desde la pestana central 'Usuarios'
+        # 1. Leer usuarios desde la pestaña central 'Usuarios'
         sheet_usuarios = sheet_spreadsheet.worksheet("Usuarios")
         registros_usuarios = sheet_usuarios.get_all_records()
         
@@ -2254,82 +2255,94 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
             notif = str(u.get("Notificaciones", "")).strip().lower()
             user_id = u.get("User ID")
             
-            # Valida estado activo y notificaciones activas (acepta 'si' o 'sí')
+            # Valida estado activo y notificaciones habilitadas (acepta 'si' o 'sí')
             if estado == "activo" and notif in ["si", "sí"] and user_id:
                 usuarios_validos.append(user_id)
 
     except Exception as e:
-        logger.error(f"Error al acceder a la pestana 'Usuarios': {e}")
+        logger.error(f"Error al acceder a la pestaña 'Usuarios': {e}")
         return
 
-    # Fechas de referencia
-    hoy = datetime.now()
+    # Cálculo de fechas utilizando la hora local de Argentina
+    hoy = obtener_ahora_arg()
     ayer = hoy - timedelta(days=1)
+    anteayer = hoy - timedelta(days=2)
+
     str_hoy = hoy.strftime("%Y-%m-%d")
     str_ayer = ayer.strftime("%Y-%m-%d")
+    str_anteayer = anteayer.strftime("%Y-%m-%d")
 
-    # 2. Procesar cada usuario
+    todas_comidas = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
+
+    # 2. Procesar cada usuario activo
     for user_id in usuarios_validos:
         try:
-            nombre_hoja_usuario = f"comidas_{user_id}"
+            # Nombre de la pestaña individual del usuario
+            nombre_hoja_usuario = f"User_{user_id}"
             sheet_usuario = sheet_spreadsheet.worksheet(nombre_hoja_usuario)
             registros_comidas = sheet_usuario.get_all_records()
 
+            comidas_anteayer = set()
             comidas_ayer = set()
             comidas_hoy = set()
 
-            # Clasificar registros cargados por dia y franja horaria
+            # Clasificar los registros del usuario leyendo la columna 'Momento/Actividad'
             for reg in registros_comidas:
                 fecha_reg = str(reg.get("Fecha", "")).strip()
-                hora_str = str(reg.get("Hora", "")).strip()
+                momento_reg = str(reg.get("Momento/Actividad", "")).strip().capitalize()
 
-                if hora_str:
-                    try:
-                        hora_obj = datetime.strptime(hora_str, "%H:%M").time()
-                        for nombre_comida, (inicio, fin) in FRANJAS_COMIDAS.items():
-                            if inicio <= hora_obj.hour < fin:
-                                if fecha_reg == str_ayer:
-                                    comidas_ayer.add(nombre_comida)
-                                elif fecha_reg == str_hoy:
-                                    comidas_hoy.add(nombre_comida)
-                    except ValueError:
-                        continue
+                if fecha_reg == str_anteayer:
+                    comidas_anteayer.add(momento_reg)
+                elif fecha_reg == str_ayer:
+                    comidas_ayer.add(momento_reg)
+                elif fecha_reg == str_hoy:
+                    comidas_hoy.add(momento_reg)
 
-            # 3. Evaluar faltantes
             faltantes = []
-            todas_comidas = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
 
-            # Comidas no registradas del dia anterior
-            for c in todas_comidas:
-                if c not in comidas_ayer:
-                    faltantes.append(f"{c} de ayer")
+            # -----------------------------------------------------------------
+            # REVISIÓN SEGÚN EL MOMENTO DE LA EJECUCIÓN
+            # -----------------------------------------------------------------
+            if momento == 'manana':
+                # Revisa Anteayer (2 días atrás)
+                for c in todas_comidas:
+                    if c not in comidas_anteayer:
+                        faltantes.append(f"{c} de anteayer ({str_anteayer})")
 
-            # Comidas no registradas del dia actual (solo en la alerta de la tarde)
-            if momento == 'tarde':
+                # Revisa Ayer (1 día atrás)
+                for c in todas_comidas:
+                    if c not in comidas_ayer:
+                        faltantes.append(f"{c} de ayer ({str_ayer})")
+
+            elif momento == 'tarde':
+                # Revisa Ayer entero
+                for c in todas_comidas:
+                    if c not in comidas_ayer:
+                        faltantes.append(f"{c} de ayer ({str_ayer})")
+
+                # Revisa Hoy (hasta el almuerzo)
                 if "Desayuno" not in comidas_hoy:
                     faltantes.append("Desayuno de hoy")
                 if "Almuerzo" not in comidas_hoy:
                     faltantes.append("Almuerzo de hoy")
 
-            # 4. Enviar mensaje por Telegram si existen faltantes
+            # 3. Enviar mensaje por Telegram si existen faltantes
             if faltantes:
                 lista_formateada = "\n• " + "\n• ".join(faltantes)
                 mensaje = (
                     f"📌 **Recordatorio de comidas pendientes:**\n"
                     f"{lista_formateada}\n\n"
-                    f"Si ya las consumiste, podes registrarlas en cualquier momento."
+                    f"Si ya las consumiste, podés registrarlas en cualquier momento."
                 )
                 await context.bot.send_message(
                     chat_id=user_id, 
                     text=mensaje, 
                     parse_mode="Markdown"
                 )
-                logger.info(f"Recordatorio de comidas enviado con exito a {user_id}")
+                logger.info(f"Recordatorio ({momento}) enviado a {user_id}")
 
         except Exception as e:
-            logger.error(f"Error procesando recordatorio para {user_id} en {nombre_hoja_usuario}: {e}")
-
-    
+            logger.error(f"Error procesando recordatorio para usuario {user_id} en {nombre_hoja_usuario}: {e}")    
 # ========================================================================
 #                      MAIN EXECUTION
 # =================================================================
