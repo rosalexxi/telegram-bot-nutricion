@@ -961,92 +961,81 @@ def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
 #                  INTERFAZ Y RENDER DE CONFIRMACIÓN
 # =================================================================
 
-async def render_confirmation_screen(msg_or_query, context):
-    items = context.user_data.get('pending_items', [])
-    fecha = context.user_data.get('pending_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
-    momento = context.user_data.get('pending_momento', 'Comida')
 
-    txt = f"📝 **Confirmación de Ingesta:**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\n\n"
-    for idx, item in enumerate(items, start=1):
-        mult = item.get('multiplicador', 1.0)
-        peso_total = item.get('peso', 0)
-        cal_total = item.get('calorias', 0)
-        
-        alimento_str = item.get('alimento', item.get('nombre', ''))
-        alimento_limpio = alimento_str.replace('§', '').strip()
+async def render_confirmation_screen(target, context):
+    """
+    Renderiza la tarjeta de confirmación de ingesta de alimentos.
+    Funciona tanto si 'target' es un Message como si es un CallbackQuery.
+    """
+    try:
+        items = context.user_data.get('pending_items', [])
+        fecha = context.user_data.get('pending_fecha', '')
+        momento = context.user_data.get('pending_momento', '')
 
-        if mult != 1.0:
-            txt += f"**{idx}. {alimento_limpio}** ({peso_total:.1f}g) (x{mult}): `{cal_total:.1f} kcal`\n"
-        else:
-            txt += f"**{idx}. {alimento_limpio}** ({peso_total:.1f}g): `{cal_total:.1f} kcal`\n"
+        if not items:
+            txt_vacio = "❌ No hay ítems pendientes para confirmar."
+            if hasattr(target, 'edit_message_text'):
+                await target.edit_message_text(txt_vacio)
+            elif hasattr(target, 'edit_text'):
+                await target.edit_text(txt_vacio)
+            return
 
-    keyboard = []
-    
-    m_buttons = []
-    for m in ["Desayuno", "Almuerzo", "Merienda", "Cena"]:
-        mark = "✅ " if m.lower() == momento.lower() else ""
-        m_buttons.append(InlineKeyboardButton(f"{mark}{m}", callback_data=f"set_m_{m}"))
-    keyboard.append(m_buttons)
+        # 1. Armado del texto descriptivo de los alimentos
+        resumen_items = []
+        tot_cal = 0
+        tot_prot = 0
+        tot_gras = 0
+        tot_carb = 0
 
-    es_plantilla = any('§' in item.get('alimento', item.get('nombre', '')) for item in items)
+        for i, item in enumerate(items, 1):
+            nombre = item.get('alimento', 'Alimento')
+            peso = item.get('peso', 0)
+            cal = item.get('calorias', 0)
+            prot = item.get('proteinas', 0)
+            gras = item.get('grasas', 0)
+            carb = item.get('carbohidratos', 0)
 
-    if not es_plantilla:
-        for idx, item in enumerate(items, start=1):
-            nombre_corto = item.get('alimento', item.get('nombre', ''))[:10]
-            keyboard.append([
-                InlineKeyboardButton(f"#{idx} {nombre_corto}", callback_data=f"noop_{idx}"),
-                InlineKeyboardButton("✏️ Editar", callback_data=f"edit_item_{idx}"),
-                InlineKeyboardButton("❌ Anular", callback_data=f"del_item_{idx}")
-            ])
+            tot_cal += cal
+            tot_prot += prot
+            tot_gras += gras
+            tot_carb += carb
 
-    hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
-    ayer_str = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
-    mark_hoy = "✅ " if fecha == hoy_str else ""
-    mark_ayer = "✅ " if fecha == ayer_str else ""
-    mark_otro = "✅ " if fecha not in [hoy_str, ayer_str] else ""
+            resumen_items.append(f"{i}. **{nombre}** ({peso}g) — `{cal:.0f} kcal`")
 
-    keyboard.append([
-        InlineKeyboardButton(f"{mark_hoy}Hoy", callback_data="set_d_hoy"),
-        InlineKeyboardButton(f"{mark_ayer}Ayer", callback_data="set_d_ayer"),
-        InlineKeyboardButton(f"{mark_otro}Otro Día", callback_data="set_d_otro")
-    ])
+        texto_items = "\n".join(resumen_items)
 
-    keyboard.append([
-        InlineKeyboardButton("🗑️ ELIMINAR TODO", callback_data="cancel_entry"),
-        InlineKeyboardButton("💾 GUARDAR", callback_data="confirm_save")
-    ])
+        txt = (
+            f"📋 **Confirmar Ingesta**\n"
+            f"📅 **Fecha:** `{fecha}` | 🕒 **Momento:** `{momento}`\n\n"
+            f"**Detalle de Alimentos:**\n{texto_items}\n\n"
+            f"📊 **Totales:** `{tot_cal:.0f} kcal` | P: `{tot_prot:.1f}g` | G: `{tot_gras:.1f}g` | C: `{tot_carb:.1f}g`\n\n"
+            f"¿Deseás guardar este registro?"
+        )
 
-    markup = InlineKeyboardMarkup(keyboard)
+        # 2. Armado de la botonera
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Guardar", callback_data="confirm_save"),
+                InlineKeyboardButton("🗑️ Cancelar", callback_data="cancel_entry")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # DETECCIÓN Y EDICIÓN CORRECTA DEL MENSAJE (BOTÓN O TEXTO NUEVO)
-    if hasattr(msg_or_query, 'edit_message_text'):
-        # Si viene desde un callback_query (un botón)
-        await msg_or_query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
-    elif hasattr(msg_or_query, 'edit_text'):
-        # Si es un objeto de mensaje normal
-        await msg_or_query.edit_text(txt, reply_markup=markup, parse_mode="Markdown")
-    else:
-        # Si viene desde update (mensaje de texto) intentamos editar el mensaje previo de la tarjeta
-        msg_id = context.user_data.get('last_menu_msg_id')
-        chat_id = msg_or_query.effective_chat.id if hasattr(msg_or_query, 'effective_chat') else None
-        
-        editado = False
-        if msg_id and chat_id:
-            try:
-                await context.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=msg_id,
-                    text=txt,
-                    reply_markup=markup,
-                    parse_mode="Markdown"
-                )
-                editado = True
-            except Exception:
-                editado = False
+        # 3. Envío/Edición del mensaje seguro
+        if hasattr(target, 'edit_message_text'):
+            await target.edit_message_text(txt, parse_mode="Markdown", reply_markup=reply_markup)
+        elif hasattr(target, 'edit_text'):
+            await target.edit_text(txt, parse_mode="Markdown", reply_markup=reply_markup)
 
-        if not editado and hasattr(msg_or_query, 'message') and msg_or_query.message:
-            nuevo_msg = await msg_or_query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
-            context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
+    except Exception as e:
+        print(f"❌ ERROR EN render_confirmation_screen: {e}")
+        err_msg = f"❌ Error interno al mostrar la confirmación: {e}"
+        if hasattr(target, 'edit_message_text'):
+            await target.edit_message_text(err_msg)
+        elif hasattr(target, 'edit_text'):
+            await target.edit_text(err_msg)
+
+
             
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     items = data_json.get("items", [])
