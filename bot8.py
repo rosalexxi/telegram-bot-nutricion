@@ -1,7 +1,3 @@
-# =======================================================================
-#                               CABECERA
-# =======================================================================
-
 import os
 import re
 import io
@@ -252,84 +248,7 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", activid
     get_val = tmb * factor
 
     return tmb, get_val
-
-def obtener_perfil_usuario(user_id, mes_target=None):
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
-        records = ws.get_all_records()
-        if not records:
-            return None
-        
-        perfil_raw = None
-        if mes_target:
-            for r in reversed(records):
-                m_val = str(r.get('MES', r.get('Mes', ''))).strip()
-                if m_val == mes_target:
-                    perfil_raw = r
-                    break
-        
-        if not perfil_raw:
-            perfil_raw = records[-1]
-        
-        perfil = {}
-        for k, v in perfil_raw.items():
-            k_upper = str(k).strip().upper()
-            if k_upper == 'EDAD':
-                perfil['Edad'] = parse_float_from_sheets(v)
-            elif k_upper == 'PESO':
-                perfil['Peso'] = parse_float_from_sheets(v)
-            elif k_upper == 'ALTURA':
-                perfil['Altura'] = parse_float_from_sheets(v)
-            elif k_upper in ['GENERO', 'SEXO']:
-                perfil['Sexo'] = str(v)
-            elif k_upper == 'OCUPACION':
-                perfil['Ocupacion'] = str(v)
-            elif k_upper == 'MES':
-                perfil['Mes'] = str(v)
-
-        return perfil
-    except Exception as e:
-        print(f"Error obteniendo perfil del usuario {user_id}: {e}")
-        return None
-
-def obtener_datos_usuario(user_id):
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws = get_or_create_worksheet(sh, f"User_{user_id}")
-        records = ws.get_all_records()
-        if not records:
-            return pd.DataFrame()
-        
-        df = pd.DataFrame(records)
-        col_map = {}
-        for c in df.columns:
-            c_lower = str(c).lower()
-            if 'fecha' in c_lower: col_map[c] = 'Fecha'
-            elif 'momento' in c_lower or 'actividad' in c_lower: col_map[c] = 'Momento'
-            elif 'alimento' in c_lower or 'detalle' in c_lower: col_map[c] = 'Alimento'
-            elif 'peso' in c_lower: col_map[c] = 'Peso'
-            elif 'calor' in c_lower: col_map[c] = 'Calorias'
-            elif 'prote' in c_lower: col_map[c] = 'Proteinas'
-            elif 'grasa' in c_lower: col_map[c] = 'Grasas'
-            elif 'hidrat' in c_lower or 'carbo' in c_lower: col_map[c] = 'Carbohidratos'
-            elif 'fibra' in c_lower: col_map[c] = 'Fibras'
-
-        df = df.rename(columns=col_map)
-        if "Fecha" in df.columns and not df.empty:
-            df['Fecha'] = df['Fecha'].astype(str).str.strip()
-            for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
-                if col in df.columns:
-                    df[col] = df[col].apply(parse_float_from_sheets)
-                else:
-                    df[col] = 0.0
-        return df
-    except Exception as e:
-        print(f"Error al obtener datos del usuario {user_id}: {e}")
-        return pd.DataFrame()
-   
+    
 # =======================================================================
 #                          GOOGLE SHEETS OPERACIONES
 # ========================================================================
@@ -485,6 +404,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Error al consultar /perfil: {e}")
         await update.message.reply_text(f"⚠️ Ocurrió un error al leer tu perfil: {e}", parse_mode="Markdown")
 
+
 def guardar_perfil_en_sheets(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     """
     Guarda/actualiza el peso del usuario manteniendo intactos los formatos 
@@ -585,6 +505,82 @@ def guardar_perfil_en_sheets(user_id, peso, mes=None, edad=None, altura=None, ge
     except Exception as e:
         print(f"Error al actualizar la pestaña usuarios: {e}")
 
+def obtener_perfil_usuario(user_id, mes_target=None):
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
+        records = ws.get_all_records()
+        if not records:
+            return None
+        
+        perfil_raw = None
+        if mes_target:
+            for r in reversed(records):
+                m_val = str(r.get('MES', r.get('Mes', ''))).strip()
+                if m_val == mes_target:
+                    perfil_raw = r
+                    break
+        
+        if not perfil_raw:
+            perfil_raw = records[-1]
+        
+        perfil = {}
+        for k, v in perfil_raw.items():
+            k_upper = str(k).strip().upper()
+            if k_upper == 'EDAD':
+                perfil['Edad'] = parse_float_from_sheets(v)
+            elif k_upper == 'PESO':
+                perfil['Peso'] = parse_float_from_sheets(v)
+            elif k_upper == 'ALTURA':
+                perfil['Altura'] = parse_float_from_sheets(v)
+            elif k_upper in ['GENERO', 'SEXO']:
+                perfil['Sexo'] = str(v)
+            elif k_upper == 'OCUPACION':
+                perfil['Ocupacion'] = str(v)
+            elif k_upper == 'MES':
+                perfil['Mes'] = str(v)
+
+        return perfil
+    except Exception as e:
+        print(f"Error obteniendo perfil del usuario {user_id}: {e}")
+        return None
+
+def obtener_datos_usuario(user_id):
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = get_or_create_worksheet(sh, f"User_{user_id}")
+        records = ws.get_all_records()
+        if not records:
+            return pd.DataFrame()
+        
+        df = pd.DataFrame(records)
+        col_map = {}
+        for c in df.columns:
+            c_lower = str(c).lower()
+            if 'fecha' in c_lower: col_map[c] = 'Fecha'
+            elif 'momento' in c_lower or 'actividad' in c_lower: col_map[c] = 'Momento'
+            elif 'alimento' in c_lower or 'detalle' in c_lower: col_map[c] = 'Alimento'
+            elif 'peso' in c_lower: col_map[c] = 'Peso'
+            elif 'calor' in c_lower: col_map[c] = 'Calorias'
+            elif 'prote' in c_lower: col_map[c] = 'Proteinas'
+            elif 'grasa' in c_lower: col_map[c] = 'Grasas'
+            elif 'hidrat' in c_lower or 'carbo' in c_lower: col_map[c] = 'Carbohidratos'
+            elif 'fibra' in c_lower: col_map[c] = 'Fibras'
+
+        df = df.rename(columns=col_map)
+        if "Fecha" in df.columns and not df.empty:
+            df['Fecha'] = df['Fecha'].astype(str).str.strip()
+            for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
+                if col in df.columns:
+                    df[col] = df[col].apply(parse_float_from_sheets)
+                else:
+                    df[col] = 0.0
+        return df
+    except Exception as e:
+        print(f"Error al obtener datos del usuario {user_id}: {e}")
+        return pd.DataFrame()
 
 # =========================================================================================================================
 #               DATOS PLANILLAS
@@ -965,139 +961,109 @@ def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
 #                  INTERFAZ Y RENDER DE CONFIRMACIÓN
 # =================================================================
 
+async def render_confirmation_screen(msg_or_query, context):
+    items = context.user_data.get('pending_items', [])
+    fecha = context.user_data.get('pending_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
+    momento = context.user_data.get('pending_momento', 'Comida')
 
-async def render_confirmation_screen(target, context): 
-    """
-    Renderiza la tarjeta de confirmación de ingesta de alimentos con la botonera completa.
-    Funciona tanto si 'target' es un Message como si es un CallbackQuery.
-    """
-    try:
-        items = context.user_data.get('pending_items', [])
-        fecha = context.user_data.get('pending_fecha', '')
-        momento = context.user_data.get('pending_momento', '')
-
-        if not items:
-            txt_vacio = "❌ No hay ítems pendientes para confirmar."
-            if hasattr(target, 'edit_message_text'):
-                await target.edit_message_text(txt_vacio)
-            elif hasattr(target, 'edit_text'):
-                await target.edit_text(txt_vacio)
-            return
-
-        # 1. Armado del texto descriptivo de los alimentos
-        resumen_items = []
-        tot_cal, tot_prot, tot_gras, tot_carb = 0, 0, 0, 0
-
-        for i, item in enumerate(items, 1):
-            nombre = item.get('alimento', 'Alimento')
-            peso = item.get('peso', 0)
-            cal = item.get('calorias', 0)
-            prot = item.get('proteinas', 0)
-            gras = item.get('grasas', 0)
-            carb = item.get('carbohidratos', 0)
-
-            tot_cal += cal
-            tot_prot += prot
-            tot_gras += gras
-            tot_carb += carb
-
-            resumen_items.append(f"{i}. **{nombre}** ({peso}g) — `{cal:.0f} kcal`")
+    txt = f"📝 **Confirmación de Ingesta:**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\n\n"
+    for idx, item in enumerate(items, start=1):
+        mult = item.get('multiplicador', 1.0)
+        peso_total = item.get('peso', 0)
+        cal_total = item.get('calorias', 0)
         
-        texto_items = "\n".join(resumen_items)
-        txt = (
-            f"📋 **Confirmar Ingesta**\n"
-            f"📅 **Fecha:** `{fecha}` | 🕒 **Momento:** `{momento}`\n\n"
-            f"**Detalle de Alimentos:**\n{texto_items}\n\n"
-            f"📊 **Totales:** `{tot_cal:.0f} kcal` | P: `{tot_prot:.1f}g` | G: `{tot_gras:.1f}g` | C: `{tot_carb:.1f}g`\n\n"
-            f"¿Deseás guardar este registro?"
-        )
+        alimento_str = item.get('alimento', item.get('nombre', ''))
+        alimento_limpio = alimento_str.replace('§', '').strip()
 
-        # 2. Armado de la botonera COMPLETA
-        keyboard = []
+        if mult != 1.0:
+            txt += f"**{idx}. {alimento_limpio}** ({peso_total:.1f}g) (x{mult}): `{cal_total:.1f} kcal`\n"
+        else:
+            txt += f"**{idx}. {alimento_limpio}** ({peso_total:.1f}g): `{cal_total:.1f} kcal`\n"
 
-        # Fila 1: Selección de Momento (Desayuno, Almuerzo, Merienda, Cena)
-        momentos = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
-        fila_m = [
-            InlineKeyboardButton(
-                f"{'✅ ' if momento.lower() == m.lower() else ''}{m}", 
-                callback_data=f"set_momento_{m.lower()}"
-            ) for m in momentos
-        ]
-        keyboard.append(fila_m)
+    keyboard = []
+    
+    m_buttons = []
+    for m in ["Desayuno", "Almuerzo", "Merienda", "Cena"]:
+        mark = "✅ " if m.lower() == momento.lower() else ""
+        m_buttons.append(InlineKeyboardButton(f"{mark}{m}", callback_data=f"set_m_{m}"))
+    keyboard.append(m_buttons)
 
-        # Filas dinámicas por cada ítem (#1 Nombre, ✏️ Editar, ❌ Anular)
-        for idx, item in enumerate(items):
-            nombre_item = item.get('alimento', 'Ítem')
-            nombre_corto = (nombre_item[:8] + "..") if len(nombre_item) > 8 else nombre_item
+    es_plantilla = any('§' in item.get('alimento', item.get('nombre', '')) for item in items)
+
+    if not es_plantilla:
+        for idx, item in enumerate(items, start=1):
+            nombre_corto = item.get('alimento', item.get('nombre', ''))[:10]
             keyboard.append([
-                InlineKeyboardButton(f"#{idx+1} {nombre_corto}", callback_data=f"item_select_{idx}"),
-                InlineKeyboardButton("✏️ Editar", callback_data=f"item_edit_{idx}"),
-                InlineKeyboardButton("❌ Anular", callback_data=f"item_del_{idx}")
+                InlineKeyboardButton(f"#{idx} {nombre_corto}", callback_data=f"noop_{idx}"),
+                InlineKeyboardButton("✏️ Editar", callback_data=f"edit_item_{idx}"),
+                InlineKeyboardButton("❌ Anular", callback_data=f"del_item_{idx}")
             ])
 
-        # Fila de Selección de Fecha (Hoy, Ayer, Otro día)
-        fechas = ["Hoy", "Ayer", "Otro día"]
-        fila_f = [
-            InlineKeyboardButton(
-                f"{'✅ ' if fecha.lower() == f.lower().replace('á','a') else ''}{f}", 
-                callback_data=f"set_fecha_{f.lower().replace('á','a')}"
-            ) for f in fechas
-        ]
-        keyboard.append(fila_f)
+    hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
+    ayer_str = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
+    mark_hoy = "✅ " if fecha == hoy_str else ""
+    mark_ayer = "✅ " if fecha == ayer_str else ""
+    mark_otro = "✅ " if fecha not in [hoy_str, ayer_str] else ""
 
-        # Fila de Acciones Finales (Eliminar Todo, Guardar)
-        keyboard.append([
-            InlineKeyboardButton("🗑️ ELIMINAR TODO", callback_data="cancel_entry"),
-            InlineKeyboardButton("💾 GUARDAR", callback_data="confirm_save")
-        ])
+    keyboard.append([
+        InlineKeyboardButton(f"{mark_hoy}Hoy", callback_data="set_d_hoy"),
+        InlineKeyboardButton(f"{mark_ayer}Ayer", callback_data="set_d_ayer"),
+        InlineKeyboardButton(f"{mark_otro}Otro Día", callback_data="set_d_otro")
+    ])
 
-        reply_markup = InlineKeyboardMarkup(keyboard)
+    keyboard.append([
+        InlineKeyboardButton("🗑️ ELIMINAR TODO", callback_data="cancel_entry"),
+        InlineKeyboardButton("💾 GUARDAR", callback_data="confirm_save")
+    ])
 
-        # 3. Envío / Edición del mensaje
-        if hasattr(target, 'edit_message_text'):
-            await target.edit_message_text(txt, parse_mode="Markdown", reply_markup=reply_markup)
-        elif hasattr(target, 'edit_text'):
-            await target.edit_text(txt, parse_mode="Markdown", reply_markup=reply_markup)
+    markup = InlineKeyboardMarkup(keyboard)
 
-    except Exception as e:
-        print(f"❌ ERROR EN render_confirmation_screen: {e}")
-        err_msg = f"❌ Error interno al mostrar la confirmación: {e}"
-        if hasattr(target, 'edit_message_text'):
-            await target.edit_message_text(err_msg)
-        elif hasattr(target, 'edit_text'):
-            await target.edit_text(err_msg)
+    # DETECCIÓN Y EDICIÓN CORRECTA DEL MENSAJE (BOTÓN O TEXTO NUEVO)
+    if hasattr(msg_or_query, 'edit_message_text'):
+        # Si viene desde un callback_query (un botón)
+        await msg_or_query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
+    elif hasattr(msg_or_query, 'edit_text'):
+        # Si es un objeto de mensaje normal
+        await msg_or_query.edit_text(txt, reply_markup=markup, parse_mode="Markdown")
+    else:
+        # Si viene desde update (mensaje de texto) intentamos editar el mensaje previo de la tarjeta
+        msg_id = context.user_data.get('last_menu_msg_id')
+        chat_id = msg_or_query.effective_chat.id if hasattr(msg_or_query, 'effective_chat') else None
+        
+        editado = False
+        if msg_id and chat_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    text=txt,
+                    reply_markup=markup,
+                    parse_mode="Markdown"
+                )
+                editado = True
+            except Exception:
+                editado = False
 
+        if not editado and hasattr(msg_or_query, 'message') and msg_or_query.message:
+            nuevo_msg = await msg_or_query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
+            context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
             
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
-    """
-    Procesa el JSON devuelto por la IA o Plantilla, guarda el estado temporal
-    y llama a render_confirmation_screen para mostrar la botonera.
-    """
-    try:
-        items = data_json.get("items", [])
-        if not items:
-            await msg_obj.edit_text("❌ No se pudieron detectar alimentos en la consulta.")
-            return
+    items = data_json.get("items", [])
+    if not items:
+        await msg_obj.edit_text("❌ No se pudieron detectar alimentos en la consulta.")
+        return
 
-        # Obtiene la fecha y el momento de forma automática según la hora
-        fecha, momento = obtener_momento_y_fecha_auto()
+    fecha, momento = obtener_momento_y_fecha_auto()
+    context.user_data['pending_items'] = items
+    context.user_data['pending_fecha'] = fecha
+    context.user_data['pending_momento'] = momento
 
-        # Guarda las variables temporales que luego usará la botonera y los callbacks
-        context.user_data['pending_items'] = items
-        context.user_data['pending_fecha'] = fecha
-        context.user_data['pending_momento'] = momento
+    await render_confirmation_screen(msg_obj, context)
 
-        # Llama a la función que dibuja el mensaje y los botones
-        await render_confirmation_screen(msg_obj, context)
-
-    except Exception as e:
-        print(f"❌ Error en procesar_y_mostrar_confirmacion: {e}")
-        await msg_obj.edit_text(f"❌ Error al renderizar la confirmación: {e}")
-        
 # ===============================================================================
 #                 HANDLERS DE TELEGRAM
 # =================================================================================
-
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "👋 ¡Hola! Bienvenido a tu Bot Nutricional Personalizado.\n\n"
@@ -1299,6 +1265,7 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
     else:
         await query_or_update.message.reply_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
         
+
 async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.replace('/presion', '').strip()
@@ -2009,7 +1976,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             
 
 # ======================================================================
-#  4.    GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
+#      GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
 # ====================================================================
 
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
@@ -2268,7 +2235,7 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
     )
 
 # =====================================================================
-#         GENERAR MENSAJES RECORDATORIOS AUTOMATICOS
+# 4. GENERAR MENSAJES RECORDATORIOS AUTOMATICOS
 # =====================================================================
 
 async def ejecutar_recordatorio_comidas(context, momento: str):
