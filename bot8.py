@@ -961,106 +961,135 @@ def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
 #                  INTERFAZ Y RENDER DE CONFIRMACIÓN
 # =================================================================
 
-async def render_confirmation_screen(msg_or_query, context):
-    items = context.user_data.get('pending_items', [])
-    fecha = context.user_data.get('pending_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
-    momento = context.user_data.get('pending_momento', 'Comida')
 
-    txt = f"📝 **Confirmación de Ingesta:**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\n\n"
-    for idx, item in enumerate(items, start=1):
-        mult = item.get('multiplicador', 1.0)
-        peso_total = item.get('peso', 0)
-        cal_total = item.get('calorias', 0)
+async def render_confirmation_screen(target, context): 
+    """
+    Renderiza la tarjeta de confirmación de ingesta de alimentos con la botonera completa.
+    Funciona tanto si 'target' es un Message como si es un CallbackQuery.
+    """
+    try:
+        items = context.user_data.get('pending_items', [])
+        fecha = context.user_data.get('pending_fecha', '')
+        momento = context.user_data.get('pending_momento', '')
+
+        if not items:
+            txt_vacio = "❌ No hay ítems pendientes para confirmar."
+            if hasattr(target, 'edit_message_text'):
+                await target.edit_message_text(txt_vacio)
+            elif hasattr(target, 'edit_text'):
+                await target.edit_text(txt_vacio)
+            return
+
+        # 1. Armado del texto descriptivo de los alimentos
+        resumen_items = []
+        tot_cal, tot_prot, tot_gras, tot_carb = 0, 0, 0, 0
+
+        for i, item in enumerate(items, 1):
+            nombre = item.get('alimento', 'Alimento')
+            peso = item.get('peso', 0)
+            cal = item.get('calorias', 0)
+            prot = item.get('proteinas', 0)
+            gras = item.get('grasas', 0)
+            carb = item.get('carbohidratos', 0)
+
+            tot_cal += cal
+            tot_prot += prot
+            tot_gras += gras
+            tot_carb += carb
+
+            resumen_items.append(f"{i}. **{nombre}** ({peso}g) — `{cal:.0f} kcal`")
         
-        alimento_str = item.get('alimento', item.get('nombre', ''))
-        alimento_limpio = alimento_str.replace('§', '').strip()
+        texto_items = "\n".join(resumen_items)
+        txt = (
+            f"📋 **Confirmar Ingesta**\n"
+            f"📅 **Fecha:** `{fecha}` | 🕒 **Momento:** `{momento}`\n\n"
+            f"**Detalle de Alimentos:**\n{texto_items}\n\n"
+            f"📊 **Totales:** `{tot_cal:.0f} kcal` | P: `{tot_prot:.1f}g` | G: `{tot_gras:.1f}g` | C: `{tot_carb:.1f}g`\n\n"
+            f"¿Deseás guardar este registro?"
+        )
 
-        if mult != 1.0:
-            txt += f"**{idx}. {alimento_limpio}** ({peso_total:.1f}g) (x{mult}): `{cal_total:.1f} kcal`\n"
-        else:
-            txt += f"**{idx}. {alimento_limpio}** ({peso_total:.1f}g): `{cal_total:.1f} kcal`\n"
+        # 2. Armado de la botonera COMPLETA
+        keyboard = []
 
-    keyboard = []
-    
-    m_buttons = []
-    for m in ["Desayuno", "Almuerzo", "Merienda", "Cena"]:
-        mark = "✅ " if m.lower() == momento.lower() else ""
-        m_buttons.append(InlineKeyboardButton(f"{mark}{m}", callback_data=f"set_m_{m}"))
-    keyboard.append(m_buttons)
+        # Fila 1: Selección de Momento (Desayuno, Almuerzo, Merienda, Cena)
+        momentos = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
+        fila_m = [
+            InlineKeyboardButton(
+                f"{'✅ ' if momento.lower() == m.lower() else ''}{m}", 
+                callback_data=f"set_momento_{m.lower()}"
+            ) for m in momentos
+        ]
+        keyboard.append(fila_m)
 
-    es_plantilla = any('§' in item.get('alimento', item.get('nombre', '')) for item in items)
-
-    if not es_plantilla:
-        for idx, item in enumerate(items, start=1):
-            nombre_corto = item.get('alimento', item.get('nombre', ''))[:10]
+        # Filas dinámicas por cada ítem (#1 Nombre, ✏️ Editar, ❌ Anular)
+        for idx, item in enumerate(items):
+            nombre_item = item.get('alimento', 'Ítem')
+            nombre_corto = (nombre_item[:8] + "..") if len(nombre_item) > 8 else nombre_item
             keyboard.append([
-                InlineKeyboardButton(f"#{idx} {nombre_corto}", callback_data=f"noop_{idx}"),
-                InlineKeyboardButton("✏️ Editar", callback_data=f"edit_item_{idx}"),
-                InlineKeyboardButton("❌ Anular", callback_data=f"del_item_{idx}")
+                InlineKeyboardButton(f"#{idx+1} {nombre_corto}", callback_data=f"item_select_{idx}"),
+                InlineKeyboardButton("✏️ Editar", callback_data=f"item_edit_{idx}"),
+                InlineKeyboardButton("❌ Anular", callback_data=f"item_del_{idx}")
             ])
 
-    hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
-    ayer_str = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
-    mark_hoy = "✅ " if fecha == hoy_str else ""
-    mark_ayer = "✅ " if fecha == ayer_str else ""
-    mark_otro = "✅ " if fecha not in [hoy_str, ayer_str] else ""
+        # Fila de Selección de Fecha (Hoy, Ayer, Otro día)
+        fechas = ["Hoy", "Ayer", "Otro día"]
+        fila_f = [
+            InlineKeyboardButton(
+                f"{'✅ ' if fecha.lower() == f.lower().replace('á','a') else ''}{f}", 
+                callback_data=f"set_fecha_{f.lower().replace('á','a')}"
+            ) for f in fechas
+        ]
+        keyboard.append(fila_f)
 
-    keyboard.append([
-        InlineKeyboardButton(f"{mark_hoy}Hoy", callback_data="set_d_hoy"),
-        InlineKeyboardButton(f"{mark_ayer}Ayer", callback_data="set_d_ayer"),
-        InlineKeyboardButton(f"{mark_otro}Otro Día", callback_data="set_d_otro")
-    ])
+        # Fila de Acciones Finales (Eliminar Todo, Guardar)
+        keyboard.append([
+            InlineKeyboardButton("🗑️ ELIMINAR TODO", callback_data="cancel_entry"),
+            InlineKeyboardButton("💾 GUARDAR", callback_data="confirm_save")
+        ])
 
-    keyboard.append([
-        InlineKeyboardButton("🗑️ ELIMINAR TODO", callback_data="cancel_entry"),
-        InlineKeyboardButton("💾 GUARDAR", callback_data="confirm_save")
-    ])
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-    markup = InlineKeyboardMarkup(keyboard)
+        # 3. Envío / Edición del mensaje
+        if hasattr(target, 'edit_message_text'):
+            await target.edit_message_text(txt, parse_mode="Markdown", reply_markup=reply_markup)
+        elif hasattr(target, 'edit_text'):
+            await target.edit_text(txt, parse_mode="Markdown", reply_markup=reply_markup)
 
-    # DETECCIÓN Y EDICIÓN CORRECTA DEL MENSAJE (BOTÓN O TEXTO NUEVO)
-    if hasattr(msg_or_query, 'edit_message_text'):
-        # Si viene desde un callback_query (un botón)
-        await msg_or_query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
-    elif hasattr(msg_or_query, 'edit_text'):
-        # Si es un objeto de mensaje normal
-        await msg_or_query.edit_text(txt, reply_markup=markup, parse_mode="Markdown")
-    else:
-        # Si viene desde update (mensaje de texto) intentamos editar el mensaje previo de la tarjeta
-        msg_id = context.user_data.get('last_menu_msg_id')
-        chat_id = msg_or_query.effective_chat.id if hasattr(msg_or_query, 'effective_chat') else None
-        
-        editado = False
-        if msg_id and chat_id:
-            try:
-                await context.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=msg_id,
-                    text=txt,
-                    reply_markup=markup,
-                    parse_mode="Markdown"
-                )
-                editado = True
-            except Exception:
-                editado = False
+    except Exception as e:
+        print(f"❌ ERROR EN render_confirmation_screen: {e}")
+        err_msg = f"❌ Error interno al mostrar la confirmación: {e}"
+        if hasattr(target, 'edit_message_text'):
+            await target.edit_message_text(err_msg)
+        elif hasattr(target, 'edit_text'):
+            await target.edit_text(err_msg)
 
-        if not editado and hasattr(msg_or_query, 'message') and msg_or_query.message:
-            nuevo_msg = await msg_or_query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
-            context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
             
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
-    items = data_json.get("items", [])
-    if not items:
-        await msg_obj.edit_text("❌ No se pudieron detectar alimentos en la consulta.")
-        return
+    """
+    Procesa el JSON devuelto por la IA o Plantilla, guarda el estado temporal
+    y llama a render_confirmation_screen para mostrar la botonera.
+    """
+    try:
+        items = data_json.get("items", [])
+        if not items:
+            await msg_obj.edit_text("❌ No se pudieron detectar alimentos en la consulta.")
+            return
 
-    fecha, momento = obtener_momento_y_fecha_auto()
-    context.user_data['pending_items'] = items
-    context.user_data['pending_fecha'] = fecha
-    context.user_data['pending_momento'] = momento
+        # Obtiene la fecha y el momento de forma automática según la hora
+        fecha, momento = obtener_momento_y_fecha_auto()
 
-    await render_confirmation_screen(msg_obj, context)
+        # Guarda las variables temporales que luego usará la botonera y los callbacks
+        context.user_data['pending_items'] = items
+        context.user_data['pending_fecha'] = fecha
+        context.user_data['pending_momento'] = momento
 
+        # Llama a la función que dibuja el mensaje y los botones
+        await render_confirmation_screen(msg_obj, context)
+
+    except Exception as e:
+        print(f"❌ Error en procesar_y_mostrar_confirmacion: {e}")
+        await msg_obj.edit_text(f"❌ Error al renderizar la confirmación: {e}")
+        
 # ===============================================================================
 #                 HANDLERS DE TELEGRAM
 # =================================================================================
