@@ -2428,7 +2428,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
             )
             
             
- ========================================================================
+# ========================================================================
 #                      MAIN EXECUTION
 # ========================================================================
 
@@ -2471,7 +2471,7 @@ def main():
         name="recordatorio_comidas_tarde"
     )
 
-    # --- HANDLERS DE COMANDOS ---
+    # ---- HANDLERS DE COMANDOS ---
     app_bot.add_handler(CommandHandler("start", cmd_start))
     app_bot.add_handler(CommandHandler("comidas", cmd_comidas))
     app_bot.add_handler(CommandHandler("perfil", cmd_perfil))
