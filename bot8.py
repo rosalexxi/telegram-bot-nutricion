@@ -2152,26 +2152,7 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         document=pdf_bytes,
         filename=f"Reporte_Nutricional_{mes_str}.pdf"
     )
-
-
-async def registrar_log_en_sheet(spreadsheet, contexto: str, detalle: str):
-    """
-    Función auxiliar para registrar errores en la pestaña 'Logs' de Google Sheets.
-    """
-    try:
-        # Intenta obtener la pestaña Logs o crearla si no existe
-        try:
-            sheet_logs = spreadsheet.worksheet("Logs")
-        except Exception:
-            sheet_logs = spreadsheet.add_worksheet(title="Logs", rows="1000", cols="3")
-            sheet_logs.append_row(["Fecha y Hora", "Contexto / Módulo", "Detalle del Error"])
-
-        ahora_str = obtener_ahora_arg().strftime("%Y-%m-%d %H:%M:%S")
-        sheet_logs.append_row([ahora_str, contexto, str(detalle)])
-    except Exception as e_log:
-        logger.error(f"Error secundario al intentar registrar en la pestaña 'Logs': {e_log}")
-
-            
+           
 	# =============================================================================================================================
 	#                    MENSAJES PROGRAMADOS
 	# =============================================================================================================================
@@ -2495,7 +2476,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
     	# Recordatorio Tarde: 16:00 hs todos los días
     	job_queue.run_daily(
         	job_recordatorio_tarde, 
-        	time=time(hour=16, minute=42, second=0, tzinfo=tz),
+        	time=time(hour=16, minute=46, second=0, tzinfo=tz),
         	name="recordatorio_comidas_tarde"
     	)
 	
