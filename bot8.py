@@ -1,9 +1,3 @@
-
-# =======================================================================
-#                             ENCABEZADO E IMPORTS
-# =======================================================================
-
-
 import os
 import re
 import io
@@ -2241,14 +2235,13 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
     )
 
 # =====================================================================
-# 4. GENERAR MENSAJES RECORDATORIOS AUTOMATICOS Y RESUMEN SEMANAL
+# 4. GENERAR MENSAJES RECORDATORIOS AUTOMATICOS
 # =====================================================================
 
 async def ejecutar_recordatorio_comidas(context, momento: str):
     """
-    Función consolidada para verificar y enviar alertas de comidas pendientes y resumen semanal.
-    - momento == 'manana': Revisa ayer y anteayer. Si es LUNES, genera y envía
-                           primero el resumen semanal personalizado con Groq + TMB/GET.
+    Función consolidada para verificar y enviar alertas de comidas pendientes.
+    - momento == 'manana': Revisa ayer (1 día atrás) y anteayer (2 días atrás).
     - momento == 'tarde': Revisa ayer entero y hoy (Desayuno y Almuerzo).
     """
     try:
@@ -2257,20 +2250,14 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
         registros_usuarios = sheet_usuarios.get_all_records()
         
         usuarios_validos = []
-        metas_usuarios = {} 
-        
         for u in registros_usuarios:
             estado = str(u.get("Estado", "")).strip().lower()
             notif = str(u.get("Notificaciones", "")).strip().lower()
             user_id = u.get("User ID")
             
-            # Valida estado activo y notificaciones habilitadas
+            # Valida estado activo y notificaciones habilitadas (acepta 'si' o 'sí')
             if estado == "activo" and notif in ["si", "sí"] and user_id:
                 usuarios_validos.append(user_id)
-                metas_usuarios[user_id] = {
-                    "calorias_ideal": u.get("Calorias_Objetivo"),
-                    "proteinas_ideal": u.get("Proteinas_Objetivo")
-                }
 
     except Exception as e:
         logger.error(f"Error al acceder a la pestaña 'Usuarios': {e}")
@@ -2287,21 +2274,10 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
     todas_comidas = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
 
-    # Identificar si es lunes por la mañana (0 = Lunes)
-    es_lunes_manana = (hoy.weekday() == 0 and momento == 'manana')
-
-    # Rango de la semana anterior (lunes a domingo pasados)
-    if es_lunes_manana:
-        domingo_pasado = hoy - timedelta(days=1)
-        lunes_pasado = hoy - timedelta(days=7)
-        fechas_semana_pasada = set(
-            (lunes_pasado + timedelta(days=i)).strftime("%Y-%m-%d") 
-            for i in range(7)
-        )
-
     # 2. Procesar cada usuario activo
     for user_id in usuarios_validos:
         try:
+            # Nombre de la pestaña individual del usuario
             nombre_hoja_usuario = f"User_{user_id}"
             sheet_usuario = sheet_spreadsheet.worksheet(nombre_hoja_usuario)
             registros_comidas = sheet_usuario.get_all_records()
@@ -2310,18 +2286,11 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
             comidas_ayer = set()
             comidas_hoy = set()
 
-            calorias_totales = 0.0
-            proteinas_totales = 0.0
-            minutos_ejercicio = 0.0
-            dias_con_registro = set()
-
-            # Clasificar los registros del usuario
+            # Clasificar los registros del usuario leyendo la columna 'Momento/Actividad'
             for reg in registros_comidas:
                 fecha_reg = str(reg.get("Fecha", "")).strip()
-                momento_actividad = str(reg.get("Momento/Actividad", "")).strip()
-                momento_reg = momento_actividad.capitalize()
+                momento_reg = str(reg.get("Momento/Actividad", "")).strip().capitalize()
 
-                # Control diario de faltantes
                 if fecha_reg == str_anteayer:
                     comidas_anteayer.add(momento_reg)
                 elif fecha_reg == str_ayer:
@@ -2329,161 +2298,54 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                 elif fecha_reg == str_hoy:
                     comidas_hoy.add(momento_reg)
 
-                # -------------------------------------------------------------
-                # ACUMULACIÓN PARA RESUMEN SEMANAL (LUNES MAÑANA)
-                # -------------------------------------------------------------
-                if es_lunes_manana and fecha_reg in fechas_semana_pasada:
-                    es_actividad = "actividad" in momento_actividad.lower() or "ejercicio" in momento_actividad.lower()
-
-                    if es_actividad:
-                        # Extraer minutos de ejercicio de cualquier columna de detalle o cantidad
-                        minutos = reg.get("Duracion") or reg.get("Minutos") or reg.get("Cantidad") or reg.get("Peso (g)") or 0
-                        try:
-                            minutos_ejercicio += float(str(minutos).replace(",", "."))
-                        except ValueError:
-                            pass
-                    else:
-                        try:
-                            cal = float(str(reg.get("Calorías (kcal)", reg.get("Calorias", 0))).replace(",", "."))
-                            prot = float(str(reg.get("Proteínas (g)", reg.get("Proteinas", 0))).replace(",", "."))
-                            
-                            if cal > 0 or prot > 0:
-                                calorias_totales += cal
-                                proteinas_totales += prot
-                                dias_con_registro.add(fecha_reg)
-                        except ValueError:
-                            pass
-
-            # -----------------------------------------------------------------
-            # ENVÍO DEL RESUMEN SEMANAL CON GROQ (LUNES A LA MAÑANA)
-            # -----------------------------------------------------------------
-            if es_lunes_manana:
-                # Días reales registrados para evitar promedios falsos si no anotó algún día
-                cant_dias_reg = len(dias_con_registro) if len(dias_con_registro) > 0 else 7
-                prom_calorias = round(calorias_totales / cant_dias_reg, 1)
-                prom_proteinas = round(proteinas_totales / cant_dias_reg, 1)
-
-                # Obtener perfil del usuario para cálculo exacto de TMB y GET
-                perfil = obtener_perfil_usuario(user_id)
-                tmb_str = "No registrado"
-                get_str = "No registrado"
-
-                if perfil and perfil.get('Peso') and perfil.get('Altura') and perfil.get('Edad'):
-                    peso = perfil.get('Peso')
-                    altura = perfil.get('Altura')
-                    edad = perfil.get('Edad')
-                    genero = perfil.get('Sexo', 'masculino')
-                    ocupacion = perfil.get('Ocupacion', 'sedentario')
-
-                    tmb, get_val = calcular_tmb_y_get(
-                        peso_actual=peso,
-                        altura_cm=altura,
-                        edad=edad,
-                        genero=genero,
-                        actividad=ocupacion
-                    )
-                    tmb_str = f"{int(tmb)} kcal"
-                    get_str = f"{int(get_val)} kcal"
-
-                meta_cal = metas_usuarios.get(user_id, {}).get("calorias_ideal") or get_str
-                meta_prot = metas_usuarios.get(user_id, {}).get("proteinas_ideal") or "Consumo adecuado para preservar masa muscular"
-
-                prompt_ia = (
-                    f"Sos un coach nutricional y deportivo. Analizá los datos de la semana pasada (Lunes a Domingo) "
-                    f"del usuario y redactá un mensaje amigable, motivador y directo formateado en Markdown para Telegram:\n\n"
-                    f"📌 **Datos metabólicos del usuario:**\n"
-                    f"- Tasa de Metabolismo Basal (TMB): {tmb_str}\n"
-                    f"- Gasto Energético Total Diario (GET/Mantenimiento): {get_str}\n\n"
-                    f"📊 **Consumos y actividad de la semana:**\n"
-                    f"- Promedio de calorías consumidas por día: {prom_calorias} kcal (Días registrados: {cant_dias_reg}/7 | Meta calórica: {meta_cal})\n"
-                    f"- Promedio de proteínas consumidas por día: {prom_proteinas} g (Meta sugerida: {meta_prot})\n"
-                    f"- Minutos totales de actividad física acumulados: {int(minutos_ejercicio)} minutos (Meta ideal: 180 minutos / 3 horas semanales).\n\n"
-                    f"Instrucciones de redacción:\n"
-                    f"1. Evaluá el balance calórico (idealmente en déficit moderado por debajo del GET para perder grasa) "
-                    f"y confirmá si las proteínas son suficientes para evitar la pérdida de masa muscular.\n"
-                    f"2. Evaluá la actividad física: si acumuló 180 minutos o más, felicitalo/a por el logro; "
-                    f"si no llegó, dale un consejo constructivo indicando cuántos minutos le faltaron e incentivalo/a para esta semana.\n"
-                    f"3. Si los días registrados fueron menos de 7, recordale la importancia de registrar todos los días.\n"
-                    f"4. Mantené un tono claro, directo, sin tecnicismos excesivos y dividí el mensaje con emojis y negritas."
-                )
-
-                try:
-                    if client_ai:
-                        respuesta_ia = client_ai.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
-                            messages=[{"role": "user", "content": prompt_ia}],
-                            temperature=0.7,
-                            max_tokens=450
-                        )
-                        evaluacion_ia = respuesta_ia.choices[0].message.content.strip()
-                    else:
-                        evaluacion_ia = (
-                            f"📊 **Tus promedios de la semana ({cant_dias_reg} días registrados):**\n"
-                            f"• **Calorías:** {prom_calorias} kcal/día (GET: {get_str})\n"
-                            f"• **Proteínas:** {prom_proteinas} g/día\n"
-                            f"• **Actividad Física:** {int(minutos_ejercicio)} / 180 min recomendados."
-                        )
-                except Exception as e_groq:
-                    logger.error(f"Error generando reporte de Groq para {user_id}: {e_groq}")
-                    evaluacion_ia = (
-                        f"📊 **Tus promedios de la semana ({cant_dias_reg} días registrados):**\n"
-                        f"• **Calorías:** {prom_calorias} kcal/día (GET: {get_str})\n"
-                        f"• **Proteínas:** {prom_proteinas} g/día\n"
-                        f"• **Actividad Física:** {int(minutos_ejercicio)} / 180 min recomendados."
-                    )
-
-                mensaje_semanal = f"🗓️ **RESUMEN DE TU SEMANA**\n\n{evaluacion_ia}"
-                
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=mensaje_semanal,
-                    parse_mode="Markdown"
-                )
-                logger.info(f"Resumen semanal enviado a {user_id}")
-
-            # -----------------------------------------------------------------
-            # REVISIÓN HABITUAL DE COMIDAS PENDIENTES
-            # -----------------------------------------------------------------
             faltantes = []
 
+            # -----------------------------------------------------------------
+            # REVISIÓN SEGÚN EL MOMENTO DE LA EJECUCIÓN
+            # -----------------------------------------------------------------
             if momento == 'manana':
+                # Revisa Anteayer (2 días atrás)
                 for c in todas_comidas:
                     if c not in comidas_anteayer:
                         faltantes.append(f"{c} de anteayer ({str_anteayer})")
+
+                # Revisa Ayer (1 día atrás)
                 for c in todas_comidas:
                     if c not in comidas_ayer:
                         faltantes.append(f"{c} de ayer ({str_ayer})")
 
             elif momento == 'tarde':
+                # Revisa Ayer entero
                 for c in todas_comidas:
                     if c not in comidas_ayer:
                         faltantes.append(f"{c} de ayer ({str_ayer})")
+
+                # Revisa Hoy (hasta el almuerzo)
                 if "Desayuno" not in comidas_hoy:
                     faltantes.append("Desayuno de hoy")
                 if "Almuerzo" not in comidas_hoy:
                     faltantes.append("Almuerzo de hoy")
 
-            # Enviar mensaje de faltantes si existen
+            # 3. Enviar mensaje por Telegram si existen faltantes
             if faltantes:
                 lista_formateada = "\n• " + "\n• ".join(faltantes)
-                mensaje_recordatorio = (
+                mensaje = (
                     f"📌 **Recordatorio de comidas pendientes:**\n"
                     f"{lista_formateada}\n\n"
                     f"Si ya las consumiste, podés registrarlas en cualquier momento."
                 )
                 await context.bot.send_message(
                     chat_id=user_id, 
-                    text=mensaje_recordatorio, 
+                    text=mensaje, 
                     parse_mode="Markdown"
                 )
                 logger.info(f"Recordatorio ({momento}) enviado a {user_id}")
 
         except Exception as e:
-            logger.error(f"Error procesando recordatorio para usuario {user_id} en {nombre_hoja_usuario}: {e}")
-
+            logger.error(f"Error procesando recordatorio para usuario {user_id} en {nombre_hoja_usuario}: {e}")    
 # ========================================================================
 #                      MAIN EXECUTION
-# ========================================================================
+# =================================================================
 
 
 # --- FUNCIONES WRAPPER PARA LA JOBQUEUE ---
@@ -2520,7 +2382,7 @@ def main():
     # Recordatorio Tarde: 16:00 hs todos los días
     job_queue.run_daily(
         job_recordatorio_tarde, 
-        time=time(hour=12, minute=12, second=0, tzinfo=tz),
+        time=time(hour=12 minute=25, second=0, tzinfo=tz),
         name="recordatorio_comidas_tarde"
     )
 
