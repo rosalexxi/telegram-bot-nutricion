@@ -404,6 +404,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Error al consultar /perfil: {e}")
         await update.message.reply_text(f"⚠️ Ocurrió un error al leer tu perfil: {e}", parse_mode="Markdown")
 
+
 def guardar_perfil_en_sheets(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     """
     Guarda/actualiza el peso del usuario manteniendo intactos los formatos 
@@ -1017,17 +1018,18 @@ async def render_confirmation_screen(msg_or_query, context):
 
     markup = InlineKeyboardMarkup(keyboard)
 
-    # -----------------------------------------------------------------
-    # ACTUALIZACIÓN EN PANTALLA
-    # -----------------------------------------------------------------
+    # DETECCIÓN Y EDICIÓN CORRECTA DEL MENSAJE (BOTÓN O TEXTO NUEVO)
     if hasattr(msg_or_query, 'edit_message_text'):
-        # Si la llamada viene de presionar un botón Inline
+        # Si viene desde un callback_query (un botón)
         await msg_or_query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
+    elif hasattr(msg_or_query, 'edit_text'):
+        # Si es un objeto de mensaje normal
+        await msg_or_query.edit_text(txt, reply_markup=markup, parse_mode="Markdown")
     else:
-        # Si viene desde un mensaje de texto/edición
+        # Si viene desde update (mensaje de texto) intentamos editar el mensaje previo de la tarjeta
         msg_id = context.user_data.get('last_menu_msg_id')
         chat_id = msg_or_query.effective_chat.id if hasattr(msg_or_query, 'effective_chat') else None
-
+        
         editado = False
         if msg_id and chat_id:
             try:
@@ -1039,8 +1041,7 @@ async def render_confirmation_screen(msg_or_query, context):
                     parse_mode="Markdown"
                 )
                 editado = True
-            except Exception as e:
-                logger.error(f"Error al editar tarjeta existente: {e}")
+            except Exception:
                 editado = False
 
         if not editado and hasattr(msg_or_query, 'message') and msg_or_query.message:
@@ -1406,7 +1407,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         idx = context.user_data.get('editing_item_idx')
         items = context.user_data.get('pending_items', [])
 
-        if items is not None and 0 <= idx < len(items):
+        if items and 0 <= idx < len(items):
             item_previo = items[idx]
             peso_previo = item_previo.get('peso', 0.0)
 
@@ -1428,19 +1429,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # Se reemplaza el ítem editado
                     items[idx] = items_nuevos[0]
                     context.user_data['pending_items'] = items
-                    
+                    await msg_espera.delete()
                     try:
-                        await update.message.delete()  # Limpia el mensaje con el texto enviado por el usuario
+                        await update.message.delete()  # Limpia el mensaje de texto para dejar el chat prolijo
                     except Exception:
                         pass
-
-                    # Limpiamos los indicadores de edición antes de redibujar
-                    context.user_data['awaiting_edit_item_val'] = False
-                    context.user_data.pop('editing_item_idx', None)
-
-                    # Redibujamos reutilizando/editando el mensaje de espera
-                    await render_confirmation_screen(msg_espera, context)
-                    return
                 else:
                     await msg_espera.edit_text("⚠️ No se pudieron interpretar los datos para actualizar el ítem.")
 
@@ -1448,9 +1441,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 print(f"Error editando ítem: {e}")
                 await msg_espera.edit_text(f"❌ Error al procesar la edición: {e}")
 
-        # Limpieza de seguridad en caso de fallo
+        # Se limpian los indicadores de edición
         context.user_data['awaiting_edit_item_val'] = False
         context.user_data.pop('editing_item_idx', None)
+
+        # Se redibuja la pantalla con los datos corregidos
+        await render_confirmation_screen(update, context)
         return
 
     # =========================================================================
@@ -1515,10 +1511,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data = analizar_con_groq(raw_text)
         await procesar_y_mostrar_confirmacion(data, msg, context)
     except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar el texto: {e}")
-
-
-#===============================================================================================
+        await msg.edit_text(f"❌ Error al procesar el texto: {e}")#============================================================================================================================
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2349,8 +2342,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                 logger.info(f"Recordatorio ({momento}) enviado a {user_id}")
 
         except Exception as e:
-            logger.error(f"Error procesando recordatorio para usuario {user_id} en {nombre_hoja_usuario}: {e}") 
-               
+            logger.error(f"Error procesando recordatorio para usuario {user_id} en {nombre_hoja_usuario}: {e}")    
 # ========================================================================
 #                      MAIN EXECUTION
 # =================================================================
@@ -2390,7 +2382,7 @@ def main():
     # Recordatorio Tarde: 16:00 hs todos los días
     job_queue.run_daily(
         job_recordatorio_tarde, 
-        time=time(hour=13, minute=10, second=0, tzinfo=tz),
+        time=time(hour=13, minute=17, second=0, tzinfo=tz),
         name="recordatorio_comidas_tarde"
     )
 
