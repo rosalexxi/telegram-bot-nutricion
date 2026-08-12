@@ -1319,7 +1319,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             kcal_ingresadas = 0.0
 
         # Convertimos a calorías negativas (* -1000)
-        calorias_finales = -abs(kcal_ingresadas) * 1000.0
+        calorias_finales = -abs(kcal_ingresadas) 
 
         item_actividad = {
             "alimento": descripcion,
