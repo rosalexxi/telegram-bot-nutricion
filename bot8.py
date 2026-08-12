@@ -2478,7 +2478,7 @@ def main():
     # Recordatorio Tarde: 16:00 hs todos los días
     job_queue.run_daily(
         job_recordatorio_tarde, 
-        time=time(hour=16, minute=0, second=0, tzinfo=tz),
+        time=time(hour=16, minute=20, second=0, tzinfo=tz),
         name="recordatorio_comidas_tarde"
     )
 
