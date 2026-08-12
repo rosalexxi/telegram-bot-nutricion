@@ -2152,11 +2152,11 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         document=pdf_bytes,
         filename=f"Reporte_Nutricional_{mes_str}.pdf"
     )
-           
-	# =============================================================================================================================
-	#                    MENSAJES PROGRAMADOS
-	# =============================================================================================================================
-	
+
+# =============================================================================================================================
+#                                        MENSAJES PROGRAMADOS
+# =============================================================================================================================
+
 async def registrar_log_en_sheet(spreadsheet, contexto: str, detalle: str):
     """
     Función auxiliar para registrar errores en la pestaña 'Logs' de Google Sheets.
@@ -2429,78 +2429,74 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                 f"Procesando usuario {user_id} en {momento}", 
                 e
             )
-            
 
-            	
-	# ==============================================================================================================================
-	#                    MAIN EXECUTION
-	# =============================================================================================================================
-	
-	# --- FUNCIONES WRAPPER PARA LA JOBQUEUE ---
-	async def job_recordatorio_manana(context):
-    	"""Tarea programada para las 09:00 hs"""
-    	await ejecutar_recordatorio_comidas(context, momento='manana')
-	
-	async def job_recordatorio_tarde(context):
-    	"""Tarea programada para las 16:00 hs"""
-    	await ejecutar_recordatorio_comidas(context, momento='tarde')
-	
-	def main():
-    	# Hilo secundario para mantener el servidor web (Flask) activo
-    	threading.Thread(target=run_flask, daemon=True).start()
-	
-    	if not TELEGRAM_TOKEN:
-        	print("❌ TELEGRAM_BOT_TOKEN no configurado.")
-        	return
-	
-    	# Definir zona horaria de Argentina
-    	tz = pytz.timezone('America/Argentina/Buenos_Aires')
-	
-    	# Inicialización de la aplicación de Telegram
-    	app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-	
-    	# --- CONFIGURACIÓN DE TAREAS PROGRAMADAS (JOB QUEUE) ---
-    	job_queue = app_bot.job_queue
-	
-    	if job_queue is None:
-        	print("❌ Error: JobQueue no está instalada o habilitada. Instalá 'python-telegram-bot[job-queue]'.")
-        	return
-	
-    	# Recordatorio Mañana: 09:00 hs todos los días
-    	job_queue.run_daily(
-        	job_recordatorio_manana, 
-        	time=time(hour=9, minute=0, second=0, tzinfo=tz),
-        	name="recordatorio_comidas_manana"
-    	)
-	
-    	# Recordatorio Tarde: 16:00 hs todos los días
-    	job_queue.run_daily(
-        	job_recordatorio_tarde, 
-        	time=time(hour=16, minute=46, second=0, tzinfo=tz),
-        	name="recordatorio_comidas_tarde"
-    	)
-	
-    	# ---- HANDLERS DE COMANDOS ---
-    	app_bot.add_handler(CommandHandler("start", cmd_start))
-    	app_bot.add_handler(CommandHandler("comidas", cmd_comidas))
-    	app_bot.add_handler(CommandHandler("perfil", cmd_perfil))
-    	app_bot.add_handler(CommandHandler("presion", cmd_presion_handler))
-    	app_bot.add_handler(CommandHandler("diario", cmd_diario))
-    	app_bot.add_handler(CommandHandler("resumen", cmd_resumen))
-	
-    	# --- HANDLERS DE MENSAJES Y CALLBACKS ---
-    	app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
-    	app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    	app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    	app_bot.add_handler(CallbackQueryHandler(handle_callback_query))
-	
-    	print("🤖 Bot Nutricional iniciado correctamente en Telegram con tareas programadas (09:00 hs y 16:00 hs)...")
-    	
-    	# Inicia el polling de forma bloqueante limpia
-    	app_bot.run_polling(drop_pending_updates=True)
-	
-	if __name__ == "__main__":
-    	main()
-    	
-    	
-	
+
+# =============================================================================================================================
+#                                        MAIN EXECUTION
+# =============================================================================================================================
+
+# --- FUNCIONES WRAPPER PARA LA JOBQUEUE ---
+async def job_recordatorio_manana(context):
+    """Tarea programada para las 09:00 hs"""
+    await ejecutar_recordatorio_comidas(context, momento='manana')
+
+async def job_recordatorio_tarde(context):
+    """Tarea programada para las 16:00 hs"""
+    await ejecutar_recordatorio_comidas(context, momento='tarde')
+
+def main():
+    # Hilo secundario para mantener el servidor web (Flask) activo
+    threading.Thread(target=run_flask, daemon=True).start()
+
+    if not TELEGRAM_TOKEN:
+        print("❌ TELEGRAM_BOT_TOKEN no configurado.")
+        return
+
+    # Definir zona horaria de Argentina
+    tz = pytz.timezone('America/Argentina/Buenos_Aires')
+
+    # Inicialización de la aplicación de Telegram
+    app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
+    # --- CONFIGURACIÓN DE TAREAS PROGRAMADAS (JOB QUEUE) ---
+    job_queue = app_bot.job_queue
+
+    if job_queue is None:
+        print("❌ Error: JobQueue no está instalada o habilitada. Instalá 'python-telegram-bot[job-queue]'.")
+        return
+
+    # Recordatorio Mañana: 09:00 hs todos los días
+    job_queue.run_daily(
+        job_recordatorio_manana, 
+        time=time(hour=9, minute=0, second=0, tzinfo=tz),
+        name="recordatorio_comidas_manana"
+    )
+
+    # Recordatorio Tarde: 16:00 hs todos los días
+    job_queue.run_daily(
+        job_recordatorio_tarde, 
+        time=time(hour=16, minute=55, second=0, tzinfo=tz),
+        name="recordatorio_comidas_tarde"
+    )
+
+    # ---- HANDLERS DE COMANDOS ---
+    app_bot.add_handler(CommandHandler("start", cmd_start))
+    app_bot.add_handler(CommandHandler("comidas", cmd_comidas))
+    app_bot.add_handler(CommandHandler("perfil", cmd_perfil))
+    app_bot.add_handler(CommandHandler("presion", cmd_presion_handler))
+    app_bot.add_handler(CommandHandler("diario", cmd_diario))
+    app_bot.add_handler(CommandHandler("resumen", cmd_resumen))
+
+    # --- HANDLERS DE MENSAJES Y CALLBACKS ---
+    app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app_bot.add_handler(CallbackQueryHandler(handle_callback_query))
+
+    print("🤖 Bot Nutricional iniciado correctamente en Telegram con tareas programadas (09:00 hs y 16:00 hs)...")
+    
+    # Inicia el polling de forma bloqueante limpia
+    app_bot.run_polling(drop_pending_updates=True)
+
+if __name__ == "__main__":
+    main()
