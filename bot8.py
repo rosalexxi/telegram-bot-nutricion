@@ -2171,6 +2171,10 @@ async def registrar_log_en_sheet(spreadsheet, contexto: str, detalle: str):
     except Exception as e_log:
         logger.error(f"Error secundario al intentar registrar en la pestaña 'Logs': {e_log}")
 
+            
+# ========================================================================
+#                    MENSAJES PROGRAMADOS
+# ========================================================================
 
 async def ejecutar_recordatorio_comidas(context, momento: str):
     """
@@ -2190,10 +2194,16 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
         for u in registros_usuarios:
             estado = str(u.get("Estado", "")).strip().lower()
             notif = str(u.get("Notificaciones", "")).strip().lower()
-            user_id = u.get("User ID")
             
-            # Valida estado activo y notificaciones habilitadas
-            if estado == "activo" and notif in ["si", "sí"] and user_id:
+            # Sanitizar User ID a String sin decimales (.0)
+            raw_user_id = u.get("User ID")
+            if raw_user_id is None or str(raw_user_id).strip() == "":
+                continue
+                
+            user_id = str(raw_user_id).split(".")[0].strip()
+            
+            # Valida estado activo y notificaciones habilitadas ("si", "sí")
+            if estado == "activo" and notif in ["si", "sí", "si ", "sí "] and user_id:
                 usuarios_validos.append(user_id)
                 metas_usuarios[user_id] = {
                     "calorias_ideal": u.get("Calorias_Objetivo"),
@@ -2205,7 +2215,11 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
         await registrar_log_en_sheet(sheet_spreadsheet, "Acceso a pestaña Usuarios", e)
         return
 
-    # Cálculo de fechas utilizando la hora local de Argentina (formato 'date' estricto)
+    if not usuarios_validos:
+        logger.info("No se encontraron usuarios activos con notificaciones habilitadas.")
+        return
+
+    # Cálculo de fechas utilizando la hora local de Argentina
     ahora_dt = obtener_ahora_arg()
     hoy = ahora_dt.date() if hasattr(ahora_dt, "date") else ahora_dt
     ayer = hoy - timedelta(days=1)
@@ -2221,8 +2235,8 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
     es_lunes_manana = (hoy.weekday() == 0 and momento == 'manana')
 
     # Rango de la semana anterior (lunes a domingo pasados)
+    fechas_semana_pasada = set()
     if es_lunes_manana:
-        domingo_pasado = hoy - timedelta(days=1)
         lunes_pasado = hoy - timedelta(days=7)
         fechas_semana_pasada = set(
             (lunes_pasado + timedelta(days=i)).strftime("%Y-%m-%d") 
@@ -2233,7 +2247,12 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
     for user_id in usuarios_validos:
         try:
             nombre_hoja_usuario = f"User_{user_id}"
-            sheet_usuario = sheet_spreadsheet.worksheet(nombre_hoja_usuario)
+            try:
+                sheet_usuario = sheet_spreadsheet.worksheet(nombre_hoja_usuario)
+            except Exception as e_sheet:
+                logger.warning(f"No se encontró la pestaña {nombre_hoja_usuario} para el usuario {user_id}: {e_sheet}")
+                continue
+
             registros_comidas = sheet_usuario.get_all_records()
 
             comidas_anteayer = set()
@@ -2314,7 +2333,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                         get_str = f"{int(get_val)} kcal"
 
                     meta_cal = metas_usuarios.get(user_id, {}).get("calorias_ideal") or get_str
-                    meta_prot = metas_usuarios.get(user_id, {}).get("proteinas_ideal") or "Consumo adecuado para preservar masa muscular"
+                    meta_prot = metas_usuarios.get(user_id, {}).get("proteinas_ideal") or "Consumo adecuado"
 
                     prompt_ia = (
                         f"Sos un coach nutricional y deportivo. Analizá los datos de la semana pasada (Lunes a Domingo) "
@@ -2327,14 +2346,13 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                         f"- Promedio de proteínas consumidas por día: {prom_proteinas} g (Meta sugerida: {meta_prot})\n"
                         f"- Minutos totales de actividad física acumulados: {int(minutos_ejercicio)} minutos (Meta ideal: 180 minutos / 3 horas semanales).\n\n"
                         f"Instrucciones de redacción:\n"
-                        f"1. Evaluá el balance calórico (idealmente en déficit moderado por debajo del GET para perder grasa) "
-                        f"y confirmá si las proteínas son suficientes para evitar la pérdida de masa muscular.\n"
-                        f"2. Evaluá la actividad física: si acumuló 180 minutos o más, felicitalo/a por el logro; "
-                        f"si no llegó, dale un consejo constructivo indicando cuántos minutos le faltaron e incentivalo/a para esta semana.\n"
+                        f"1. Evaluá el balance calórico y confirmá si las proteínas son suficientes.\n"
+                        f"2. Evaluá la actividad física: si acumuló 180 minutos o más, felicitalo/a; si no llegó, dale un consejo constructivo.\n"
                         f"3. Si los días registrados fueron menos de 7, recordale la importancia de registrar todos los días.\n"
                         f"4. Mantené un tono claro, directo, sin tecnicismos excesivos y dividí el mensaje con emojis y negritas."
                     )
 
+                    evaluacion_ia = ""
                     if client_ai:
                         try:
                             respuesta_ia = client_ai.chat.completions.create(
@@ -2346,18 +2364,9 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                             evaluacion_ia = respuesta_ia.choices[0].message.content.strip()
                         except Exception as e_groq:
                             logger.error(f"Error generando reporte de Groq para {user_id}: {e_groq}")
-                            await registrar_log_en_sheet(
-                                sheet_spreadsheet, 
-                                f"Consulta Groq Resumen Semanal (User {user_id})", 
-                                e_groq
-                            )
-                            evaluacion_ia = (
-                                f"📊 **Tus promedios de la semana ({cant_dias_reg} días registrados):**\n"
-                                f"• **Calorías:** {prom_calorias} kcal/día (GET: {get_str})\n"
-                                f"• **Proteínas:** {prom_proteinas} g/día\n"
-                                f"• **Actividad Física:** {int(minutos_ejercicio)} / 180 min recomendados."
-                            )
-                    else:
+                            await registrar_log_en_sheet(sheet_spreadsheet, f"Consulta Groq Resumen Semanal (User {user_id})", e_groq)
+
+                    if not evaluacion_ia:
                         evaluacion_ia = (
                             f"📊 **Tus promedios de la semana ({cant_dias_reg} días registrados):**\n"
                             f"• **Calorías:** {prom_calorias} kcal/día (GET: {get_str})\n"
@@ -2367,8 +2376,9 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
                     mensaje_semanal = f"🗓️ **RESUMEN DE TU SEMANA**\n\n{evaluacion_ia}"
                     
+                    # Garantizamos envio enviando chat_id como int o str
                     await context.bot.send_message(
-                        chat_id=user_id,
+                        chat_id=int(user_id),
                         text=mensaje_semanal,
                         parse_mode="Markdown"
                     )
@@ -2376,11 +2386,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
                 except Exception as e_resumen:
                     logger.error(f"Error general en el resumen semanal para usuario {user_id}: {e_resumen}")
-                    await registrar_log_en_sheet(
-                        sheet_spreadsheet, 
-                        f"Resumen Semanal Lunes (User {user_id})", 
-                        e_resumen
-                    )
+                    await registrar_log_en_sheet(sheet_spreadsheet, f"Resumen Semanal Lunes (User {user_id})", e_resumen)
 
             # -----------------------------------------------------------------
             # REVISIÓN HABITUAL DE COMIDAS PENDIENTES
@@ -2413,14 +2419,14 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                     f"Si ya las consumiste, podés registrarlas en cualquier momento."
                 )
                 await context.bot.send_message(
-                    chat_id=user_id, 
+                    chat_id=int(user_id), 
                     text=mensaje_recordatorio, 
                     parse_mode="Markdown"
                 )
                 logger.info(f"Recordatorio ({momento}) enviado a {user_id}")
 
         except Exception as e:
-            logger.error(f"Error procesando recordatorio para usuario {user_id} en {nombre_hoja_usuario}: {e}")
+            logger.error(f"Error procesando recordatorio para usuario {user_id}: {e}")
             await registrar_log_en_sheet(
                 sheet_spreadsheet, 
                 f"Procesando usuario {user_id} en {momento}", 
@@ -2429,9 +2435,8 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
             
             
 # ========================================================================
-#                      MAIN EXECUTION
+#                    MAIN EXECUTION
 # ========================================================================
-
 
 # --- FUNCIONES WRAPPER PARA LA JOBQUEUE ---
 async def job_recordatorio_manana(context):
@@ -2450,12 +2455,18 @@ def main():
         print("❌ TELEGRAM_BOT_TOKEN no configurado.")
         return
 
+    # Definir zona horaria de Argentina
+    tz = pytz.timezone('America/Argentina/Buenos_Aires')
+
     # Inicialización de la aplicación de Telegram
     app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     # --- CONFIGURACIÓN DE TAREAS PROGRAMADAS (JOB QUEUE) ---
     job_queue = app_bot.job_queue
-    tz = pytz.timezone('America/Argentina/Buenos_Aires')
+
+    if job_queue is None:
+        print("❌ Error: JobQueue no está instalada o habilitada. Instalá 'python-telegram-bot[job-queue]'.")
+        return
 
     # Recordatorio Mañana: 09:00 hs todos los días
     job_queue.run_daily(
@@ -2486,7 +2497,11 @@ def main():
     app_bot.add_handler(CallbackQueryHandler(handle_callback_query))
 
     print("🤖 Bot Nutricional iniciado correctamente en Telegram con tareas programadas (09:00 hs y 16:00 hs)...")
-    app_bot.run_polling()
+    
+    # Inicia el polling de forma bloqueante limpia
+    app_bot.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
+    
+    
