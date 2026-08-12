@@ -2252,40 +2252,63 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
 # =======================================================================
 #                           MAIN / STARTUP
-# =======================================================================
+# ========
+
+# --- FUNCIONES WRAPPER PARA LA JOBQUEUE ---
+async def job_recordatorio_manana(context):
+    """Tarea programada para las 09:00 hs"""
+    await ejecutar_recordatorio_comidas(context, momento='manana')
+
+async def job_recordatorio_tarde(context):
+    """Tarea programada para las 16:00 hs"""
+    await ejecutar_recordatorio_comidas(context, momento='tarde')
 
 def main():
-    # 1. Iniciar el servidor Flask en un hilo secundario (Background)
-    # Esto satisface el chequeo de puertos de Render (PORT) de inmediato.
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-    logger.info("Servidor web Flask iniciado en segundo plano.")
+    # Hilo secundario para mantener el servidor web (Flask) activo
+    threading.Thread(target=run_flask, daemon=True).start()
 
-    # 2. Construir la aplicación del bot de Telegram
     if not TELEGRAM_TOKEN:
-        logger.error("No se encontró TELEGRAM_BOT_TOKEN en las variables de entorno.")
+        print("❌ TELEGRAM_BOT_TOKEN no configurado.")
         return
 
-    application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    # Inicialización de la aplicación de Telegram
+    app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # --- HANDLERS Y COMANDOS ---
-    # Handlers básicos y comandos principales
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("ayuda", ayuda))
-    application.add_handler(CommandHandler("diario", cmd_diario))
-    application.add_handler(CommandHandler("resumen", cmd_resumen))
-    application.add_handler(CommandHandler("presion", cmd_presion))
+    # --- CONFIGURACIÓN DE TAREAS PROGRAMADAS (JOB QUEUE) ---
+    job_queue = app_bot.job_queue
+    tz = pytz.timezone('America/Argentina/Buenos_Aires')
 
-    # Handler para Callback Queries (Botones flotantes)
-    application.add_handler(CallbackQueryHandler(handle_callback_query))
+    # Recordatorio Mañana: 09:00 hs todos los días
+    job_queue.run_daily(
+        job_recordatorio_manana, 
+        time=time(hour=9, minute=0, second=0, tzinfo=tz),
+        name="recordatorio_comidas_manana"
+    )
 
-    # Handler para mensajes de texto del usuario (Comidas / Actividades libres)
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # Recordatorio Tarde: 16:00 hs todos los días
+    job_queue.run_daily(
+        job_recordatorio_tarde, 
+        time=time(hour=16, minute=0, second=0, tzinfo=tz),
+        name="recordatorio_comidas_tarde"
+    )
 
-    # 3. Iniciar el bot en el hilo principal mediante Polling
-    logger.info("Iniciando bot de Telegram en modo Polling...")
-    application.run_polling(drop_pending_updates=True)
+    # --- HANDLERS DE COMANDOS ---
+    app_bot.add_handler(CommandHandler("start", cmd_start))
+    app_bot.add_handler(CommandHandler("comidas", cmd_comidas))
+    app_bot.add_handler(CommandHandler("perfil", cmd_perfil))
+    app_bot.add_handler(CommandHandler("presion", cmd_presion_handler))
+    app_bot.add_handler(CommandHandler("diario", cmd_diario))
+    app_bot.add_handler(CommandHandler("resumen", cmd_resumen))
 
+    # --- HANDLERS DE MENSAJES Y CALLBACKS ---
+    app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app_bot.add_handler(CallbackQueryHandler(handle_callback_query))
 
-if __name__ == '__main__':
+    print("🤖 Bot Nutricional iniciado correctamente en Telegram con tareas programadas (09:00 hs y 16:00 hs)...")
+    app_bot.run_polling()
+
+if __name__ == "__main__":
     main()
+
