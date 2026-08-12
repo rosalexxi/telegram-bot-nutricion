@@ -1300,9 +1300,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not raw_text:
         return
 
-# =========================================================================
+    # =========================================================================
     # 0. DETECCIÓN DE ACTIVIDAD FÍSICA DIRECTA CON PREFIJO '#'
     # =========================================================================
+    
     if raw_text.startswith('#'):
         contenido = raw_text[1:].strip()
         
@@ -1341,6 +1342,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =========================================================================
     # 1. SI EL USUARIO PRESIONÓ "EDITAR" Y ESTÁ ENVIANDO LA CORRECCIÓN
     # =========================================================================
+    
     if context.user_data.get('awaiting_edit_item_val'):
         idx = context.user_data.get('editing_item_idx')
         items = context.user_data.get('pending_items', [])
@@ -1386,6 +1388,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =========================================================================
     # 2. COMIDAS PRECARGADAS EN PLANTILLAS (MENSAJES QUE EMPIEZAN CON *)
     # =========================================================================
+    
     if raw_text.startswith('*'):
         contenido = raw_text[1:].strip()
         partes = [p.strip() for p in contenido.split(',')]
@@ -1440,6 +1443,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =========================================================================
     # 3. INGRESO DIRECTO DE COMIDA POR TEXTO LIBRE (IA)
     # =========================================================================
+    
     msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
     try:
         data = analizar_con_groq(raw_text)
@@ -2112,8 +2116,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     buffer.seek(0)
     return buffer
 
-
-
 async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
     df_datos = obtener_datos_usuario(user_id)
     df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)] if not df_datos.empty and 'Fecha' in df_datos.columns else pd.DataFrame()
@@ -2248,55 +2250,42 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
         except Exception as e:
             logger.error(f"Error procesando recordatorio para usuario {user_id} en {nombre_hoja_usuario}: {e}")
 
-# ========================================================================
-#                      MAIN EXECUTION
-# =================================================================
+# =======================================================================
+#                           MAIN / STARTUP
+# =======================================================================
 
 def main():
-    # Hilo secundario para mantener el servidor web (Flask) activo
-    threading.Thread(target=run_flask, daemon=True).start()
+    # 1. Iniciar el servidor Flask en un hilo secundario (Background)
+    # Esto satisface el chequeo de puertos de Render (PORT) de inmediato.
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    logger.info("Servidor web Flask iniciado en segundo plano.")
 
+    # 2. Construir la aplicación del bot de Telegram
     if not TELEGRAM_TOKEN:
-        print("❌ TELEGRAM_BOT_TOKEN no configurado.")
+        logger.error("No se encontró TELEGRAM_BOT_TOKEN en las variables de entorno.")
         return
 
-    # Inicialización de la aplicación de Telegram
-    app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # --- CONFIGURACIÓN DE TAREAS PROGRAMADAS (JOB QUEUE) ---
-    job_queue = app_bot.job_queue
-    tz = pytz.timezone('America/Argentina/Buenos_Aires')
+    # --- HANDLERS Y COMANDOS ---
+    # Handlers básicos y comandos principales
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("ayuda", ayuda))
+    application.add_handler(CommandHandler("diario", cmd_diario))
+    application.add_handler(CommandHandler("resumen", cmd_resumen))
+    application.add_handler(CommandHandler("presion", cmd_presion))
 
-    # Recordatorio Mañana: 09:00 hs todos los días
-    job_queue.run_daily(
-        job_recordatorio_manana, 
-        time=time(hour=9, minute=0, second=0, tzinfo=tz),
-        name="recordatorio_comidas_manana"
-    )
+    # Handler para Callback Queries (Botones flotantes)
+    application.add_handler(CallbackQueryHandler(handle_callback_query))
 
-    # Recordatorio Tarde: 16:00 hs todos los días
-    job_queue.run_daily(
-        job_recordatorio_tarde, 
-        time=time(hour=16, minute=0, second=0, tzinfo=tz),
-        name="recordatorio_comidas_tarde"
-    )
+    # Handler para mensajes de texto del usuario (Comidas / Actividades libres)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # --- HANDLERS DE COMANDOS ---
-    app_bot.add_handler(CommandHandler("start", cmd_start))
-    app_bot.add_handler(CommandHandler("comidas", cmd_comidas))
-    # SE ELIMINARON LOS COMANDOS DE ACTIVIDAD Y ACTIVIDADIA
-    app_bot.add_handler(CommandHandler("perfil", cmd_perfil))
-    app_bot.add_handler(CommandHandler("presion", cmd_presion_handler))
-    app_bot.add_handler(CommandHandler("diario", cmd_diario))
-    app_bot.add_handler(CommandHandler("resumen", cmd_resumen))
+    # 3. Iniciar el bot en el hilo principal mediante Polling
+    logger.info("Iniciando bot de Telegram en modo Polling...")
+    application.run_polling(drop_pending_updates=True)
 
-    # --- HANDLERS DE MENSAJES Y CALLBACKS ---
-    app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
-    app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app_bot.add_handler(CallbackQueryHandler(handle_callback_query))
 
-    print("🤖 Bot Nutricional iniciado correctamente en Telegram con tareas programadas (09:00 hs y 16:00 hs)...")
-    app_bot.run_polling()
-    
-    
+if __name__ == '__main__':
+    main()
