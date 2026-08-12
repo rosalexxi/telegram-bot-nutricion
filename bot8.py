@@ -2153,6 +2153,7 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         filename=f"Reporte_Nutricional_{mes_str}.pdf"
     )
 
+
 # =====================================================================
 # 4. GENERAR MENSAJES RECORDATORIOS AUTOMATICOS
 # =====================================================================
@@ -2183,7 +2184,9 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
         logger.error(f"Error al acceder a la pestaña 'Usuarios': {e}")
         return
 
-    hoy = obtener_ahora_arg()
+    # Nos aseguramos de trabajar estrictamente con objetos tipo 'date'
+    ahora_dt = obtener_ahora_arg()
+    hoy = ahora_dt.date() if hasattr(ahora_dt, "date") else ahora_dt
     ayer = hoy - timedelta(days=1)
     anteayer = hoy - timedelta(days=2)
 
@@ -2235,15 +2238,16 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
             if faltantes:
                 lista_formateada = "\n• " + "\n• ".join(faltantes)
+                # Formato en HTML para evitar fallos por caracteres reservados en Markdown
                 mensaje = (
-                    f"📌 **Recordatorio de comidas pendientes:**\n"
+                    f"📌 <b>Recordatorio de comidas pendientes:</b>\n"
                     f"{lista_formateada}\n\n"
                     f"Si ya las consumiste, podés registrarlas en cualquier momento."
                 )
                 await context.bot.send_message(
                     chat_id=int(user_id), 
                     text=mensaje, 
-                    parse_mode="Markdown"
+                    parse_mode="HTML"
                 )
                 logger.info(f"Recordatorio ({momento}) enviado exitosamente a {user_id}")
 
@@ -2252,15 +2256,15 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
 # =======================================================================
 #                           MAIN / STARTUP
-# ========
+# =======================================================================
 
 # --- FUNCIONES WRAPPER PARA LA JOBQUEUE ---
 async def job_recordatorio_manana(context):
-    """Tarea programada para las 09:00 hs"""
+    """Tarea programada para la mañana"""
     await ejecutar_recordatorio_comidas(context, momento='manana')
 
 async def job_recordatorio_tarde(context):
-    """Tarea programada para las 16:00 hs"""
+    """Tarea programada para la tarde"""
     await ejecutar_recordatorio_comidas(context, momento='tarde')
 
 def main():
@@ -2288,7 +2292,7 @@ def main():
     # Recordatorio Tarde: 16:00 hs todos los días
     job_queue.run_daily(
         job_recordatorio_tarde, 
-        time=time(hour=16, minute=0, second=0, tzinfo=tz),
+        time=time(hour=14, minute=33, second=0, tzinfo=tz),
         name="recordatorio_comidas_tarde"
     )
 
@@ -2306,9 +2310,9 @@ def main():
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app_bot.add_handler(CallbackQueryHandler(handle_callback_query))
 
-    print("🤖 Bot Nutricional iniciado correctamente en Telegram con tareas programadas (09:00 hs y 16:00 hs)...")
+    print("🤖 Bot Nutricional iniciado correctamente en Telegram...")
     app_bot.run_polling()
 
 if __name__ == "__main__":
     main()
-
+    
