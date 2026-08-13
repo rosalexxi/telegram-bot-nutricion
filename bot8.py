@@ -2092,9 +2092,11 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not raw_text:
         await update.message.reply_text(
             "Ingresa la presion o consulta un mes. Ejemplos:\n"
-            "• /presi 120,80,70, despues de caminar\n"
-            "• /presi 120,80\n"
-            "• /presi 2026-08", 
+            "• Verificar que no tenga acento presion\n\n"
+            "• /presion 120,80,70, despues de caminar\n"
+            "• /presion 120,80,70\n"
+            "• /presion 120,80\n"
+            "• /presion 2026-08", 
             parse_mode="Markdown"
         )
         return
@@ -2495,7 +2497,7 @@ def main():
     app_bot.add_handler(CommandHandler("start", cmd_start))
     app_bot.add_handler(CommandHandler("comidas", cmd_comidas))
     app_bot.add_handler(CommandHandler("perfil", cmd_perfil))
-    app_bot.add_handler(CommandHandler("presi", cmd_presion_handler))
+    app_bot.add_handler(CommandHandler("presion", cmd_presion_handler))
     app_bot.add_handler(CommandHandler("diario", cmd_diario))
     app_bot.add_handler(CommandHandler("resumen", cmd_resumen))
 
