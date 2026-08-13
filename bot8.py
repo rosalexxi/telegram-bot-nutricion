@@ -1094,7 +1094,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  Ingresar `COMIDA` se conserva el peso y vuelve a la IA.\n"
         "  Ingresar `COMIDA,PESO` nuevos valores vuelve a la IA.\n\n"
         "• **Actividades fisicas:**\n"
-        "  `*# ACTIVIDAD,CALORIAS` graba actividad y calorias.\n\n"
+        "  `*# MINUTOS ACTIVIDAD,CALORIAS` graba actividad y calorias.\n\n"
         "📄 Te adjuntamos el manual de instrucciones actualizado en PDF."
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
@@ -1166,16 +1166,20 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
         await query_or_update.message.reply_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
         
 
+import re
+
 async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    raw_text = update.message.text.replace('/presion', '').strip()
     
+    # Quita el comando (borra desde /pres hasta el espacio)
+    raw_text = re.sub(r'^/pres\w*(@\w+)?', '', update.message.text, flags=re.IGNORECASE).strip()
+
     if not raw_text:
         await update.message.reply_text(
-            "🩺 Ingresá la presión o consultá un mes. Ejemplos:\n"
-            "• `/presion 120,80,70`\n"
-            "• `/presion 120,80`\n"
-            "• `/presion 2026-08`", 
+            "Ingresa la presion o consulta un mes. Ejemplos:\n"
+            "• /presi 120,80,70\n"
+            "• /presi 120,80\n"
+            "• /presi 2026-08", 
             parse_mode="Markdown"
         )
         return
@@ -1186,16 +1190,27 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     parts = [p.strip() for p in raw_text.replace('/', ',').replace(' ', ',').split(',') if p.strip()]
     if len(parts) >= 2:
-        alta = float(parts[0])
-        baja = float(parts[1])
-        pulsaciones = float(parts[2]) if len(parts) > 2 else None
-        guardar_presion_en_sheets(user_id, alta, baja, pulsaciones)
-        pul_str = f" | Pulsaciones: `{pulsaciones}`" if pulsaciones is not None else ""
-        await update.message.reply_text(f"✅ **Presión registrada:**\nAlta: `{alta}` | Baja: `{baja}`{pul_str}", parse_mode="Markdown")
-        return
-    else:
-        await update.message.reply_text("❌ Formato incorrecto. Uso: `/presion 120,80,70` o `/presion 120,80` o `/presion 2026-08`", parse_mode="Markdown")
+        try:
+            alta = float(parts[0])
+            baja = float(parts[1])
+            pulsaciones = float(parts[2]) if len(parts) > 2 else None
+            
+            guardar_presion_en_sheets(user_id, alta, baja, pulsaciones)
+            
+            pul_str = f" | Pulsaciones: `{pulsaciones}`" if pulsaciones is not None else ""
+            await update.message.reply_text(
+                f"Presion registrada:\nAlta: `{alta}` | Baja: `{baja}`{pul_str}", 
+                parse_mode="Markdown"
+            )
+            return
+        except ValueError:
+            pass
 
+    await update.message.reply_text(
+        "Formato incorrecto. Uso: /presi 120,80,70 o /presi 120,80 o /presi 2026-08", 
+        parse_mode="Markdown"
+    )
+    
 async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
     df_presion = obtener_datos_presion(user_id)
     if df_presion.empty:
@@ -2152,6 +2167,26 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         document=pdf_bytes,
         filename=f"Reporte_Nutricional_{mes_str}.pdf"
     )
+# =============================================================================================================================
+#                                    FUNCIÓN AUXILIAR ESTILO BASIC "VAL()"
+# =============================================================================================================================
+
+def extraer_val(texto: str) -> float:
+    """
+    Equivalente al VAL() de BASIC: busca el primer número (entero o decimal)
+    en la cadena y lo devuelve como float. Si no halla números, retorna 0.0.
+    """
+    if not texto:
+        return 0.0
+    
+    coincidencia = re.search(r'(\d+(?:[.,]\d+)?)', str(texto))
+    if coincidencia:
+        num_str = coincidencia.group(1).replace(',', '.')
+        try:
+            return float(num_str)
+        except ValueError:
+            return 0.0
+    return 0.0
 
 
 # =============================================================================================================================
@@ -2160,7 +2195,7 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
 
 async def registrar_log_en_sheet(sh, contexto: str, detalle: str):
     """
-    Función auxiliar para registrar errores en la pestaña 'Logs' de Google Sheets.
+    Registra errores en la pestaña 'Logs' de Google Sheets.
     """
     try:
         try:
@@ -2177,7 +2212,10 @@ async def registrar_log_en_sheet(sh, contexto: str, detalle: str):
 
 async def ejecutar_recordatorio_comidas(context, momento: str):
     """
-    Función consolidada para verificar y enviar alertas de comidas pendientes y resumen semanal.
+    Verifica y envía alertas de comidas pendientes y resumen semanal.
+    - momento == 'manana': Revisa anteayer y ayer. Si es MARTES, genera y envía
+                           el resumen semanal de la semana anterior (lunes a domingo pasados).
+    - momento == 'tarde': Revisa ayer entero y hoy (Desayuno y Almuerzo).
     """
     try:
         gc = get_gspread_client()
@@ -2211,7 +2249,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
     # Cálculo de fechas con hora de Argentina
     ahora_dt = obtener_ahora_arg()
-    hoy = ahora_dt.date() if hasattr(ahora_dt, "date") else ahora_dt
+    hoy = ahora_dt.date() if hasattr(ahora_dt, "date") else me_ahora_dt
     ayer = hoy - timedelta(days=1)
     anteayer = hoy - timedelta(days=2)
 
@@ -2221,17 +2259,17 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
     todas_comidas = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
 
-    # Evaluar si es lunes por la mañana (0 = Lunes)
-    es_lunes_manana = (hoy.weekday() == 0 and momento == 'manana')
+    # Identificar si es MARTES por la mañana (1 = Martes en Python)
+    es_martes_manana = (hoy.weekday() == 1 and momento == 'manana')
 
-    if es_lunes_manana:
-        lunes_pasado = hoy - timedelta(days=7)
+    # Rango de la semana anterior (lunes a domingo pasados)
+    if es_martes_manana:
+        lunes_pasado = hoy - timedelta(days=8)
         fechas_semana_pasada = set(
             (lunes_pasado + timedelta(days=i)).strftime("%Y-%m-%d") 
             for i in range(7)
         )
 
-    # Procesar cada usuario
     for user_id in usuarios_validos:
         try:
             nombre_hoja_usuario = f"User_{user_id}"
@@ -2259,23 +2297,24 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                 elif fecha_reg == str_hoy:
                     comidas_hoy.add(momento_reg)
 
-                # Acumulación Resumen Semanal
-                if es_lunes_manana and fecha_reg in fechas_semana_pasada:
+                # -------------------------------------------------------------
+                # ACUMULACIÓN PARA RESUMEN SEMANAL (MARTES MAÑANA)
+                # -------------------------------------------------------------
+                if es_martes_manana and fecha_reg in fechas_semana_pasada:
                     es_actividad = "actividad" in momento_actividad.lower() or "ejercicio" in momento_actividad.lower()
 
                     if es_actividad:
-                        minutos = reg.get("Duracion") or reg.get("Minutos") or reg.get("Cantidad") or 0
-                        try:
-                            minutos_ejercicio += float(str(minutos).replace(",", "."))
-                        except (ValueError, TypeError):
-                            pass
+                        # Extraemos texto de Descripción o Momento/Actividad
+                        desc = str(reg.get("Descripción") or reg.get("Descripcion") or momento_actividad)
+                        # Aplica extracción tipo VAL()
+                        minutos_ejercicio += extraer_val(desc)
                     else:
                         try:
                             val_cal = reg.get("Calorías (kcal)") or reg.get("Calorias") or 0
                             val_prot = reg.get("Proteínas (g)") or reg.get("Proteinas") or 0
                             
                             cal = float(str(val_cal).replace(",", ".")) if str(val_cal).strip() else 0.0
-                            prot = float(str(val_prot).replace(",", ".")) if str(str_prot).strip() else 0.0
+                            prot = float(str(val_prot).replace(",", ".")) if str(val_prot).strip() else 0.0
                             
                             if cal > 0 or prot > 0:
                                 calorias_totales += cal
@@ -2284,8 +2323,10 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                         except (ValueError, TypeError):
                             pass
 
-            # ENVÍO DE RESUMEN SEMANAL (LUNES MAÑANA)
-            if es_lunes_manana:
+            # -----------------------------------------------------------------
+            # ENVÍO DEL RESUMEN SEMANAL CON GROQ (MARTES A LA MAÑANA)
+            # -----------------------------------------------------------------
+            if es_martes_manana:
                 try:
                     cant_dias_reg = len(dias_con_registro) if len(dias_con_registro) > 0 else 7
                     prom_calorias = round(calorias_totales / cant_dias_reg, 1)
@@ -2310,12 +2351,12 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                     meta_prot = metas_usuarios.get(user_id, {}).get("proteinas_ideal") or "Consumo adecuado"
 
                     prompt_ia = (
-                        f"Sos un coach nutricional y deportivo. Analizá los datos de la semana pasada del usuario:\n\n"
+                        f"Sos un coach nutricional y deportivo. Analizá los datos de la semana pasada (Lunes a Domingo) del usuario:\n\n"
                         f"- TMB: {tmb_str} | GET: {get_str}\n"
-                        f"- Promedio Calorías: {prom_calorias} kcal/día (Meta: {meta_cal})\n"
+                        f"- Promedio Calorías: {prom_calorias} kcal/día (Días registrados: {cant_dias_reg}/7 | Meta: {meta_cal})\n"
                         f"- Promedio Proteínas: {prom_proteinas} g/día (Meta: {meta_prot})\n"
-                        f"- Ejercicio acumulado: {int(minutos_ejercicio)} minutos (Meta: 180 min).\n\n"
-                        f"Redactá un resumen motivador, claro y corto con Markdown y emojis."
+                        f"- Ejercicio acumulado: {int(minutos_ejercicio)} minutos (Meta ideal: 180 min).\n\n"
+                        f"Redactá un resumen semanal motivador, amigable, claro y directo formateado en Markdown para Telegram con emojis."
                     )
 
                     evaluacion_ia = ""
@@ -2334,7 +2375,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
                     if not evaluacion_ia:
                         evaluacion_ia = (
-                            f"📊 **Promedios de la semana ({cant_dias_reg} días registrados):**\n"
+                            f"📊 **Promedios de la semana pasada ({cant_dias_reg} días registrados):**\n"
                             f"• **Calorías:** {prom_calorias} kcal/día (GET: {get_str})\n"
                             f"• **Proteínas:** {prom_proteinas} g/día\n"
                             f"• **Actividad:** {int(minutos_ejercicio)} / 180 min."
@@ -2342,13 +2383,18 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
                     await context.bot.send_message(
                         chat_id=int(user_id),
-                        text=f"🗓️ **RESUMEN DE TU SEMANA**\n\n{evaluacion_ia}",
+                        text=f"🗓️ **RESUMEN DE TU SEMANA PASADA**\n\n{evaluacion_ia}",
                         parse_mode="Markdown"
                     )
+                    logger.info(f"Resumen semanal (Martes) enviado exitosamente a {user_id}")
+
                 except Exception as e_resumen:
                     logger.error(f"Error en resumen semanal de {user_id}: {e_resumen}")
+                    await registrar_log_en_sheet(sh, f"Error Resumen Martes User {user_id}", e_resumen)
 
-            # REVISIÓN DE COMIDAS PENDIENTES
+            # -----------------------------------------------------------------
+            # REVISIÓN HABITUAL DE COMIDAS PENDIENTES
+            # -----------------------------------------------------------------
             faltantes = []
             if momento == 'manana':
                 for c in todas_comidas:
@@ -2386,6 +2432,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
             await registrar_log_en_sheet(sh, f"Procesando User {user_id}", e)
 
 
+
 # =============================================================================================================================
 #                                        MAIN EXECUTION
 # =============================================================================================================================
@@ -2416,14 +2463,14 @@ def main():
 
         job_queue.run_daily(
             job_recordatorio_tarde, 
-            time=time(hour=20, minute=30, second=0, tzinfo=tz),
+            time=time(hour=16, minute=0, second=0, tzinfo=tz),
             name="recordatorio_comidas_tarde"
         )
 
     app_bot.add_handler(CommandHandler("start", cmd_start))
     app_bot.add_handler(CommandHandler("comidas", cmd_comidas))
     app_bot.add_handler(CommandHandler("perfil", cmd_perfil))
-    app_bot.add_handler(CommandHandler("presion", cmd_presion_handler))
+    app_bot.add_handler(CommandHandler("presi", cmd_presion_handler))
     app_bot.add_handler(CommandHandler("diario", cmd_diario))
     app_bot.add_handler(CommandHandler("resumen", cmd_resumen))
 
