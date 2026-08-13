@@ -309,215 +309,6 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
     if rows:
         ws.append_rows(rows)
         
-        
-# ==================================================================================================================================================================================
-#    INICIO                                         MODULO DE PRESION ARTERIAL (COMANDO, SHEETS Y PDF)                                               INICIO
-# ===================================================================================================================================================================================
-
-def obtener_datos_presion(user_id):
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws = get_or_create_worksheet(sh, f"Presion_{user_id}")
-        records = ws.get_all_records()
-        if not records:
-            return pd.DataFrame()
-
-        df = pd.DataFrame(records)
-        for col in ['Alta', 'Baja', 'Pulsaciones']:
-            if col in df.columns:
-                df[col] = df[col].apply(parse_float_from_sheets)
-
-        if 'Fecha_Dia' in df.columns:
-            df['Fecha_Dia'] = df['Fecha_Dia'].astype(str).str.strip()
-
-        if 'Nota' not in df.columns:
-            df['Nota'] = ""
-
-        return df
-    except Exception:
-        return pd.DataFrame()
-
-
-def guardar_presion_en_sheets(user_id, alta, baja, pulsaciones, nota=""):
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    ws = get_or_create_worksheet(sh, f"Presion_{user_id}")
-    ahora = obtener_ahora_arg()
-    ws.append_row([
-        ahora.strftime("%Y-%m-%d %H:%M:%S"), 
-        ahora.strftime("%Y-%m-%d"), 
-        to_sheet_int(alta), 
-        to_sheet_int(baja), 
-        to_sheet_int(pulsaciones) if pulsaciones is not None else 0,
-        str(nota).strip()
-    ])
-
-def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
-    styles = getSampleStyleSheet()
-    
-    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#1E293B'))
-    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
-
-    story = [
-        Paragraph(f"<b>Detalle Diario de Presion Arterial - {mes_str}</b>", title_style),
-        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
-        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
-    ]
-
-    if df_presion.empty:
-        story.append(Paragraph("No hay registros de presion para este mes.", body_style))
-    else:
-        table_data = [[
-            Paragraph("Fecha y Hora", header_style),
-            Paragraph("Alta (mmHg)", header_style),
-            Paragraph("Baja (mmHg)", header_style),
-            Paragraph("Pulsaciones", header_style),
-            Paragraph("Nota / Detalle", header_style)
-        ]]
-
-        for _, r in df_presion.iterrows():
-            table_data.append([
-                Paragraph(str(r.get('Fecha_Hora', '')), body_style),
-                Paragraph(f"{r.get('Alta', 0):.0f}", body_style),
-                Paragraph(f"{r.get('Baja', 0):.0f}", body_style),
-                Paragraph(f"{r.get('Pulsaciones', 0):.0f}", body_style),
-                Paragraph(str(r.get('Nota', '')), body_style)
-            ])
-
-        t = Table(table_data, colWidths=[110, 65, 65, 70, 190])
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
-        ]))
-        story.append(t)
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
-
-async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    raw_text = re.sub(r'^/pres\w*(@\w+)?', '', update.message.text, flags=re.IGNORECASE).strip()
-
-    if not raw_text:
-        await update.message.reply_text(
-            "Ingresa la presion o consulta un mes. Ejemplos:\n"
-            "• /presi 120,80,70, despues de caminar\n"
-            "• /presi 120,80\n"
-            "• /presi 2026-08", 
-            parse_mode="Markdown"
-        )
-        return
-
-    if re.match(r'^20\d{2}-\d{2}$', raw_text):
-        await mostrar_resumen_presion_mes(update, user_id, raw_text)
-        return
-
-    parts = [p.strip() for p in raw_text.replace('/', ',').split(',') if p.strip()]
-    if len(parts) == 1:
-        parts = [p.strip() for p in raw_text.split(' ') if p.strip()]
-
-    numeros = []
-    texto_nota = []
-
-    for part in parts:
-        clean_part = part.replace(',', '.')
-        try:
-            val = float(clean_part)
-            if len(numeros) < 3 and not texto_nota:
-                numeros.append(val)
-            else:
-                texto_nota.append(part)
-        except ValueError:
-            texto_nota.append(part)
-
-    if len(numeros) >= 2:
-        alta = numeros[0]
-        baja = numeros[1]
-        pulsaciones = numeros[2] if len(numeros) > 2 else None
-        nota = " ".join(texto_nota).strip()
-
-        guardar_presion_en_sheets(user_id, alta, baja, pulsaciones, nota)
-
-        pul_str = f" | Pulsaciones: `{pulsaciones}`" if pulsaciones is not None else ""
-        nota_str = f"\nNota: `{nota}`" if nota else ""
-        
-        await update.message.reply_text(
-            f"Presion registrada:\nAlta: `{alta}` | Baja: `{baja}`{pul_str}{nota_str}", 
-            parse_mode="Markdown"
-        )
-        return
-
-    await update.message.reply_text(
-        "Formato incorrecto. Uso: /presi 120,80,70, al despertar o /presi 120,80 o /presi 2026-08", 
-        parse_mode="Markdown"
-    )
-
-async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
-    df_presion = obtener_datos_presion(user_id)
-    if df_presion.empty:
-        txt = f"🩺 No hay registros de presion arterial para el usuario `{user_id}`."
-        if hasattr(query_or_update, 'edit_message_text'):
-            await query_or_update.edit_message_text(txt, parse_mode="Markdown")
-        else:
-            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
-        return
-
-    df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
-    if df_p_mes.empty:
-        txt = f"🩺 No hay registros de presion para el mes `{mes_str}`."
-        if hasattr(query_or_update, 'edit_message_text'):
-            await query_or_update.edit_message_text(txt, parse_mode="Markdown")
-        else:
-            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
-        return
-
-    alta_prom = df_p_mes['Alta'].mean()
-    baja_prom = df_p_mes['Baja'].mean()
-    pul_prom = df_p_mes[df_p_mes['Pulsaciones'] > 0]['Pulsaciones'].mean() if 'Pulsaciones' in df_p_mes.columns else 0
-
-    txt = (
-        f"🩺 **Resumen de Presion Arterial ({mes_str}):**\n\n"
-        f"• Mediciones registradas: `{len(df_p_mes)}`\n"
-        f"• **Promedio Alta (Sistolica):** `{alta_prom:.1f} mmHg`\n"
-        f"• **Promedio Baja (Diastolica):** `{baja_prom:.1f} mmHg`\n"
-    )
-    if pul_prom > 0:
-        txt += f"• **Promedio Pulsaciones:** `{pul_prom:.1f} lpm`\n"
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📄 Descargar PDF Presion Diaria", callback_data=f"descargar_pdf_presion_{mes_str}")]
-    ])
-
-    if hasattr(query_or_update, 'edit_message_text'):
-        await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
-    else:
-        await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
-
-async def generar_y_enviar_pdf_presion(query, user_id, mes_str, context):
-    df_presion = obtener_datos_presion(user_id)
-    df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if not df_presion.empty and 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
-    
-    pdf_bytes = generar_pdf_presion_bytes(mes_str, df_p_mes, user_id)
-    await context.bot.send_document(
-        chat_id=query.message.chat_id,
-        document=pdf_bytes,
-        filename=f"Presion_Arterial_{mes_str}.pdf"
-    )        
-        
-# ==================================================================================================================================================================================
-#    FINAL                                         MODULO DE PRESION ARTERIAL (COMANDO, SHEETS Y PDF)                                               FINAL
-# ===================================================================================================================================================================================
-
-
 
 # ===================================================================================================================================================================================
 #                                                                COMANDOS PERFIL
@@ -2200,10 +1991,217 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         filename=f"Reporte_Nutricional_{mes_str}.pdf"
     )
 
+        
+# ==================================================================================================================================================================================
+#    INICIO                                         MODULO DE PRESION ARTERIAL (COMANDO, SHEETS Y PDF)                                               INICIO
+# ===================================================================================================================================================================================
 
-# =============================================================================================================================
-#                                    FUNCIÓN AUXILIAR ESTILO BASIC "VAL()"
-# =============================================================================================================================
+def obtener_datos_presion(user_id):
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = get_or_create_worksheet(sh, f"Presion_{user_id}")
+        records = ws.get_all_records()
+        if not records:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(records)
+        for col in ['Alta', 'Baja', 'Pulsaciones']:
+            if col in df.columns:
+                df[col] = df[col].apply(parse_float_from_sheets)
+
+        if 'Fecha_Dia' in df.columns:
+            df['Fecha_Dia'] = df['Fecha_Dia'].astype(str).str.strip()
+
+        if 'Nota' not in df.columns:
+            df['Nota'] = ""
+
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+def guardar_presion_en_sheets(user_id, alta, baja, pulsaciones, nota=""):
+    gc = get_gspread_client()
+    sh = gc.open(SPREADSHEET_NAME)
+    ws = get_or_create_worksheet(sh, f"Presion_{user_id}")
+    ahora = obtener_ahora_arg()
+    ws.append_row([
+        ahora.strftime("%Y-%m-%d %H:%M:%S"), 
+        ahora.strftime("%Y-%m-%d"), 
+        to_sheet_int(alta), 
+        to_sheet_int(baja), 
+        to_sheet_int(pulsaciones) if pulsaciones is not None else 0,
+        str(nota).strip()
+    ])
+
+def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#1E293B'))
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
+
+    story = [
+        Paragraph(f"<b>Detalle Diario de Presion Arterial - {mes_str}</b>", title_style),
+        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
+    ]
+
+    if df_presion.empty:
+        story.append(Paragraph("No hay registros de presion para este mes.", body_style))
+    else:
+        table_data = [[
+            Paragraph("Fecha y Hora", header_style),
+            Paragraph("Alta (mmHg)", header_style),
+            Paragraph("Baja (mmHg)", header_style),
+            Paragraph("Pulsaciones", header_style),
+            Paragraph("Nota / Detalle", header_style)
+        ]]
+
+        for _, r in df_presion.iterrows():
+            table_data.append([
+                Paragraph(str(r.get('Fecha_Hora', '')), body_style),
+                Paragraph(f"{r.get('Alta', 0):.0f}", body_style),
+                Paragraph(f"{r.get('Baja', 0):.0f}", body_style),
+                Paragraph(f"{r.get('Pulsaciones', 0):.0f}", body_style),
+                Paragraph(str(r.get('Nota', '')), body_style)
+            ])
+
+        t = Table(table_data, colWidths=[110, 65, 65, 70, 190])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+        ]))
+        story.append(t)
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    raw_text = re.sub(r'^/pres\w*(@\w+)?', '', update.message.text, flags=re.IGNORECASE).strip()
+
+    if not raw_text:
+        await update.message.reply_text(
+            "Ingresa la presion o consulta un mes. Ejemplos:\n"
+            "• /presi 120,80,70, despues de caminar\n"
+            "• /presi 120,80\n"
+            "• /presi 2026-08", 
+            parse_mode="Markdown"
+        )
+        return
+
+    if re.match(r'^20\d{2}-\d{2}$', raw_text):
+        await mostrar_resumen_presion_mes(update, user_id, raw_text)
+        return
+
+    parts = [p.strip() for p in raw_text.replace('/', ',').split(',') if p.strip()]
+    if len(parts) == 1:
+        parts = [p.strip() for p in raw_text.split(' ') if p.strip()]
+
+    numeros = []
+    texto_nota = []
+
+    for part in parts:
+        clean_part = part.replace(',', '.')
+        try:
+            val = float(clean_part)
+            if len(numeros) < 3 and not texto_nota:
+                numeros.append(val)
+            else:
+                texto_nota.append(part)
+        except ValueError:
+            texto_nota.append(part)
+
+    if len(numeros) >= 2:
+        alta = numeros[0]
+        baja = numeros[1]
+        pulsaciones = numeros[2] if len(numeros) > 2 else None
+        nota = " ".join(texto_nota).strip()
+
+        guardar_presion_en_sheets(user_id, alta, baja, pulsaciones, nota)
+
+        pul_str = f" | Pulsaciones: `{pulsaciones}`" if pulsaciones is not None else ""
+        nota_str = f"\nNota: `{nota}`" if nota else ""
+        
+        await update.message.reply_text(
+            f"Presion registrada:\nAlta: `{alta}` | Baja: `{baja}`{pul_str}{nota_str}", 
+            parse_mode="Markdown"
+        )
+        return
+
+    await update.message.reply_text(
+        "Formato incorrecto. Uso: /presi 120,80,70, al despertar o /presi 120,80 o /presi 2026-08", 
+        parse_mode="Markdown"
+    )
+
+async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
+    df_presion = obtener_datos_presion(user_id)
+    if df_presion.empty:
+        txt = f"🩺 No hay registros de presion arterial para el usuario `{user_id}`."
+        if hasattr(query_or_update, 'edit_message_text'):
+            await query_or_update.edit_message_text(txt, parse_mode="Markdown")
+        else:
+            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
+        return
+
+    df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
+    if df_p_mes.empty:
+        txt = f"🩺 No hay registros de presion para el mes `{mes_str}`."
+        if hasattr(query_or_update, 'edit_message_text'):
+            await query_or_update.edit_message_text(txt, parse_mode="Markdown")
+        else:
+            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
+        return
+
+    alta_prom = df_p_mes['Alta'].mean()
+    baja_prom = df_p_mes['Baja'].mean()
+    pul_prom = df_p_mes[df_p_mes['Pulsaciones'] > 0]['Pulsaciones'].mean() if 'Pulsaciones' in df_p_mes.columns else 0
+
+    txt = (
+        f"🩺 **Resumen de Presion Arterial ({mes_str}):**\n\n"
+        f"• Mediciones registradas: `{len(df_p_mes)}`\n"
+        f"• **Promedio Alta (Sistolica):** `{alta_prom:.1f} mmHg`\n"
+        f"• **Promedio Baja (Diastolica):** `{baja_prom:.1f} mmHg`\n"
+    )
+    if pul_prom > 0:
+        txt += f"• **Promedio Pulsaciones:** `{pul_prom:.1f} lpm`\n"
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📄 Descargar PDF Presion Diaria", callback_data=f"descargar_pdf_presion_{mes_str}")]
+    ])
+
+    if hasattr(query_or_update, 'edit_message_text'):
+        await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
+    else:
+        await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
+
+async def generar_y_enviar_pdf_presion(query, user_id, mes_str, context):
+    df_presion = obtener_datos_presion(user_id)
+    df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if not df_presion.empty and 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
+    
+    pdf_bytes = generar_pdf_presion_bytes(mes_str, df_p_mes, user_id)
+    await context.bot.send_document(
+        chat_id=query.message.chat_id,
+        document=pdf_bytes,
+        filename=f"Presion_Arterial_{mes_str}.pdf"
+    )        
+        
+# ==================================================================================================================================================================================
+#    FINAL                                         MODULO DE PRESION ARTERIAL (COMANDO, SHEETS Y PDF)                                               FINAL
+# ===================================================================================================================================================================================
+
+# ==================================================================================================================================================================================
+#                                                             MENSAJES PROGRAMADOS
+# ===================================================================================================================================================================================
 
 def extraer_val(texto: str) -> float:
     """
@@ -2221,11 +2219,6 @@ def extraer_val(texto: str) -> float:
         except ValueError:
             return 0.0
     return 0.0
-
-
-# =============================================================================================================================
-#                                        MENSAJES PROGRAMADOS
-# =============================================================================================================================
 
 async def registrar_log_en_sheet(sh, contexto: str, detalle: str):
     """
@@ -2465,11 +2458,9 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
             logger.error(f"Error procesando usuario {user_id}: {e}")
             await registrar_log_en_sheet(sh, f"Procesando User {user_id}", e)
 
-
-
-# =============================================================================================================================
-#                                        MAIN EXECUTION
-# =============================================================================================================================
+# ==================================================================================================================================================================================
+#                                                                          MAIN EXECUTION
+# ===================================================================================================================================================================================
 
 async def job_recordatorio_manana(context):
     await ejecutar_recordatorio_comidas(context, momento='manana')
