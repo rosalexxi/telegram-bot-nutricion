@@ -1,7 +1,6 @@
-
 # ===================================================================================================================================================================
-#                INICIO                                    CABECERA                                     INICIO
-# ==================================================================================================================================================================
+#                                 INICIO                                   CABECERA                                     INICIO
+# ===================================================================================================================================================================
 
 import os
 import re
@@ -20,7 +19,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from groq import Groq
 from dotenv import load_dotenv
-from flask import Flask, request, render_template_string
+from flask import Flask, request, jsonify, render_template_string
 
 # ReportLab para PDF
 from reportlab.lib.pagesizes import letter
@@ -65,12 +64,12 @@ else:
     client_ai = None
 
 # ===================================================================================================================================================================
-#                FINAL                                    CABECERA                                       FINAL
-# ==================================================================================================================================================================
+#                                 FINAL                                   CABECERA                                       FINAL
+# ===================================================================================================================================================================
 
 # ===================================================================================================================================================================
-#                INICIO                                    PAGINA WEB                                     INICIO
-# ==================================================================================================================================================================
+#                                 INICIO                                  PAGINA WEB                                     INICIO
+# ===================================================================================================================================================================
 
 # Servidor Flask para Web Service en Render con Interfaz Interactiva
 app = Flask(__name__)
@@ -94,6 +93,8 @@ HTML_TEMPLATE = """
         button:hover { background: #1d4ed8; }
         .result-box { margin-top: 24px; background: #f1f5f9; padding: 16px; border-radius: 8px; border-left: 4px solid #2563eb; white-space: pre-wrap; font-size: 14px; }
         .error-box { background: #fee2e2; border-left-color: #dc2626; color: #991b1b; }
+        .nav-link { display: inline-block; margin-top: 15px; color: #2563eb; font-size: 14px; text-decoration: none; font-weight: 600; }
+        .nav-link:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -119,7 +120,159 @@ HTML_TEMPLATE = """
                 <strong>Error:</strong> {{ error }}
             </div>
         {% endif %}
+
+        <br>
+        <a href="/calculadora" class="nav-link">👉 Ir al Generador de Comidas Precargadas para Excel</a>
     </div>
+</body>
+</html>
+"""
+
+HTML_CALCULADORA_RECETAS = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generador de Comidas Precargadas</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 30px; background-color: #f4f6f9; color: #333; }
+        .container { max-width: 850px; margin: auto; background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        h2 { color: #2c3e50; text-align: center; }
+        label { font-weight: bold; display: block; margin-top: 15px; margin-bottom: 5px; }
+        input[type="text"], input[type="number"], textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+        textarea { height: 100px; resize: vertical; }
+        .row { display: flex; gap: 15px; }
+        .col { flex: 1; }
+        button { background-color: #27ae60; color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 20px; }
+        button:hover { background-color: #219150; }
+        #loading { display: none; text-align: center; margin-top: 15px; font-style: italic; color: #7f8c8d; }
+        #resultado-section { display: none; margin-top: 25px; border-top: 2px solid #eee; padding-top: 15px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        th { background-color: #f2f2f2; }
+        .btn-copy { background-color: #2980b9; margin-top: 15px; }
+        .btn-copy:hover { background-color: #1f6391; }
+        .nav-link { display: inline-block; margin-bottom: 15px; color: #2980b9; text-decoration: none; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <a href="/" class="nav-link">← Volver al Buscador Nutricional</a>
+    <h2>🍳 Generador de Fila para Comidas Precargadas</h2>
+    
+    <div class="row">
+        <div class="col" style="flex: 0.4;">
+            <label for="codigo">Código / Nombre (Columna A):</label>
+            <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;">
+        </div>
+        <div class="col">
+            <label for="descripcion">Descripción de la Comida (Columna B):</label>
+            <input type="text" id="descripcion" placeholder="Ej: Porcion de pascualina de caballa sardina o atun con cebolla morron huevo y aceitunas">
+        </div>
+    </div>
+
+    <label for="recetaText">Ingredientes y Cantidades (Receta Completa):</label>
+    <textarea id="recetaText" placeholder="Ej:&#10;1 tapa de pascualina (200g)&#10;2 latas de atún (340g)&#10;2 cebollas medianas (300g)&#10;2 huevos (100g)"></textarea>
+
+    <div class="row">
+        <div class="col">
+            <label for="porciones">Cantidad de Porciones:</label>
+            <input type="number" id="porciones" value="1" min="1">
+        </div>
+    </div>
+
+    <button onclick="calcularReceta()">✨ Calcular Fila para Excel</button>
+
+    <div id="loading">🔍 Analizando ingredientes con Groq y ajustando porciones...</div>
+
+    <div id="resultado-section">
+        <h3>Fila Generada (Formato Excel x1000)</h3>
+        <div style="overflow-x: auto;">
+            <table id="tablaNutricional">
+                <thead>
+                    <tr>
+                        <th>Nombre (A)</th>
+                        <th>Descripcion (B)</th>
+                        <th>Peso (C)</th>
+                        <th>Calorias (D)</th>
+                        <th>Proteinas (E)</th>
+                        <th>Grasas (F)</th>
+                        <th>Carbohidratos (G)</th>
+                        <th>Fibras (H)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Fila cargada mediante JS -->
+                </tbody>
+            </table>
+        </div>
+
+        <button class="btn-copy" onclick="copiarFilaExcel()">📋 Copiar Fila para Pegar en Excel</button>
+    </div>
+</div>
+
+<script>
+async function calcularReceta() {
+    const codigo = document.getElementById('codigo').value.trim();
+    const descripcion = document.getElementById('descripcion').value.trim();
+    const receta = document.getElementById('recetaText').value.trim();
+    const porciones = document.getElementById('porciones').value;
+
+    if (!codigo || !descripcion || !receta || porciones < 1) {
+        alert("Por favor completa todos los campos.");
+        return;
+    }
+
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('resultado-section').style.display = 'none';
+
+    try {
+        const response = await fetch('/api/calcular-receta', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ codigo, descripcion, receta, porciones: parseInt(porciones) })
+        });
+
+        const data = await response.json();
+        
+        if (response.ok) {
+            const tbody = document.querySelector('#tablaNutricional tbody');
+            tbody.innerHTML = `
+                <tr id="filaExcel">
+                    <td>${data.nombre}</td>
+                    <td>${data.descripcion}</td>
+                    <td>${data.peso}</td>
+                    <td>${data.calorias}</td>
+                    <td>${data.proteinas}</td>
+                    <td>${data.grasas}</td>
+                    <td>${data.carbohidratos}</td>
+                    <td>${data.fibras}</td>
+                </tr>
+            `;
+            document.getElementById('resultado-section').style.display = 'block';
+        } else {
+            alert("Error al calcular: " + (data.error || "Intente nuevamente."));
+        }
+    } catch (err) {
+        alert("Error de conexión con el servidor.");
+    } finally {
+        document.getElementById('loading').style.display = 'none';
+    }
+}
+
+function copiarFilaExcel() {
+    const fila = document.getElementById('filaExcel');
+    const celdas = Array.from(fila.querySelectorAll('td')).map(td => td.innerText);
+    const textoCopiable = celdas.join('\\t');
+
+    navigator.clipboard.writeText(textoCopiable).then(() => {
+        alert("¡Fila copiada! Vas a la celda 'A' de tu Excel, hacés Ctrl + V y pega perfectamente todas las columnas.");
+    });
+}
+</script>
+
 </body>
 </html>
 """
@@ -160,6 +313,87 @@ def health_check():
                 error = str(e)
     return render_template_string(HTML_TEMPLATE, resultado=resultado, error=error, query_text=query_text)
 
+
+@app.route('/calculadora', methods=['GET'])
+def vista_calculadora():
+    """Ruta para renderizar la calculadora de recetas."""
+    return render_template_string(HTML_CALCULADORA_RECETAS)
+
+
+@app.route('/api/calcular-receta', methods=['POST'])
+def api_calcular_receta():
+    """Ruta API que procesa los datos con Groq y devuelve los valores multiplicados x1000."""
+    try:
+        if not client_ai:
+            return jsonify({"error": "GROQ_API_KEY no está configurada en el servidor."}), 500
+
+        data = request.get_json()
+        codigo_nombre = data.get('codigo', '').strip().upper()  # Columna A
+        descripcion = data.get('descripcion', '').strip()        # Columna B
+        receta = data.get('receta', '').strip()
+        porciones = int(data.get('porciones', 1))
+
+        prompt = f"""
+        Actúa como un experto en nutrición. Se te proporciona una receta completa con sus ingredientes, sus cantidades y la cantidad de porciones que rinde.
+        
+        Receta: {descripcion}
+        Ingredientes y cantidades:
+        {receta}
+        
+        Rendimiento: {porciones} porciones iguales.
+        
+        Instrucciones:
+        1. Calcula la información nutricional TOTAL de la receta completa.
+        2. Divide el peso total y todos los valores nutricionales por las {porciones} porciones para obtener el valor unitario por porción.
+        3. Devuelve los valores numéricos reales (en gramos o kcal) con 1 decimal.
+        4. Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura (sin Markdown ni texto explicativo adicional):
+        {{
+            "peso": número,
+            "calorias": número,
+            "proteinas": número,
+            "grasas": número,
+            "carbohidratos": número,
+            "fibras": número
+        }}
+        """
+
+        chat_completion = client_ai.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Sos un asistente nutricional que responde estrictamente en formato JSON."
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+            model="llama-3.3-70b-versatile",
+            response_format={"type": "json_object"}
+        )
+
+        raw_text = chat_completion.choices[0].message.content.strip()
+        datos_raw = json.loads(raw_text)
+
+        # Conversión a x1000 para mantener la compatibilidad exacta con tu Excel (Columnas A-H)
+        resultado_excel = {
+            "nombre": codigo_nombre,
+            "descripcion": f"{descripcion} porcion {int(datos_raw.get('peso', 0))} g",
+            "peso": int(round(float(datos_raw.get('peso', 0)) * 1000)),
+            "calorias": int(round(float(datos_raw.get('calorias', 0)) * 1000)),
+            "proteinas": int(round(float(datos_raw.get('proteinas', 0)) * 1000)),
+            "grasas": int(round(float(datos_raw.get('grasas', 0)) * 1000)),
+            "carbohidratos": int(round(float(datos_raw.get('carbohidratos', 0)) * 1000)),
+            "fibras": int(round(float(datos_raw.get('fibras', 0)) * 1000))
+        }
+
+        return jsonify(resultado_excel), 200
+
+    except Exception as e:
+        logger.error(f"Error calculando receta web con Groq: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
@@ -168,11 +402,11 @@ def run_flask():
 AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT_ITEM = range(4)
 
 # ===================================================================================================================================================================
-#                FINAL                                   PAGINA WEB                                     FINAL
-# ==================================================================================================================================================================
+#                                 FINAL                                   PAGINA WEB                                     FINAL
+# ===================================================================================================================================================================
 
 # =====================================================================================================================================================================
-#                 INICIO                         FUNCIONES AUXILIARES Y FORMATO                       INICIO
+#                                  INICIO                         FUNCIONES AUXILIARES Y FORMATO                       INICIO
 # =====================================================================================================================================================================
 
 async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
