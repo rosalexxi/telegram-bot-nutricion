@@ -299,7 +299,7 @@ def obtener_datos_usuario(user_id):
         print(f"Error al obtener datos del usuario {user_id}: {e}")
         return pd.DataFrame()
  
- async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
+async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
     df = obtener_datos_usuario(user_id)
     
     if df.empty:
