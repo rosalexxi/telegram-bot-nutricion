@@ -1,3 +1,8 @@
+
+# ===================================================================================================================================================================
+#                INICIO                                    CABECERA                                     INICIO
+# ==================================================================================================================================================================
+
 import os
 import re
 import io
@@ -58,6 +63,10 @@ if GROQ_API_KEY:
     client_ai = Groq(api_key=GROQ_API_KEY)
 else:
     client_ai = None
+
+# ===================================================================================================================================================================
+#                FINAL                                    CABECERA                                       FINAL
+# ==================================================================================================================================================================
 
 # ===================================================================================================================================================================
 #                INICIO                                    PAGINA WEB                                     INICIO
@@ -253,7 +262,111 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero="masculino", activid
     get_val = tmb * factor
 
     return tmb, get_val
+
+def obtener_datos_usuario(user_id):
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = get_or_create_worksheet(sh, f"User_{user_id}")
+        records = ws.get_all_records()
+        if not records:
+            return pd.DataFrame()
+        
+        df = pd.DataFrame(records)
+        col_map = {}
+        for c in df.columns:
+            c_lower = str(c).lower()
+            if 'fecha' in c_lower: col_map[c] = 'Fecha'
+            elif 'momento' in c_lower or 'actividad' in c_lower: col_map[c] = 'Momento'
+            elif 'alimento' in c_lower or 'detalle' in c_lower: col_map[c] = 'Alimento'
+            elif 'peso' in c_lower: col_map[c] = 'Peso'
+            elif 'calor' in c_lower: col_map[c] = 'Calorias'
+            elif 'prote' in c_lower: col_map[c] = 'Proteinas'
+            elif 'grasa' in c_lower: col_map[c] = 'Grasas'
+            elif 'hidrat' in c_lower or 'carbo' in c_lower: col_map[c] = 'Carbohidratos'
+            elif 'fibra' in c_lower: col_map[c] = 'Fibras'
+
+        df = df.rename(columns=col_map)
+        if "Fecha" in df.columns and not df.empty:
+            df['Fecha'] = df['Fecha'].astype(str).str.strip()
+            for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
+                if col in df.columns:
+                    df[col] = df[col].apply(parse_float_from_sheets)
+                else:
+                    df[col] = 0.0
+        return df
+    except Exception as e:
+        print(f"Error al obtener datos del usuario {user_id}: {e}")
+        return pd.DataFrame()
  
+ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
+    df = obtener_datos_usuario(user_id)
+    
+    if df.empty:
+        txt = f"📅 No hay registros ingresados para el usuario `{user_id}`."
+        if hasattr(query_or_update, 'edit_message_text'):
+            await query_or_update.edit_message_text(txt, parse_mode="Markdown")
+        else:
+            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
+        return
+
+    df_diario = df[df['Fecha'] == fecha_str]
+    
+    if df_diario.empty:
+        txt = f"📅 **Registro del día {fecha_str}:**\n\nNo hay registros guardados para este día."
+        if hasattr(query_or_update, 'edit_message_text'):
+            await query_or_update.edit_message_text(txt, parse_mode="Markdown")
+        else:
+            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
+        return
+
+    momentos_dict = {}
+    for _, row in df_diario.iterrows():
+        momento = str(row.get("Momento", "General")).strip()
+        concepto = str(row.get("Alimento", "")).strip()
+        
+        if me := momento.title():
+            momento = me
+
+        if momento not in momentos_dict:
+            momentos_dict[momento] = []
+        if concepto:
+            momentos_dict[momento].append(concepto)
+
+    lineas_desglose = []
+    for momento, ítems in momentos_dict.items():
+        cadena_ítems = ", ".join(ítems)
+        lineas_desglose.append(f"• {momento}: {cadena_ítems}")
+
+    tot_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
+    tot_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
+    bal_neto = tot_cons - tot_quem
+
+    resumen_msg = (
+        f"📅 **Registro del día {fecha_str}:**\n\n"
+        + "\n".join(lineas_desglose) + "\n\n"
+        f"🖥️ **Consumidas:** {tot_cons:.0f} kcal\n"
+        f"🔥 **Quemadas:** {tot_quem:.0f} kcal\n"
+        f"⚖️ **Balance Neto:** {bal_neto:.0f} kcal"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📄 Descargar PDF del Diario", callback_data=f"descargar_pdf_diario_{fecha_str}")]
+    ])
+
+    if hasattr(query_or_update, 'edit_message_text'):
+        await query_or_update.edit_message_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
+    else:
+        await query_or_update.message.reply_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
+        
+async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 Hoy", callback_data="diario_hoy"), InlineKeyboardButton("📆 Ayer", callback_data="diario_ayer")],
+        [InlineKeyboardButton("🗓️ Seleccionar Fecha", callback_data="diario_otro")]
+    ])
+    await update.message.reply_text("📅 **Consulta de Diario:** Seleccioná qué día querés revisar:", reply_markup=keyboard, parse_mode="Markdown")
+
+
 # =====================================================================================================================================================================
 #                FINAL                        FUNCIONES AUXILIARES Y FORMATO                                      FINAL
 # =====================================================================================================================================================================
@@ -324,7 +437,7 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
 # ======================================================================================================================================================================
 
 # ========================================================================================================================================================================
-#            INICIO                                          COMANDOS PERFIL                                       INICIO
+#                INICIO                                      COMANDOS PERFIL                                       INICIO
 # =========================================================================================================================================================================
 
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -547,49 +660,13 @@ def obtener_perfil_usuario(user_id, mes_target=None):
         print(f"Error obteniendo perfil del usuario {user_id}: {e}")
         return None
 
-def obtener_datos_usuario(user_id):
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws = get_or_create_worksheet(sh, f"User_{user_id}")
-        records = ws.get_all_records()
-        if not records:
-            return pd.DataFrame()
-        
-        df = pd.DataFrame(records)
-        col_map = {}
-        for c in df.columns:
-            c_lower = str(c).lower()
-            if 'fecha' in c_lower: col_map[c] = 'Fecha'
-            elif 'momento' in c_lower or 'actividad' in c_lower: col_map[c] = 'Momento'
-            elif 'alimento' in c_lower or 'detalle' in c_lower: col_map[c] = 'Alimento'
-            elif 'peso' in c_lower: col_map[c] = 'Peso'
-            elif 'calor' in c_lower: col_map[c] = 'Calorias'
-            elif 'prote' in c_lower: col_map[c] = 'Proteinas'
-            elif 'grasa' in c_lower: col_map[c] = 'Grasas'
-            elif 'hidrat' in c_lower or 'carbo' in c_lower: col_map[c] = 'Carbohidratos'
-            elif 'fibra' in c_lower: col_map[c] = 'Fibras'
-
-        df = df.rename(columns=col_map)
-        if "Fecha" in df.columns and not df.empty:
-            df['Fecha'] = df['Fecha'].astype(str).str.strip()
-            for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
-                if col in df.columns:
-                    df[col] = df[col].apply(parse_float_from_sheets)
-                else:
-                    df[col] = 0.0
-        return df
-    except Exception as e:
-        print(f"Error al obtener datos del usuario {user_id}: {e}")
-        return pd.DataFrame()
-
 # ===================================================================================================================================================================================
-#              FINAL                                                COMANDOS PERFIL                                                FINAL
+#              FINAL                                     COMANDOS PERFIL                                                FINAL
 # ===================================================================================================================================================================================
 
-# =========================================================================================================================
-#                                                         DATOS PLANILLAS
-# ============================================================================================================================
+# ====================================================================================================================================================================================
+#               INICIO                                   OPERACIONES COMIDAS                                          INICIO
+# ====================================================================================================================================================================================
 
 def obtener_plantillas_comidas():
     try:
@@ -607,9 +684,6 @@ def obtener_plantillas_comidas():
     except Exception:
         return []
 
-# ====================================================================
-#               PROCESAMIENTO IA (TEXTO, VOZ Y FOTO)
-# ========================================================================
 def analizar_con_groq(prompt_text):
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
@@ -676,18 +750,9 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         filename="Comidas_Predeterminadas.pdf"
     )
 
-async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ahora = obtener_ahora_arg()
-    mes_actual = ahora.strftime("%Y-%m")
-    mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual}")],
-        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
-        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_otro")]
-    ])
-
-    await update.message.reply_text("📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", reply_markup=keyboard, parse_mode="Markdown")
+# =======================================================================================================================================================
+#                 FINAL                                    OPERACION COMIDAS                          FINAL
+# =======================================================================================================================================================
 
 # =======================================================================================================================================================
 #                 INICIO                                    GENERADORES DE PDF                          INICIO
@@ -898,9 +963,9 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
 #                 FINAL                                   GENERADORES DE PDF                          FINAL
 # =======================================================================================================================================================
 
-# ================================================================
-#                  INTERFAZ Y RENDER DE CONFIRMACIÓN
-# =================================================================
+# =====================================================================================================================================================
+#                  INICIO                        INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO
+# ======================================================================================================================================================
 
 async def render_confirmation_screen(msg_or_query, context):
     items = context.user_data.get('pending_items', [])
@@ -1009,10 +1074,29 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     context.user_data['pending_momento'] = momento
 
     await render_confirmation_screen(msg_obj, context)
+    
+# =====================================================================================================================================================
+#                  FINAL                        INTERFAZ Y RENDER DE CONFIRMACIÓN                      FINAL
+# ======================================================================================================================================================
 
-# ===============================================================================
-#                 HANDLERS DE TELEGRAM
-# =================================================================================
+# ========================================================================================================================================================
+#                 INICIO                            HANDLERS DE TELEGRAM                              INICIO
+# =======================================================================================================================================================
+
+async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ahora = obtener_ahora_arg()
+    mes_actual = ahora.strftime("%Y-%m")
+    mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual}")],
+        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
+        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_otro")]
+    ])
+
+    await update.message.reply_text("📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", reply_markup=keyboard, parse_mode="Markdown")
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "👋 ¡Hola! Bienvenido a tu Bot Nutricional Personalizado.\n\n"
@@ -1046,76 +1130,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         filename="Manual_Bot_Nutricional.pdf"
     )
 
-async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
-    df = obtener_datos_usuario(user_id)
-    
-    if df.empty:
-        txt = f"📅 No hay registros ingresados para el usuario `{user_id}`."
-        if hasattr(query_or_update, 'edit_message_text'):
-            await query_or_update.edit_message_text(txt, parse_mode="Markdown")
-        else:
-            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
-        return
-
-    df_diario = df[df['Fecha'] == fecha_str]
-    
-    if df_diario.empty:
-        txt = f"📅 **Registro del día {fecha_str}:**\n\nNo hay registros guardados para este día."
-        if hasattr(query_or_update, 'edit_message_text'):
-            await query_or_update.edit_message_text(txt, parse_mode="Markdown")
-        else:
-            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
-        return
-
-    momentos_dict = {}
-    for _, row in df_diario.iterrows():
-        momento = str(row.get("Momento", "General")).strip()
-        concepto = str(row.get("Alimento", "")).strip()
-        
-        if me := momento.title():
-            momento = me
-
-        if momento not in momentos_dict:
-            momentos_dict[momento] = []
-        if concepto:
-            momentos_dict[momento].append(concepto)
-
-    lineas_desglose = []
-    for momento, ítems in momentos_dict.items():
-        cadena_ítems = ", ".join(ítems)
-        lineas_desglose.append(f"• {momento}: {cadena_ítems}")
-
-    tot_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
-    tot_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
-    bal_neto = tot_cons - tot_quem
-
-    resumen_msg = (
-        f"📅 **Registro del día {fecha_str}:**\n\n"
-        + "\n".join(lineas_desglose) + "\n\n"
-        f"🖥️ **Consumidas:** {tot_cons:.0f} kcal\n"
-        f"🔥 **Quemadas:** {tot_quem:.0f} kcal\n"
-        f"⚖️ **Balance Neto:** {bal_neto:.0f} kcal"
-    )
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📄 Descargar PDF del Diario", callback_data=f"descargar_pdf_diario_{fecha_str}")]
-    ])
-
-    if hasattr(query_or_update, 'edit_message_text'):
-        await query_or_update.edit_message_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
-    else:
-        await query_or_update.message.reply_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
-        
-#===============================================================================================
-#                       MANEJADORES HADNLE
-#===============================================================================================
-
-async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅 Hoy", callback_data="diario_hoy"), InlineKeyboardButton("📆 Ayer", callback_data="diario_ayer")],
-        [InlineKeyboardButton("🗓️ Seleccionar Fecha", callback_data="diario_otro")]
-    ])
-    await update.message.reply_text("📅 **Consulta de Diario:** Seleccioná qué día querés revisar:", reply_markup=keyboard, parse_mode="Markdown")
+#==============================================================================================================================================================
+#               INICIO                                     MANEJADORES HADNLE                                    INICIO
+#==============================================================================================================================================================
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("🎙️ Procesando audio con IA...")
@@ -1148,8 +1165,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await procesar_y_mostrar_confirmacion(data, msg, context)
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar imagen: {e}")
-
-#=================================================================================================================================================
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1416,14 +1431,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         mes_str = data.replace("descargar_pdf_presion_", "")
         await generar_y_enviar_pdf_presion(query, user_id, mes_str, context)
 
+#==============================================================================================================================================================
+#               FINAL                                     MANEJADORES HADNLE                                    FINAL
+#==============================================================================================================================================================
 
-# ===========================================================================
-#               PANTALLA Y PDF RESUMEN MES
-# ===========================================================================
 
-# ==============================================================================
-# 1. RECOMENDACIÓN EXTENSA PARA PDF (~500 - 600 PALABRAS)
-# ================================================================================
+# ===============================================================================================================================================================
+#               INICIO                                  PANTALLA Y PDF RESUMEN MES                               INICIO
+# ===============================================================================================================================================================
+
+#                                                        RECOMENDACIÓN EXTENSA PARA PDF (~500 - 600 PALABRAS)
+# ================================================================================================================================================================
 
 def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = None) -> str:
     """
@@ -1529,9 +1547,8 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
 
     return "\n\n".join(bloques)
 
-# =========================================================================
-# 2. RECOMENDACIÓN BREVE PARA PANTALLA (~100 PALABRAS)
-# =========================================================================
+#                                                       RECOMENDACIÓN BREVE PARA PANTALLA (~100 PALABRAS)
+# =============================================================================================================================================================================
 
 def obtener_recomendacion_ia(resumen_texto: str) -> str:
     if 'client_ai' not in globals() or not client_ai:
@@ -1563,9 +1580,8 @@ def obtener_recomendacion_ia(resumen_texto: str) -> str:
             "¡Mantené la constancia y asegurá 2 litros de agua al día!"
         )
 
-# ========================================================================
-# 3. MOSTRAR RESUMEN MES (TELEGRAM HANDLER)
-# ========================================================================
+#                                                                MOSTRAR RESUMEN MES (TELEGRAM HANDLER)
+# ======================================================================================================================================================================
 
 async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     try:
@@ -1767,9 +1783,8 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
             
 
-# ======================================================================
-#      GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
-# ====================================================================
+                                                    GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
+# ===================================================================================================================================================================
 
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
     buffer = io.BytesIO()
@@ -2024,9 +2039,12 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         filename=f"Reporte_Nutricional_{mes_str}.pdf"
     )
 
+# ==================================================================================================================================================================================
+#                   FINAL                                PANTALLA Y PDF RESUMEN MES                                           FINAL
+# ===================================================================================================================================================================================
         
 # ==================================================================================================================================================================================
-#    INICIO                                         MODULO DE PRESION ARTERIAL (COMANDO, SHEETS Y PDF)                                               INICIO
+#                   INICIO                         MODULO DE PRESION ARTERIAL (COMANDO, SHEETS Y PDF)                        INICIO
 # ===================================================================================================================================================================================
 
 def obtener_datos_presion(user_id):
@@ -2124,8 +2142,8 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if not raw_text:
         await update.message.reply_text(
-            "Ingresa la presion o consulta un mes. Ejemplos:\n"
-            "• Verificar que no tenga acento presion\n\n"
+            "Ingresa o consulta un mes. Verificar que \n"
+            "/presion no tenga acento. Ejemplos : \n\n"
             "• /presion 120,80,70, despues de caminar\n"
             "• /presion 120,80,70\n"
             "• /presion 120,80\n"
@@ -2231,11 +2249,11 @@ async def generar_y_enviar_pdf_presion(query, user_id, mes_str, context):
     )        
         
 # ==================================================================================================================================================================================
-#    FINAL                                         MODULO DE PRESION ARTERIAL (COMANDO, SHEETS Y PDF)                                               FINAL
+#                  FINAL                          MODULO DE PRESION ARTERIAL (COMANDO, SHEETS Y PDF)                                               FINAL
 # ===================================================================================================================================================================================
 
 # ==================================================================================================================================================================================
-#                                                             MENSAJES PROGRAMADOS
+#                   INICIO                                    MENSAJES PROGRAMADOS                                        INICIO
 # ===================================================================================================================================================================================
 
 def extraer_val(texto: str) -> float:
@@ -2493,8 +2511,13 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
             logger.error(f"Error procesando usuario {user_id}: {e}")
             await registrar_log_en_sheet(sh, f"Procesando User {user_id}", e)
 
+
 # ==================================================================================================================================================================================
-#                                                                          MAIN EXECUTION
+#                   FINAL                                   MENSAJES PROGRAMADOS                                        FINAL
+# ==================================================================================================================================================================================
+
+# ==================================================================================================================================================================================
+#                   INICIO                                        MAIN EXECUTION                                        INICIO
 # ===================================================================================================================================================================================
 
 async def job_recordatorio_manana(context):
@@ -2544,3 +2567,9 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
+# ==================================================================================================================================================================================
+#                   FINAL                                        MAIN EXECUTION                                        FINAL
+# ===================================================================================================================================================================================
+    
+
