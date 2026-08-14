@@ -1119,7 +1119,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  Ingresar `COMIDA` se conserva el peso y vuelve a la IA.\n"
         "  Ingresar `COMIDA,PESO` nuevos valores vuelve a la IA.\n\n"
         "• **Actividades fisicas:**\n"
-        "  `*# minutos actividad, calorias` graba datos en exel.\n\n"
+        "  `*# minutos actividad, calorias` graba datos .\n\n"
         "📄 Te adjuntamos el manual de instrucciones actualizado en PDF."
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
@@ -1898,20 +1898,33 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     p_ideal_raw = perfil_dict.get('Peso_ideal') or perfil_dict.get('peso_ideal') or perfil_dict.get('Peso Ideal')
     peso_ideal_excel = _parse_val(p_ideal_raw, 75.0)
 
+    # El promedio se mantiene exclusivamente para la tabla comparativa y metas ideales
     peso_ideal_promedio = (peso_actual + peso_ideal_excel) / 2.0 if peso_actual > 0 else peso_ideal_excel
 
     genero = str(perfil_dict.get('Genero', perfil_dict.get('genero', perfil_dict.get('Sexo', 'M')))).strip().upper()
+    
+    # 1. TMB REAL (Basado en el Peso Actual) -> Se usa para el gasto energético y descenso de peso real
     if genero == "M":
-        tmb_calc = (10 * peso_ideal_promedio) + (6.25 * altura) - (5 * edad) + 5
+        tmb_calc = (10 * peso_actual) + (6.25 * altura) - (5 * edad) + 5
     else:
-        tmb_calc = (10 * peso_ideal_promedio) + (6.25 * altura) - (5 * edad) - 161
+        tmb_calc = (10 * peso_actual) + (6.25 * altura) - (5 * edad) - 161
 
-    get_ideal = tmb_calc * 1.2
+    get_real = tmb_calc * 1.2  # Gasto Energético Total Diario Real (Factor Sedentario)
     dias_activos = df_mes['Fecha'].nunique() if (df_mes is not None and not df_mes.empty) else 1
 
-    get_total_ideal = get_ideal * dias_activos
-    bal_calorico = tot_cons - get_total_ideal - tot_quem
+    get_total_real = get_real * dias_activos
+    
+    # Balance calórico real considerando el gasto con el peso actual y el ejercicio
+    bal_calorico = tot_cons - get_total_real - tot_quem
     cambio_peso_kg = bal_calorico / 7700.0
+
+    # 2. VALORES RECOMENDADOS / METAS (Basados en el Peso Ideal Promedio)
+    if genero == "M":
+        tmb_meta = (10 * peso_ideal_promedio) + (6.25 * altura) - (5 * edad) + 5
+    else:
+        tmb_meta = (10 * peso_ideal_promedio) + (6.25 * altura) - (5 * edad) - 161
+        
+    get_ideal = tmb_meta * 1.2
 
     prot_rec = round(peso_ideal_promedio * 1.5, 1)
     gras_rec = round((get_ideal * 0.25) / 9.0, 1)
