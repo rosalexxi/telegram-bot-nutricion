@@ -1783,7 +1783,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
             
 
-                                                    GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
+#                                                    GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
 # ===================================================================================================================================================================
 
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
