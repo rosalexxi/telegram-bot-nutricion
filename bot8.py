@@ -359,20 +359,121 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
     else:
         await query_or_update.message.reply_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
         
-async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅 Hoy", callback_data="diario_hoy"), InlineKeyboardButton("📆 Ayer", callback_data="diario_ayer")],
-        [InlineKeyboardButton("🗓️ Seleccionar Fecha", callback_data="diario_otro")]
-    ])
-    await update.message.reply_text("📅 **Consulta de Diario:** Seleccioná qué día querés revisar:", reply_markup=keyboard, parse_mode="Markdown")
-
 
 # =====================================================================================================================================================================
 #                FINAL                        FUNCIONES AUXILIARES Y FORMATO                                      FINAL
 # =====================================================================================================================================================================
    
+# ==================================================================================================================================================================================
+#                   INICIO                               COMANDOS DIARIO Y RESUMEN                                                INICIO
+# ===================================================================================================================================================================================
+
+async def _validar_peso_mes_actual(update: Update, context: ContextTypes.DEFAULT_TYPE, funcion_nombre: str) -> bool:
+    """
+    Función auxiliar privada compartida para /diario y /resumen.
+    Verifica si existe un registro de peso para el mes y año en curso.
+    Si NO está actualizado, envía un mensaje notificando al usuario y retorna False.
+    Si está al día, retorna True.
+    """
+    user_id = update.effective_user.id
+    
+    try:
+        ultimo_registro = obtener_ultimo_peso(user_id)  # Utiliza tu función existente para consultar el peso
+    except Exception as e:
+        logger.error(f"Error al obtener último peso para validar en {funcion_nombre}: {e}")
+        ultimo_registro = None
+
+    peso_valido = False
+    motivo = "No se encontró ningún registro de peso histórico."
+
+    if ultimo_registro and ultimo_registro.get("fecha"):
+        fecha_str = str(ultimo_registro.get("fecha")).strip()
+        try:
+            # Intenta parsear la fecha según el formato registrado en Sheets
+            try:
+                fecha_peso = datetime.strptime(fecha_str, "%Y-%m-%d")
+            except ValueError:
+                fecha_peso = datetime.strptime(fecha_str, "%d/%m/%Y")
+
+            ahora = obtener_ahora_arg()
+            
+            # Compara si el año y el mes coinciden exactamente con la fecha actual
+            if fecha_peso.year == ahora.year and fecha_peso.month == ahora.month:
+                peso_valido = True
+            else:
+                motivo = f"Tu último registro de peso es del mes **{fecha_peso.strftime('%m/%Y')}**."
+        except Exception:
+            motivo = "No se pudo interpretar la fecha del último peso registrado."
+
+    # Si el peso no es del mes actual, envía el mensaje de advertencia y cancela el comando
+    if not peso_valido:
+        mensaje = (
+            f"⚠️ **Actualización de peso requerida**\n\n"
+            f"{motivo}\n\n"
+            f"Para poder generar tu **{funcion_nombre}**, es obligatorio contar con el "
+            f"registro de peso correspondiente al mes en curso.\n\n"
+            f"Por favor, actualizá tu peso utilizando el comando `/peso <valor>` (ejemplo: `/peso 78.5`) "
+            f"y volvé a intentarlo."
+        )
+        await update.message.reply_text(mensaje, parse_mode="Markdown")
+        return False
+
+    return True
+    
+
+async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Manejador del comando /diario.
+    Muestra el menú de selección de fecha solo si el peso del mes en curso está al día.
+    """
+    # 1. Validación estricta del peso del mes actual (Si no está al día, envía aviso y cancela)
+    if not await _validar_peso_mes_actual(update, context, funcion_nombre="reporte diario"):
+        return
+
+    # 2. Despliegue del menú si el peso está al día
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 Hoy", callback_data="diario_hoy"), InlineKeyboardButton("📆 Ayer", callback_data="diario_ayer")],
+        [InlineKeyboardButton("🗓️ Seleccionar Fecha", callback_data="diario_otro")]
+    ])
+    
+    await update.message.reply_text(
+        "📅 **Consulta de Diario:** Seleccioná qué día querés revisar:", 
+        reply_markup=keyboard, 
+        parse_mode="Markdown"
+    )
+
+async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Manejador del comando /resumen.
+    Muestra el menú de selección de mes solo si el peso del mes en curso está al día.
+    """
+    # 1. Validación estricta del peso del mes actual (Si no está al día, envía aviso y cancela)
+    if not await _validar_peso_mes_actual(update, context, funcion_nombre="resumen"):
+        return
+
+    # 2. Lógica normal para calcular fechas y desplegar el menú interactivo
+    ahora = obtener_ahora_arg()
+    mes_actual = ahora.strftime("%Y-%m")
+    mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual}")],
+        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
+        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_otro")]
+    ])
+
+    await update.message.reply_text(
+        "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", 
+        reply_markup=keyboard, 
+        parse_mode="Markdown"
+    )
+
+# ==================================================================================================================================================================================
+#                   FINAL                                COMANDOS DIARIO Y RESUMEN                                               FINAL
+# ===================================================================================================================================================================================
+     
 # ======================================================================================================================================================================
-#                 INICIO                           GOOGLE SHEETS OPERACIONES                                      INICIO
+#                        INICIO                           GOOGLE SHEETS OPERACIONES                                      INICIO
 # ======================================================================================================================================================================
 
 def get_gspread_client():
@@ -1082,19 +1183,6 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 # ========================================================================================================================================================
 #                 INICIO                            HANDLERS DE TELEGRAM                              INICIO
 # =======================================================================================================================================================
-
-async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    ahora = obtener_ahora_arg()
-    mes_actual = ahora.strftime("%Y-%m")
-    mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual}")],
-        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
-        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_otro")]
-    ])
-
-    await update.message.reply_text("📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", reply_markup=keyboard, parse_mode="Markdown")
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2266,7 +2354,7 @@ async def generar_y_enviar_pdf_presion(query, user_id, mes_str, context):
 # ===================================================================================================================================================================================
 
 # ==================================================================================================================================================================================
-#                   INICIO                                    MENSAJES PROGRAMADOS                                        INICIO
+#                    INICIO                                    MENSAJES PROGRAMADOS                                        INICIO
 # ===================================================================================================================================================================================
 
 def extraer_val(texto: str) -> float:
@@ -2303,12 +2391,51 @@ async def registrar_log_en_sheet(sh, contexto: str, detalle: str):
         logger.error(f"Error secundario al intentar registrar en Logs: {e_log}")
 
 
+def _verificar_aviso_peso(user_id: int, ahora_dt) -> str:
+    """
+    Función auxiliar privada para mensajes programados.
+    Si la fecha actual es a partir del día 5 del mes y el usuario no ha registrado
+    peso correspondiente al mes/año en curso, retorna la cadena del aviso.
+    De lo contrario, retorna una cadena vacía.
+    """
+    DIA_INICIO_AVISO = 5
+    if ahora_dt.day < DIA_INICIO_AVISO:
+        return ""
+
+    try:
+        ultimo_registro = obtener_ultimo_peso(user_id)
+        if ultimo_registro and ultimo_registro.get("fecha"):
+            fecha_str = str(ultimo_registro.get("fecha")).strip()
+            try:
+                try:
+                    fecha_peso = datetime.strptime(fecha_str, "%Y-%m-%d")
+                except ValueError:
+                    fecha_peso = datetime.strptime(fecha_str, "%d/%m/%Y")
+                
+                # Si el peso ya corresponde al mes y año actuales, no requiere aviso
+                if fecha_peso.year == ahora_dt.year and fecha_peso.month == ahora_dt.month:
+                    return ""
+            except Exception:
+                pass
+    except Exception as e:
+        logger.error(f"Error al verificar peso para mensaje programado User {user_id}: {e}")
+
+    # Texto de advertencia recurrente a partir del día 5 si falta el peso del mes
+    return (
+        "\n\n⚠️ **Recordatorio de Peso del Mes:**\n"
+        "Aún no registraste tu peso correspondiente a este mes. "
+        "Ten en cuenta que las funciones `/diario` y `/resumen` **quedarán pausadas** "
+        "hasta que actualices tu peso usando `/peso <valor>`."
+    )
+
+
 async def ejecutar_recordatorio_comidas(context, momento: str):
     """
     Verifica y envía alertas de comidas pendientes y resumen semanal.
     - momento == 'manana': Revisa anteayer y ayer. Si es MARTES, genera y envía
                            el resumen semanal de la semana anterior (lunes a domingo pasados).
     - momento == 'tarde': Revisa ayer entero y hoy (Desayuno y Almuerzo).
+    Incluye aviso automático de peso mensual si se está a partir del día 5 sin actualizar.
     """
     try:
         gc = get_gspread_client()
@@ -2342,7 +2469,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
     # Cálculo de fechas con hora de Argentina
     ahora_dt = obtener_ahora_arg()
-    hoy = ahora_dt.date() if hasattr(ahora_dt, "date") else me_ahora_dt
+    hoy = ahora_dt.date() if hasattr(ahora_dt, "date") else ahora_dt
     ayer = hoy - timedelta(days=1)
     anteayer = hoy - timedelta(days=2)
 
@@ -2416,6 +2543,9 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                         except (ValueError, TypeError):
                             pass
 
+            # Generar texto de aviso de peso (si aplica: día >= 5 y sin peso del mes)
+            aviso_peso_str = _verificar_aviso_peso(user_id, ahora_dt)
+
             # -----------------------------------------------------------------
             # ENVÍO DEL RESUMEN SEMANAL CON GROQ (MARTES A LA MAÑANA)
             # -----------------------------------------------------------------
@@ -2474,9 +2604,12 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                             f"• **Actividad:** {int(minutos_ejercicio)} / 180 min."
                         )
 
+                    # Anexar el aviso de peso al resumen semanal
+                    texto_resumen_final = f"🗓️ **RESUMEN DE TU SEMANA PASADA**\n\n{evaluacion_ia}{aviso_peso_str}"
+
                     await context.bot.send_message(
                         chat_id=int(user_id),
-                        text=f"🗓️ **RESUMEN DE TU SEMANA PASADA**\n\n{evaluacion_ia}",
+                        text=texto_resumen_final,
                         parse_mode="Markdown"
                     )
                     logger.info(f"Resumen semanal (Martes) enviado exitosamente a {user_id}")
@@ -2506,13 +2639,25 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                 if "Almuerzo" not in comidas_hoy:
                     faltantes.append("Almuerzo de hoy")
 
-            if faltantes:
-                lista_formateada = "\n• " + "\n• ".join(faltantes)
-                mensaje_recordatorio = (
-                    f"📌 **Recordatorio de comidas pendientes:**\n"
-                    f"{lista_formateada}\n\n"
-                    f"Si ya las consumiste, podés registrarlas en cualquier momento."
-                )
+            # Si hay comidas faltantes O si hay un aviso de peso pendiente por ser día >= 5
+            if faltantes or (not es_martes_manana and aviso_peso_str):
+                mensaje_recordatorio = ""
+                
+                if faltantes:
+                    lista_formateada = "\n• " + "\n• ".join(faltantes)
+                    mensaje_recordatorio = (
+                        f"📌 **Recordatorio de comidas pendientes:**\n"
+                        f"{lista_formateada}\n\n"
+                        f"Si ya las consumiste, podés registrarlas en cualquier momento."
+                    )
+                
+                # Anexar aviso de peso si no se envió en el resumen del martes
+                if not es_martes_manana and aviso_peso_str:
+                    if mensaje_recordatorio:
+                        mensaje_recordatorio += f"\n{aviso_peso_str}"
+                    else:
+                        mensaje_recordatorio = f"🔔 **Aviso del sistema:**{aviso_peso_str}"
+
                 await context.bot.send_message(
                     chat_id=int(user_id), 
                     text=mensaje_recordatorio, 
@@ -2526,7 +2671,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
 
 # ==================================================================================================================================================================================
-#                   FINAL                                   MENSAJES PROGRAMADOS                                        FINAL
+#                    FINAL                                    MENSAJES PROGRAMADOS                                        FINAL
 # ==================================================================================================================================================================================
 
 # ==================================================================================================================================================================================
