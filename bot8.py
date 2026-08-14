@@ -175,6 +175,33 @@ AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT
 #                 INICIO                         FUNCIONES AUXILIARES Y FORMATO                       INICIO
 # =====================================================================================================================================================================
 
+async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
+    """
+    Función centralizada para registrar errores tanto en la consola de Render como en Google Sheets.
+    """
+    mensaje_consola = f"Error en [{contexto}]"
+    if user_id:
+        mensaje_consola += f" - User ID: {user_id}"
+    mensaje_consola += f": {excepcion}"
+
+    # 1. Log en consola / Render
+    logger.error(mensaje_consola)
+
+    # 2. Log en Google Sheets (pestaña 'Logs')
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        
+        ctx_str = f"ERROR | {contexto}" + (f" (User {user_id})" if user_id else "")
+        await registrar_log_en_sheet(
+            sh=sh, 
+            contexto=ctx_str, 
+            detalle=str(excepcion)
+        )
+    except Exception as e_sheet:
+        logger.error(f"Fallo secundario: No se pudo escribir el error en Google Sheets: {e_sheet}")
+
+
 def parse_raw_val(val):
     if val is None or val == "":
         return 0.0
@@ -368,44 +395,92 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
 #                   INICIO                               COMANDOS DIARIO Y RESUMEN                                                INICIO
 # ===================================================================================================================================================================================
 
+def obtener_ultimo_peso(user_id: int) -> dict:
+    """
+    Busca el último registro de peso del usuario en la pestaña 'Usuarios' de Google Sheets.
+    Retorna un diccionario con la fecha o None si no lo encuentra.
+    """
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        sheet_usuarios = sh.worksheet("Usuarios")
+        registros = sheet_usuarios.get_all_records()
+
+        for u in registros:
+            raw_id = u.get("User ID")
+            if raw_id and str(raw_id).strip() == str(user_id).strip():
+                fecha_peso = u.get("Ultimo Mes Peso") or u.get("MES") or u.get("fecha")
+                if fecha_peso:
+                    return {"fecha": str(fecha_peso).strip()}
+                    
+        return None
+    except Exception as e:
+        logger.error(f"Error en obtener_ultimo_peso para User {user_id}: {e}")
+        return None
+
+
 async def _validar_peso_mes_actual(update: Update, context: ContextTypes.DEFAULT_TYPE, funcion_nombre: str) -> bool:
     """
-    Función auxiliar privada compartida para /diario y /resumen.
     Verifica si existe un registro de peso para el mes y año en curso.
-    Si NO está actualizado, envía un mensaje notificando al usuario y retorna False.
-    Si está al día, retorna True.
+    Contempla celdas de Google Sheets con formato de fecha (ej: 1/08/2026, 2026-08, etc.).
     """
     user_id = update.effective_user.id
     
     try:
-        ultimo_registro = obtener_ultimo_peso(user_id)  # Utiliza tu función existente para consultar el peso
+        ultimo_registro = obtener_ultimo_peso(user_id)
     except Exception as e:
-        logger.error(f"Error al obtener último peso para validar en {funcion_nombre}: {e}")
+        await log_error(f"validar_peso_{funcion_nombre}", e, user_id=user_id)
         ultimo_registro = None
 
     peso_valido = False
     motivo = "No se encontró ningún registro de peso histórico."
 
-    if ultimo_registro and ultimo_registro.get("fecha"):
-        fecha_str = str(ultimo_registro.get("fecha")).strip()
-        try:
-            # Intenta parsear la fecha según el formato registrado en Sheets
-            try:
-                fecha_peso = datetime.strptime(fecha_str, "%Y-%m-%d")
-            except ValueError:
-                fecha_peso = datetime.strptime(fecha_str, "%d/%m/%Y")
+    if ultimo_registro:
+        # Obtiene el valor de la fecha probando distintas llaves posibles
+        fecha_val = (
+            ultimo_registro.get("fecha") or 
+            ultimo_registro.get("Ultimo Mes Peso") or 
+            ultimo_registro.get("MES") or 
+            ""
+        )
 
+        fecha_str = str(fecha_val).strip()
+
+        if fecha_str:
             ahora = obtener_ahora_arg()
             
-            # Compara si el año y el mes coinciden exactamente con la fecha actual
-            if fecha_peso.year == ahora.year and fecha_peso.month == ahora.month:
-                peso_valido = True
-            else:
-                motivo = f"Tu último registro de peso es del mes **{fecha_peso.strftime('%m/%Y')}**."
-        except Exception:
-            motivo = "No se pudo interpretar la fecha del último peso registrado."
+            # Listado de formatos habituales de Google Sheets
+            formatos = [
+                "%d/%m/%Y", "%Y-%m-%d", "%d/%m/%y",
+                "%Y-%m", "%m/%Y", "%Y-%m-%d %H:%M:%S",
+                "%d/%m/%Y %H:%M:%S", "%Y-%m-%d %H:%M"
+            ]
 
-    # Si el peso no es del mes actual, envía el mensaje de advertencia y cancela el comando
+            fecha_dt = None
+            
+            # 1. Parsear como fecha real
+            for fmt in formatos:
+                try:
+                    fecha_dt = datetime.strptime(fecha_str, fmt)
+                    break
+                except ValueError:
+                    continue
+
+            # 2. Evaluación de coincidencia con el mes y año actuales
+            if fecha_dt:
+                if fecha_dt.year == ahora.year and fecha_dt.month == ahora.month:
+                    peso_valido = True
+                else:
+                    motivo = f"Tu último registro de peso es de **{fecha_dt.strftime('%m/%Y')}**."
+            else:
+                # 3. Comparación textual directa por si viene como texto simple (ej: '2026-08')
+                mes_str_iso = ahora.strftime("%Y-%m")    # 2026-08
+                mes_str_lat = ahora.strftime("%m/%Y")    # 08/2026
+                
+                if mes_str_iso in fecha_str or mes_str_lat in fecha_str:
+                    peso_valido = True
+
+    # Si el peso no está actualizado para el mes en curso, frena la ejecución del comando
     if not peso_valido:
         mensaje = (
             f"⚠️ **Actualización de peso requerida**\n\n"
@@ -419,7 +494,6 @@ async def _validar_peso_mes_actual(update: Update, context: ContextTypes.DEFAULT
         return False
 
     return True
-    
 
 async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
