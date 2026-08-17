@@ -1,6 +1,6 @@
-# ===================================================================================================================================================================
+# =============================================================================================================================================
 #                                 INICIO                                   CABECERA                                     INICIO
-# ===================================================================================================================================================================
+# ==============================================================================================================================================
 
 import os
 import re
@@ -50,6 +50,9 @@ FRANJAS_COMIDAS = {
 }
 
 load_dotenv()
+
+GROQ_TEXTO = "llama-3.1-8b-instant"
+GROQ_FOTO = "qwen/qwen3.6-27b"
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -368,7 +371,7 @@ def api_calcular_receta():
                     "content": prompt,
                 }
             ],
-            model="llama-3.3-70b-versatile",
+            model= GROQ_TEXTO,
             response_format={"type": "json_object"}
         )
 
@@ -1107,7 +1110,7 @@ Devolvé EXCLUSIVAMENTE un JSON con este formato:
 }"""
 
     response = client_ai.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model= GROQ_TEXTO,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt_text}
@@ -1122,7 +1125,7 @@ def analizar_imagen_con_groq(base64_image):
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
     prompt = "Analizá esta imagen de comida/plato. Identificá los alimentos, estimá sus pesos en gramos y nutrientes. Respondé ÚNICAMENTE en formato JSON con la clave 'items' conteniendo alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras."
     response = client_ai.chat.completions.create(
-        model="qwen/qwen3.6-27b",
+        model = GROQ_FOTO,
         messages=[
             {
                 "role": "user",
@@ -1963,7 +1966,7 @@ def obtener_recomendacion_ia(resumen_texto: str) -> str:
 
     try:
         response = client_ai.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model= GROQ_TEXTO,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
             max_tokens=200
@@ -2894,7 +2897,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                     if client_ai:
                         try:
                             respuesta_ia = client_ai.chat.completions.create(
-                                model="llama-3.3-70b-versatile",
+                                model= GROQ_TEXTO,
                                 messages=[{"role": "user", "content": prompt_ia}],
                                 temperature=0.7,
                                 max_tokens=400
