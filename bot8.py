@@ -51,7 +51,7 @@ FRANJAS_COMIDAS = {
 
 load_dotenv()
 
-GROQ_TEXTO = "llama-3.1-8b-instruct"
+GROQ_TEXTO = "llama-3.30-70b-versatile"
 GROQ_FOTO = "qwen/qwen3.6-27b"
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
