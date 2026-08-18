@@ -949,17 +949,16 @@ def get_user_worksheet(user_id):
     """
     Obtiene o crea una pestaña dinámica 'Comidas_<user_id>' dentro de la planilla.
     """
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_file("credentials.json", scopes=scopes)
-    gc = gspread.authorize(creds)
-    sh = gc.open("Registro_Nutricional_Bot")
+    gc = get_gspread_client()
+    sh = gc.open(SPREADSHEET_NAME)
     
     sheet_name = f"Comidas_{user_id}"
-    try:
-        ws = sh.worksheet(sheet_name)
-    except gspread.exceptions.WorksheetNotFound:
-        # Crea la pestaña para usuarios nuevos y setea las cabeceras estándar
-        ws = sh.add_worksheet(title=sheet_name, rows="1000", cols="10")
+    
+    # Se usa el auxiliar get_or_create_worksheet
+    ws = get_or_create_worksheet(sh, sheet_name)
+    
+    # Si está vacía, se inicializa con los encabezados correspondientes
+    if not ws.get_all_values():
         ws.append_row([
             "Código / Nombre", 
             "Descripción", 
@@ -970,8 +969,9 @@ def get_user_worksheet(user_id):
             "Carbohidratos (g x1000)", 
             "Fibras (g x1000)"
         ])
+        
     return ws
-
+    
 def get_gspread_client():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     if os.path.exists(GOOGLE_SHEETS_KEY_PATH):
