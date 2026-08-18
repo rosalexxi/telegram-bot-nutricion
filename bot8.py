@@ -945,6 +945,33 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                        INICIO                           GOOGLE SHEETS OPERACIONES                                      INICIO
 # ======================================================================================================================================================================
 
+def get_user_worksheet(user_id):
+    """
+    Obtiene o crea una pestaña dinámica 'Comidas_<user_id>' dentro de la planilla.
+    """
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_file("credentials.json", scopes=scopes)
+    gc = gspread.authorize(creds)
+    sh = gc.open("Registro_Nutricional_Bot")
+    
+    sheet_name = f"Comidas_{user_id}"
+    try:
+        ws = sh.worksheet(sheet_name)
+    except gspread.exceptions.WorksheetNotFound:
+        # Crea la pestaña para usuarios nuevos y setea las cabeceras estándar
+        ws = sh.add_worksheet(title=sheet_name, rows="1000", cols="10")
+        ws.append_row([
+            "Código / Nombre", 
+            "Descripción", 
+            "Peso (g x1000)", 
+            "Calorías (x1000)", 
+            "Proteínas (g x1000)", 
+            "Grasas (g x1000)", 
+            "Carbohidratos (g x1000)", 
+            "Fibras (g x1000)"
+        ])
+    return ws
+
 def get_gspread_client():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     if os.path.exists(GOOGLE_SHEETS_KEY_PATH):
@@ -1234,25 +1261,74 @@ def obtener_perfil_usuario(user_id, mes_target=None):
 #              FINAL                                     COMANDOS PERFIL                                                FINAL
 # ===================================================================================================================================================================================
 
-# ====================================================================================================================================================================================
-#               INICIO                                   OPERACIONES COMIDAS                                          INICIO
-# ====================================================================================================================================================================================
+# ====================================================================================================================================================================
+#                               INICIO                                   OPERACIONES COMIDAS                                           INICIO
+# ====================================================================================================================================================================
 
-def obtener_plantillas_comidas():
+def obtener_comidas_usuario(user_id):
+    """
+    Obtiene exclusivamente las comidas precargadas de la pestaña personal del usuario 'Comidas_<user_id>'.
+    """
+    comidas = []
     try:
         gc = get_gspread_client()
         sh = gc.open(SPREADSHEET_NAME)
-        ws = get_or_create_worksheet(sh, "Plantillas_Comidas")
-        records = ws.get_all_records()
+        ws_user = get_or_create_worksheet(sh, f"Comidas_{user_id}")
+        records_user = ws_user.get_all_records()
         
-        for p in records:
-            for k in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
-                if k in p:
-                    p[k] = parse_float_from_sheets(p[k])
-                    
-        return records
-    except Exception:
-        return []
+        for p in records_user:
+            # Normalizar clave de nombre/código
+            nombre = str(p.get('Código / Nombre') or p.get('Nombre') or '').strip()
+            if nombre:
+                p_item = dict(p)
+                p_item['Nombre'] = nombre
+                p_item['Descripcion'] = p.get('Descripción') or p.get('Descripcion') or ''
+                # Castear y limpiar valores numéricos
+                for k in ['Peso (g x1000)', 'Calorías (x1000)', 'Proteínas (g x1000)', 'Grasas (g x1000)', 'Carbohidratos (g x1000)', 'Fibras (g x1000)', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
+                    if k in p_item:
+                        p_item[k] = parse_float_from_sheets(p_item[k])
+                comidas.append(p_item)
+    except Exception as e:
+        logger.warning(f"No se pudo leer pestaña Comidas_{user_id}: {e}")
+
+    return comidas
+
+
+def buscar_comida_precargada_exacta(user_id, texto_codigo):
+    """
+    Busca de forma estricta un código/nombre de comida ÚNICAMENTE en la pestaña 'Comidas_<user_id>'.
+    Si NO la encuentra, devuelve None.
+    """
+    codigo_buscado = texto_codigo.strip().upper()
+    comidas_usuario = obtener_comidas_usuario(user_id)
+
+    for item in comidas_usuario:
+        nombre_item = str(item.get('Nombre') or item.get('Código / Nombre') or '').strip().upper()
+        if nombre_item == codigo_buscado:
+            # Detectar valores con escala x1000 guardados desde la web/Sheets
+            peso_raw = item.get('Peso (g x1000)', item.get('Peso', 0))
+            cal_raw = item.get('Calorías (x1000)', item.get('Calorias', 0))
+            prot_raw = item.get('Proteínas (g x1000)', item.get('Proteinas', 0))
+            gras_raw = item.get('Grasas (g x1000)', item.get('Grasas', 0))
+            carb_raw = item.get('Carbohidratos (g x1000)', item.get('Carbohidratos', 0))
+            fibr_raw = item.get('Fibras (g x1000)', item.get('Fibras', 0))
+
+            # Si viene escalado x1000, desescalar dividiendo por 1000
+            factor = 1000.0 if peso_raw > 5000 or cal_raw > 5000 else 1.0
+
+            return {
+                "nombre": item.get('Nombre') or item.get('Código / Nombre'),
+                "descripcion": item.get('Descripción') or item.get('Descripcion') or '',
+                "peso": float(peso_raw) / factor,
+                "calorias": float(cal_raw) / factor,
+                "proteinas": float(prot_raw) / factor,
+                "grasas": float(gras_raw) / factor,
+                "carbohidratos": float(carb_raw) / factor,
+                "fibras": float(fibr_raw) / factor
+            }
+
+    return None
+
 
 def analizar_con_groq(prompt_text):
     if not client_ai:
@@ -1268,7 +1344,7 @@ Devolvé EXCLUSIVAMENTE un JSON con este formato:
 }"""
 
     response = client_ai.chat.completions.create(
-        model= GROQ_TEXTO,
+        model=GROQ_TEXTO,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt_text}
@@ -1277,13 +1353,14 @@ Devolvé EXCLUSIVAMENTE un JSON con este formato:
         response_format={"type": "json_object"}
     )
     return json.loads(response.choices[0].message.content)
+
     
 def analizar_imagen_con_groq(base64_image):
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
     prompt = "Analizá esta imagen de comida/plato. Identificá los alimentos, estimá sus pesos en gramos y nutrientes. Respondé ÚNICAMENTE en formato JSON con la clave 'items' conteniendo alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras."
     response = client_ai.chat.completions.create(
-        model = GROQ_FOTO,
+        model=GROQ_FOTO,
         messages=[
             {
                 "role": "user",
@@ -1298,33 +1375,35 @@ def analizar_imagen_con_groq(base64_image):
     )
     return json.loads(response.choices[0].message.content)
 
+
 async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    plantillas = obtener_plantillas_comidas()
-    if not plantillas:
-        await update.message.reply_text("📋 No hay comidas predeterminadas registradas en la hoja 'Plantillas_Comidas'.")
+    user_id = update.effective_user.id
+    comidas = obtener_comidas_usuario(user_id)
+    
+    if not comidas:
+        await update.message.reply_text(f"📋 No tenés comidas predeterminadas registradas en tu planilla 'Comidas_{user_id}'. Podés agregar usando /receta.")
         return
 
-    txt = "📋 **Listado de Comidas Predeterminadas:**\n\n"
-    for p in plantillas:
-        nombre = p.get('Nombre', '')
-        descripcion = p.get('Descripcion') or p.get('Momento', '')
+    txt = f"📋 **Tus Comidas Predeterminadas (Comidas_{user_id}):**\n\n"
+    for p in comidas:
+        nombre = p.get('Nombre') or p.get('Código / Nombre') or ''
+        descripcion = p.get('Descripción') or p.get('Descripcion') or p.get('Momento', '')
         txt += f"• **{nombre}**: {descripcion}\n"
 
-    txt += "\n📄 Te adjuntamos el archivo en PDF completo con todos los macronutrientes a continuación."
+    txt += "\n📄 Te adjuntamos el archivo en PDF completo con todos tus macronutrientes a continuación."
     await update.message.reply_text(txt, parse_mode="Markdown")
 
-    pdf_bytes = generar_pdf_comidas_bytes(plantillas)
+    pdf_bytes = generar_pdf_comidas_bytes(comidas)
     await context.bot.send_document(
         chat_id=update.effective_chat.id,
         document=pdf_bytes,
-        filename="Comidas_Predeterminadas.pdf"
+        filename=f"Comidas_Predeterminadas_{user_id}.pdf"
     )
 
 # =======================================================================================================================================================
-#                 FINAL                                    OPERACION COMIDAS                          FINAL
+#                                 FINAL                                   OPERACION COMIDAS                                           FINAL
 # =======================================================================================================================================================
-
-# =======================================================================================================================================================
+ =======================================================================================================================================================
 #                 INICIO                                    GENERADORES DE PDF                          INICIO
 # =======================================================================================================================================================
 
@@ -2822,9 +2901,28 @@ async def generar_y_enviar_pdf_presion(query, user_id, mes_str, context):
 #                  FINAL                          MODULO DE PRESION ARTERIAL (COMANDO, SHEETS Y PDF)                                               FINAL
 # ===================================================================================================================================================================================
 
-# ==================================================================================================================================================================================
+# =============================================================================================================================================
+#                    FINAL                                   COMANDO RECETAS                                        FINAL
+# =============================================================================================================================================
+
+async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    url = f"https://tu-dominio.com/calculadora?user_id={user_id}"
+    
+    keyboard = [[InlineKeyboardButton("🍳 Abrir Creador de Recetas", url=url)]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "Ingresá al siguiente enlace para calcular tu receta y guardarla directamente en tu planilla personal:",
+        reply_markup=reply_markup
+    )
+# =============================================================================================================================================
+#                    FINAL                                   COMANDO RECETAS                                        FINAL
+# =============================================================================================================================================
+
+# =============================================================================================================================================
 #                    INICIO                                    MENSAJES PROGRAMADOS                                        INICIO
-# ===================================================================================================================================================================================
+# =============================================================================================================================================
 
 def extraer_val(texto: str) -> float:
     """
@@ -3183,6 +3281,7 @@ def main():
     app_bot.add_handler(CommandHandler("presion", cmd_presion_handler))
     app_bot.add_handler(CommandHandler("diario", cmd_diario))
     app_bot.add_handler(CommandHandler("resumen", cmd_resumen))
+    app_bot.add_handler(CommandHandler("receta", cmd_cargar_receta))
 
     app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
