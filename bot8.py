@@ -1267,32 +1267,63 @@ def obtener_perfil_usuario(user_id, mes_target=None):
 
 def obtener_comidas_usuario(user_id):
     """
-    Obtiene exclusivamente las comidas precargadas de la pestaña personal del usuario 'Comidas_<user_id>'.
+    Obtiene las comidas precargadas de la pestaña 'Comidas_<user_id>'.
+    Lee los registros de forma segura para evitar fallos por tipos de datos.
     """
     comidas = []
     try:
         gc = get_gspread_client()
         sh = gc.open(SPREADSHEET_NAME)
-        ws_user = get_or_create_worksheet(sh, f"Comidas_{user_id}")
-        records_user = ws_user.get_all_records()
+        sheet_name = f"Comidas_{user_id}"
         
-        for p in records_user:
-            # Normalizar clave de nombre/código
-            nombre = str(p.get('Código / Nombre') or p.get('Nombre') or '').strip()
-            if nombre:
-                p_item = dict(p)
-                p_item['Nombre'] = nombre
-                p_item['Descripcion'] = p.get('Descripción') or p.get('Descripcion') or ''
-                # Castear y limpiar valores numéricos
-                for k in ['Peso (g x1000)', 'Calorías (x1000)', 'Proteínas (g x1000)', 'Grasas (g x1000)', 'Carbohidratos (g x1000)', 'Fibras (g x1000)', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
-                    if k in p_item:
-                        p_item[k] = parse_float_from_sheets(p_item[k])
-                comidas.append(p_item)
+        ws = get_or_create_worksheet(sh, sheet_name)
+        records = ws.get_all_records()
+        
+        for p in records:
+            # Convertir cualquier valor de nombre a string de forma segura
+            raw_nombre = p.get('Código / Nombre') or p.get('Nombre') or ''
+            nombre = str(raw_nombre).strip()
+            
+            if not nombre:
+                continue
+
+            raw_desc = p.get('Descripción') or p.get('Descripcion') or ''
+            descripcion = str(raw_desc).strip()
+
+            # Función de extracción numérica segura
+            def extraer_num(clave_x1000, clave_normal):
+                val_raw = p.get(clave_x1000, p.get(clave_normal, 0))
+                val_num = parse_float_from_sheets(val_raw)
+                # Si viene escalado x1000 (valor mayor a 5000), desescalar dividiendo por 1000
+                return val_num / 1000.0 if val_num > 5000 else val_num
+
+            peso = extraer_num('Peso (g x1000)', 'Peso')
+            calorias = extraer_num('Calorías (x1000)', 'Calorias')
+            proteinas = extraer_num('Proteínas (g x1000)', 'Proteinas')
+            grasas = extraer_num('Grasas (g x1000)', 'Grasas')
+            carbohidratos = extraer_num('Carbohidratos (g x1000)', 'Carbohidratos')
+            fibras = extraer_num('Fibras (g x1000)', 'Fibras')
+
+            comidas.append({
+                'Nombre': nombre,
+                'Código / Nombre': nombre,
+                'Descripcion': descripcion,
+                'Descripción': descripcion,
+                'Peso': peso,
+                'Calorias': calorias,
+                'Calorías': calorias,
+                'Proteinas': proteinas,
+                'Proteínas': proteinas,
+                'Grasas': grasas,
+                'Carbohidratos': carbohidratos,
+                'Fibras': fibras
+            })
+
     except Exception as e:
-        logger.warning(f"No se pudo leer pestaña Comidas_{user_id}: {e}")
+        logger.error(f"Error al leer Comidas_{user_id}: {e}")
 
     return comidas
-
+    
 
 def buscar_comida_precargada_exacta(user_id, texto_codigo):
     """
@@ -1378,16 +1409,24 @@ def analizar_imagen_con_groq(base64_image):
 
 async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    comidas = obtener_comidas_usuario(user_id)
     
+    try:
+        comidas = obtener_comidas_usuario(user_id)
+    except Exception as e:
+        logger.error(f"Error crítico en cmd_comidas: {e}")
+        await update.message.reply_text(f"❌ Error al consultar la planilla: {e}")
+        return
+
     if not comidas:
-        await update.message.reply_text(f"📋 No tenés comidas predeterminadas registradas en tu planilla 'Comidas_{user_id}'. Podés agregar usando /receta.")
+        await update.message.reply_text(
+            f"📋 No tenés comidas predeterminadas registradas en tu planilla 'Comidas_{user_id}'."
+        )
         return
 
     txt = f"📋 **Tus Comidas Predeterminadas (Comidas_{user_id}):**\n\n"
     for p in comidas:
-        nombre = p.get('Nombre') or p.get('Código / Nombre') or ''
-        descripcion = p.get('Descripción') or p.get('Descripcion') or p.get('Momento', '')
+        nombre = p.get('Nombre', '')
+        descripcion = p.get('Descripcion', '')
         txt += f"• **{nombre}**: {descripcion}\n"
 
     txt += "\n📄 Te adjuntamos el archivo en PDF completo con todos tus macronutrientes a continuación."
@@ -1399,7 +1438,7 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         document=pdf_bytes,
         filename=f"Comidas_Predeterminadas_{user_id}.pdf"
     )
-
+    
 # ===================================================================================================================================
 #                                 FINAL                                   OPERACION COMIDAS                                           FINAL
 # =====================================================================================================================================
