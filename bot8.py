@@ -1,3 +1,5 @@
+
+
 # =============================================================================================================================================
 #                                 INICIO                                   CABECERA                                     INICIO
 # ==============================================================================================================================================
@@ -66,6 +68,36 @@ if GROQ_API_KEY:
 else:
     client_ai = None
 
+# Helper para conexion a Google Sheets y obtencion / creacion dinamica de pestañas por ID de usuario
+def get_user_worksheet(user_id):
+    """
+    Obtiene o crea una pestaña con nombre 'Comidas_<user_id>' dentro del Google Sheet configurado.
+    Si la pestaña no existe, la crea con las cabeceras estándar (Columnas A-H).
+    """
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_file(GOOGLE_SHEETS_KEY_PATH, scopes=scopes)
+    gc = gspread.authorize(creds)
+    sh = gc.open(SPREADSHEET_NAME)
+    
+    sheet_name = f"Comidas_{user_id}"
+    try:
+        ws = sh.worksheet(sheet_name)
+    except gspread.exceptions.WorksheetNotFound:
+        # Si no existe la pestaña para el nuevo usuario, se crea dinámicamente
+        ws = sh.add_worksheet(title=sheet_name, rows="1000", cols="10")
+        # Insertar encabezados estándar en la fila 1
+        ws.append_row([
+            "Código / Nombre", 
+            "Descripción", 
+            "Peso (g x1000)", 
+            "Calorías (x1000)", 
+            "Proteínas (g x1000)", 
+            "Grasas (g x1000)", 
+            "Carbohidratos (g x1000)", 
+            "Fibras (g x1000)"
+        ])
+    return ws
+
 # ===================================================================================================================================================================
 #                                 FINAL                                   CABECERA                                       FINAL
 # ===================================================================================================================================================================
@@ -74,7 +106,6 @@ else:
 #                                 INICIO                                  PAGINA WEB                                     INICIO
 # ===================================================================================================================================================================
 
-# Servidor Flask para Web Service en Render con Interfaz Interactiva
 app = Flask(__name__)
 
 HTML_TEMPLATE = """
@@ -125,7 +156,7 @@ HTML_TEMPLATE = """
         {% endif %}
 
         <br>
-        <a href="/calculadora" class="nav-link">👉 Ir al Generador de Comidas Precargadas para Excel</a>
+        <a href="/calculadora{% if user_id %}?user_id={{ user_id }}{% endif %}" class="nav-link">👉 Ir al Generador y Carga de Comidas Precargadas</a>
     </div>
 </body>
 </html>
@@ -143,7 +174,7 @@ HTML_CALCULADORA_RECETAS = """
         .container { max-width: 850px; margin: auto; background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         h2 { color: #2c3e50; text-align: center; }
         label { font-weight: bold; display: block; margin-top: 15px; margin-bottom: 5px; }
-        input[type="text"], input[type="number"], textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+        input[type="text"], input[type="number"], select, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
         textarea { height: 100px; resize: vertical; }
         .row { display: flex; gap: 15px; }
         .col { flex: 1; }
@@ -154,16 +185,27 @@ HTML_CALCULADORA_RECETAS = """
         table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
         th { background-color: #f2f2f2; }
-        .btn-copy { background-color: #2980b9; margin-top: 15px; }
+        .btn-save { background-color: #8e44ad; margin-top: 15px; }
+        .btn-save:hover { background-color: #71368a; }
+        .btn-copy { background-color: #2980b9; margin-top: 10px; }
         .btn-copy:hover { background-color: #1f6391; }
         .nav-link { display: inline-block; margin-bottom: 15px; color: #2980b9; text-decoration: none; font-weight: bold; }
+        .user-badge { background: #e0f2fe; color: #0369a1; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; display: inline-block; margin-bottom: 15px; }
+        .error-user { background: #fee2e2; color: #991b1b; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-weight: bold; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <a href="/" class="nav-link">← Volver al Buscador Nutricional</a>
-    <h2>🍳 Generador de Fila para Comidas Precargadas</h2>
+    <a href="/?user_id={{ user_id }}" class="nav-link">← Volver al Buscador Nutricional</a>
+    
+    {% if user_id %}
+        <div class="user-badge">👤 Usuario conectado: {{ user_id }} (Pestaña: Comidas_{{ user_id }})</div>
+    {% else %}
+        <div class="error-user">⚠️ Atención: No se ha detectado ID de usuario. Accedé desde el link enviado por Telegram para poder guardar directamente en tu planilla.</div>
+    {% endif %}
+
+    <h2>🍳 Generador de Comidas Precargadas</h2>
     
     <div class="row">
         <div class="col" style="flex: 0.4;">
@@ -172,23 +214,30 @@ HTML_CALCULADORA_RECETAS = """
         </div>
         <div class="col">
             <label for="descripcion">Descripción de la Comida (Columna B):</label>
-            <input type="text" id="descripcion" placeholder="Ej: Porcion de pascualina de caballa sardina o atun con cebolla morron huevo y aceitunas">
+            <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún o torta de chocolate">
         </div>
     </div>
 
     <label for="recetaText">Ingredientes y Cantidades (Receta Completa):</label>
-    <textarea id="recetaText" placeholder="Ej:&#10;1 tapa de pascualina (200g)&#10;2 latas de atún (340g)&#10;2 cebollas medianas (300g)&#10;2 huevos (100g)"></textarea>
+    <textarea id="recetaText" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca&#10;300 g de azúcar"></textarea>
 
     <div class="row">
         <div class="col">
+            <label for="tipoCalculo">Criterio de División:</label>
+            <select id="tipoCalculo" onchange="toggleCriterio()">
+                <option value="porciones">Dividir por cantidad de Porciones</option>
+                <option value="gramos">Dividir de a 100 gramos (Fracción fija 100g)</option>
+            </select>
+        </div>
+        <div class="col" id="colPorciones">
             <label for="porciones">Cantidad de Porciones:</label>
             <input type="number" id="porciones" value="1" min="1">
         </div>
     </div>
 
-    <button onclick="calcularReceta()">✨ Calcular Fila para Excel</button>
+    <button onclick="calcularReceta()">✨ Calcular Fila con IA</button>
 
-    <div id="loading">🔍 Analizando ingredientes con Groq y ajustando porciones...</div>
+    <div id="loading">🔍 Analizando ingredientes con Groq y calculando proporciones...</div>
 
     <div id="resultado-section">
         <h3>Fila Generada (Formato Excel x1000)</h3>
@@ -197,10 +246,10 @@ HTML_CALCULADORA_RECETAS = """
                 <thead>
                     <tr>
                         <th>Nombre (A)</th>
-                        <th>Descripcion (B)</th>
+                        <th>Descripción (B)</th>
                         <th>Peso (C)</th>
-                        <th>Calorias (D)</th>
-                        <th>Proteinas (E)</th>
+                        <th>Calorías (D)</th>
+                        <th>Proteínas (E)</th>
                         <th>Grasas (F)</th>
                         <th>Carbohidratos (G)</th>
                         <th>Fibras (H)</th>
@@ -212,19 +261,36 @@ HTML_CALCULADORA_RECETAS = """
             </table>
         </div>
 
-        <button class="btn-copy" onclick="copiarFilaExcel()">📋 Copiar Fila para Pegar en Excel</button>
+        {% if user_id %}
+            <button class="btn-save" onclick="guardarEnGoogleSheets()">💾 Guardar Directamente en mi Planilla de Comidas</button>
+        {% endif %}
+        <button class="btn-copy" onclick="copiarFilaExcel()">📋 Copiar Fila para Pegar Manualmente en Excel</button>
     </div>
 </div>
 
 <script>
+const currentUserId = "{{ user_id }}";
+let ultimoResultadoCalculado = null;
+
+function toggleCriterio() {
+    const tipo = document.getElementById('tipoCalculo').value;
+    const colPorciones = document.getElementById('colPorciones');
+    if (tipo === 'gramos') {
+        colPorciones.style.display = 'none';
+    } else {
+        colPorciones.style.display = 'block';
+    }
+}
+
 async function calcularReceta() {
     const codigo = document.getElementById('codigo').value.trim();
     const descripcion = document.getElementById('descripcion').value.trim();
     const receta = document.getElementById('recetaText').value.trim();
+    const tipoCalculo = document.getElementById('tipoCalculo').value;
     const porciones = document.getElementById('porciones').value;
 
-    if (!codigo || !descripcion || !receta || porciones < 1) {
-        alert("Por favor completa todos los campos.");
+    if (!codigo || !descripcion || !receta) {
+        alert("Por favor completa el código, la descripción y los ingredientes.");
         return;
     }
 
@@ -235,12 +301,19 @@ async function calcularReceta() {
         const response = await fetch('/api/calcular-receta', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ codigo, descripcion, receta, porciones: parseInt(porciones) })
+            body: JSON.stringify({ 
+                codigo, 
+                descripcion, 
+                receta, 
+                tipoCalculo, 
+                porciones: parseInt(porciones || 1) 
+            })
         });
 
         const data = await response.json();
         
         if (response.ok) {
+            ultimoResultadoCalculado = data;
             const tbody = document.querySelector('#tablaNutricional tbody');
             tbody.innerHTML = `
                 <tr id="filaExcel">
@@ -265,13 +338,45 @@ async function calcularReceta() {
     }
 }
 
+async function guardarEnGoogleSheets() {
+    if (!currentUserId) {
+        alert("No hay ID de usuario asociado. Accedé mediante el link de Telegram.");
+        return;
+    }
+    if (!ultimoResultadoCalculado) {
+        alert("Primero calculá la receta antes de guardar.");
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/guardar-comida', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: currentUserId,
+                fila: ultimoResultadoCalculado
+            })
+        });
+
+        const res = await response.json();
+        if (response.ok) {
+            alert("✅ ¡Éxito! La comida se guardó correctamente en el último lugar libre de tu pestaña 'Comidas_" + currentUserId + "'.");
+        } else {
+            alert("❌ Error al guardar en Google Sheets: " + (res.error || "Error desconocido."));
+        }
+    } catch (e) {
+        alert("Error de conexión al intentar guardar en la planilla.");
+    }
+}
+
 function copiarFilaExcel() {
     const fila = document.getElementById('filaExcel');
+    if (!fila) return;
     const celdas = Array.from(fila.querySelectorAll('td')).map(td => td.innerText);
     const textoCopiable = celdas.join('\\t');
 
     navigator.clipboard.writeText(textoCopiable).then(() => {
-        alert("¡Fila copiada! Vas a la celda 'A' de tu Excel, hacés Ctrl + V y pega perfectamente todas las columnas.");
+        alert("¡Fila copiada! Podés pegarla en tu Excel con Ctrl + V.");
     });
 }
 </script>
@@ -282,6 +387,7 @@ function copiarFilaExcel() {
 
 @app.route('/', methods=['GET', 'POST'])
 def health_check():
+    user_id = request.args.get('user_id', '')
     resultado = None
     error = None
     query_text = ""
@@ -314,86 +420,138 @@ def health_check():
                 resultado = "\n".join(res_lines)
             except Exception as e:
                 error = str(e)
-    return render_template_string(HTML_TEMPLATE, resultado=resultado, error=error, query_text=query_text)
+    return render_template_string(HTML_TEMPLATE, resultado=resultado, error=error, query_text=query_text, user_id=user_id)
 
 
 @app.route('/calculadora', methods=['GET'])
 def vista_calculadora():
-    """Ruta para renderizar la calculadora de recetas."""
-    return render_template_string(HTML_CALCULADORA_RECETAS)
+    """Renderiza la calculadora de recetas recibiendo opcionalmente el user_id por URL."""
+    user_id = request.args.get('user_id', '')
+    return render_template_string(HTML_CALCULADORA_RECETAS, user_id=user_id)
 
 
 @app.route('/api/calcular-receta', methods=['POST'])
 def api_calcular_receta():
-    """Ruta API que procesa los datos con Groq y devuelve los valores multiplicados x1000."""
+    """Procesa los datos con Groq dividiendo por porciones o por fracción fija de 100g."""
     try:
         if not client_ai:
             return jsonify({"error": "GROQ_API_KEY no está configurada en el servidor."}), 500
 
         data = request.get_json()
-        codigo_nombre = data.get('codigo', '').strip().upper()  # Columna A
-        descripcion = data.get('descripcion', '').strip()        # Columna B
+        codigo_nombre = data.get('codigo', '').strip().upper()
+        descripcion = data.get('descripcion', '').strip()
         receta = data.get('receta', '').strip()
+        tipo_calculo = data.get('tipoCalculo', 'porciones')  # 'porciones' o 'gramos'
         porciones = int(data.get('porciones', 1))
 
         prompt = f"""
-        Actúa como un experto en nutrición. Se te proporciona una receta completa con sus ingredientes, sus cantidades y la cantidad de porciones que rinde.
+        Actúa como un experto en nutrición. Se te proporciona una receta completa con sus ingredientes y sus cantidades.
         
         Receta: {descripcion}
         Ingredientes y cantidades:
         {receta}
         
-        Rendimiento: {porciones} porciones iguales.
-        
         Instrucciones:
-        1. Calcula la información nutricional TOTAL de la receta completa.
-        2. Divide el peso total y todos los valores nutricionales por las {porciones} porciones para obtener el valor unitario por porción.
-        3. Devuelve los valores numéricos reales (en gramos o kcal) con 1 decimal.
-        4. Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura (sin Markdown ni texto explicativo adicional):
+        1. Calcula la información nutricional TOTAL de la receta completa (peso total en gramos, calorías, proteínas, grasas, carbohidratos, fibras).
+        2. Devuelve los valores numéricos reales en gramos/kcal para el total acumulado de la receta.
+        3. Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
         {{
-            "peso": número,
-            "calorias": número,
-            "proteinas": número,
-            "grasas": número,
-            "carbohidratos": número,
-            "fibras": número
+            "peso_total": número,
+            "calorias_total": número,
+            "proteinas_total": número,
+            "grasas_total": número,
+            "carbohidratos_total": número,
+            "fibras_total": número
         }}
         """
 
         chat_completion = client_ai.chat.completions.create(
             messages=[
-                {
-                    "role": "system",
-                    "content": "Sos un asistente nutricional que responde estrictamente en formato JSON."
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
+                {"role": "system", "content": "Sos un asistente nutricional que responde strictly en formato JSON."},
+                {"role": "user", "content": prompt}
             ],
-            model= GROQ_TEXTO,
+            model=GROQ_TEXTO,
             response_format={"type": "json_object"}
         )
 
         raw_text = chat_completion.choices[0].message.content.strip()
-        datos_raw = json.loads(raw_text)
+        datos_total = json.loads(raw_text)
 
-        # Conversión a x1000 para mantener la compatibilidad exacta con tu Excel (Columnas A-H)
+        peso_tot = float(datos_total.get('peso_total', 0))
+        cal_tot = float(datos_total.get('calorias_total', 0))
+        prot_tot = float(datos_total.get('proteinas_total', 0))
+        gras_tot = float(datos_total.get('grasas_total', 0))
+        carb_tot = float(datos_total.get('carbohidratos_total', 0))
+        fibr_tot = float(datos_total.get('fibras_total', 0))
+
+        if tipo_calculo == 'gramos':
+            # División a fracción fija de 100g
+            factor = 100.0 / peso_tot if peso_tot > 0 else 1.0
+            peso_unitario = 100.0
+            cal_unitario = cal_tot * factor
+            prot_unitario = prot_tot * factor
+            gras_unitario = gras_tot * factor
+            carb_unitario = carb_tot * factor
+            fibr_unitario = fibr_tot * factor
+            desc_final = f"{descripcion} porcion 100 g"
+        else:
+            # División por cantidad de porciones
+            div = porciones if porciones > 0 else 1
+            peso_unitario = peso_tot / div
+            cal_unitario = cal_tot / div
+            prot_unitario = prot_tot / div
+            gras_unitario = gras_tot / div
+            carb_unitario = carb_tot / div
+            fibr_unitario = fibr_tot / div
+            desc_final = f"{descripcion} porcion {int(round(peso_unitario))} g"
+
+        # Conversión x1000 para compatibilidad exacta con la planilla Excel/Google Sheets (Cols A-H)
         resultado_excel = {
             "nombre": codigo_nombre,
-            "descripcion": f"{descripcion} porcion {int(datos_raw.get('peso', 0))} g",
-            "peso": int(round(float(datos_raw.get('peso', 0)) * 1000)),
-            "calorias": int(round(float(datos_raw.get('calorias', 0)) * 1000)),
-            "proteinas": int(round(float(datos_raw.get('proteinas', 0)) * 1000)),
-            "grasas": int(round(float(datos_raw.get('grasas', 0)) * 1000)),
-            "carbohidratos": int(round(float(datos_raw.get('carbohidratos', 0)) * 1000)),
-            "fibras": int(round(float(datos_raw.get('fibras', 0)) * 1000))
+            "descripcion": desc_final,
+            "peso": int(round(peso_unitario * 1000)),
+            "calorias": int(round(cal_unitario * 1000)),
+            "proteinas": int(round(prot_unitario * 1000)),
+            "grasas": int(round(gras_unitario * 1000)),
+            "carbohidratos": int(round(carb_unitario * 1000)),
+            "fibras": int(round(fibr_unitario * 1000))
         }
 
         return jsonify(resultado_excel), 200
 
     except Exception as e:
         logger.error(f"Error calculando receta web con Groq: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/guardar-comida', methods=['POST'])
+def api_guardar_comida():
+    """Guarda la fila calculada en el último lugar libre de la pestaña 'Comidas_<user_id>'."""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        fila = data.get('fila')
+
+        if not user_id or not fila:
+            return jsonify({"error": "Faltan parámetros obligatorios (user_id o fila)."}), 400
+
+        ws = get_user_worksheet(user_id)
+        nueva_fila = [
+            fila.get('nombre', ''),
+            fila.get('descripcion', ''),
+            fila.get('peso', 0),
+            fila.get('calorias', 0),
+            fila.get('proteinas', 0),
+            fila.get('grasas', 0),
+            fila.get('carbohidratos', 0),
+            fila.get('fibras', 0)
+        ]
+        
+        ws.append_row(nueva_fila)
+        return jsonify({"status": "ok", "message": f"Comida agregada en pestaña Comidas_{user_id}"}), 200
+
+    except Exception as e:
+        logger.error(f"Error al guardar en Google Sheets: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -404,9 +562,9 @@ def run_flask():
 # Estados de conversación para Perfil y Fecha personalizada
 AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT_ITEM = range(4)
 
-# ===================================================================================================================================================================
+# ==============================================================================================================================================
 #                                 FINAL                                   PAGINA WEB                                     FINAL
-# ===================================================================================================================================================================
+# =============================================================================================================================================
 
 # =====================================================================================================================================================================
 #                                  INICIO                         FUNCIONES AUXILIARES Y FORMATO                       INICIO
