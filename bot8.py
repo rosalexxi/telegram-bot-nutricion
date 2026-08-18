@@ -2907,7 +2907,7 @@ async def generar_y_enviar_pdf_presion(query, user_id, mes_str, context):
 
 async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    url = f"https://tu-dominio.com/calculadora?user_id={user_id}"
+    url = f"https://telegram-bot-nutricion.onrender.com/calculadora?user_id={user_id}"
     
     keyboard = [[InlineKeyboardButton("🍳 Abrir Creador de Recetas", url=url)]]
     reply_markup = InlineKeyboardMarkup(keyboard)
