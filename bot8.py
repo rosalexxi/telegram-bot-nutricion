@@ -1029,7 +1029,35 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
     if rows:
         ws.append_rows(rows)
         
-# ====================================================================================================================================
+def obtener_comidas_usuario(user_id):
+    """
+    Obtiene las comidas precargadas de la hoja 'Comidas_<user_id>'.
+    Reemplaza a obtener_plantillas_comidas().
+    """
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = get_or_create_worksheet(sh, f"Comidas_{user_id}")
+        records = ws.get_all_records()
+        
+        for p in records:
+            # Normaliza los nombres de claves según las cabeceras de la planilla
+            p['Nombre'] = p.get('Código / Nombre') or p.get('Nombre') or ''
+            p['Descripcion'] = p.get('Descripción') or p.get('Descripcion') or p.get('Momento', '')
+            
+            for k in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras', 
+                      'Peso (g x1000)', 'Calorías (x1000)', 'Proteínas (g x1000)', 
+                      'Grasas (g x1000)', 'Carbohidratos (g x1000)', 'Fibras (g x1000)']:
+                if k in p:
+                    p[k] = parse_float_from_sheets(p[k])
+                    
+        return records
+    except Exception as e:
+        logger.error(f"Error al obtener comidas de Comidas_{user_id}: {e}")
+        return []
+
+
+# ===========================================================================
 #                 FINAL                              GOOGLE SHEETS OPERACIONES                                      FINAL
 # =====================================================================================================================================
 
@@ -1409,35 +1437,35 @@ def analizar_imagen_con_groq(base64_image):
 
 async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    plantillas = obtener_comidas_usuario(user_id)
     
-    try:
-        comidas = obtener_comidas_usuario(user_id)
-    except Exception as e:
-        logger.error(f"Error crítico en cmd_comidas: {e}")
-        await update.message.reply_text(f"❌ Error al consultar la planilla: {e}")
+    if not plantillas:
+        await update.message.reply_text(f"📋 No hay comidas predeterminadas registradas en la hoja 'Comidas_{user_id}'.")
         return
 
-    if not comidas:
-        await update.message.reply_text(
-            f"📋 No tenés comidas predeterminadas registradas en tu planilla 'Comidas_{user_id}'."
-        )
-        return
-
-    txt = f"📋 **Tus Comidas Predeterminadas (Comidas_{user_id}):**\n\n"
-    for p in comidas:
+    txt = f"📋 **Listado de Comidas Predeterminadas (Comidas_{user_id}):**\n\n"
+    for p in plantillas:
         nombre = p.get('Nombre', '')
-        descripcion = p.get('Descripcion', '')
+        descripcion = p.get('Descripcion') or p.get('Momento', '')
         txt += f"• **{nombre}**: {descripcion}\n"
 
-    txt += "\n📄 Te adjuntamos el archivo en PDF completo con todos tus macronutrientes a continuación."
+    txt += "\n📄 Te adjuntamos el archivo en PDF completo con todos los macronutrientes a continuación."
     await update.message.reply_text(txt, parse_mode="Markdown")
 
-    pdf_bytes = generar_pdf_comidas_bytes(comidas)
+    pdf_bytes = generar_pdf_comidas_bytes(plantillas)
     await context.bot.send_document(
         chat_id=update.effective_chat.id,
         document=pdf_bytes,
-        filename=f"Comidas_Predeterminadas_{user_id}.pdf"
+        filename=f"Comidas_{user_id}.pdf"
     )
+        
+
+
+
+
+
+
+
     
 # ===================================================================================================================================
 #                                 FINAL                                   OPERACION COMIDAS                                           FINAL
