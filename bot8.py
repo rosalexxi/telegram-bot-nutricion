@@ -1024,29 +1024,53 @@ async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
             texto = f"⚠️ No se encontraron registros de ingestas para la fecha `{fecha_str}`."
             reply_markup = None
         else:
-            # Se utiliza construir_resumen_diario para dar formato al reporte en texto
-            texto = construir_resumen_diario(df_diario, fecha_str)
+            # Construcción directa del resumen para evitar errores de funciones no definidas
+            c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
+            c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
+            b_neto = c_cons - c_quem
             
-            # Botón opcional para descargar el PDF de dicho diario
+            p_tot = df_diario[df_diario['Calorias'] > 0]['Proteinas'].sum()
+            g_tot = df_diario[df_diario['Calorias'] > 0]['Grasas'].sum()
+            cb_tot = df_diario[df_diario['Calorias'] > 0]['Carbohidratos'].sum()
+            f_tot = df_diario[df_diario['Calorias'] > 0]['Fibras'].sum()
+
+            texto = f"📊 **Resumen Diario - {fecha_str}**\n\n"
+            
+            # Detalle por registros/comidas
+            for _, r in df_diario.iterrows():
+                mom = r.get('Momento', '')
+                alim = r.get('Alimento', '')
+                kcal = r.get('Calorias', 0)
+                peso = r.get('Peso', 0)
+                if kcal < 0:
+                    texto += f"🏃 **{mom}**: {alim} (`{abs(kcal):.1f} kcal`)\n"
+                else:
+                    texto += f"🍽️ **{mom}**: {alim} ({peso:.1f}g) -> `{kcal:.1f} kcal`\n"
+
+            texto += f"\n🔥 **Consumidas:** `{c_cons:.1f} kcal`\n"
+            texto += f"⚡ **Quemadas:** `{c_quem:.1f} kcal`\n"
+            texto += f"⚖️ **Balance Neto:** `{b_neto:.1f} kcal`\n\n"
+            texto += f"🥩 **Prot:** `{p_tot:.1f}g` | 🥑 **Gras:** `{g_tot:.1f}g` | 🍞 **Carb:** `{cb_tot:.1f}g` | 🌾 **Fibr:** `{f_tot:.1f}g`"
+
             keyboard = [[InlineKeyboardButton("📄 Descargar PDF", callback_data=f"descargar_pdf_diario_{fecha_str}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Envíos según el origen de la llamada
+        # Envíos dinámicos según el tipo de origen (callback query o message)
         if hasattr(update_or_query, 'edit_message_text'):
             await update_or_query.edit_message_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
-        elif hasattr(update_or_query, 'message') and update_or_query.message:
-            await update_or_query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
         elif hasattr(update_or_query, 'reply_text'):
             await update_or_query.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+        elif hasattr(update_or_query, 'message') and update_or_query.message:
+            await update_or_query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
 
     except Exception as e:
         msg_err = f"❌ Error al consultar el diario para la fecha `{fecha_str}`: {e}"
         if hasattr(update_or_query, 'edit_message_text'):
             await update_or_query.edit_message_text(msg_err, parse_mode="Markdown")
-        elif hasattr(update_or_query, 'message') and update_or_query.message:
-            await update_or_query.message.reply_text(msg_err, parse_mode="Markdown")
         elif hasattr(update_or_query, 'reply_text'):
             await update_or_query.reply_text(msg_err, parse_mode="Markdown")
+        elif hasattr(update_or_query, 'message') and update_or_query.message:
+            await update_or_query.message.reply_text(msg_err, parse_mode="Markdown")
 
 def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
     buffer = io.BytesIO()
