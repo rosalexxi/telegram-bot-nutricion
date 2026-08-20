@@ -1003,11 +1003,11 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
         ws.append_rows(rows)
         
 # ======================================================================================================================================================================
-#                 FINAL                              GOOGLE SHEETS OPERACIONES                                      FINAL
+#                           FINAL                              GOOGLE SHEETS OPERACIONES                                      FINAL
 # ======================================================================================================================================================================
 
 # ========================================================================================================================================================================
-#                INICIO                                      COMANDOS PERFIL                                       INICIO
+#                           INICIO                          COMANDOS PERFIL 2026 08 19                                      INICIO
 # =========================================================================================================================================================================
 
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1022,7 +1022,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             texto_limpio = raw_text.split()[0].replace(',', '.')
             nuevo_peso = float(texto_limpio)
             
-            # Se guardan el peso y el mes. La función tolera más parámetros si vinieran de otro lado.
+            # Se guardan el peso y el mes.
             guardar_perfil_en_sheets(user_id, nuevo_peso, mes_actual)
             
             # Recargar el perfil actualizado
@@ -1092,7 +1092,8 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def guardar_perfil_en_sheets(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     """
     Guarda/actualiza el peso del usuario manteniendo intactos los formatos 
-    y valores de las columnas históricas (ALTURA, EDAD, Peso_ideal) sin volver a multiplicarlos.
+    y valores de las columnas históricas (ALTURA, EDAD, Peso_ideal).
+    Además, actualiza la celda 'Ultimo Mes Peso' en la pestaña 'usuarios'.
     """
     gc = get_gspread_client()
     sh = gc.open(SPREADSHEET_NAME)
@@ -1154,40 +1155,57 @@ def guardar_perfil_en_sheets(user_id, peso, mes=None, edad=None, altura=None, ge
             if fnac:
                 edad_calculada = ahora.year - fnac.year - ((ahora.month, ahora.day) < (fnac.month, fnac.day))
                 if edad_calculada > 0:
-                    # Si se recalculó la edad en años reales, aplicamos to_sheet_int
                     edad_raw = to_sheet_int(edad_calculada)
         except Exception as e:
             print(f"Error al calcular edad desde Cumple ({fecha_cumple_str}): {e}")
 
     # 3. Armado de fila: Solo se aplica to_sheet_int al PESO ingresado nuevo
     nueva_fila = [
-        str(edad_raw),                       # A: EDAD (se respeta el valor leído)
-        to_sheet_int(peso),                  # B: PESO (se convierte a miles)
-        str(altura_raw),                     # C: ALTURA (se respeta el valor leído)
+        str(edad_raw),                       # A: EDAD
+        to_sheet_int(peso),                  # B: PESO (convertido a miles)
+        str(altura_raw),                     # C: ALTURA
         str(genero_final),                   # D: GENERO
         str(ocupacion_final),                # E: OCUPACION
         str(mes),                            # F: MES
-        ahora.strftime("%Y-%m-%d %H:%M:%S"),  # G: Fecha_Actualiza
+        ahora.strftime("%Y-%m-%d %H:%M:%S"), # G: Fecha_Actualiza
         str(peso_ideal_final),               # H: Peso_ideal
         str(fecha_cumple_str)                # I: Cumple
     ]
 
-    # 4. Actualización en Sheets
+    # 4. Actualización en Perfil_USERID
     if fila_a_actualizar:
         ws.update(f"A{fila_a_actualizar}:I{fila_a_actualizar}", [nueva_fila])
     else:
         ws.append_row(nueva_fila)
 
-    # 5. Actualizar la pestaña usuarios
+    # 5. Actualizar la pestaña 'usuarios' con la columna 'Ultimo Mes Peso'
     try:
         ws_usuarios = sh.worksheet("usuarios")
         cell = ws_usuarios.find(str(user_id))
+        
         if cell:
             headers = ws_usuarios.row_values(1)
-            col_idx = (headers.index("Ultimo Mes Peso") + 1) if "Ultimo Mes Peso" in headers else 4
+            col_idx = None
+            
+            # Buscar dinámicamente la columna 'Ultimo Mes Peso'
+            for idx, h in enumerate(headers, start=1):
+                nombre_col = str(h).strip()
+                if nombre_col.lower() in ["ultimo mes peso", "ultimo_mes_peso"]:
+                    col_idx = idx
+                    break
+            
+            # Fallback a columna 4 si no se halla coincidencia exacta
+            if not col_idx:
+                col_idx = 4
+                
             ws_usuarios.update_cell(cell.row, col_idx, str(mes))
+            print(f"✅ Hoja usuarios actualizada: ID {user_id} -> Ultimo Mes Peso: {mes} (Fila {cell.row}, Col {col_idx})")
+        else:
+            print(f"⚠️ No se encontró el usuario {user_id} en la pestaña 'usuarios'.")
+            
     except Exception as e:
-        print(f"Error al actualizar la pestaña usuarios: {e}")
+        print(f"❌ Error al actualizar la pestaña 'usuarios': {e}")
+
 
 def obtener_perfil_usuario(user_id, mes_target=None):
     try:
@@ -1231,8 +1249,8 @@ def obtener_perfil_usuario(user_id, mes_target=None):
         return None
 
 # ===================================================================================================================================================================================
-#              FINAL                                     COMANDOS PERFIL                                                FINAL
-# ===================================================================================================================================================================================
+#                                 FINAL                                     COMANDOS PERFIL                                                FINAL
+# ===================================================================================================================================================================
 
 # ====================================================================================================================================================================================
 #                               INICIO                                   OPERACIONES COMIDAS 2026-08-19                                          INICIO
@@ -2910,7 +2928,7 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     user_id = update.effective_user.id
     # URL pública de tu app en Render o servidor
-    web_app_url = f"https://tu-app-en-render.onrender.com/calculadora?user_id={user_id}"
+    web_app_url = f"https://telegram-bot-nutricion.onrender.com/calculadora?user_id={user_id}"
     
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🍳 Abrir Creador de Recetas", url=web_app_url)]
