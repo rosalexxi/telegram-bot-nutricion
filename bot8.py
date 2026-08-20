@@ -781,15 +781,6 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
     else:
         await query_or_update.message.reply_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
         
-
-# =====================================================================================================================================================================
-#                FINAL                        FUNCIONES AUXILIARES Y FORMATO                                      FINAL
-# =====================================================================================================================================================================
-   
-# ==================================================================================================================================================================================
-#                   INICIO                               COMANDOS DIARIO Y RESUMEN                                                INICIO
-# ===================================================================================================================================================================================
-
 def obtener_ultimo_peso(user_id: int) -> dict:
     """
     Busca el último registro de peso del usuario en la pestaña 'Usuarios' de Google Sheets.
@@ -890,59 +881,12 @@ async def _validar_peso_mes_actual(update: Update, context: ContextTypes.DEFAULT
 
     return True
 
-async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Manejador del comando /diario.
-    Muestra el menú de selección de fecha solo si el peso del mes en curso está al día.
-    """
-    # 1. Validación estricta del peso del mes actual (Si no está al día, envía aviso y cancela)
-    if not await _validar_peso_mes_actual(update, context, funcion_nombre="reporte diario"):
-        return
-
-    # 2. Despliegue del menú si el peso está al día
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅 Hoy", callback_data="diario_hoy"), InlineKeyboardButton("📆 Ayer", callback_data="diario_ayer")],
-        [InlineKeyboardButton("🗓️ Seleccionar Fecha", callback_data="diario_otro")]
-    ])
-    
-    await update.message.reply_text(
-        "📅 **Consulta de Diario:** Seleccioná qué día querés revisar:", 
-        reply_markup=keyboard, 
-        parse_mode="Markdown"
-    )
-
-async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Manejador del comando /resumen.
-    Muestra el menú de selección de mes solo si el peso del mes en curso está al día.
-    """
-    # 1. Validación estricta del peso del mes actual (Si no está al día, envía aviso y cancela)
-    if not await _validar_peso_mes_actual(update, context, funcion_nombre="resumen"):
-        return
-
-    # 2. Lógica normal para calcular fechas y desplegar el menú interactivo
-    ahora = obtener_ahora_arg()
-    mes_actual = ahora.strftime("%Y-%m")
-    mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual}")],
-        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
-        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_otro")]
-    ])
-
-    await update.message.reply_text(
-        "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", 
-        reply_markup=keyboard, 
-        parse_mode="Markdown"
-    )
-
-# ==================================================================================================================================================================================
-#                   FINAL                                COMANDOS DIARIO Y RESUMEN                                               FINAL
-# ===================================================================================================================================================================================
-     
+# =====================================================================================================================================================================
+#                FINAL                        FUNCIONES AUXILIARES Y FORMATO                                      FINAL
+# =====================================================================================================================================================================
+   
 # ======================================================================================================================================================================
-#                        INICIO                           GOOGLE SHEETS OPERACIONES                                      INICIO
+#                 INICIO                           GOOGLE SHEETS OPERACIONES                                      INICIO
 # ======================================================================================================================================================================
 
 def get_gspread_client():
@@ -1003,11 +947,104 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
         ws.append_rows(rows)
         
 # ======================================================================================================================================================================
-#                           FINAL                              GOOGLE SHEETS OPERACIONES                                      FINAL
+#                    FINAL                              GOOGLE SHEETS OPERACIONES                                      FINAL
 # ======================================================================================================================================================================
 
+# =====================================================================================================================================================================
+#                   INICIO                                    COMANDOS DIARIO                                        INICIO
+# =======================================================================================================================================================================
+
+async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Manejador del comando /diario.
+    Muestra el menú de selección de fecha solo si el peso del mes en curso está al día.
+    """
+    # 1. Validación estricta del peso del mes actual (Si no está al día, envía aviso y cancela)
+    if not await _validar_peso_mes_actual(update, context, funcion_nombre="reporte diario"):
+        return
+
+    # 2. Despliegue del menú si el peso está al día
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 Hoy", callback_data="diario_hoy"), InlineKeyboardButton("📆 Ayer", callback_data="diario_ayer")],
+        [InlineKeyboardButton("🗓️ Seleccionar Fecha", callback_data="diario_otro")]
+    ])
+    
+    await update.message.reply_text(
+        "📅 **Consulta de Diario:** Seleccioná qué día querés revisar:", 
+        reply_markup=keyboard, 
+        parse_mode="Markdown"
+    )
+
+
+def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#1E293B'))
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
+
+    story = [
+        Paragraph(f"<b>Detalle Diario de Ingestas - {fecha_str}</b>", title_style),
+        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
+    ]
+
+    if df_diario.empty:
+        story.append(Paragraph("No hay registros para esta fecha.", body_style))
+    else:
+        table_data = [[
+            Paragraph("Momento", header_style),
+            Paragraph("Alimento / Detalle", header_style),
+            Paragraph("Peso", header_style),
+            Paragraph("Kcal", header_style),
+            Paragraph("Prot", header_style),
+            Paragraph("Gras", header_style),
+            Paragraph("Carb", header_style),
+            Paragraph("Fibr", header_style)
+        ]]
+
+        for _, r in df_diario.iterrows():
+            table_data.append([
+                Paragraph(str(r.get('Momento', '')), body_style),
+                Paragraph(str(r.get('Alimento', '')), body_style),
+                Paragraph(f"{r.get('Peso', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Calorias', 0):.1f}", body_style),
+                Paragraph(f"{r.get('Proteinas', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Grasas', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Carbohidratos', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Fibras', 0):.1f}g", body_style)
+            ])
+
+        t = Table(table_data, colWidths=[70, 160, 45, 45, 45, 45, 45, 45])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 10))
+
+        c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
+        c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
+        b_neto = c_cons - c_quem
+        story.append(Paragraph(f"• <b>Total Consumidas:</b> {c_cons:.1f} kcal", body_style))
+        story.append(Paragraph(f"• <b>Total Quemadas:</b> {c_quem:.1f} kcal", body_style))
+        story.append(Paragraph(f"• <b>Balance Neto:</b> {b_neto:.1f} kcal", body_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+# =====================================================================================================================================================================
+#                   FINAL                                COMANDOS DIARIO                                     FINAL
+# =====================================================================================================================================================================
+     
 # ========================================================================================================================================================================
-#                           INICIO                                     COMANDOS PERFIL                                       INICIO
+#                   INICIO                               COMANDOS PERFIL   2026 08 20                          INICIO
 # =========================================================================================================================================================================
 
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1268,13 +1305,13 @@ def obtener_perfil_usuario(user_id, mes_target=None):
         print(f"Error obteniendo perfil del usuario {user_id}: {e}")
         return None
 
-# ===================================================================================================================================================================================
-#                                 FINAL                                     COMANDOS PERFIL                                                FINAL
+# ==================================================================================================================================================================
+#                       FINAL                                       COMANDOS PERFIL                                                FINAL
 # ===================================================================================================================================================================
 
-# ====================================================================================================================================================================================
-#                               INICIO                                   OPERACIONES COMIDAS 2026-08-19                                          INICIO
-# ====================================================================================================================================================================================
+# ====================================================================================================================================================================
+#                      INICIO                                   OPERACIONES COMIDAS 2026-08-19                                    INICIO
+# ====================================================================================================================================================================
 
 def obtener_comidas_usuario(user_id):
     """
@@ -1436,96 +1473,6 @@ def analizar_imagen_con_groq(base64_image):
     )
     return json.loads(response.choices[0].message.content)
 
-# =======================================================================================================================================================
-#                                 FINAL                                   OPERACION COMIDAS                                           FINAL
-# =======================================================================================================================================================
-
-# =======================================================================================================================================================
-#                 INICIO                                    GENERADORES DE PDF                          INICIO
-# =======================================================================================================================================================
-
-def generar_pdf_instrucciones_bytes():
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
-    styles = getSampleStyleSheet()
-    
-    PRIMARY = colors.HexColor('#0F172A')
-    SECONDARY = colors.HexColor('#2563EB')
-    TEXT_COLOR = colors.HexColor('#334155')
-    BG_LIGHT = colors.HexColor('#F8FAFC')
-    BORDER_COLOR = colors.HexColor('#E2E8F0')
-
-    title_style = ParagraphStyle('ModernTitle', parent=styles['Heading1'], fontSize=18, leading=22, textColor=PRIMARY, spaceAfter=4)
-    subtitle_style = ParagraphStyle('ModernSubtitle', parent=styles['Normal'], fontSize=10, leading=14, textColor=SECONDARY, spaceAfter=15)
-    section_style = ParagraphStyle('ModernSection', parent=styles['Heading2'], fontSize=12, leading=16, textColor=PRIMARY, spaceBefore=12, spaceAfter=6)
-    body_style = ParagraphStyle('ModernBody', parent=styles['Normal'], fontSize=9, leading=14, textColor=TEXT_COLOR)
-    
-    story = []
-
-    header_data = [
-        [Paragraph("🤖 Guía Interactiva del Bot Nutricional", title_style)],
-        [Paragraph("MANUAL DE USUARIO • ASISTENTE PERSONAL INTELIGENTE", subtitle_style)]
-    ]
-    header_table = Table(header_data, colWidths=[532])
-    header_table.setStyle(TableStyle([
-        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
-        ('TOPPADDING', (0,0), (-1,-1), 0),
-        ('LEFTPADDING', (0,0), (-1,-1), 0),
-        ('LINEBELOW', (0,1), (-1,1), 2, SECONDARY),
-    ]))
-    story.append(header_table)
-    story.append(Spacer(1, 10))
-
-    story.append(Paragraph("1. Comandos Principales", section_style))
-    
-    cmds_data = [
-        [Paragraph("<b>/start</b>", body_style), Paragraph("Inicia el bot y reenvía este manual informativo actualizado.", body_style)],
-        [Paragraph("<b>/comidas</b>", body_style), Paragraph("Visualiza el listado de comidas predeterminadas y descarga su plantilla en PDF.", body_style)],
-        [Paragraph("<b>/presion</b>", body_style), Paragraph("Registra valores (Ej: <code>120,80,70</code>) o consulta el resumen mensual de presión (Ej: <code>2026-08</code>).", body_style)],
-        [Paragraph("<b>/diario</b>", body_style), Paragraph("Consulta los consumos del día con agrupamiento inteligente y descarga de PDF detallado.", body_style)],
-        [Paragraph("<b>/resumen</b>", body_style), Paragraph("Obtiene el reporte mensual con tabla comparativa de macronutrientes y recomendaciones de IA.", body_style)],
-        [Paragraph("<b>/perfil</b>", body_style), Paragraph("Consulta o actualiza tus datos biométricos corporales específicos por mes.", body_style)],
-    ]
-    
-    t_cmds = Table(cmds_data, colWidths=[90, 442])
-    t_cmds.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), BG_LIGHT),
-        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ('LEFTPADDING', (0,0), (-1,-1), 8),
-        ('RIGHTPADDING', (0,0), (-1,-1), 8),
-    ]))
-    story.append(t_cmds)
-    story.append(Spacer(1, 10))
-
-    story.append(Paragraph("2. Métodos de Registro y Multiplicadores", section_style))
-    
-    input_data = [
-        [Paragraph("<b>💬 Texto Libre y Plantillas:</b> Podés escribir tus alimentos de forma natural o utilizar plantillas rápidas con multiplicadores de porción directamente (Ej: <code>*PIZZAJM,4</code> o <code>*CHURRO,0.5</code>).", body_style)],
-        [Paragraph("<b>🎤 Notas de Voz:</b> Grabá un audio dictando lo que comiste; el motor de transcripción procesará los datos automáticamente.", body_style)],
-        [Paragraph("<b>📸 Fotografías:</b> Enviá una foto de tu plato para que la inteligencia artificial analice los componentes y calcule los macronutrientes.", body_style)]
-    ]
-    
-    t_inputs = Table(input_data, colWidths=[532])
-    t_inputs.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), BG_LIGHT),
-        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('LINEBELOW', (0,0), (-1,-2), 0.5, BORDER_COLOR),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ('LEFTPADDING', (0,0), (-1,-1), 10),
-        ('RIGHTPADDING', (0,0), (-1,-1), 10),
-    ]))
-    story.append(KeepTogether([t_inputs]))
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
-
 def generar_pdf_comidas_bytes(plantillas):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
@@ -1582,71 +1529,8 @@ def generar_pdf_comidas_bytes(plantillas):
     buffer.seek(0)
     return buffer
 
-def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
-    styles = getSampleStyleSheet()
-    
-    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#1E293B'))
-    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
-
-    story = [
-        Paragraph(f"<b>Detalle Diario de Ingestas - {fecha_str}</b>", title_style),
-        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
-        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
-    ]
-
-    if df_diario.empty:
-        story.append(Paragraph("No hay registros para esta fecha.", body_style))
-    else:
-        table_data = [[
-            Paragraph("Momento", header_style),
-            Paragraph("Alimento / Detalle", header_style),
-            Paragraph("Peso", header_style),
-            Paragraph("Kcal", header_style),
-            Paragraph("Prot", header_style),
-            Paragraph("Gras", header_style),
-            Paragraph("Carb", header_style),
-            Paragraph("Fibr", header_style)
-        ]]
-
-        for _, r in df_diario.iterrows():
-            table_data.append([
-                Paragraph(str(r.get('Momento', '')), body_style),
-                Paragraph(str(r.get('Alimento', '')), body_style),
-                Paragraph(f"{r.get('Peso', 0):.1f}g", body_style),
-                Paragraph(f"{r.get('Calorias', 0):.1f}", body_style),
-                Paragraph(f"{r.get('Proteinas', 0):.1f}g", body_style),
-                Paragraph(f"{r.get('Grasas', 0):.1f}g", body_style),
-                Paragraph(f"{r.get('Carbohidratos', 0):.1f}g", body_style),
-                Paragraph(f"{r.get('Fibras', 0):.1f}g", body_style)
-            ])
-
-        t = Table(table_data, colWidths=[70, 160, 45, 45, 45, 45, 45, 45])
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 10))
-
-        c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
-        c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
-        b_neto = c_cons - c_quem
-        story.append(Paragraph(f"• <b>Total Consumidas:</b> {c_cons:.1f} kcal", body_style))
-        story.append(Paragraph(f"• <b>Total Quemadas:</b> {c_quem:.1f} kcal", body_style))
-        story.append(Paragraph(f"• <b>Balance Neto:</b> {b_neto:.1f} kcal", body_style))
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
-
 # =======================================================================================================================================================
-#                 FINAL                                   GENERADORES DE PDF                          FINAL
+#                   FINAL                                   OPERACION COMIDAS                                           FINAL
 # =======================================================================================================================================================
 
 # =====================================================================================================================================================
@@ -1766,24 +1650,24 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 # ======================================================================================================================================================
 
 # ========================================================================================================================================================
-#                 INICIO                            HANDLERS DE TELEGRAM                              INICIO
+#                 INICIO                            COMANDO START                               INICIO
 # =======================================================================================================================================================
-
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "👋 ¡Hola! Bienvenido a tu Bot Nutricional Personalizado.\n\n"
         "📌 Funciones y Comandos Disponibles:\n\n"
         "• `/comidas`: Visualiza listado y descarga PDF.\n"
-        "• `/presion 120,80,70` registra alta, baja, pulso.\n"
-        "• `/presion 120,80` omite pulso.\n"
+        "• `/presion 120,80,70,Nota` registra datos y nota.\n"
+        "• `/presion 120,80` omite pulso y nota.\n"
         "• `/presion 2026-08` promedio mensual y PDF.\n"
         "• `/diario`: Ingestas del día y PDF detallado.\n"
         "• `/resumen`: Reporte mensual con IA y PDF.\n"
+        "• `/receta`: Carga con IA una comida en planilla.\n"
         "• `/perfil`: Consulta datos biométricos.\n"
-        "• `/perfil 90 kg`: Actualiza el peso del mes.\n\n"
+        "• `/perfil 90 `: Actualiza el peso del mes.\n\n"
         "📌 Ingreso de ingestas y actividad:\n\n"
-        "• **Comidads del listado precargado:**\n"
+        "• **Comidas del listado precargado:**\n"
         "  `*PIZZAJM` ingresa una unidad de la comida.\n"
         "  `*PIZZAJM,1.5` o `*CHURRO,6` ingresa la cantidad.\n\n"
         "• **Ingreso de comidas por IA:**\n"
@@ -1803,8 +1687,94 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         filename="Manual_Bot_Nutricional.pdf"
     )
 
+def generar_pdf_instrucciones_bytes():
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
+    styles = getSampleStyleSheet()
+    
+    PRIMARY = colors.HexColor('#0F172A')
+    SECONDARY = colors.HexColor('#2563EB')
+    TEXT_COLOR = colors.HexColor('#334155')
+    BG_LIGHT = colors.HexColor('#F8FAFC')
+    BORDER_COLOR = colors.HexColor('#E2E8F0')
+
+    title_style = ParagraphStyle('ModernTitle', parent=styles['Heading1'], fontSize=18, leading=22, textColor=PRIMARY, spaceAfter=4)
+    subtitle_style = ParagraphStyle('ModernSubtitle', parent=styles['Normal'], fontSize=10, leading=14, textColor=SECONDARY, spaceAfter=15)
+    section_style = ParagraphStyle('ModernSection', parent=styles['Heading2'], fontSize=12, leading=16, textColor=PRIMARY, spaceBefore=12, spaceAfter=6)
+    body_style = ParagraphStyle('ModernBody', parent=styles['Normal'], fontSize=9, leading=14, textColor=TEXT_COLOR)
+    
+    story = []
+
+    header_data = [
+        [Paragraph("🤖 Guía Interactiva del Bot Nutricional", title_style)],
+        [Paragraph("MANUAL DE USUARIO • ASISTENTE PERSONAL INTELIGENTE", subtitle_style)]
+    ]
+    header_table = Table(header_data, colWidths=[532])
+    header_table.setStyle(TableStyle([
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ('TOPPADDING', (0,0), (-1,-1), 0),
+        ('LEFTPADDING', (0,0), (-1,-1), 0),
+        ('LINEBELOW', (0,1), (-1,1), 2, SECONDARY),
+    ]))
+    story.append(header_table)
+    story.append(Spacer(1, 10))
+
+    story.append(Paragraph("1. Comandos Principales", section_style))
+    
+    cmds_data = [
+        [Paragraph("<b>/start</b>", body_style), Paragraph("Inicia el bot y reenvía este manual informativo actualizado.", body_style)],
+        [Paragraph("<b>/comidas</b>", body_style), Paragraph("Visualiza el listado de comidas predeterminadas y descarga su plantilla en PDF.", body_style)],
+        [Paragraph("<b>/presion</b>", body_style), Paragraph("Registra valores (Ej: <code>120,80,70</code>) o consulta el resumen mensual de presión (Ej: <code>2026-08</code>).", body_style)],
+        [Paragraph("<b>/diario</b>", body_style), Paragraph("Consulta los consumos del día con agrupamiento inteligente y descarga de PDF detallado.", body_style)],
+        [Paragraph("<b>/resumen</b>", body_style), Paragraph("Obtiene el reporte mensual con tabla comparativa de macronutrientes y recomendaciones de IA.", body_style)],
+        [Paragraph("<b>/perfil</b>", body_style), Paragraph("Consulta o actualiza tus datos biométricos corporales específicos por mes.", body_style)],
+    ]
+    
+    t_cmds = Table(cmds_data, colWidths=[90, 442])
+    t_cmds.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), BG_LIGHT),
+        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('LEFTPADDING', (0,0), (-1,-1), 8),
+        ('RIGHTPADDING', (0,0), (-1,-1), 8),
+    ]))
+    story.append(t_cmds)
+    story.append(Spacer(1, 10))
+
+    story.append(Paragraph("2. Métodos de Registro y Multiplicadores", section_style))
+    
+    input_data = [
+        [Paragraph("<b>💬 Texto Libre y Plantillas:</b> Podés escribir tus alimentos de forma natural o utilizar plantillas rápidas con multiplicadores de porción directamente (Ej: <code>*PIZZAJM,4</code> o <code>*CHURRO,0.5</code>).", body_style)],
+        [Paragraph("<b>🎤 Notas de Voz:</b> Grabá un audio dictando lo que comiste; el motor de transcripción procesará los datos automáticamente.", body_style)],
+        [Paragraph("<b>📸 Fotografías:</b> Enviá una foto de tu plato para que la inteligencia artificial analice los componentes y calcule los macronutrientes.", body_style)]
+    ]
+    
+    t_inputs = Table(input_data, colWidths=[532])
+    t_inputs.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), BG_LIGHT),
+        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('LINEBELOW', (0,0), (-1,-2), 0.5, BORDER_COLOR),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+        ('LEFTPADDING', (0,0), (-1,-1), 10),
+        ('RIGHTPADDING', (0,0), (-1,-1), 10),
+    ]))
+    story.append(KeepTogether([t_inputs]))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+# ========================================================================================================================================================
+#                 INICIO                            COMANDO START                               INICIO
+# =======================================================================================================================================================
+
 #==============================================================================================================================================================
-#                               INICIO                                     MANEJADORES HANDLE                                    INICIO
+#                INICIO                                     MANEJADORES HANDLE                                    INICIO
 #==============================================================================================================================================================
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2104,12 +2074,41 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await generar_y_enviar_pdf_presion(query, user_id, mes_str, context)
 
 #==============================================================================================================================================================
-#                               FINAL                                     MANEJADORES HANDLE                                    FINAL
+#                FINAL                                     MANEJADORES HANDLE                                    FINAL
 #==============================================================================================================================================================
 
 # ===============================================================================================================================================================
-#               INICIO                                  PANTALLA Y PDF RESUMEN MES                               INICIO
+#               INICIO                                  COMANDO RESUMEN                              INICIO
 # ===============================================================================================================================================================
+
+async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Manejador del comando /resumen.
+    Muestra el menú de selección de mes solo si el peso del mes en curso está al día.
+    """
+    # 1. Validación estricta del peso del mes actual (Si no está al día, envía aviso y cancela)
+    if not await _validar_peso_mes_actual(update, context, funcion_nombre="resumen"):
+        return
+
+    # 2. Lógica normal para calcular fechas y desplegar el menú interactivo
+    ahora = obtener_ahora_arg()
+    mes_actual = ahora.strftime("%Y-%m")
+    mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual}")],
+        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
+        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_otro")]
+    ])
+
+    await update.message.reply_text(
+        "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", 
+        reply_markup=keyboard, 
+        parse_mode="Markdown"
+    )
+
+
+
 
 #                                                        RECOMENDACIÓN EXTENSA PARA PDF (~500 - 600 PALABRAS)
 # ================================================================================================================================================================
@@ -2724,7 +2723,7 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
     )
 
 # ==================================================================================================================================================================================
-#                   FINAL                                PANTALLA Y PDF RESUMEN MES                                           FINAL
+#                   FINAL                                COMANDO RESUMEN                                           FINAL
 # ===================================================================================================================================================================================
         
 # ==================================================================================================================================================================================
