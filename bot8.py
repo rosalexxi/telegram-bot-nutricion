@@ -1014,7 +1014,7 @@ async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
     """
-    Función auxiliar para procesar y renderizar el reporte del diario según la fecha solicitada.
+    Función auxiliar para procesar y renderizar el reporte del diario agrupado por evento.
     """
     try:
         df = obtener_datos_usuario(user_id)
@@ -1024,7 +1024,29 @@ async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
             texto = f"⚠️ No se encontraron registros de ingestas para la fecha `{fecha_str}`."
             reply_markup = None
         else:
-            # Construcción directa del resumen para evitar errores de funciones no definidas
+            # 1. Encabezado
+            texto = f"📅 Registro del día {fecha_str}:\n\n"
+            
+            # 2. Agrupación por momento mantención del orden de aparición original
+            momentos_vistos = []
+            agrupado = {}
+            
+            for _, r in df_diario.iterrows():
+                momento = str(r.get('Momento', '')).strip()
+                alimento = str(r.get('Alimento', '')).strip()
+                
+                if momento not in agrupado:
+                    agrupado[momento] = []
+                    momentos_vistos.append(momento)
+                if alimento:
+                    agrupado[momento].append(alimento)
+
+            # Formateo agrupado tipo listado bullet
+            for m in momentos_vistos:
+                items_str = ", ".join(agrupado[m])
+                texto += f"• {m}: {items_str}\n"
+
+            # 3. Totales y métricas nutricionales
             c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
             c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
             b_neto = c_cons - c_quem
@@ -1034,28 +1056,15 @@ async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
             cb_tot = df_diario[df_diario['Calorias'] > 0]['Carbohidratos'].sum()
             f_tot = df_diario[df_diario['Calorias'] > 0]['Fibras'].sum()
 
-            texto = f"📊 **Resumen Diario - {fecha_str}**\n\n"
-            
-            # Detalle por registros/comidas
-            for _, r in df_diario.iterrows():
-                mom = r.get('Momento', '')
-                alim = r.get('Alimento', '')
-                kcal = r.get('Calorias', 0)
-                peso = r.get('Peso', 0)
-                if kcal < 0:
-                    texto += f"🏃 **{mom}**: {alim} (`{abs(kcal):.1f} kcal`)\n"
-                else:
-                    texto += f"🍽️ **{mom}**: {alim} ({peso:.1f}g) -> `{kcal:.1f} kcal`\n"
-
-            texto += f"\n🔥 **Consumidas:** `{c_cons:.1f} kcal`\n"
-            texto += f"⚡ **Quemadas:** `{c_quem:.1f} kcal`\n"
-            texto += f"⚖️ **Balance Neto:** `{b_neto:.1f} kcal`\n\n"
-            texto += f"🥩 **Prot:** `{p_tot:.1f}g` | 🥑 **Gras:** `{g_tot:.1f}g` | 🍞 **Carb:** `{cb_tot:.1f}g` | 🌾 **Fibr:** `{f_tot:.1f}g`"
+            texto += f"\n🔥 Consumidas: {c_cons:.1f} kcal\n"
+            texto += f"⚡ Quemadas: {c_quem:.1f} kcal\n"
+            texto += f"⚖️ Balance Neto: {b_neto:.1f} kcal\n\n"
+            texto += f"🥩 Prot: {p_tot:.1f}g | 🥑 Gras: {g_tot:.1f}g | 🍞 Carb: {cb_tot:.1f}g | 🌾 Fibr: {f_tot:.1f}g"
 
             keyboard = [[InlineKeyboardButton("📄 Descargar PDF", callback_data=f"descargar_pdf_diario_{fecha_str}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Envíos dinámicos según el tipo de origen (callback query o message)
+        # Envíos dinámicos según el origen de llamada
         if hasattr(update_or_query, 'edit_message_text'):
             await update_or_query.edit_message_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
         elif hasattr(update_or_query, 'reply_text'):
@@ -3541,7 +3550,7 @@ def main():
     if job_queue is not None:
         job_queue.run_daily(
             job_recordatorio_manana, 
-            time=time(hour=11, minute=15, second=0, tzinfo=tz),
+            time=time(hour=19, minute=05, second=0, tzinfo=tz),
             name="recordatorio_comidas_manana"
         )
 
