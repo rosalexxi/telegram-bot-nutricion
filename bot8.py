@@ -988,7 +988,7 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
 # ======================================================================================================================================================================
 
 # =====================================================================================================================================================================
-#                   INICIO                                    COMANDOS DIARIO                                        INICIO
+#                   INICIO                                    COMANDO DIARIO   2026 08 20                              INICIO
 # =======================================================================================================================================================================
 
 async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1012,6 +1012,37 @@ async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
+    """
+    Función auxiliar para procesar y renderizar el reporte del diario según la fecha solicitada.
+    """
+    try:
+        df = obtener_datos_usuario(user_id)
+        if df.empty:
+            texto = f"⚠️ No se encontraron registros de ingestas para la fecha `{fecha_str}`."
+            reply_markup = None
+        else:
+            df_diario = df[df['Fecha'] == fecha_str]
+            texto = mostrar_resumen_dia(df_diario, fecha_str)
+            
+            # Botón opcional para descargar el PDF de dicho diario
+            keyboard = [[InlineKeyboardButton("📄 Descargar PDF", callback_data=f"descargar_pdf_diario_{fecha_str}")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Determina si viene desde un callback_query o desde un objeto update/message
+        if hasattr(update_or_query, 'edit_message_text'):
+            await update_or_query.edit_message_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+        elif hasattr(update_or_query, 'message') and update_or_query.message:
+            await update_or_query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+        else:
+            await update_or_query.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+
+    except Exception as e:
+        msg_err = f"❌ Error al consultar el diario para la fecha `{fecha_str}`: {e}"
+        if hasattr(update_or_query, 'edit_message_text'):
+            await update_or_query.edit_message_text(msg_err, parse_mode="Markdown")
+        else:
+            await update_or_query.reply_text(msg_err, parse_mode="Markdown")
 
 def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
     buffer = io.BytesIO()
@@ -1079,6 +1110,7 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
 # =====================================================================================================================================================================
 #                   FINAL                                COMANDOS DIARIO                                     FINAL
 # =====================================================================================================================================================================
+
      
 # ========================================================================================================================================================================
 #                   INICIO                               COMANDOS PERFIL   2026 08 20                          INICIO
@@ -1811,20 +1843,8 @@ def generar_pdf_instrucciones_bytes():
 # =======================================================================================================================================================
 
 #==============================================================================================================================================================
-#                INICIO                                     MANEJADORES HANDLE  2026 08 20                                  INICIO
+#                INICIO                                     MANEJADORES HANDLE                                    INICIO
 #==============================================================================================================================================================
-
-async def procesar_y_mostrar_confirmacion(data, msg, context):
-    """
-    Función auxiliar para procesar el objeto JSON de datos y renderizar el menú interactivo,
-    guardando la referencia del ID del mensaje en context.user_data.
-    """
-    items = data.get("items", [])
-    context.user_data['pending_items'] = items
-    context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
-    context.user_data['pending_momento'] = 'Almuerzo'
-    context.user_data['last_menu_msg_id'] = msg.message_id
-    await render_confirmation_screen(msg, context)
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("🎙️ Procesando audio con IA...")
@@ -1867,10 +1887,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # =========================================================================
-    # A. SI EL USUARIO PRESIONÓ "OTRO DÍA" Y ESTÁ INGRESANDO LA FECHA
+    # A. SI EL USUARIO PRESIONÓ "SELECCIONAR FECHA" EN /diario
     # =========================================================================
-    if context.user_data.get('awaiting_custom_date'):
-        # Intentamos parsear formatos estándar (AAAA-MM-DD, DD/MM/AAAA, DD/MM)
+    if context.user_data.get('awaiting_diario_custom_date'):
         fecha_parseada = None
         txt = raw_text.replace('/', '-').replace('.', '-')
         partes = txt.split('-')
@@ -1881,7 +1900,48 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     fecha_parseada = f"{int(partes[0]):04d}-{int(partes[1]):02d}-{int(partes[2]):02d}"
                 else: # DD-MM-AAAA
                     fecha_parseada = f"{int(partes[2]):04d}-{int(partes[1]):02d}-{int(partes[0]):02d}"
-            elif len(partes) == 2: # DD-MM (se asume año actual)
+            elif len(partes) == 2: # DD-MM
+                anio_actual = obtener_ahora_arg().year
+                fecha_parseada = f"{anio_actual:04d}-{int(partes[1]):02d}-{int(partes[0]):02d}"
+        except Exception:
+            fecha_parseada = None
+
+        msg_solic = context.user_data.pop('msg_solicitud_diario_fecha_id', None)
+        if msg_solic:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
+            except Exception:
+                pass
+
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
+        if fecha_parseada:
+            context.user_data['awaiting_diario_custom_date'] = False
+            await mostrar_diario_fecha(update, user_id, fecha_parseada)
+            return
+        else:
+            msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+            context.user_data['msg_solicitud_diario_fecha_id'] = msg_err.message_id
+            return
+
+    # =========================================================================
+    # B. SI EL USUARIO PRESIONÓ "OTRO DÍA" EN EL MENÚ DE CONFIRMACIÓN DE INGESTA
+    # =========================================================================
+    if context.user_data.get('awaiting_custom_date'):
+        fecha_parseada = None
+        txt = raw_text.replace('/', '-').replace('.', '-')
+        partes = txt.split('-')
+        
+        try:
+            if len(partes) == 3:
+                if len(partes[0]) == 4: # AAAA-MM-DD
+                    fecha_parseada = f"{int(partes[0]):04d}-{int(partes[1]):02d}-{int(partes[2]):02d}"
+                else: # DD-MM-AAAA
+                    fecha_parseada = f"{int(partes[2]):04d}-{int(partes[1]):02d}-{int(partes[0]):02d}"
+            elif len(partes) == 2: # DD-MM
                 anio_actual = obtener_ahora_arg().year
                 fecha_parseada = f"{anio_actual:04d}-{int(partes[1]):02d}-{int(partes[0]):02d}"
         except Exception:
@@ -1917,7 +1977,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await render_confirmation_screen(msg, context)
             return
         else:
-            msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `YYYY-MM-DD` o `DD/MM`):", parse_mode="Markdown")
+            msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
             context.user_data['msg_solicitud_fecha_id'] = msg_err.message_id
             return
 
@@ -2109,11 +2169,15 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         context.user_data['pending_fecha'] = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
         await render_confirmation_screen(query, context)
 
-    # CAPTURA DEL BOTÓN "OTRO DÍA" (set_d_otro o set_d_custom)
     elif data in ["set_d_otro", "set_d_custom"]:
         context.user_data['awaiting_custom_date'] = True
-        msg_solic = await query.message.reply_text("📅 Ingresá la fecha deseada (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+        msg_solic = await query.message.reply_text("📅 Ingresá la fecha deseada para la ingesta (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
         context.user_data['msg_solicitud_fecha_id'] = msg_solic.message_id
+
+    elif data == "diario_otro":
+        context.user_data['awaiting_diario_custom_date'] = True
+        msg_solic = await query.message.reply_text("📅 Ingresá la fecha del diario que querés consultar (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+        context.user_data['msg_solicitud_diario_fecha_id'] = msg_solic.message_id
 
     elif data.startswith("edit_item_"):
         idx = int(data.replace("edit_item_", "")) - 1
@@ -2194,9 +2258,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 #                FINAL                                     MANEJADORES HANDLE                                    FINAL
 #==============================================================================================================================================================
 
-# ===============================================================================================================================================================
+#===============================================================================================================================================================
 #               INICIO                                  COMANDO RESUMEN     2026 08 20                          INICIO
-# ===============================================================================================================================================================
+#===============================================================================================================================================================
 
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
