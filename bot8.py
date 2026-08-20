@@ -3194,7 +3194,7 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===================================================================================================================================================================================
 
 # ==================================================================================================================================================================================
-#                    INICIO                                    MENSAJES PROGRAMADOS                                        INICIO
+#                    INICIO                                    MENSAJES PROGRAMADOS  2026 08 20                              INICIO
 # ===================================================================================================================================================================================
 
 def extraer_val(texto: str) -> float:
@@ -3233,39 +3233,42 @@ async def registrar_log_en_sheet(sh, contexto: str, detalle: str):
 
 def _verificar_aviso_peso(user_id: int, ahora_dt) -> str:
     """
-    Función auxiliar privada para mensajes programados.
-    Si la fecha actual es a partir del día 5 del mes y el usuario no ha registrado
-    peso correspondiente al mes/año en curso, retorna la cadena del aviso.
-    De lo contrario, retorna una cadena vacía.
+    Verifica si el usuario actualizó su peso este mes comparando la cadena del texto
+    guardada en 'Ultimo Mes Peso' (ejemplo: '2026-08').
     """
     DIA_INICIO_AVISO = 5
     if ahora_dt.day < DIA_INICIO_AVISO:
         return ""
 
+    # Formato esperado: "2026-08"
+    mes_actual_str = ahora_dt.strftime("%Y-%m")
+
     try:
-        ultimo_registro = obtener_ultimo_peso(user_id)
-        if ultimo_registro and ultimo_registro.get("fecha"):
-            fecha_str = str(ultimo_registro.get("fecha")).strip()
-            try:
-                try:
-                    fecha_peso = datetime.strptime(fecha_str, "%Y-%m-%d")
-                except ValueError:
-                    fecha_peso = datetime.strptime(fecha_str, "%d/%m/%Y")
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        sheet_usuarios = sh.worksheet("Usuarios")
+        registros = sheet_usuarios.get_all_records()
+
+        for u in registros:
+            raw_id = u.get("User ID")
+            if raw_id and str(raw_id).strip() == str(user_id):
+                # Extraer el valor y limpiar comillas simples o espacios
+                val_celda = str(u.get("Ultimo Mes Peso") or u.get("Último Mes Peso") or "").strip()
+                ultimo_mes = val_celda.replace("'", "")
                 
-                # Si el peso ya corresponde al mes y año actuales, no requiere aviso
-                if fecha_peso.year == ahora_dt.year and fecha_peso.month == ahora_dt.month:
+                # Si la cadena coincide exacto con el mes en curso ("2026-08"), está al día
+                if ultimo_mes == mes_actual_str:
                     return ""
-            except Exception:
-                pass
+                break
     except Exception as e:
         logger.error(f"Error al verificar peso para mensaje programado User {user_id}: {e}")
 
-    # Texto de advertencia recurrente a partir del día 5 si falta el peso del mes
+    # Notificación con el comando correcto
     return (
         "\n\n⚠️ **Recordatorio de Peso del Mes:**\n"
         "Aún no registraste tu peso correspondiente a este mes. "
         "Ten en cuenta que las funciones `/diario` y `/resumen` **quedarán pausadas** "
-        "hasta que actualices tu peso usando `/peso <valor>`."
+        "hasta que actualices tu peso usando `/perfil`PESO."
     )
 
 
