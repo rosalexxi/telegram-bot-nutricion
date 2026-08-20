@@ -1018,30 +1018,34 @@ async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
     """
     try:
         df = obtener_datos_usuario(user_id)
-        if df.empty:
+        df_diario = df[df['Fecha'] == fecha_str] if not df.empty else pd.DataFrame()
+
+        if df_diario.empty:
             texto = f"⚠️ No se encontraron registros de ingestas para la fecha `{fecha_str}`."
             reply_markup = None
         else:
-            df_diario = df[df['Fecha'] == fecha_str]
-            texto = mostrar_resumen_dia(df_diario, fecha_str)
+            # Se utiliza construir_resumen_diario para dar formato al reporte en texto
+            texto = construir_resumen_diario(df_diario, fecha_str)
             
             # Botón opcional para descargar el PDF de dicho diario
             keyboard = [[InlineKeyboardButton("📄 Descargar PDF", callback_data=f"descargar_pdf_diario_{fecha_str}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Determina si viene desde un callback_query o desde un objeto update/message
+        # Envíos según el origen de la llamada
         if hasattr(update_or_query, 'edit_message_text'):
             await update_or_query.edit_message_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
         elif hasattr(update_or_query, 'message') and update_or_query.message:
             await update_or_query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
-        else:
+        elif hasattr(update_or_query, 'reply_text'):
             await update_or_query.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
 
     except Exception as e:
         msg_err = f"❌ Error al consultar el diario para la fecha `{fecha_str}`: {e}"
         if hasattr(update_or_query, 'edit_message_text'):
             await update_or_query.edit_message_text(msg_err, parse_mode="Markdown")
-        else:
+        elif hasattr(update_or_query, 'message') and update_or_query.message:
+            await update_or_query.message.reply_text(msg_err, parse_mode="Markdown")
+        elif hasattr(update_or_query, 'reply_text'):
             await update_or_query.reply_text(msg_err, parse_mode="Markdown")
 
 def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
@@ -1111,9 +1115,8 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
 #                   FINAL                                COMANDOS DIARIO                                     FINAL
 # =====================================================================================================================================================================
 
-     
 # ========================================================================================================================================================================
-#                   INICIO                               COMANDOS PERFIL   2026 08 20                          INICIO
+#                   INICIO                               COMANDO PERFIL   2026 08 20                          INICIO
 # =========================================================================================================================================================================
 
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1843,7 +1846,7 @@ def generar_pdf_instrucciones_bytes():
 # =======================================================================================================================================================
 
 #==============================================================================================================================================================
-#                INICIO                                     MANEJADORES HANDLE                                    INICIO
+#                INICIO                             MANEJADORES HANDLE 2026 08 20                INICIO
 #==============================================================================================================================================================
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1886,9 +1889,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not raw_text:
         return
 
-    # =========================================================================
-    # A. SI EL USUARIO PRESIONÓ "SELECCIONAR FECHA" EN /diario
-    # =========================================================================
+
+# ========================================================================================================
+    # A. SI EL USUARIO PRESIONÓ "SELECCIONAR FECHA" EN /diario   2026 08 20
+    # ==================================================================================================
     if context.user_data.get('awaiting_diario_custom_date'):
         fecha_parseada = None
         txt = raw_text.replace('/', '-').replace('.', '-')
@@ -1920,13 +1924,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if fecha_parseada:
             context.user_data['awaiting_diario_custom_date'] = False
-            await mostrar_diario_fecha(update, user_id, fecha_parseada)
+            # Se envía update.message para asegurar respuesta directa
+            await mostrar_diario_fecha(update.message, user_id, fecha_parseada)
             return
         else:
             msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
             context.user_data['msg_solicitud_diario_fecha_id'] = msg_err.message_id
             return
-
+            
     # =========================================================================
     # B. SI EL USUARIO PRESIONÓ "OTRO DÍA" EN EL MENÚ DE CONFIRMACIÓN DE INGESTA
     # =========================================================================
