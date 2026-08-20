@@ -3550,7 +3550,7 @@ def main():
     if job_queue is not None:
         job_queue.run_daily(
             job_recordatorio_manana, 
-            time=time(hour=19, minute=05, second=0, tzinfo=tz),
+            time=time(hour=19, minute=8, second=0, tzinfo=tz),
             name="recordatorio_comidas_manana"
         )
 
