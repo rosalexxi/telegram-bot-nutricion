@@ -1265,33 +1265,60 @@ def obtener_comidas_usuario(user_id):
         logger.error(f"Error al obtener comidas de Comidas_{user_id}: {e}")
         return []
 
-
 async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    # ACÁ ESTÁ EL CAMBIO: Llamamos a obtener_comidas_usuario pasando el user_id
     comidas = obtener_comidas_usuario(user_id)
     
     if not comidas:
         await update.message.reply_text(f"📋 No hay comidas predeterminadas registradas en la hoja 'Comidas_{user_id}'.")
         return
 
-    txt = f"📋 **Listado de Comidas Predeterminadas (Comidas_{user_id}):**\n\n"
+    txt = f"📋 <b>Listado de Comidas Predeterminadas (Comidas_{user_id}):</b>\n\n"
+    
     for p in comidas:
-        nombre = p.get('Nombre', '')
-        descripcion = p.get('Descripcion') or p.get('Momento', '')
-        txt += f"• **{nombre}**: {descripcion}\n"
+        # Obtenemos los valores y limpiamos el símbolo § y etiquetas HTML
+        nombre_raw = str(p.get('Nombre', ''))
+        desc_raw = str(p.get('Descripcion') or p.get('Momento', ''))
+        
+        # Eliminamos el símbolo §, espacios sobrantes y caracteres de control HTML
+        nombre = nombre_raw.replace('§', '').replace('<', '').replace('>', '').strip()
+        descripcion = desc_raw.replace('§', '').replace('<', '').replace('>', '').strip()
+        
+        # Si la descripción quedó vacía o es igual al nombre, no la repetimos
+        if descripcion and descripcion.lower() != nombre.lower():
+            linea = f"• <b>{nombre}</b>: {descripcion}\n"
+        else:
+            linea = f"• <b>{nombre}</b>\n"
+        
+        # Control para no superar el límite de 4096 caracteres de Telegram
+        if len(txt) + len(linea) > 4000:
+            txt += "• <i>...y más comidas (ver detalle en el PDF adjunto).</i>\n"
+            break
+            
+        txt += linea
 
     txt += "\n📄 Te adjuntamos el archivo en PDF completo con todos los macronutrientes a continuación."
-    await update.message.reply_text(txt, parse_mode="Markdown")
+    
+    # 1. Enviar el texto limpio
+    try:
+        await update.message.reply_text(txt, parse_mode="HTML")
+    except Exception as e:
+        print(f"Error enviando texto de comidas: {e}")
+        await update.message.reply_text("📋 Generando tu lista de comidas en PDF directamente...")
 
-    pdf_bytes = generar_pdf_comidas_bytes(comidas)
-    await context.bot.send_document(
-        chat_id=update.effective_chat.id,
-        document=pdf_bytes,
-        filename=f"Comidas_{user_id}.pdf"
-    )
-
+    # 2. Enviar el PDF
+    try:
+        pdf_bytes = generar_pdf_comidas_bytes(comidas)
+        await context.bot.send_document(
+            chat_id=update.effective_chat.id,
+            document=pdf_bytes,
+            filename=f"Comidas_{user_id}.pdf"
+        )
+    except Exception as e:
+        print(f"Error generando PDF de comidas: {e}")
+        await update.message.reply_text("❌ Ocurrió un error al generar el archivo PDF.")
+        
 def buscar_comida_precargada_exacta(user_id, texto_codigo):
     """
     Busca de forma estricta un código/nombre de comida ÚNICAMENTE en la pestaña 'Comidas_<user_id>'.
