@@ -1007,7 +1007,7 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
 # ======================================================================================================================================================================
 
 # ========================================================================================================================================================================
-#                           INICIO                          COMANDOS PERFIL 2026 08 19                                      INICIO
+#                           INICIO                                     COMANDOS PERFIL                                       INICIO
 # =========================================================================================================================================================================
 
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1181,30 +1181,50 @@ def guardar_perfil_en_sheets(user_id, peso, mes=None, edad=None, altura=None, ge
     # 5. Actualizar la pestaña 'usuarios' con la columna 'Ultimo Mes Peso'
     try:
         ws_usuarios = sh.worksheet("usuarios")
-        cell = ws_usuarios.find(str(user_id))
         
-        if cell:
-            headers = ws_usuarios.row_values(1)
-            col_idx = None
-            
-            # Buscar dinámicamente la columna 'Ultimo Mes Peso'
-            for idx, h in enumerate(headers, start=1):
-                nombre_col = str(h).strip()
-                if nombre_col.lower() in ["ultimo mes peso", "ultimo_mes_peso"]:
-                    col_idx = idx
+        # Leemos todos los registros para buscar al usuario de forma segura
+        registros_usuarios = ws_usuarios.get_all_records()
+        headers = ws_usuarios.row_values(1)
+        
+        # 1. Identificar columna objetivo de manera tolerante
+        col_idx = None
+        for idx, h in enumerate(headers, start=1):
+            nombre_col = str(h).strip().lower()
+            if nombre_col in ["ultimo mes peso", "ultimo_mes_peso", "ultimomespeso"]:
+                col_idx = idx
+                break
+        
+        if not col_idx:
+            col_idx = 4  # Columna por defecto si no encuentra el encabezado
+
+        # 2. Buscar la fila del usuario comparando enteros y strings contra varias claves posibles de ID
+        fila_usuario = None
+        for i, reg in enumerate(registros_usuarios, start=2): # start=2 porque la fila 1 es el encabezado
+            id_reg = reg.get('ID') or reg.get('user_id') or reg.get('ID_USUARIO') or list(reg.values())[0]
+            if str(id_reg).strip() == str(user_id).strip():
+                fila_usuario = i
+                break
+
+        # 3. Si no se encontró por dict, buscar directamente recorriendo la primera columna
+        if not fila_usuario:
+            col_ids = ws_usuarios.col_values(1)
+            for idx, val in enumerate(col_ids, start=1):
+                if str(val).strip() == str(user_id).strip():
+                    fila_usuario = idx
                     break
+
+        # 4. Impactar el cambio usando formato de rango A1 de gspread
+        if fila_usuario:
+            from gspread.utils import rowcol_to_a1
+            celda_a1 = rowcol_to_a1(fila_usuario, col_idx)
             
-            # Fallback a columna 4 si no se halla coincidencia exacta
-            if not col_idx:
-                col_idx = 4
-                
-            ws_usuarios.update_cell(cell.row, col_idx, str(mes))
-            print(f"✅ Hoja usuarios actualizada: ID {user_id} -> Ultimo Mes Peso: {mes} (Fila {cell.row}, Col {col_idx})")
+            ws_usuarios.update(celda_a1, [[str(mes)]])
+            print(f"✅ Hoja usuarios actualizada: ID {user_id} -> Celda {celda_a1} = {mes}")
         else:
             print(f"⚠️ No se encontró el usuario {user_id} en la pestaña 'usuarios'.")
             
     except Exception as e:
-        print(f"❌ Error al actualizar la pestaña 'usuarios': {e}")
+        print(f"❌ Error crítico al actualizar la pestaña 'usuarios': {e}")
 
 
 def obtener_perfil_usuario(user_id, mes_target=None):
