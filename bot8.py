@@ -1238,7 +1238,6 @@ def obtener_perfil_usuario(user_id, mes_target=None):
 #                               INICIO                                   OPERACIONES COMIDAS 2026-08-19                                          INICIO
 # ====================================================================================================================================================================================
 
-
 def obtener_comidas_usuario(user_id):
     """
     Obtiene las comidas precargadas de la hoja 'Comidas_<user_id>'.
@@ -1269,14 +1268,16 @@ def obtener_comidas_usuario(user_id):
 
 async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    plantillas = obtener_comidas_usuario(user_id)
     
-    if not plantillas:
+    # ACÁ ESTÁ EL CAMBIO: Llamamos a obtener_comidas_usuario pasando el user_id
+    comidas = obtener_comidas_usuario(user_id)
+    
+    if not comidas:
         await update.message.reply_text(f"📋 No hay comidas predeterminadas registradas en la hoja 'Comidas_{user_id}'.")
         return
 
     txt = f"📋 **Listado de Comidas Predeterminadas (Comidas_{user_id}):**\n\n"
-    for p in plantillas:
+    for p in comidas:
         nombre = p.get('Nombre', '')
         descripcion = p.get('Descripcion') or p.get('Momento', '')
         txt += f"• **{nombre}**: {descripcion}\n"
@@ -1284,7 +1285,7 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt += "\n📄 Te adjuntamos el archivo en PDF completo con todos los macronutrientes a continuación."
     await update.message.reply_text(txt, parse_mode="Markdown")
 
-    pdf_bytes = generar_pdf_comidas_bytes(plantillas)
+    pdf_bytes = generar_pdf_comidas_bytes(comidas)
     await context.bot.send_document(
         chat_id=update.effective_chat.id,
         document=pdf_bytes,
@@ -1326,7 +1327,6 @@ def buscar_comida_precargada_exacta(user_id, texto_codigo):
 
     return None
 
-
 def analizar_con_groq(prompt_text):
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
@@ -1350,7 +1350,6 @@ Devolvé EXCLUSIVAMENTE un JSON con este formato:
         response_format={"type": "json_object"}
     )
     return json.loads(response.choices[0].message.content)
-
     
 def analizar_imagen_con_groq(base64_image):
     if not client_ai:
@@ -1371,31 +1370,6 @@ def analizar_imagen_con_groq(base64_image):
         response_format={"type": "json_object"}
     )
     return json.loads(response.choices[0].message.content)
-
-
-async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    comidas = obtener_comidas_usuario(user_id)
-    
-    if not comidas:
-        await update.message.reply_text(f"📋 No tenés comidas predeterminadas registradas en tu planilla 'Comidas_{user_id}'. Podés agregar usando /receta.")
-        return
-
-    txt = f"📋 **Tus Comidas Predeterminadas (Comidas_{user_id}):**\n\n"
-    for p in comidas:
-        nombre = p.get('Nombre') or p.get('Código / Nombre') or ''
-        descripcion = p.get('Descripción') or p.get('Descripcion') or p.get('Momento', '')
-        txt += f"• **{nombre}**: {descripcion}\n"
-
-    txt += "\n📄 Te adjuntamos el archivo en PDF completo con todos tus macronutrientes a continuación."
-    await update.message.reply_text(txt, parse_mode="Markdown")
-
-    pdf_bytes = generar_pdf_comidas_bytes(comidas)
-    await context.bot.send_document(
-        chat_id=update.effective_chat.id,
-        document=pdf_bytes,
-        filename=f"Comidas_Predeterminadas_{user_id}.pdf"
-    )
 
 # =======================================================================================================================================================
 #                                 FINAL                                   OPERACION COMIDAS                                           FINAL
@@ -1765,7 +1739,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 #==============================================================================================================================================================
-#               INICIO                                     MANEJADORES HADNLE                                    INICIO
+#                               INICIO                                     MANEJADORES HANDLE                                    INICIO
 #==============================================================================================================================================================
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1893,7 +1867,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # =========================================================================
-    # 2. COMIDAS PRECARGADAS EN PLANTILLAS (MENSAJES QUE EMPIEZAN CON *)
+    # 2. COMIDAS PRECARGADAS EN PLANTILLAS DEL USUARIO (MENSAJES QUE EMPIEZAN CON *)
     # =========================================================================
     
     if raw_text.startswith('*'):
@@ -1902,10 +1876,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nombre_plantilla = partes[0].upper()
         multiplicador = float(partes[1]) if len(partes) > 1 else 1.0
 
-        plantillas = obtener_plantillas_comidas()
+        # CORRECCIÓN: Se llama a obtener_comidas_usuario pasando el user_id
+        plantillas = obtener_comidas_usuario(user_id)
         plantilla_encontrada = None
         for p in plantillas:
-            if str(p.get('Nombre', '')).strip().upper() == nombre_plantilla:
+            nombre_item = str(p.get('Código / Nombre') or p.get('Nombre') or '').strip().upper()
+            if nombre_item == nombre_plantilla:
                 plantilla_encontrada = p
                 break
 
@@ -1925,9 +1901,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             texto_final = str(val_descripcion).strip() if val_descripcion else str(plantilla_encontrada.get('Nombre', 'Comida')).strip()
 
-            if texto_final:
-                texto_final = texto_final[:-1].strip()
-
             item_generado = {
                 "alimento": texto_final,
                 "peso": p_base * multiplicador,
@@ -1944,7 +1917,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await procesar_y_mostrar_confirmacion(data_json, msg, context)
             return
         else:
-            await update.message.reply_text(f"❌ No se encontró la plantilla `*{nombre_plantilla}`.", parse_mode="Markdown")
+            await update.message.reply_text(f"❌ No se encontró la comida `*{nombre_plantilla}` en tu planilla `Comidas_{user_id}`.", parse_mode="Markdown")
             return
 
     # =========================================================================
@@ -2066,9 +2039,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await generar_y_enviar_pdf_presion(query, user_id, mes_str, context)
 
 #==============================================================================================================================================================
-#               FINAL                                     MANEJADORES HADNLE                                    FINAL
+#                               FINAL                                     MANEJADORES HANDLE                                    FINAL
 #==============================================================================================================================================================
-
 
 # ===============================================================================================================================================================
 #               INICIO                                  PANTALLA Y PDF RESUMEN MES                               INICIO
