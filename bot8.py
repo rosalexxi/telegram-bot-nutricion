@@ -1180,7 +1180,7 @@ def guardar_perfil_en_sheets(user_id, peso, mes=None, edad=None, altura=None, ge
 
     # 5. Actualizar la pestaña 'usuarios' con la columna 'Ultimo Mes Peso'
     try:
-        ws_usuarios = sh.worksheet("usuarios")
+        ws_usuarios = sh.worksheet("Usuarios")
         
         # Leemos todos los registros para buscar al usuario de forma segura
         registros_usuarios = ws_usuarios.get_all_records()
