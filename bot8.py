@@ -103,10 +103,30 @@ def get_user_worksheet(user_id):
 # ===================================================================================================================================================================
 
 # ===================================================================================================================================================================
-#                                 INICIO                                  PAGINA WEB    2026 08 19                                      INICIO
+#                                 INICIO                                  PAGINA WEB    2026 08 19 R 2026 08 20         INICIO
 # ===================================================================================================================================================================
 
 app = Flask(__name__)
+
+def obtener_codigo_unico(ws, codigo_base):
+    """
+    Lee los códigos existentes en la Columna A de la hoja recibida por parámetro
+    y asigna un sufijo numérico incremental si el código ya existe.
+    Ejemplo: PIZZA -> PIZZA1 -> PIZZA2
+    """
+    codigos_existentes = set(ws.col_values(1))
+    codigo_limpio = str(codigo_base).strip().upper()
+    
+    if codigo_limpio not in codigos_existentes:
+        return codigo_limpio
+
+    i = 1
+    mientras_repetido = f"{codigo_limpio}{i}"
+    while mientras_repetido in codigos_existentes:
+        i += 1
+        mientras_repetido = f"{codigo_limpio}{i}"
+        
+    return mientras_repetido
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -360,7 +380,13 @@ async function guardarEnGoogleSheets() {
 
         const res = await response.json();
         if (response.ok) {
-            alert("✅ ¡Éxito! La comida se guardó correctamente en el último lugar libre de tu pestaña 'Comidas_" + currentUserId + "'.");
+            // Se actualiza el código en pantalla si cambió por haber un duplicado en el servidor
+            if (res.codigo_guardado) {
+                ultimoResultadoCalculado.nombre = res.codigo_guardado;
+                const tdNombre = document.querySelector('#filaExcel td:first-child');
+                if (tdNombre) tdNombre.innerText = res.codigo_guardado;
+            }
+            alert("✅ ¡Éxito! " + res.message);
         } else {
             alert("❌ Error al guardar en Google Sheets: " + (res.error || "Error desconocido."));
         }
@@ -526,7 +552,7 @@ def api_calcular_receta():
 
 @app.route('/api/guardar-comida', methods=['POST'])
 def api_guardar_comida():
-    """Guarda la fila calculada en el último lugar libre de la pestaña 'Comidas_<user_id>'."""
+    """Guarda la fila calculada en el último lugar libre de la pestaña 'Comidas_<user_id>', verificando que el código sea único."""
     try:
         data = request.get_json()
         user_id = data.get('user_id')
@@ -536,8 +562,13 @@ def api_guardar_comida():
             return jsonify({"error": "Faltan parámetros obligatorios (user_id o fila)."}), 400
 
         ws = get_user_worksheet(user_id)
+        
+        # Validación de código único
+        codigo_original = fila.get('nombre', '')
+        codigo_unico = obtener_codigo_unico(ws, codigo_original)
+
         nueva_fila = [
-            fila.get('nombre', ''),
+            codigo_unico,
             fila.get('descripcion', ''),
             fila.get('peso', 0),
             fila.get('calorias', 0),
@@ -548,7 +579,13 @@ def api_guardar_comida():
         ]
         
         ws.append_row(nueva_fila)
-        return jsonify({"status": "ok", "message": f"Comida agregada en pestaña Comidas_{user_id}"}), 200
+        
+        msg_extra = f" con el código asignado '{codigo_unico}'" if codigo_unico != codigo_original else ""
+        return jsonify({
+            "status": "ok", 
+            "codigo_guardado": codigo_unico,
+            "message": f"Comida agregada en pestaña Comidas_{user_id}{msg_extra}."
+        }), 200
 
     except Exception as e:
         logger.error(f"Error al guardar en Google Sheets: {e}")
@@ -1774,8 +1811,20 @@ def generar_pdf_instrucciones_bytes():
 # =======================================================================================================================================================
 
 #==============================================================================================================================================================
-#                INICIO                                     MANEJADORES HANDLE                                    INICIO
+#                INICIO                                     MANEJADORES HANDLE  2026 08 20                                  INICIO
 #==============================================================================================================================================================
+
+async def procesar_y_mostrar_confirmacion(data, msg, context):
+    """
+    Función auxiliar para procesar el objeto JSON de datos y renderizar el menú interactivo,
+    guardando la referencia del ID del mensaje en context.user_data.
+    """
+    items = data.get("items", [])
+    context.user_data['pending_items'] = items
+    context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+    context.user_data['pending_momento'] = 'Almuerzo'
+    context.user_data['last_menu_msg_id'] = msg.message_id
+    await render_confirmation_screen(msg, context)
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("🎙️ Procesando audio con IA...")
@@ -1811,15 +1860,70 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
     raw_text = update.message.text.strip() if update.message and update.message.text else ""
 
     if not raw_text:
         return
 
     # =========================================================================
+    # A. SI EL USUARIO PRESIONÓ "OTRO DÍA" Y ESTÁ INGRESANDO LA FECHA
+    # =========================================================================
+    if context.user_data.get('awaiting_custom_date'):
+        # Intentamos parsear formatos estándar (AAAA-MM-DD, DD/MM/AAAA, DD/MM)
+        fecha_parseada = None
+        txt = raw_text.replace('/', '-').replace('.', '-')
+        partes = txt.split('-')
+        
+        try:
+            if len(partes) == 3:
+                if len(partes[0]) == 4: # AAAA-MM-DD
+                    fecha_parseada = f"{int(partes[0]):04d}-{int(partes[1]):02d}-{int(partes[2]):02d}"
+                else: # DD-MM-AAAA
+                    fecha_parseada = f"{int(partes[2]):04d}-{int(partes[1]):02d}-{int(partes[0]):02d}"
+            elif len(partes) == 2: # DD-MM (se asume año actual)
+                anio_actual = obtener_ahora_arg().year
+                fecha_parseada = f"{anio_actual:04d}-{int(partes[1]):02d}-{int(partes[0]):02d}"
+        except Exception:
+            fecha_parseada = None
+
+        msg_solic = context.user_data.pop('msg_solicitud_fecha_id', None)
+        if msg_solic:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
+            except Exception:
+                pass
+
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
+        if fecha_parseada:
+            context.user_data['pending_fecha'] = fecha_parseada
+            context.user_data['awaiting_custom_date'] = False
+            
+            last_menu_msg_id = context.user_data.get('last_menu_msg_id')
+            if last_menu_msg_id:
+                try:
+                    target_msg = await context.bot.get_message(chat_id=chat_id, message_id=last_menu_msg_id)
+                    await render_confirmation_screen(target_msg, context)
+                    return
+                except Exception:
+                    pass
+            
+            msg = await update.message.reply_text("📋 Actualizando menú...")
+            context.user_data['last_menu_msg_id'] = msg.message_id
+            await render_confirmation_screen(msg, context)
+            return
+        else:
+            msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `YYYY-MM-DD` o `DD/MM`):", parse_mode="Markdown")
+            context.user_data['msg_solicitud_fecha_id'] = msg_err.message_id
+            return
+
+    # =========================================================================
     # 0. DETECCIÓN DE ACTIVIDAD FÍSICA DIRECTA CON PREFIJO '#'
     # =========================================================================
-    
     if raw_text.startswith('#'):
         contenido = raw_text[1:].strip()
         
@@ -1834,7 +1938,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             descripcion = contenido
             kcal_ingresadas = 0.0
 
-        # Convertimos a calorías negativas (* -1000)
         calorias_finales = -abs(kcal_ingresadas) 
 
         item_actividad = {
@@ -1852,13 +1955,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['pending_momento'] = 'Actividad'
 
         msg = await update.message.reply_text("🏃 Registrando actividad...")
+        context.user_data['last_menu_msg_id'] = msg.message_id
         await render_confirmation_screen(msg, context)
         return
 
     # =========================================================================
     # 1. SI EL USUARIO PRESIONÓ "EDITAR" Y ESTÁ ENVIANDO LA CORRECCIÓN
     # =========================================================================
-    
     if context.user_data.get('awaiting_edit_item_val'):
         idx = context.user_data.get('editing_item_idx')
         items = context.user_data.get('pending_items', [])
@@ -1898,20 +2001,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['awaiting_edit_item_val'] = False
         context.user_data.pop('editing_item_idx', None)
 
-        await render_confirmation_screen(update, context)
+        last_menu_msg_id = context.user_data.get('last_menu_msg_id')
+        if last_menu_msg_id:
+            try:
+                target_msg = await context.bot.get_message(chat_id=chat_id, message_id=last_menu_msg_id)
+                await render_confirmation_screen(target_msg, context)
+            except Exception:
+                nuevo_menu_msg = await update.message.reply_text("📋 Actualizando menú...")
+                context.user_data['last_menu_msg_id'] = nuevo_menu_msg.message_id
+                await render_confirmation_screen(nuevo_menu_msg, context)
+        else:
+            await render_confirmation_screen(update, context)
         return
 
     # =========================================================================
     # 2. COMIDAS PRECARGADAS EN PLANTILLAS DEL USUARIO (MENSAJES QUE EMPIEZAN CON *)
     # =========================================================================
-    
     if raw_text.startswith('*'):
         contenido = raw_text[1:].strip()
         partes = [p.strip() for p in contenido.split(',')]
         nombre_plantilla = partes[0].upper()
         multiplicador = float(partes[1]) if len(partes) > 1 else 1.0
 
-        # CORRECCIÓN: Se llama a obtener_comidas_usuario pasando el user_id
         plantillas = obtener_comidas_usuario(user_id)
         plantilla_encontrada = None
         for p in plantillas:
@@ -1958,22 +2069,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # =========================================================================
     # 3. INGRESO DIRECTO DE COMIDA POR TEXTO LIBRE (IA)
     # =========================================================================
-    
     msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
     try:
         data = analizar_con_groq(raw_text)
         items = data.get("items", [])
 
-        # Sumamos calorías y peso de los ítems devueltos por la IA
         total_calorias = sum(float(item.get("calorias", 0)) for item in items)
         total_peso = sum(float(item.get("peso", 0)) for item in items)
 
-        # SI NO HAY COMIDA (Ej: palabras no reconocidas, /presión con acento, etc.):
         if not items or (total_calorias == 0 and total_peso == 0):
-            await msg.delete()  # Borra el mensaje de "Analizando..."
-            return              # Ignores completamente la entrada sin mostrar el menú
+            await msg.delete()
+            return
 
-        # Si hay comida válida, muestra el menú de confirmación como siempre
         await procesar_y_mostrar_confirmacion(data, msg, context)
 
     except Exception as e:
@@ -1987,6 +2094,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     data = query.data
     user_id = query.from_user.id
 
+    context.user_data['last_menu_msg_id'] = query.message.message_id
+
     if data.startswith("set_m_"):
         nuevo_momento = data.replace("set_m_", "")
         context.user_data['pending_momento'] = nuevo_momento
@@ -1999,6 +2108,12 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == "set_d_ayer":
         context.user_data['pending_fecha'] = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
         await render_confirmation_screen(query, context)
+
+    # CAPTURA DEL BOTÓN "OTRO DÍA" (set_d_otro o set_d_custom)
+    elif data in ["set_d_otro", "set_d_custom"]:
+        context.user_data['awaiting_custom_date'] = True
+        msg_solic = await query.message.reply_text("📅 Ingresá la fecha deseada (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+        context.user_data['msg_solicitud_fecha_id'] = msg_solic.message_id
 
     elif data.startswith("edit_item_"):
         idx = int(data.replace("edit_item_", "")) - 1
@@ -2014,11 +2129,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             context.user_data['pending_items'] = items
         if not items:
             await query.edit_message_text("❌ Todos los ítems fueron eliminados.")
+            context.user_data.pop('last_menu_msg_id', None)
         else:
             await render_confirmation_screen(query, context)
 
     elif data == "cancel_entry":
         context.user_data.pop('pending_items', None)
+        context.user_data.pop('last_menu_msg_id', None)
         await query.edit_message_text("🗑️ Registro cancelado.")
 
     elif data == "confirm_save":
@@ -2029,7 +2146,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if items and fecha and momento:
             tipo_registro = "Actividad" if momento == "Actividad" else "Comida"
             
-            # Guarda en Google Sheets pasando el parámetro tipo correspondientemente
             guardar_en_sheets(user_id, items, fecha, momento, tipo=tipo_registro)
             
             if momento == "Actividad":
@@ -2039,6 +2155,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
             await query.edit_message_text(txt_confirmacion, parse_mode="Markdown")
             context.user_data.pop('pending_items', None)
+            context.user_data.pop('last_menu_msg_id', None)
         else:
             await query.edit_message_text("❌ No se encontraron datos para guardar.")
 
@@ -2078,7 +2195,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 #==============================================================================================================================================================
 
 # ===============================================================================================================================================================
-#               INICIO                                  COMANDO RESUMEN                              INICIO
+#               INICIO                                  COMANDO RESUMEN     2026 08 20                          INICIO
 # ===============================================================================================================================================================
 
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2106,8 +2223,6 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=keyboard, 
         parse_mode="Markdown"
     )
-
-
 
 
 #                                                        RECOMENDACIÓN EXTENSA PARA PDF (~500 - 600 PALABRAS)
@@ -2217,17 +2332,25 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
 
     return "\n\n".join(bloques)
 
+
 #                                                       RECOMENDACIÓN BREVE PARA PANTALLA (~100 PALABRAS)
 # =============================================================================================================================================================================
 
 def obtener_recomendacion_ia(resumen_texto: str) -> str:
+    """
+    Solicita una recomendación corta (~100 palabras) para ser mostrada en pantalla.
+    Encapsula errores de cliente de IA y provee un fallback dinámico garantizado.
+    """
+    texto_fallback = (
+        "Ajustá tu balance diario moderando las grasas saturadas e incrementando fibras con legumbres, "
+        "semillas y vegetales frescos. Priorizá proteínas magras y carbohidratos complejos. "
+        "¡Mantené la constancia y asegurá 2 litros de agua al día!"
+    )
+
     if 'client_ai' not in globals() or not client_ai:
-        return (
-            "Ajustá tu balance diario moderando las grasas saturadas e incrementando fibras con legumbres, "
-            "semillas y vegetales frescos. Priorizá proteínas magras y carbohidratos complejos. "
-            "¡Mantené la constancia y asegurá 2 litros de agua al día!"
-        )
-    
+        return texto_fallback
+
+    modelo = globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile")
     prompt = (
         "Basado en el siguiente resumen nutricional, redactá una recomendación BREVE, DIRECTA Y MOTIVADORA "
         "de EXACTAMENTE 90 a 110 PALABRAS (no te pases de 120 palabras). "
@@ -2237,18 +2360,17 @@ def obtener_recomendacion_ia(resumen_texto: str) -> str:
 
     try:
         response = client_ai.chat.completions.create(
-            model= GROQ_TEXTO,
+            model=modelo,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
             max_tokens=200
         )
-        return response.choices[0].message.content.strip()
-    except Exception:
-        return (
-            "Ajustá tu balance diario moderando las grasas saturadas e incrementando fibras con legumbres, "
-            "semillas y vegetales frescos. Priorizá proteínas magras y carbohidratos complejos. "
-            "¡Mantené la constancia y asegurá 2 litros de agua al día!"
-        )
+        res = response.choices[0].message.content.strip()
+        return res if res else texto_fallback
+    except Exception as e:
+        print(f"⚠️ Warning: Falló obtener_recomendacion_ia para pantalla: {e}")
+        return texto_fallback
+
 
 #                                                                MOSTRAR RESUMEN MES (TELEGRAM HANDLER)
 # ======================================================================================================================================================================
@@ -2415,9 +2537,14 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         )
         recomendacion_pantalla = obtener_recomendacion_ia(prompt_para_ia_pantalla)
 
-        # Guarda la recomendación extensa en context.user_data para que la recupere el PDF
-        if hasattr(query_or_update, 'user_data'):
-            query_or_update.user_data['ultima_recomendacion_ia'] = recomendacion_pdf
+        # Guarda la recomendación extensa en user_data para que la recupere el PDF
+        # Soporta tanto objetos Update (update.user_data) como objetos CallbackQuery o Context
+        user_data_ref = getattr(query_or_update, 'user_data', None)
+        if user_data_ref is None and hasattr(query_or_update, 'message') and hasattr(query_or_update.message, 'user_data'):
+            user_data_ref = query_or_update.message.user_data
+
+        if isinstance(user_data_ref, dict):
+            user_data_ref['ultima_recomendacion_ia'] = recomendacion_pdf
 
         txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
@@ -2432,7 +2559,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             f"• **Carbohidratos:** `{prom_carb:.1f} g` / Meta: `{ideal_carb:.1f} g`\n"
             f"• **Fibras:** `{prom_fibr:.1f} g` / Meta: `{ideal_fibr:.1f} g`\n\n"
             f"🤖 **Recomendación de la IA:**\n"
-            f"{recomendacion_pantalla}\n\n"
+            f"_{recomendacion_pantalla}_\n\n"
             f"📄 Podés descargar el reporte completo en PDF a continuación:"
         )
 
@@ -2451,7 +2578,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
         else:
             await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
-            
+
 
 #                                                    GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
 # ===================================================================================================================================================================
@@ -2725,7 +2852,7 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
 # ==================================================================================================================================================================================
 #                   FINAL                                COMANDO RESUMEN                                           FINAL
 # ===================================================================================================================================================================================
-        
+
 # ==================================================================================================================================================================================
 #                   INICIO                         MODULO DE PRESION ARTERIAL (COMANDO, SHEETS Y PDF)                        INICIO
 # ===================================================================================================================================================================================
@@ -3285,15 +3412,24 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 #                    FINAL                                    MENSAJES PROGRAMADOS                                        FINAL
 # ==================================================================================================================================================================================
 
+
 # ==================================================================================================================================================================================
-#                                   INICIO                                        MAIN EXECUTION                                        INICIO
+#                   INICIO                                        MAIN EXECUTION  2026 08 20                                      INICIO
 # ===================================================================================================================================================================================
 
 async def job_recordatorio_manana(context):
-    await ejecutar_recordatorio_comidas(context, momento='manana')
+    """Tarea programada para el recordatorio matutino con protección contra fallas."""
+    try:
+        await ejecutar_recordatorio_comidas(context, momento='manana')
+    except Exception as e:
+        logger.error(f"❌ Error en job_recordatorio_manana: {e}")
 
 async def job_recordatorio_tarde(context):
-    await ejecutar_recordatorio_comidas(context, momento='tarde')
+    """Tarea programada para el recordatorio vespertino con protección contra fallas."""
+    try:
+        await ejecutar_recordatorio_comidas(context, momento='tarde')
+    except Exception as e:
+        logger.error(f"❌ Error en job_recordatorio_tarde: {e}")
 
 def main():
     # Inicia el servidor Web Flask en un hilo independiente
@@ -3303,10 +3439,12 @@ def main():
         print("❌ TELEGRAM_BOT_TOKEN no configurado.")
         return
 
+    # Construcción de la aplicación del bot de Telegram
     app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     job_queue = app_bot.job_queue
     tz = pytz.timezone('America/Argentina/Buenos_Aires')
 
+    # Configuración de notificaciones automáticas diarias
     if job_queue is not None:
         job_queue.run_daily(
             job_recordatorio_manana, 
@@ -3319,6 +3457,8 @@ def main():
             time=time(hour=16, minute=0, second=0, tzinfo=tz),
             name="recordatorio_comidas_tarde"
         )
+    else:
+        print("⚠️ Advertencia: job_queue no está disponible. Verifique que 'python-telegram-bot[job-queue]' esté instalado.")
 
     # Handlers de Comandos
     app_bot.add_handler(CommandHandler("start", cmd_start))
@@ -3336,6 +3476,8 @@ def main():
     app_bot.add_handler(CallbackQueryHandler(handle_callback_query))
 
     print("🤖 Bot Nutricional iniciado correctamente en Telegram con tareas programadas...")
+    
+    # Inicio del bot en loop de eventos asíncrono
     app_bot.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
@@ -3344,4 +3486,5 @@ if __name__ == "__main__":
 # ==================================================================================================================================================================================
 #                                   FINAL                                        MAIN EXECUTION                                        FINAL
 # ===================================================================================================================================================================================
+
 
