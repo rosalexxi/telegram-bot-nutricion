@@ -2556,7 +2556,7 @@ def obtener_perfil_usuario(user_id, mes_target=None):
 # ===================================================================================================================================================================
 
 # ====================================================================================================================================================================
-#                      INICIO                                   OPERACIONES COMIDAS 2026-08-22                                    INICIO
+#                      INICIO                                   OPERACIONES COMIDAS 2026-08-19                                    INICIO
 # ====================================================================================================================================================================
 
 def obtener_comidas_usuario(user_id):
@@ -2655,9 +2655,9 @@ def buscar_comida_precargada_exacta(user_id, texto_codigo):
             peso_raw = item.get('Peso (g x1000)', item.get('Peso', 0))
             cal_raw = item.get('Calorías (x1000)', item.get('Calorias', 0))
             prot_raw = item.get('Proteínas (g x1000)', item.get('Proteinas', 0))
-            gras_raw = item.get('Grasas (g x1000)', item.get('Grasas', 0))
-            carb_raw = item.get('Carbohidratos (g x1000)', item.get('Carbohidratos', 0))
-            fibr_raw = item.get('Fibras (g x1000)', item.get('Fibras', 0))
+            gras_raw = item.get('Grasas (x1000)', item.get('Grasas', 0))
+            carb_raw = item.get('Carbohidratos (x1000)', item.get('Carbohidratos', 0))
+            fibr_raw = item.get('Fibras (x1000)', item.get('Fibras', 0))
 
             # Si viene escalado x1000, desescalar dividiendo por 1000
             factor = 1000.0 if peso_raw > 5000 or cal_raw > 5000 else 1.0
@@ -3052,10 +3052,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     val_descripcion = v
                     break
 
-            texto_final = str(val_descripcion).strip() if val_descripcion else str(plantilla_encontrada.get('Nombre', 'Comida')).strip()
+            texto_base = str(val_descripcion).strip() if val_descripcion else str(plantilla_encontrada.get('Nombre', 'Comida')).strip()
+
+            # Formato de multiplicador
+            multiplicador_str = f"{int(multiplicador)}" if multiplicador.is_integer() else f"{multiplicador}"
+            
+            # Nombre para mostrar en pantalla (multiplicador al inicio)
+            nombre_pantalla = f"(x{multiplicador_str}) {texto_base}"
+            
+            # Nombre para guardar en Google Sheets (símbolo § ubicado al final absoluto)
+            nombre_sheets = f"(x{multiplicador_str}) {texto_base} §"
 
             item_generado = {
-                "alimento": texto_final,
+                "alimento": nombre_sheets,
+                "alimento_display": nombre_pantalla,  # Usado para renderizar la pantalla visualmente prolija
                 "peso": p_base * multiplicador,
                 "calorias": c_base * multiplicador,
                 "proteinas": pr_base * multiplicador,
