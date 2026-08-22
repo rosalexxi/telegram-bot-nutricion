@@ -1431,18 +1431,18 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         if dias_registrados == 0:
             dias_registrados = 1
 
-        # Conversión uniforme de unidades (/ 1000) desde el DataFrame
-        tot_cons_mes = (df_mes[df_mes['Calorias'] > 0]['Calorias'].sum() / 1000.0) if 'Calorias' in df_mes.columns else 0.0
-        tot_quem_mes = (abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum()) / 1000.0) if 'Calorias' in df_mes.columns else 0.0
+        # LECTURA DIRECTA DEL DATAFRAME (Sin dividir por 1000)
+        tot_cons_mes = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum() if 'Calorias' in df_mes.columns else 0.0
+        tot_quem_mes = abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
 
         prom_cons = tot_cons_mes / dias_registrados
         prom_quem = tot_quem_mes / dias_registrados
         prom_bal_neto = prom_cons - prom_quem
         
-        tot_prot = (df_mes['Proteinas'].sum() / 1000.0) if 'Proteinas' in df_mes.columns else 0.0
-        tot_gras = (df_mes['Grasas'].sum() / 1000.0) if 'Grasas' in df_mes.columns else 0.0
-        tot_carb = (df_mes['Carbohidratos'].sum() / 1000.0) if 'Carbohidratos' in df_mes.columns else 0.0
-        tot_fibr = (df_mes['Fibras'].sum() / 1000.0) if 'Fibras' in df_mes.columns else 0.0
+        tot_prot = df_mes['Proteinas'].sum() if 'Proteinas' in df_mes.columns else 0.0
+        tot_gras = df_mes['Grasas'].sum() if 'Grasas' in df_mes.columns else 0.0
+        tot_carb = df_mes['Carbohidratos'].sum() if 'Carbohidratos' in df_mes.columns else 0.0
+        tot_fibr = df_mes['Fibras'].sum() if 'Fibras' in df_mes.columns else 0.0
 
         prom_cal = int(round(prom_cons))
         prom_prot = int(round(tot_prot / dias_registrados))
@@ -1589,10 +1589,10 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             f"• Días con registro: `{dias_registrados}`\n"
             f"📈 **Promedio Diario vs. Objetivos (Ponderados 75/25):**\n"
             f"• **Calorías:** `{prom_cal} kcal` / Meta: `{ideal_cal} kcal`\n"
-            f"• **Proteínas:** `{prom_prot} g` / Meta: `{ideal_prot} g`\n"
-            f"• **Grasas:** `{prom_gras} g` / Meta: `{ideal_gras} g`\n"
-            f"• **Carbohidratos:** `{prom_carb} g` / Meta: `{ideal_carb} g`\n"
-            f"• **Fibras:** `{prom_fibr} g` / Meta: `{ideal_fibr} g`\n\n"
+            f"• **Proteínas:** `{prom_prot g}` / Meta: `{ideal_prot} g`\n"
+            f"• **Grasas:** `{prom_gras g}` / Meta: `{ideal_gras} g`\n"
+            f"• **Carbohidratos:** `{prom_carb g}` / Meta: `{ideal_carb} g`\n"
+            f"• **Fibras:** `{prom_fibr g}` / Meta: `{ideal_fibr} g`\n\n"
             f"🤖 **Recomendación de la IA:**\n"
             f"_{recomendacion_pantalla}_\n\n"
             f"📄 Podés descargar el reporte completo en PDF a continuación:"
@@ -1647,14 +1647,15 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
         for f in fechas_unicas:
             sub = df_mes[df_mes['Fecha'] == f]
             
-            c_cons = (sub[sub['Calorias'] > 0]['Calorias'].sum() / 1000.0) if 'Calorias' in sub.columns else 0.0
-            c_quem = (abs(sub[sub['Calorias'] < 0]['Calorias'].sum()) / 1000.0) if 'Calorias' in sub.columns else 0.0
+            # LECTURA DIRECTA DEL DATAFRAME (Sin dividir por 1000)
+            c_cons = sub[sub['Calorias'] > 0]['Calorias'].sum() if 'Calorias' in sub.columns else 0.0
+            c_quem = abs(sub[sub['Calorias'] < 0]['Calorias'].sum()) if 'Calorias' in sub.columns else 0.0
             b_neto = c_cons - c_quem
             
-            prot = (float(sub['Proteinas'].sum()) / 1000.0) if 'Proteinas' in sub.columns else 0.0
-            gras = (float(sub['Grasas'].sum()) / 1000.0) if 'Grasas' in sub.columns else 0.0
-            carb = (float(sub['Carbohidratos'].sum()) / 1000.0) if 'Carbohidratos' in sub.columns else 0.0
-            fibr = (float(sub['Fibras'].sum()) / 1000.0) if 'Fibras' in sub.columns else 0.0
+            prot = float(sub['Proteinas'].sum()) if 'Proteinas' in sub.columns else 0.0
+            gras = float(sub['Grasas'].sum()) if 'Grasas' in sub.columns else 0.0
+            carb = float(sub['Carbohidratos'].sum()) if 'Carbohidratos' in sub.columns else 0.0
+            fibr = float(sub['Fibras'].sum()) if 'Fibras' in sub.columns else 0.0
 
             tot_cons += c_cons
             tot_quem += c_quem
@@ -1824,7 +1825,7 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
         p_id = parse_raw_val(perfil.get('Peso_ideal', perfil.get('Peso_Ideal', 75.0))) if perfil else 75.0
         p_ref = (p_act * 0.75) + (p_id * 0.25)
         
-        tot_c = (df_mes[df_mes['Calorias'] > 0]['Calorias'].sum() / 1000.0) if not df_mes.empty else 0
+        tot_c = df_mes[df_mes['Calorias'] > 0]['Calorias'].sum() if not df_mes.empty else 0
         prompt_ia = f"Resumen {mes_str}: Consumo diario {int(round(tot_c/dias_act))} kcal. Peso actual: {int(round(p_act))}kg, Meta ponderada: {int(round(p_ref))}kg. Da un consejo nutricional."
         recomendacion = obtener_recomendacion_ia(prompt_ia)
 
