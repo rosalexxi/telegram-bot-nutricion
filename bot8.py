@@ -3021,7 +3021,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await render_confirmation_screen(update, context)
         return
 
-    # =========================================================================
+# =========================================================================
     # 2. COMIDAS PRECARGADAS EN PLANTILLAS DEL USUARIO (MENSAJES QUE EMPIEZAN CON *)
     # =========================================================================
     if raw_text.startswith('*'):
@@ -3053,14 +3053,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     break
 
             texto_base = str(val_descripcion).strip() if val_descripcion else str(plantilla_encontrada.get('Nombre', 'Comida')).strip()
+            
+            # Limpiamos cualquier símbolo § previo por las dudas para evitar duplicados
+            texto_base = texto_base.replace('§', '').strip()
 
             # Formato de multiplicador
             multiplicador_str = f"{int(multiplicador)}" if multiplicador.is_integer() else f"{multiplicador}"
             
-            # Nombre para mostrar en pantalla (multiplicador al inicio)
+            # Nombre para mostrar en pantalla (sin el símbolo §)
             nombre_pantalla = f"(x{multiplicador_str}) {texto_base}"
             
-            # Nombre para guardar en Google Sheets (símbolo § ubicado al final absoluto)
+            # Nombre para guardar en Google Sheets (con un ÚNICO símbolo § al final absoluto)
             nombre_sheets = f"(x{multiplicador_str}) {texto_base} §"
 
             item_generado = {
@@ -3082,7 +3085,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(f"❌ No se encontró la comida `*{nombre_plantilla}` en tu planilla `Comidas_{user_id}`.", parse_mode="Markdown")
             return
-
+            
     # =========================================================================
     # 3. INGRESO DIRECTO DE COMIDA POR TEXTO LIBRE (IA)
     # =========================================================================
