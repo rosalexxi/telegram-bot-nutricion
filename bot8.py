@@ -1006,18 +1006,17 @@ async def render_confirmation_screen(msg_or_query, context):
         txt = f"📝 **Confirmación de Ingesta:**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\n\n"
 
     for idx, item in enumerate(items, start=1):
-        mult = item.get('multiplicador', 1.0)
         peso_total = item.get('peso', 0)
         cal_total = item.get('calorias', 0)
         
-        alimento_str = item.get('alimento', item.get('nombre', ''))
+        # Si la plantilla ya tiene display limpio configurado, lo usamos; si no, limpiamos el §
+        alimento_str = item.get('alimento_display') or item.get('alimento', item.get('nombre', ''))
         alimento_limpio = alimento_str.replace('§', '').strip()
 
         if momento == 'Actividad':
             txt += f"**{idx}. {alimento_limpio}**: `{cal_total:.1f} kcal`\n"
-        elif mult != 1.0:
-            txt += f"**{idx}. {alimento_limpio}** ({peso_total:.1f}g) (x{mult}): `{cal_total:.1f} kcal`\n"
         else:
+            # Mostramos el texto limpio una sola vez (ya incluye el (x...) si era plantilla)
             txt += f"**{idx}. {alimento_limpio}** ({peso_total:.1f}g): `{cal_total:.1f} kcal`\n"
 
     keyboard = []
@@ -1060,7 +1059,6 @@ async def render_confirmation_screen(msg_or_query, context):
 
     markup = InlineKeyboardMarkup(keyboard)
 
-    # DETECCIÓN Y EDICIÓN CORRECTA DEL MENSAJE (BOTÓN O TEXTO NUEVO)
     if hasattr(msg_or_query, 'edit_message_text'):
         await msg_or_query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
     elif hasattr(msg_or_query, 'edit_text'):
@@ -2786,7 +2784,7 @@ def generar_pdf_comidas_bytes(plantillas):
 #                   FINAL                                   OPERACION COMIDAS                                           FINAL
 # =======================================================================================================================================================
 #==============================================================================================================================================================
-#                INICIO                             MANEJADORES HANDLE 2026 08 20                INICIO
+#                INICIO                             MANEJADORES HANDLE 2026 08 22                INICIO
 #==============================================================================================================================================================
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3021,9 +3019,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await render_confirmation_screen(update, context)
         return
 
-    # ======================================================================================================
-    # 2. COMIDAS PRECARGADAS EN PLANTILLAS DEL USUARIO (MENSAJES QUE EMPIEZAN CON *)  08 22
-    # ===================================================================================================
+
+# =========================================================================
+    # 2. COMIDAS PRECARGADAS EN PLANTILLAS DEL USUARIO (MENSAJES QUE EMPIEZAN CON *)
+    # =========================================================================
     if raw_text.startswith('*'):
         contenido = raw_text[1:].strip()
         partes = [p.strip() for p in contenido.split(',')]
@@ -3054,26 +3053,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             texto_base = str(val_descripcion).strip() if val_descripcion else str(plantilla_encontrada.get('Nombre', 'Comida')).strip()
             
-            # Limpiamos exhaustivamente CUALQUIER símbolo § previo (del Excel origen o duplicados)
+            # Barremos por completo CUALQUIER símbolo § previo que estuviera guardado en la celda origen
             texto_base = texto_base.replace('§', '').strip()
             
-            # Si el texto base ya arrancaba con un formato de cantidad tipo (x...), se lo removemos para que no se duplique
             if texto_base.startswith('(x'):
                 if ')' in texto_base:
                     texto_base = texto_base.split(')', 1)[1].strip()
 
-            # Formato de multiplicador limpio
             multiplicador_str = f"{int(multiplicador)}" if multiplicador.is_integer() else f"{multiplicador}"
             
-            # Nombre para mostrar en pantalla (solo una vez al principio, sin símbolo §)
+            # Pantalla limpia sin símbolo raro ni multiplicadores extra
             nombre_pantalla = f"(x{multiplicador_str}) {texto_base}"
             
-            # Nombre para guardar en Google Sheets (con un ÚNICO símbolo § al final absoluto)
+            # Excel con un ÚNICO símbolo § al final absoluto
             nombre_sheets = f"(x{multiplicador_str}) {texto_base} §"
 
             item_generado = {
                 "alimento": nombre_sheets,
-                "alimento_display": nombre_pantalla,  # Controla la vista limpia en pantalla
+                "alimento_display": nombre_pantalla,
                 "peso": p_base * multiplicador,
                 "calorias": c_base * multiplicador,
                 "proteinas": pr_base * multiplicador,
@@ -3089,8 +3086,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         else:
             await update.message.reply_text(f"❌ No se encontró la comida `*{nombre_plantilla}` en tu planilla `Comidas_{user_id}`.", parse_mode="Markdown")
-            return
-                        
+            return  
+                                  
     # =========================================================================
     # 3. INGRESO DIRECTO DE COMIDA POR TEXTO LIBRE (IA)
     # =========================================================================
