@@ -1524,15 +1524,24 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             peso_ideal=peso_ideal_base
         )
 
-        deficit_diario_real = get_real - (prom_cons - prom_quem)
-        # Cambio teóricamente exacto con 1 decimal flotante y constante 7700 kcal/kg
-        cambio_peso_kg = (deficit_diario_real * dias_registrados) / 7700.0
+        # --- CÁLCULO CORREGIDO DE DÉFICIT Y CAMBIO DE PESO ---
+        balance_neto_real_diario = prom_cons - prom_quem
+        deficit_diario_real = get_meta - balance_neto_real_diario
+        cambio_peso_kg = -(deficit_diario_real * dias_registrados) / 7700.0
+
+        # --- FACTORES DE MACROS SEGÚN GÉNERO ---
+        gen_clean = str(genero).strip().lower()
+        if gen_clean in ["femenino", "f", "mujer", "female"]:
+            factor_proteina = 1.2
+            ideal_fibr = 25
+        else:
+            factor_proteina = 1.5
+            ideal_fibr = 30
 
         ideal_cal = int(round(get_meta))
-        ideal_prot = int(round(peso_referencia * 1.5))
+        ideal_prot = int(round(peso_referencia * factor_proteina))
         ideal_gras = int(round((get_meta * 0.25) / 9))
         ideal_carb = int(round((get_meta * 0.50) / 4))
-        ideal_fibr = 25
 
         dict_promedios = {
             'calorias': prom_cal,
@@ -1612,7 +1621,6 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
         else:
             await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
-
 
 #                                                    GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
 # ===================================================================================================================================================================
@@ -1730,7 +1738,7 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
 
     peso_referencia_ponderado = (peso_actual * 0.75) + (peso_ideal_excel * 0.25)
     genero = str(perfil_dict.get('GENERO', perfil_dict.get('Genero', perfil_dict.get('genero', 'masculino')))).strip()
-    ocupacion = str(perfil_dict.get('Ocupacion', perfil_dict.get('ocupacion', 'jubilado'))).strip()
+    ocupacion = str(perfil_dict.get('Ocupacion', perfil_dict.get('ocupacion', 'ligero'))).strip()
     
     # Llama a la función central para calcular el GET real y el ideal
     tmb_calc, get_real_diario = calcular_tmb_y_get(
@@ -1756,13 +1764,29 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     prom_cons_diario = (tot_cons / dias_activos) if dias_activos > 0 else 0
     prom_ejercicio_diario = (tot_quem / dias_activos) if dias_activos > 0 else 0
     
-    deficit_diario_real = get_real_diario - (prom_cons_diario - prom_ejercicio_diario)
-    cambio_peso_kg = (deficit_diario_real * dias_activos) / 7700.0
+    # Tu consumo neto real diario (lo que comiste menos lo que quemaste haciendo ejercicio)
+    balance_neto_real_diario = prom_cons_diario - prom_ejercicio_diario
+    
+    # El déficit diario real se calcula restando tu consumo neto al Gasto Energético Ideal (GET)
+    deficit_diario_real = get_ideal - balance_neto_real_diario
+    
+    # El cambio de peso debe ser negativo si hay déficit (baja de peso). 
+    # Se multiplica por los días activos del mes y se divide por la constante 7700.
+    cambio_peso_kg = -(deficit_diario_real * dias_activos) / 7700.0
 
-    prot_rec = int(round(peso_referencia_ponderado * 1.5))
+    # Determinación de factores según el género (respaldado por estándares nutricionales)
+    gen_clean = str(genero).strip().lower()
+    if gen_clean in ["femenino", "f", "mujer", "female"]:
+        factor_proteina = 1.2    # 1.2g por kilo para mujeres (preservación muscular)
+        fibr_rec = 25            # 25g diarios estándar para mujeres (OMS / Academia de Medicina)
+    else:
+        factor_proteina = 1.5    # 1.5g por kilo para varones
+        fibr_rec = 30            # 30g diarios estándar como piso para varones
+
+    # Cálculo final de macronutrientes y fibras
+    prot_rec = int(round(peso_referencia_ponderado * factor_proteina))
     gras_rec = int(round((get_ideal * 0.25) / 9.0))
     carb_rec = int(round((get_ideal * 0.50) / 4.0))
-    fibr_rec = 25
 
     prom_d_cons = int(round(prom_cons_diario))
     prom_d_prot = int(round((tot_prot / dias_activos))) if dias_activos > 0 else 0
