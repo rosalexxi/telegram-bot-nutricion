@@ -2556,7 +2556,7 @@ def obtener_perfil_usuario(user_id, mes_target=None):
 # ===================================================================================================================================================================
 
 # ====================================================================================================================================================================
-#                      INICIO                                   OPERACIONES COMIDAS 2026-08-19                                    INICIO
+#                      INICIO                                   OPERACIONES COMIDAS 2026-08-22                                    INICIO
 # ====================================================================================================================================================================
 
 def obtener_comidas_usuario(user_id):
@@ -2699,10 +2699,17 @@ Devolvé EXCLUSIVAMENTE un JSON con este formato:
     )
     return json.loads(response.choices[0].message.content)
     
-def analizar_imagen_con_groq(base64_image):
+def analizar_imagen_con_groq(base64_image, user_caption=""):
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
-    prompt = "Analizá esta imagen de comida/plato. Identificá los alimentos, estimá sus pesos en gramos y nutrientes. Respondé ÚNICAMENTE en formato JSON con la clave 'items' conteniendo alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras."
+    
+    base_prompt = "Analizá esta imagen de comida/plato. Identificá los alimentos, estimá sus pesos en gramos y nutrientes. Respondé ÚNICAMENTE en formato JSON con la clave 'items' conteniendo alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras."
+    
+    if user_caption.strip():
+        prompt = f"{base_prompt}\n\nNota o aclaración enviada por el usuario sobre esta foto: '{user_caption.strip()}'"
+    else:
+        prompt = base_prompt
+
     response = client_ai.chat.completions.create(
         model=GROQ_FOTO,
         messages=[
@@ -2809,7 +2816,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         photo_bytes = await photo_file.download_as_bytearray()
         base64_image = base64.b64encode(photo_bytes).decode('utf-8')
         
-        data = analizar_imagen_con_groq(base64_image)
+        user_caption = update.message.caption or ""
+        
+        data = analizar_imagen_con_groq(base64_image, user_caption)
         await procesar_y_mostrar_confirmacion(data, msg, context)
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar imagen: {e}")
@@ -3196,9 +3205,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 #                FINAL                                     MANEJADORES HANDLE                                    FINAL
 #==============================================================================================================================================================
 
-# ==================================================================================================================================================================================
+# =============================================================================================================================================================
 #                    INICIO                                    MENSAJES PROGRAMADOS  2026 08 20                              INICIO
-# ===================================================================================================================================================================================
+# ==============================================================================================================================================================
 
 def extraer_val(texto: str) -> float:
     """
