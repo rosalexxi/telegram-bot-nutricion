@@ -3021,9 +3021,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await render_confirmation_screen(update, context)
         return
 
-# =========================================================================
-    # 2. COMIDAS PRECARGADAS EN PLANTILLAS DEL USUARIO (MENSAJES QUE EMPIEZAN CON *)
-    # =========================================================================
+    # ======================================================================================================
+    # 2. COMIDAS PRECARGADAS EN PLANTILLAS DEL USUARIO (MENSAJES QUE EMPIEZAN CON *)  08 22
+    # ===================================================================================================
     if raw_text.startswith('*'):
         contenido = raw_text[1:].strip()
         partes = [p.strip() for p in contenido.split(',')]
@@ -3054,13 +3054,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             texto_base = str(val_descripcion).strip() if val_descripcion else str(plantilla_encontrada.get('Nombre', 'Comida')).strip()
             
-            # Limpiamos cualquier símbolo § previo por las dudas para evitar duplicados
+            # Limpiamos exhaustivamente CUALQUIER símbolo § previo (del Excel origen o duplicados)
             texto_base = texto_base.replace('§', '').strip()
+            
+            # Si el texto base ya arrancaba con un formato de cantidad tipo (x...), se lo removemos para que no se duplique
+            if texto_base.startswith('(x'):
+                if ')' in texto_base:
+                    texto_base = texto_base.split(')', 1)[1].strip()
 
-            # Formato de multiplicador
+            # Formato de multiplicador limpio
             multiplicador_str = f"{int(multiplicador)}" if multiplicador.is_integer() else f"{multiplicador}"
             
-            # Nombre para mostrar en pantalla (sin el símbolo §)
+            # Nombre para mostrar en pantalla (solo una vez al principio, sin símbolo §)
             nombre_pantalla = f"(x{multiplicador_str}) {texto_base}"
             
             # Nombre para guardar en Google Sheets (con un ÚNICO símbolo § al final absoluto)
@@ -3068,7 +3073,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             item_generado = {
                 "alimento": nombre_sheets,
-                "alimento_display": nombre_pantalla,  # Usado para renderizar la pantalla visualmente prolija
+                "alimento_display": nombre_pantalla,  # Controla la vista limpia en pantalla
                 "peso": p_base * multiplicador,
                 "calorias": c_base * multiplicador,
                 "proteinas": pr_base * multiplicador,
@@ -3085,7 +3090,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(f"❌ No se encontró la comida `*{nombre_plantilla}` en tu planilla `Comidas_{user_id}`.", parse_mode="Markdown")
             return
-            
+                        
     # =========================================================================
     # 3. INGRESO DIRECTO DE COMIDA POR TEXTO LIBRE (IA)
     # =========================================================================
