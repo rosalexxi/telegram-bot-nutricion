@@ -1226,8 +1226,8 @@ def generar_pdf_instrucciones_bytes():
 # ==============================================================================================================================================
 
 #===============================================================================================================================================
-#               INICIO                    COMANDO RESUMEN     2026 08 22                         INICIO
-#===============================================================================================================================================
+#               INICIO                    COMANDO RESUMEN     2026 08 2                         INICIO
+#====================================================================== =========================================================================
 
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -1460,7 +1460,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         try:
             gc = get_gspread_client()
             sh = gc.open(SPREADSHEET_NAME)
-            ws_perfil = get_or_createworksheet(sh, f"Perfil_{user_id}")
+            ws_perfil = get_or_create_worksheet(sh, f"Perfil_{user_id}")
             registros_perfil = ws_perfil.get_all_records()
 
             if registros_perfil:
@@ -1588,9 +1588,9 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             f"📈 **Promedio Diario vs. Objetivos (Ponderados 75/25):**\n"
             f"• **Calorías:** `{prom_cal} kcal` / Meta: `{ideal_cal} kcal`\n"
             f"• **Proteínas:** `{prom_prot} g` / Meta: `{ideal_prot} g`\n"
-            f"• **Grasas:** `{prom_gras g}` / Meta: `{ideal_gras} g`\n"
-            f"• **Carbohidratos:** `{prom_carb g}` / Meta: `{ideal_carb} g`\n"
-            f"• **Fibras:** `{prom_fibr g}` / Meta: `{ideal_fibr} g`\n\n"
+            f"• **Grasas:** `{prom_gras} g` / Meta: `{ideal_gras} g`\n"
+            f"• **Carbohidratos:** `{prom_carb} g` / Meta: `{ideal_carb} g`\n"
+            f"• **Fibras:** `{prom_fibr} g` / Meta: `{ideal_fibr} g`\n\n"
             f"🤖 **Recomendación de la IA:**\n"
             f"_{recomendacion_pantalla}_\n\n"
             f"📄 Podés descargar el reporte completo en PDF a continuación:"
