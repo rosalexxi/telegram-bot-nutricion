@@ -677,25 +677,6 @@ def obtener_momento_y_fecha_auto():
         
     return fecha_obj.strftime("%Y-%m-%d"), momento
     
-def calcular_proteina_sugerida(user_id=123456789):
-    try:
-        ahora_mes = obtener_ahora_arg().strftime("%Y-%m")
-        perfil = obtener_perfil_usuario(user_id=user_id, mes_target=ahora_mes)
-        if not perfil:
-            peso = 75.0
-            peso_ideal = 75.0
-        else:
-            peso = parse_raw_val(perfil.get('Peso', 75.0))
-            peso_ideal = parse_raw_val(perfil.get('Peso_Ideal', perfil.get('Peso_ideal', peso)))
-            if peso_ideal <= 0:
-                peso_ideal = peso * 0.85
-    except Exception:
-        peso = 75.0
-        peso_ideal = 75.0
-
-    peso_efectivo = (peso + peso_ideal) / 2.0
-    return peso_efectivo
-    
 #               FUNCIÓN CENTRALIZADA: CÁLCULO DE TMB Y GET (Mifflin-St Jeor)  2026 08 22
 
 
