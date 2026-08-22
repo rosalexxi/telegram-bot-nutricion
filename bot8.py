@@ -2118,9 +2118,8 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                  FINAL                                       COMANDO RECETA                                               FINAL
 # ===================================================================================================================================================================================
 
-
 # =====================================================================================================================================================================
-#                   INICIO                                    COMANDO DIARIO   2026 08 22                             INICIO
+#                   INICIO                                    COMANDO DIARIO   2026 08 22                              INICIO
 # =======================================================================================================================================================================
 
 async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2196,34 +2195,32 @@ async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
             keyboard = [[InlineKeyboardButton("📄 Descargar PDF", callback_data=f"descargar_pdf_diario_{fecha_str}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Envíos dinámicos con control de mensaje idéntico
-        if hasattr(query_or_query, 'edit_message_text'):
+        # Envíos dinámicos según el origen de llamada originales
+        if hasattr(update_or_query, 'edit_message_text'):
             try:
-                await query_or_query.edit_message_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+                await update_or_query.edit_message_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
             except Exception as ex:
                 if "Message is not modified" not in str(ex):
                     raise ex
-        elif hasattr(query_or_query, 'reply_text'):
-            await query_or_query.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
-        elif hasattr(query_or_query, 'message') and query_or_query.message:
-            await query_or_query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+        elif hasattr(update_or_query, 'reply_text'):
+            await update_or_query.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+        elif hasattr(update_or_query, 'message') and update_or_query.message:
+            await update_or_query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
 
     except Exception as e:
-        # Si el error es simplemente que el mensaje no sufrió modificaciones, lo ignoramos de forma limpia
         if "Message is not modified" in str(e):
             return
             
         msg_err = f"❌ Error al consultar el diario para la fecha `{fecha_str}`: {e}"
-        if hasattr(query_or_query, 'edit_message_text'):
+        if hasattr(update_or_query, 'edit_message_text'):
             try:
-                await query_or_query.edit_message_text(msg_err, parse_mode="Markdown")
+                await update_or_query.edit_message_text(msg_err, parse_mode="Markdown")
             except Exception:
                 pass
-        elif hasattr(query_or_query, 'reply_text'):
-            await query_or_query.reply_text(msg_err, parse_mode="Markdown")
-        elif hasattr(query_or_query, 'message') and query_or_query.message:
-            await query_or_query.message.reply_text(msg_err, parse_mode="Markdown")
-
+        elif hasattr(update_or_query, 'reply_text'):
+            await update_or_query.reply_text(msg_err, parse_mode="Markdown")
+        elif hasattr(update_or_query, 'message') and update_or_query.message:
+            await update_or_query.message.reply_text(msg_err, parse_mode="Markdown")
 
 def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
     buffer = io.BytesIO()
