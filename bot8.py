@@ -1211,9 +1211,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 ¡Hola! Bienvenido a tu Bot Nutricional Personalizado.\n\n"
         "📌 Funciones y Comandos Disponibles:\n\n"
         "• `/comidas`: Visualiza listado y descarga PDF.\n"
-        "• `/presion 120,80,70,Nota` registra datos y nota.\n"
-        "• `/presion 120,80` omite pulso y nota.\n"
-        "• `/presion 2026-08` promedio mensual y PDF.\n"
+        "• `/presi 120,80,70,nota` registra datos y nota.\n"
+        "• `/presi 120,80` omite pulso y nota.\n"
+        "• `/presi 2026-08` promedio mensual y PDF.\n"
         "• `/diario`: Ingestas del día y PDF detallado.\n"
         "• `/resumen`: Reporte mensual con IA y PDF.\n"
         "• `/receta`: Carga con IA una comida en planilla.\n"
@@ -1493,6 +1493,7 @@ def obtener_recomendacion_ia(resumen_texto: str) -> str:
         return texto_fallback
 
 
+# ======================================================================================================================================================================
 #                                                                MOSTRAR RESUMEN MES (TELEGRAM HANDLER)
 # ======================================================================================================================================================================
 
@@ -1622,7 +1623,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
         else:
-            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
+            await query_or_update.message.reply_text(txt, parse_mode="Markdown", reply_markup=keyboard)
 
     except Exception as e:
         error_txt = f"⚠️ Ocurrió un error al procesar el resumen: `{str(e)}`"
@@ -1630,7 +1631,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
         else:
             await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
-
+            
 #                                                    GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
 # ===================================================================================================================================================================
 
@@ -1818,7 +1819,7 @@ async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
 # ===================================================================================================================================================================================
 
 # ==================================================================================================================================================================================
-#                   INICIO                         MODULO DE PRESION ARTERIAL (COMANDO, SHEETS Y PDF)                        INICIO
+#                   INICIO                               COMNADO PRESION                                          INICIO
 # ===================================================================================================================================================================================
 
 def obtener_datos_presion(user_id):
@@ -1912,16 +1913,16 @@ def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
 async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    raw_text = re.sub(r'^/pres\w*(@\w+)?', '', update.message.text, flags=re.IGNORECASE).strip()
+    # Limpia tanto /presi como /presion (con o sin acento)
+    raw_text = re.sub(r'^/(presio|presi|presion)\w*(@\w+)?', '', update.message.text, flags=re.IGNORECASE).strip()
 
     if not raw_text:
         await update.message.reply_text(
-            "Ingresa o consulta un mes. Verificar que \n"
-            "/presion no tenga acento. Ejemplos : \n\n"
-            "• /presion 120,80,70, despues de caminar\n"
-            "• /presion 120,80,70\n"
-            "• /presion 120,80\n"
-            "• /presion 2026-08", 
+            "Ingresa o consulta un mes usando /presi. Ejemplos:\n\n"
+            "• /presi 120,80,70, después de caminar\n"
+            "• /presi 120,80,70\n"
+            "• /presi 120,80\n"
+            "• /presi 2026-08", 
             parse_mode="Markdown"
         )
         return
@@ -3535,7 +3536,7 @@ def main():
     app_bot.add_handler(CommandHandler("start", cmd_start))
     app_bot.add_handler(CommandHandler("comidas", cmd_comidas))
     app_bot.add_handler(CommandHandler("perfil", cmd_perfil))
-    app_bot.add_handler(CommandHandler("presion", cmd_presion_handler))
+    app_bot.add_handler(CommandHandler(["presion","presi"], cmd_presion_handler))  
     app_bot.add_handler(CommandHandler("diario", cmd_diario))
     app_bot.add_handler(CommandHandler("resumen", cmd_resumen))
     app_bot.add_handler(CommandHandler("receta", cmd_cargar_receta))
