@@ -1492,8 +1492,6 @@ def obtener_recomendacion_ia(resumen_texto: str) -> str:
         print(f"⚠️ Warning: Falló obtener_recomendacion_ia para pantalla: {e}")
         return texto_fallback
 
-
-# ======================================================================================================================================================================
 #                                                                MOSTRAR RESUMEN MES (TELEGRAM HANDLER)
 # ======================================================================================================================================================================
 
@@ -1518,27 +1516,14 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
                 await query_or_update.message.reply_text(txt, parse_mode="Markdown")
             return
 
-        # --- LECTURA DE PERFIL DESDE GOOGLE SHEETS ---
-        perfil_dict = {}
-        try:
-            gc = get_gspread_client()
-            sh = gc.open(SPREADSHEET_NAME)
-            ws_perfil = get_or_create_worksheet(sh, f"Perfil_{user_id}")
-            registros_perfil = ws_perfil.get_all_records()
-
-            if registros_perfil:
-                for r in registros_perfil:
-                    r_lower = {str(k).strip().lower(): v for k, v in r.items()}
-                    val_mes = str(r_lower.get("mes", "")).strip()
-                    if val_mes == str(mes_str).strip():
-                        perfil_dict = r_lower
-                        break
-        except Exception as err_perfil:
-            print(f"Error accediendo a Perfil_{user_id}: {err_perfil}")
+        # --- LECTURA UNIFICADA DEL PERFIL (Igual que el PDF) ---
+        perfil_dict = obtener_perfil_usuario(user_id, mes_target=mes_str)
+        if not perfil_dict:
+            perfil_dict = {}
 
         # Validamos campos mínimos indispensables para el cálculo
-        campos_criticos = ['edad', 'altura', 'peso']
-        if not perfil_dict or any(k not in perfil_dict or parse_raw_val(perfil_dict[k]) == 0 for k in campos_criticos):
+        campos_criticos = ['Edad', 'edad', 'Altura', 'altura', 'Peso', 'peso']
+        if not perfil_dict or not any(k in perfil_dict and parse_raw_val(perfil_dict[k]) > 0 for k in campos_criticos):
             txt_incompleto = (
                 f"⚠️ **Datos biométricos incompletos para el mes `{mes_str}`.**\n\n"
                 f"No se ingresaron o están incompletos los datos de edad, altura o peso en tu perfil para este mes. "
@@ -1631,6 +1616,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
         else:
             await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
+
             
 #                                                    GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
 # ===================================================================================================================================================================
