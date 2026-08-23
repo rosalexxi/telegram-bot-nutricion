@@ -611,7 +611,7 @@ async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: b
     """
     Función independiente que calcula y envía el resumen.
     - División por 1000 y redondeo a entero para calorías y proteínas.
-    - LLM de Groq utilizando GROQ_TEXTO para emitir el consejo del coach.
+    - LLM de Groq utilizando client_ai y GROQ_TEXTO para emitir el consejo del coach.
     """
     try:
         gc = get_gspread_client()
@@ -773,27 +773,25 @@ async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: b
         )
 
         # -----------------------------------------------------------------
-        # 2. LLAMADA A LA IA USANDO GROQ_TEXTO
+        # 2. LLAMADA A LA IA USANDO client_ai y GROQ_TEXTO
         # -----------------------------------------------------------------
         prompt_ia = (
-            f"Actuá como un coach nutricional y deportivo directo, exigente y motivador. "
-            f"Datos del usuario: Promedio {prom_calorias} kcal/día, {prom_proteinas}g de proteína/día, "
-            f"y {int(minutos_ejercicio_totales)} minutos de ejercicio acumulados (su meta para este período era {meta_ejercicio_proporcional} min).\n\n"
-            f"Escribí un consejo breve, personalizado y al hueso (máximo 50 palabras) con emojis, "
-            f"diciéndole exactamente qué ajustar o cómo mejorar esta semana."
+            f"Actuá como un coach nutricional y deportivo exigente, empático y muy motivador. "
+            f"Analizá estos datos del usuario: Promedio {prom_calorias} kcal/día, {prom_proteinas}g de proteína/día, "
+            f"y {int(minutos_ejercicio_totales)} minutos de ejercicio acumulados (su meta proporcional era {meta_ejercicio_proporcional} min).\n\n"
+            f"Escribí un consejo detallado de 3 a 4 párrafos cortos (entre 80 y 100 palabras en total) en Markdown con emojis. "
+            f"Evaluá el rendimiento de sus calorías y proteínas, dale feedback sobre su nivel de actividad física y dejale una recomendación "
+            f"práctica y clara para mejorar o mantener el ritmo en los próximos días."
         )
 
         consejo_ia = ""
-        # Detecta automáticamente si tu cliente de IA se llama 'client_ai' o 'client'
-        ai_client_to_use = client_ai if 'client_ai' in globals() and client_ai else (client if 'client' in globals() else None)
-        
-        if ai_client_to_use:
+        if client_ai:
             try:
-                respuesta_ia = ai_client_to_use.chat.completions.create(
+                respuesta_ia = client_ai.chat.completions.create(
                     model=GROQ_TEXTO,
                     messages=[{"role": "user", "content": prompt_ia}],
                     temperature=0.7,
-                    max_tokens=150
+                    max_tokens=300
                 )
                 consejo_ia = respuesta_ia.choices[0].message.content.strip()
             except Exception as e_groq:
@@ -804,7 +802,12 @@ async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: b
                     pass
 
         if not consejo_ia:
-            consejo_ia = "¡A meterle con todo esta semana! Cuidá tus porciones y sumá movimiento diario. 💪"
+            consejo_ia = (
+                f"¡Hola! Estuve analizando tus números de la semana. Venís registrando un promedio de {prom_calorias} kcal y {prom_proteinas}g de proteínas, "
+                f"junto con {int(minutos_ejercicio_totales)} minutos de actividad.\n\n"
+                f"💡 **Recomendación del Coach:** Intentá mantener la constancia en tus comidas principales y asegurate de sumar un poco más "
+                f"de movimiento diario para acercarte a la meta propuesta. ¡A no aflojar que venís por buen camino! 💪"
+            )
 
         aviso_peso_str = _verificar_aviso_peso(user_id, ahora_dt)
         texto_resumen_final = f"{reporte_python}\n\n💬 **Consejo del Coach:**\n{consejo_ia}{aviso_peso_str}"
@@ -824,7 +827,6 @@ async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: b
             await registrar_log_en_sheet(sh, f"Error Resumen User {user_id}", e_resumen)
         except Exception:
             pass
-
 
 async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
     """
