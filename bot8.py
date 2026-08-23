@@ -604,8 +604,201 @@ AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT
 # ================================================================================================================================================
 
 # =================================================================================================================================================
-#                       INICIO                         FUNCIONES AUXILIARES Y FORMATO                       INICIO
+#                       INICIO                     FUNCIONES AUXILIARES Y FORMATO 2026 08 23                INICIO
 # ==================================================================================================================================================
+
+async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: bool = False):
+    """
+    Función independiente que calcula y envía el resumen con IA.
+    - Descarta el día actual.
+    - Exige al menos 2 comidas por día para considerarlo válido en el promedio.
+    - Calcula la meta de ejercicio de forma proporcional al período evaluado.
+    """
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        
+        meta_cal = None
+        meta_prot = None
+        try:
+            sheet_usuarios = sh.worksheet("Usuarios")
+            registros_usuarios = sheet_usuarios.get_all_records()
+            for u in registros_usuarios:
+                if str(u.get("User ID", "")).strip() == str(user_id):
+                    meta_cal = u.get("Calorias_Objetivo")
+                    meta_prot = u.get("Proteinas_Objetivo")
+                    break
+        except Exception:
+            pass
+
+        ahora_dt = obtener_ahora_arg()
+        hoy = ahora_dt.date() if hasattr(ahora_dt, "date") else ahora_dt
+        dias_desde_lunes = hoy.weekday() # Lunes = 0, Domingo = 6
+
+        # Definición de fechas según el modo
+        # Si es manual o se pide un lunes a la 00:00, evaluamos los días anteriores cerrados de esta semana.
+        if semana_actual:
+            lunes_base = hoy - timedelta(days=dias_desde_lunes)
+            # Excluimos el día de hoy: si es lunes (dias=0), no hay días anteriores. Si es miércoles (dias=2), tomamos 2 días (L y M).
+            dias_a_incluir = dias_desde_lunes 
+            
+            if dias_a_incluir <= 0:
+                # Si lo pide un lunes, evaluamos la semana pasada completa (para los ansiosos)
+                lunes_pasado = hoy - timedelta(days=7)
+                fechas_objetivo = set((lunes_pasado + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7))
+                titulo_reporte = "🗓️ **RESUMEN DE TU SEMANA ANTERIOR**"
+                modo_evaluacion = "semana_pasada"
+            else:
+                fechas_objetivo = set((lunes_base + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(dias_a_incluir))
+                titulo_reporte = f"📊 **PROGRESO PARCIAL DE ESTA SEMANA** ({dias_a_incluir} días cerrados analizados)"
+                modo_evaluacion = "parcial"
+        else:
+            # Semana pasada completa (Lunes a Domingo) para el automático de los martes
+            lunes_pasado = hoy - timedelta(days=dias_desde_lunes + 7)
+            fechas_objetivo = set((lunes_pasado + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7))
+            titulo_reporte = "🗓️ **RESUMEN DE TU SEMANA PASADA**"
+            modo_evaluacion = "semana_pasada"
+
+        nombre_hoja_usuario = f"User_{user_id}"
+        sheet_usuario = sh.worksheet(nombre_hoja_usuario)
+        registros_comidas = sheet_usuario.get_all_records()
+
+        # Diccionario temporal para acumular por fecha: { "YYYY-MM-DD": {"cal": 0.0, "prot": 0.0, "comidas": set(), "ejercicio": 0.0} }
+        resumen_por_dia = {fecha: {"cal": 0.0, "prot": 0.0, "comidas": set(), "ejercicio": 0.0} for fecha in fechas_objetivo}
+
+        for reg in registros_comidas:
+            fecha_reg = str(reg.get("Fecha", "")).strip()
+            if fecha_reg in resumen_por_dia:
+                momento_actividad = str(reg.get("Momento/Actividad") or reg.get("Momento", "")).strip()
+                es_actividad = "actividad" in momento_actividad.lower() or "ejercicio" in momento_actividad.lower()
+
+                if es_actividad:
+                    desc = str(reg.get("Descripción") or reg.get("Descripcion") or momento_actividad)
+                    resumen_por_dia[fecha_reg]["ejercicio"] += extraer_val(desc)
+                else:
+                    momento_reg = momento_actividad.capitalize()
+                    try:
+                        val_cal = reg.get("Calorías (kcal)") or reg.get("Calorias") or 0
+                        val_prot = reg.get("Proteínas (g)") or reg.get("Proteinas") or 0
+                        
+                        cal = float(str(val_cal).replace(",", ".")) if str(val_cal).strip() else 0.0
+                        prot = float(str(val_prot).replace(",", ".")) if str(val_prot).strip() else 0.0
+                        
+                        if cal > 0 or prot > 0:
+                            resumen_por_dia[fecha_reg]["cal"] += cal
+                            resumen_por_dia[fecha_reg]["prot"] += prot
+                            if momento_reg in ["Desayuno", "Almuerzo", "Merienda", "Cena"]:
+                                resumen_por_dia[fecha_reg]["comidas"].add(momento_reg)
+                    except (ValueError, TypeError):
+                        pass
+
+        # Filtrar días válidos (que tengan al menos 2 comidas registradas)
+        dias_validos_nutri = 0
+        calorias_totales = 0.0
+        proteinas_totales = 0.0
+        minutos_ejercicio_totales = 0.0
+        dias_con_ejercicio = 0
+
+        for fecha, datos in resumen_por_dia.items():
+            minutos_ejercicio_totales += datos["ejercicio"]
+            if datos["ejercicio"] > 0:
+                dias_con_ejercicio += 1
+
+            # REGLA: Un día es válido nutricionalmente si tiene al menos 2 comidas
+            if len(datos["comidas"]) >= 2:
+                dias_validos_nutri += 1
+                calorias_totales += datos["cal"]
+                proteinas_totales += datos["prot"]
+
+        # Trampa de error si no hay suficientes días válidos en un pedido manual
+        if semana_actual and modo_evaluacion == "parcial" and dias_validos_nutri == 0:
+            txt_vacio = (
+                f"⚠️ **No hay suficientes datos para generar el reporte aún.**\n\n"
+                f"Para calcular tu progreso parcial necesitamos que al menos los días anteriores tengan un mínimo de 2 comidas registradas. "
+                f"Cargá tus registros con `/diario` e intentalo de nuevo."
+            )
+            await context.bot.send_message(chat_id=int(user_id), text=txt_vacio, parse_mode="Markdown")
+            return
+
+        # Cálculo de promedios basado estrictamente en los días válidos
+        divisor = dias_validos_nutri if dias_validos_nutri > 0 else 1
+        prom_calorias = round(calorias_totales / divisor, 1)
+        prom_proteinas = round(proteinas_totales / divisor, 1)
+
+        perfil = obtener_perfil_usuario(user_id)
+        tmb_str = "No registrado"
+        get_str = "No registrado"
+
+        if perfil and perfil.get('Peso') and perfil.get('Altura') and perfil.get('Edad'):
+            tmb, get_val = calcular_tmb_y_get(
+                peso_actual=perfil.get('Peso'),
+                altura_cm=perfil.get('Altura'),
+                edad=perfil.get('Edad'),
+                genero=perfil.get('Sexo', 'masculino'),
+                actividad=perfil.get('Ocupacion', 'sedentario')
+            )
+            tmb_str = f"{int(tmb)} kcal"
+            get_str = f"{int(get_val)} kcal"
+
+        meta_cal_val = meta_cal or get_str
+        meta_prot_val = meta_prot or "Consumo adecuado"
+
+        total_dias_analizados = len(fechas_objetivo)
+        
+        # Meta de ejercicio proporcional a los días analizados (aprox 25.7 min por día, sobre 180 min semanales)
+        meta_ejercicio_proporcional = int(round((180 / 7) * total_dias_analizados))
+
+        # Prompt adaptado para la IA con los días reales evaluados y la meta de ejercicio proporcional
+        prompt_ia = (
+            f"Sos un coach nutricional y deportivo. Analizá el rendimiento del usuario considerando "
+            f"{dias_validos_nutri} días válidos con registros completos (sobre un total de {total_dias_analizados} días evaluados):\n\n"
+            f"- TMB: {tmb_str} | GET: {get_str}\n"
+            f"- Promedio Calorías: {prom_calorias} kcal/día (Meta: {meta_cal_val})\n"
+            f"- Promedio Proteínas: {prom_proteinas} g/día (Meta: {meta_prot_val})\n"
+            f"- Ejercicio acumulado: {int(minutos_ejercicio_totales)} minutos repartidos en {dias_con_ejercicio} días (Meta proporcional para este período: {meta_ejercicio_proporcional} min).\n\n"
+            f"Redactá un reporte motivador, claro y directo en Markdown para Telegram con emojis, evaluando su constancia nutricional y deportiva."
+        )
+
+        evaluacion_ia = ""
+        if client_ai:
+            try:
+                respuesta_ia = client_ai.chat.completions.create(
+                    model=GROQ_TEXTO,
+                    messages=[{"role": "user", "content": prompt_ia}],
+                    temperature=0.7,
+                    max_tokens=400
+                )
+                evaluacion_ia = respuesta_ia.choices[0].message.content.strip()
+            except Exception as e_groq:
+                logger.error(f"Error Groq para {user_id}: {e_groq}")
+                await registrar_log_en_sheet(sh, f"Error Groq User {user_id}", e_groq)
+
+        if not evaluacion_ia:
+            evaluacion_ia = (
+                f"📊 **Promedios ({dias_validos_nutri}/{total_dias_analizados} días válidos):**\n"
+                f"• **Calorías:** {prom_calorias} kcal/día\n"
+                f"• **Proteínas:** {prom_proteinas} g/día\n"
+                f"• **Actividad:** {int(minutos_ejercicio_totales)} / {meta_ejercicio_proporcional} min prop."
+            )
+
+        aviso_peso_str = _verificar_aviso_peso(user_id, ahora_dt)
+        texto_resumen_final = f"{titulo_reporte}\n\n{evaluacion_ia}{aviso_peso_str}"
+
+        await context.bot.send_message(
+            chat_id=int(user_id),
+            text=texto_resumen_final,
+            parse_mode="Markdown"
+        )
+        logger.info(f"Resumen enviado exitosamente a {user_id}")
+
+    except Exception as e_resumen:
+        logger.error(f"Error en resumen de {user_id}: {e_resumen}")
+        try:
+            gc = get_gspread_client()
+            sh = gc.open(SPREADSHEET_NAME)
+            await registrar_log_en_sheet(sh, f"Error Resumen User {user_id}", e_resumen)
+        except Exception:
+            pass
 
 async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
     """
@@ -666,11 +859,13 @@ def obtener_momento_y_fecha_auto():
         momento = "Cena"
     elif time(2, 0) <= hora < time(10, 0):
         momento = "Desayuno"
-    elif time(10, 0) <= hora < time(12, 0):
+    elif time(10, 0) <= hora < time(13, 0):
         momento = "Colación"
-    elif time(12, 0) <= hora < time(15, 0):
+    elif time(13, 0) <= hora < time(15, 0):
         momento = "Almuerzo"
-    elif time(15, 0) <= hora < time(20, 0):
+    elif time(15, 0) <= hora < time(17, 0):
+        momento = "Colación"
+    elif time(17, 0) <= hora < time(20, 0):
         momento = "Merienda"
     else:
         momento = "Cena"
@@ -724,7 +919,6 @@ def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: 
 
     return tmb, get
     
-
 def obtener_datos_usuario(user_id):
     try:
         gc = get_gspread_client()
@@ -843,7 +1037,6 @@ def obtener_ultimo_peso(user_id: int) -> dict:
     except Exception as e:
         logger.error(f"Error en obtener_ultimo_peso para User {user_id}: {e}")
         return None
-
 
 async def _validar_peso_mes_actual(update: Update, context: ContextTypes.DEFAULT_TYPE, funcion_nombre: str) -> bool:
     """
@@ -1203,6 +1396,22 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 # ======================================================================================================================================================
 
 # ========================================================================================================================================================
+#                 INICIO                            COMANDO MENSAJE 2026 08 23                           INICIO
+# =======================================================================================================================================================
+
+async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Comando /mensaje: Dispara manualmente el resumen parcial de la semana en curso.
+    """
+    user_id = update.effective_user.id
+    await update.message.reply_text("⏳ Analizando los días transcurridos de tu semana con IA...")
+    await enviar_resumen_semanal_usuario(context, user_id, semana_actual=True)
+    
+# =====================================================================================================================================================
+#                  FINAL                        ICOMANDO MENSAJE                     FINAL
+# ======================================================================================================================================================
+
+# ========================================================================================================================================================
 #                 INICIO                            COMANDO START                               INICIO
 # =======================================================================================================================================================
 
@@ -1216,6 +1425,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/presi 2026-08` promedio mensual y PDF.\n"
         "• `/diario`: Ingestas del día y PDF detallado.\n"
         "• `/resumen`: Reporte mensual con IA y PDF.\n"
+        "• `/mensaje`: Reporte parcial semanal con IA.\n"
         "• `/receta`: Carga con IA una comida en planilla.\n"
         "• `/perfil`: Consulta datos biométricos.\n"
         "• `/perfil 90 `: Actualiza el peso del mes.\n\n"
@@ -3522,9 +3732,10 @@ def main():
     app_bot.add_handler(CommandHandler("start", cmd_start))
     app_bot.add_handler(CommandHandler("comidas", cmd_comidas))
     app_bot.add_handler(CommandHandler("perfil", cmd_perfil))
-    app_bot.add_handler(CommandHandler(["presion","presi"], cmd_presion_handler))  
+    app_bot.add_handler(CommandHandler(["presion","presi","presio"], cmd_presion_handler))  
     app_bot.add_handler(CommandHandler("diario", cmd_diario))
     app_bot.add_handler(CommandHandler("resumen", cmd_resumen))
+    app_bot.add_handler(CommandHandler("mensaje", cmd_mensaje))
     app_bot.add_handler(CommandHandler("receta", cmd_cargar_receta))
 
     # Handlers de Mensajes y Consultas
@@ -3544,4 +3755,7 @@ if __name__ == "__main__":
 # ==================================================================================================================================================================================
 #                                   FINAL                                        MAIN EXECUTION                                        FINAL
 # ===================================================================================================================================================================================
+
+
+
 
