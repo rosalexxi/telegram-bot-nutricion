@@ -709,15 +709,15 @@ def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: 
     if any(k in act_clean for k in ["sedentario", "escritorio", "oficina", "jubilado", "reposo"]):
         factor_actividad = 1.2        # Sedentario / Muy ligera actividad
     elif any(k in act_clean for k in ["ligero", "pie", "docente", "vendedor", "caminar"]):
-        factor_actividad = 1.375      # Actividad ligera (1-3 días ejerc. o trabajo de pie)
+        factor_actividad = 1.40      # Actividad ligera (1-3 días ejerc. o trabajo de pie)
     elif any(k in act_clean for k in ["moderado", "mozo", "limpieza", "deporte"]):
-        factor_actividad = 1.55       # Actividad moderada (3-5 días ejerc. / trabajo activo)
+        factor_actividad = 1.60       # Actividad moderada (3-5 días ejerc. / trabajo activo)
     elif any(k in act_clean for k in ["intenso", "construccion", "atleta", "fuerza"]):
-        factor_actividad = 1.725      # Actividad intensa (6-7 días ejerc. pesado)
+        factor_actividad = 1.75      # Actividad intensa (6-7 días ejerc. pesado)
     elif any(k in act_clean for k in ["muy intenso", "cargador", "alto rendimiento"]):
         factor_actividad = 1.9        # Actividad extrema / trabajo físico muy pesado
     else:
-        factor_actividad = 1.375        # Valor por defecto seguro para adultos
+        factor_actividad = 1.40        # Valor por defecto seguro para adultos
 
     # 4. Cálculo del GET
     get = tmb * factor_actividad
@@ -921,6 +921,106 @@ async def _validar_peso_mes_actual(update: Update, context: ContextTypes.DEFAULT
 
     return True
 
+def calcular_metricas_mensuales(df_mes, perfil_dict):
+    """
+    Función centralizada global para procesar todos los cálculos mensuales, 
+    garantizando 100% de consistencia entre Telegram, PDFs y otros módulos.
+    """
+    dias_registrados = df_mes['Fecha'].nunique() if (df_mes is not None and not df_mes.empty) else 1
+    if dias_registrados == 0:
+        dias_registrados = 1
+
+    tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
+    tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
+
+    prom_cons = tot_cons_mes / dias_registrados
+    prom_quem = tot_quem_mes / dias_registrados
+    prom_bal_neto = prom_cons - prom_quem
+
+    tot_prot = float(df_mes['Proteinas'].sum()) if df_mes is not None and 'Proteinas' in df_mes.columns else 0.0
+    tot_gras = float(df_mes['Grasas'].sum()) if df_mes is not None and 'Grasas' in df_mes.columns else 0.0
+    tot_carb = float(df_mes['Carbohidratos'].sum()) if df_mes is not None and 'Carbohidratos' in df_mes.columns else 0.0
+    tot_fibr = float(df_mes['Fibras'].sum()) if df_mes is not None and 'Fibras' in df_mes.columns else 0.0
+
+    prom_cal = int(round(prom_cons))
+    prom_prot = int(round(tot_prot / dias_registrados))
+    prom_gras = int(round(tot_gras / dias_registrados))
+    prom_carb = int(round(tot_carb / dias_registrados))
+    prom_fibr = int(round(tot_fibr / dias_registrados))
+
+    perfil_dict = perfil_dict if isinstance(perfil_dict, dict) else {}
+    
+    def get_perfil_num(key_list, default):
+        for k in key_list:
+            if k in perfil_dict and perfil_dict[k] is not None:
+                val = parse_raw_val(perfil_dict[k])
+                if val != 0.0:
+                    return val
+        return default
+
+    edad = int(get_perfil_num(['Edad', 'edad'], 64))
+    altura = get_perfil_num(['Altura', 'altura'], 167.0)
+    peso_actual = get_perfil_num(['Peso', 'peso'], 108.5)
+    peso_ideal = get_perfil_num(['Peso_ideal', 'peso_ideal', 'Peso Ideal'], 75.0)
+    
+    genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
+    ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'jubilado')).strip()
+
+    peso_referencia = (peso_actual * 0.75) + (peso_ideal * 0.25)
+
+    _, get_real = calcular_tmb_y_get(
+        peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
+    )
+    _, get_meta = calcular_tmb_y_get(
+        peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
+    )
+
+    deficit_diario_real = get_meta - prom_bal_neto
+    cambio_peso_kg = -(deficit_diario_real * dias_registrados) / 7700.0
+
+    gen_clean = genero.lower()
+    if gen_clean in ["femenino", "f", "mujer", "female"]:
+        factor_proteina = 1.2
+        ideal_fibr = 25
+    else:
+        factor_proteina = 1.5
+        ideal_fibr = 30
+
+    ideal_cal = int(round(get_meta))
+    ideal_prot = int(round(peso_referencia * factor_proteina))
+    ideal_gras = int(round((get_meta * 0.25) / 9.0))
+    ideal_carb = int(round((get_meta * 0.50) / 4.0))
+
+    return {
+        "dias_registrados": dias_registrados,
+        "prom_cal": prom_cal,
+        "prom_quem": int(round(prom_quem)),
+        "prom_bal_neto": int(round(prom_bal_neto)),
+        "prom_prot": prom_prot,
+        "prom_gras": prom_gras,
+        "prom_carb": prom_carb,
+        "prom_fibr": prom_fibr,
+        "ideal_cal": ideal_cal,
+        "ideal_prot": ideal_prot,
+        "ideal_gras": ideal_gras,
+        "ideal_carb": ideal_carb,
+        "ideal_fibr": ideal_fibr,
+        "peso_actual": int(round(peso_actual)),
+        "peso_ideal": int(round(peso_ideal)),
+        "peso_referencia": int(round(peso_referencia)),
+        "altura": int(round(altura)),
+        "edad": edad,
+        "get_meta": get_meta,
+        "deficit_diario_real": int(round(deficit_diario_real)),
+        "cambio_peso_kg": cambio_peso_kg,
+        "tot_cons": tot_cons_mes,
+        "tot_quem": tot_quem_mes,
+        "tot_prot": tot_prot,
+        "tot_gras": tot_gras,
+        "tot_carb": tot_carb,
+        "tot_fibr": tot_fibr
+    }
+    
 # =====================================================================================================================================================================
 #                FINAL                        FUNCIONES AUXILIARES Y FORMATO                                      FINAL
 # =====================================================================================================================================================================
@@ -1226,9 +1326,9 @@ def generar_pdf_instrucciones_bytes():
 #                 FINAL                            COMANDO START                               FINAL
 # ==============================================================================================================================================
 
-#===============================================================================================================================================
-#               INICIO                    COMANDO RESUMEN     2026 08 22                         INICIO
-#===============================================================================================================================================
+# ==============================================================================================================================================
+#               INICIO                    COMANDO RESUMEN     2026 08 23                        INICIO
+# ==============================================================================================================================================
 
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -1417,36 +1517,8 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
                 await query_or_update.message.reply_text(txt, parse_mode="Markdown")
             return
 
-        dias_registrados = df_mes['Fecha'].nunique()
-        if dias_registrados == 0:
-            dias_registrados = 1
-
-        tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
-        tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in df_mes.columns else 0.0
-
-        prom_cons = tot_cons_mes / dias_registrados
-        prom_quem = tot_quem_mes / dias_registrados
-        prom_bal_neto = prom_cons - prom_quem
-        
-        tot_prot = float(df_mes['Proteinas'].sum()) if 'Proteinas' in df_mes.columns else 0.0
-        tot_gras = float(df_mes['Grasas'].sum()) if 'Grasas' in df_mes.columns else 0.0
-        tot_carb = float(df_mes['Carbohidratos'].sum()) if 'Carbohidratos' in df_mes.columns else 0.0
-        tot_fibr = float(df_mes['Fibras'].sum()) if 'Fibras' in df_mes.columns else 0.0
-
-        prom_cal = int(round(prom_cons))
-        prom_prot = int(round(tot_prot / dias_registrados))
-        prom_gras = int(round(tot_gras / dias_registrados))
-        prom_carb = int(round(tot_carb / dias_registrados))
-        prom_fibr = int(round(tot_fibr / dias_registrados))
-
-        # --- LECTURA DE DATOS BIOMÉTRICOS Y OCUPACIÓN ---
-        edad = None
-        altura = None
-        peso_mes_especifico = None
-        peso_ideal_base = None
-        genero = "masculino"
-        ocupacion = "jubilado"
-
+        # --- LECTURA DE PERFIL DESDE GOOGLE SHEETS ---
+        perfil_dict = {}
         try:
             gc = get_gspread_client()
             sh = gc.open(SPREADSHEET_NAME)
@@ -1454,45 +1526,21 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             registros_perfil = ws_perfil.get_all_records()
 
             if registros_perfil:
-                perfil_mes = None
                 for r in registros_perfil:
                     r_lower = {str(k).strip().lower(): v for k, v in r.items()}
                     val_mes = str(r_lower.get("mes", "")).strip()
                     if val_mes == str(mes_str).strip():
-                        perfil_mes = r_lower
+                        perfil_dict = r_lower
                         break
-
-                if perfil_mes:
-                    def parse_val_strict(v):
-                        try:
-                            n = parse_float_from_sheets(v)
-                            return None if n == 0 else n
-                        except:
-                            return None
-
-                    v_edad = perfil_mes.get("edad")
-                    edad = int(parse_val_strict(v_edad)) if parse_val_strict(v_edad) else None
-                    altura = parse_val_strict(perfil_mes.get("altura"))
-                    peso_mes_especifico = parse_val_strict(perfil_mes.get("peso"))
-                    
-                    p_ideal_raw = perfil_mes.get("peso_ideal") or perfil_mes.get("peso ideal")
-                    peso_ideal_base = parse_val_strict(p_ideal_raw)
-                    
-                    gen_raw = perfil_mes.get("genero") or perfil_mes.get("sexo")
-                    if gen_raw:
-                        genero = str(gen_raw).strip()
-
-                    ocu_raw = perfil_mes.get("ocupacion") or perfil_mes.get("actividad")
-                    if ocu_raw:
-                        ocupacion = str(ocu_raw).strip()
-
         except Exception as err_perfil:
             print(f"Error accediendo a Perfil_{user_id}: {err_perfil}")
 
-        if None in (edad, altura, peso_mes_especifico, peso_ideal_base):
+        # Validamos campos mínimos indispensables para el cálculo
+        campos_criticos = ['edad', 'altura', 'peso']
+        if not perfil_dict or any(k not in perfil_dict or parse_raw_val(perfil_dict[k]) == 0 for k in campos_criticos):
             txt_incompleto = (
                 f"⚠️ **Datos biométricos incompletos para el mes `{mes_str}`.**\n\n"
-                f"No se ingresaron o están incompletos los datos de edad, altura, peso o peso ideal en tu perfil para este mes. "
+                f"No se ingresaron o están incompletos los datos de edad, altura o peso en tu perfil para este mes. "
                 f"Por favor, completá tu perfil del mes para generar el resumen y el reporte PDF."
             )
             if hasattr(query_or_update, 'edit_message_text'):
@@ -1501,81 +1549,44 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
                 await query_or_update.message.reply_text(txt_incompleto, parse_mode="Markdown")
             return
 
-        # --- DERIVACIÓN A LA FUNCIÓN CENTRAL DE TMB Y GET ---
-        peso_referencia = (peso_mes_especifico * 0.75) + (peso_ideal_base * 0.25)
-
-        tmb_actual, get_real = calcular_tmb_y_get(
-            peso_actual=peso_mes_especifico,
-            altura_cm=altura,
-            edad=edad,
-            genero=genero,
-            actividad=ocupacion,
-            peso_ideal=peso_ideal_base
-        )
-
-        tmb_meta, get_meta = calcular_tmb_y_get(
-            peso_actual=peso_referencia,
-            altura_cm=altura,
-            edad=edad,
-            genero=genero,
-            actividad=ocupacion,
-            peso_ideal=peso_ideal_base
-        )
-
-        # --- CÁLCULO CORREGIDO DE DÉFICIT Y CAMBIO DE PESO ---
-        balance_neto_real_diario = prom_cons - prom_quem
-        deficit_diario_real = get_meta - balance_neto_real_diario
-        cambio_peso_kg = -(deficit_diario_real * dias_registrados) / 7700.0
-
-        # --- FACTORES DE MACROS SEGÚN GÉNERO ---
-        gen_clean = str(genero).strip().lower()
-        if gen_clean in ["femenino", "f", "mujer", "female"]:
-            factor_proteina = 1.2
-            ideal_fibr = 25
-        else:
-            factor_proteina = 1.5
-            ideal_fibr = 30
-
-        ideal_cal = int(round(get_meta))
-        ideal_prot = int(round(peso_referencia * factor_proteina))
-        ideal_gras = int(round((get_meta * 0.25) / 9))
-        ideal_carb = int(round((get_meta * 0.50) / 4))
+        # --- LLAMADA ÚNICA A LA FUNCIÓN CENTRALIZADA DE MÉTRICAS ---
+        m = calcular_metricas_mensuales(df_mes, perfil_dict)
 
         dict_promedios = {
-            'calorias': prom_cal,
-            'proteinas': prom_prot,
-            'grasas': prom_gras,
-            'carbohidratos': prom_carb,
-            'fibras': prom_fibr
+            'calorias': m['prom_cal'],
+            'proteinas': m['prom_prot'],
+            'grasas': m['prom_gras'],
+            'carbohidratos': m['prom_carb'],
+            'fibras': m['prom_fibr']
         }
 
         dict_metas = {
-            'calorias': ideal_cal,
-            'proteinas': ideal_prot,
-            'grasas': ideal_gras,
-            'carbohidratos': ideal_carb,
-            'fibras': ideal_fibr
+            'calorias': m['ideal_cal'],
+            'proteinas': m['ideal_prot'],
+            'grasas': m['ideal_gras'],
+            'carbohidratos': m['ideal_carb'],
+            'fibras': m['ideal_fibr']
         }
 
         dict_biometria = {
-            'peso_actual': int(round(peso_mes_especifico)),
-            'peso_ideal': int(round(peso_ideal_base)),
-            'altura': int(round(altura)),
-            'edad': edad
+            'peso_actual': m['peso_actual'],
+            'peso_ideal': m['peso_ideal'],
+            'altura': m['altura'],
+            'edad': m['edad']
         }
 
         recomendacion_pdf = generar_recomendacion_ia(dict_promedios, dict_metas, dict_biometria)
 
         prompt_para_ia_pantalla = (
             f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
-            f"- Peso registrado: {int(round(peso_mes_especifico))} kg | Peso Objetivo Ponderado: {int(round(peso_referencia))} kg\n"
-            f"- Cambio de peso estimado: {cambio_peso_kg:+.1f} kg\n"
-            f"CONSUMO PROMEDIO DIARIO ({dias_registrados} días registrados):\n"
-            f"- Calorías: {prom_cal} kcal (Meta: {ideal_cal} kcal)\n"
-            f"- Proteínas: {prom_prot} g (Meta: {ideal_prot} g)\n"
-            f"- Grasas: {prom_gras} g (Meta: {ideal_gras} g)\n"
-            f"- Carbohidratos: {prom_carb} g (Meta: {ideal_carb} g)\n"
-            f"- Fibras: {prom_fibr} g (Meta: {ideal_fibr} g)\n"
+            f"- Peso registrado: {m['peso_actual']} kg | Peso Objetivo Ponderado: {m['peso_referencia']} kg\n"
+            f"- Cambio de peso estimado: {m['cambio_peso_kg']:+.1f} kg\n"
+            f"CONSUMO PROMEDIO DIARIO ({m['dias_registrados']} días registrados):\n"
+            f"- Calorías: {m['prom_cal']} kcal (Meta: {m['ideal_cal']} kcal)\n"
+            f"- Proteínas: {m['prom_prot']} g (Meta: {m['ideal_prot']} g)\n"
+            f"- Grasas: {m['prom_gras']} g (Meta: {m['ideal_gras']} g)\n"
+            f"- Carbohidratos: {m['prom_carb']} g (Meta: {m['ideal_carb']} g)\n"
+            f"- Fibras: {m['prom_fibr']} g (Meta: {m['ideal_fibr']} g)\n"
         )
         recomendacion_pantalla = obtener_recomendacion_ia(prompt_para_ia_pantalla)
 
@@ -1588,17 +1599,17 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
 
         txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
-            f"• **Promedio Consumidas:** `{prom_cal} kcal` / día\n"
-            f"• **Promedio Quemadas:** `{int(round(prom_quem))} kcal` / día\n"
-            f"• **Balance Neto Diario:** `{int(round(prom_bal_neto))} kcal` / día\n"
-            f"• **Cambio Estimado de Peso:** `{cambio_peso_kg:+.1f} kg` en el mes\n\n"
-            f"• Días con registro: `{dias_registrados}`\n"
+            f"• **Promedio Consumidas:** `{m['prom_cal']} kcal` / día\n"
+            f"• **Promedio Quemadas:** `{m['prom_quem']} kcal` / día\n"
+            f"• **Balance Neto Diario:** `{m['prom_bal_neto']} kcal` / día\n"
+            f"• **Cambio Estimado de Peso:** `{m['cambio_peso_kg']:+.1f} kg` en el mes\n\n"
+            f"• Días con registro: `{m['dias_registrados']}`\n"
             f"📈 **Promedio Diario vs. Objetivos (Ponderados 75/25):**\n"
-            f"• **Calorías:** `{prom_cal} kcal` / Meta: `{ideal_cal} kcal`\n"
-            f"• **Proteínas:** `{prom_prot} g` / Meta: `{ideal_prot} g`\n"
-            f"• **Grasas:** `{prom_gras} g` / Meta: `{ideal_gras} g`\n"
-            f"• **Carbohidratos:** `{prom_carb} g` / Meta: `{ideal_carb} g`\n"
-            f"• **Fibras:** `{prom_fibr} g` / Meta: `{ideal_fibr} g`\n\n"
+            f"• **Calorías:** `{m['prom_cal']} kcal` / Meta: `{m['ideal_cal']} kcal`\n"
+            f"• **Proteínas:** `{m['prom_prot']} g` / Meta: `{m['ideal_prot']} g`\n"
+            f"• **Grasas:** `{m['prom_gras']} g` / Meta: `{m['ideal_gras']} g`\n"
+            f"• **Carbohidratos:** `{m['prom_carb']} g` / Meta: `{m['ideal_carb']} g`\n"
+            f"• **Fibras:** `{m['prom_fibr']} g` / Meta: `{m['ideal_fibr']} g`\n\n"
             f"🤖 **Recomendación de la IA:**\n"
             f"_{recomendacion_pantalla}_\n\n"
             f"📄 Podés descargar el reporte completo en PDF a continuación:"
@@ -1647,7 +1658,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
 
     if df_mes is not None and not df_mes.empty:
         fechas_unicas = sorted(df_mes['Fecha'].unique())
-        dias_con_registro = len(fechas_unicas)
 
         for f in fechas_unicas:
             sub = df_mes[df_mes['Fecha'] == f]
@@ -1691,16 +1701,16 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
             Paragraph(f"<b>{int(round(tot_fibr))} g</b>", body_style)
         ])
 
-        div = dias_con_registro if dias_con_registro > 0 else 1
+        dias_activos = len(fechas_unicas) if len(fechas_unicas) > 0 else 1
         table_data_h1.append([
             Paragraph("<b>PROM. DIARIO</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_cons/div))} kcal</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_quem/div))} kcal</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_neto/div))} kcal</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_prot/div))} g</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_gras/div))} g</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_carb/div))} g</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_fibr/div))} g</b>", body_style)
+            Paragraph(f"<b>{int(round(tot_cons/dias_activos))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_quem/dias_activos))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_neto/dias_activos))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_prot/dias_activos))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_gras/dias_activos))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_carb/dias_activos))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_fibr/dias_activos))} g</b>", body_style)
         ])
 
     t1 = Table(table_data_h1, colWidths=[65, 75, 70, 70, 65, 60, 80, 55])
@@ -1717,88 +1727,17 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes</b>", title_style))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=8))
 
-    # --- DATOS BIOMÉTRICOS Y CÁLCULO DE GET EN PDF ---
-    def _parse_val(v, default):
-        try:
-            val_str = str(v).replace(',', '.').strip()
-            n = float(val_str)
-            return default if n == 0 else n
-        except:
-            return default
-
+    # --- LLAMADA ÚNICA A LA FUNCIÓN CENTRALIZADA DE MÉTRICAS PARA EL PDF ---
     perfil_dict = perfil if isinstance(perfil, dict) else {}
-    edad = int(_parse_val(perfil_dict.get('Edad', perfil_dict.get('edad')), 64))
-    peso_actual = _parse_val(perfil_dict.get('Peso', perfil_dict.get('peso')), 108.5)
-    altura = _parse_val(perfil_dict.get('Altura', perfil_dict.get('altura')), 167.0)
-    
-    p_ideal_raw = perfil_dict.get('Peso_ideal') or perfil_dict.get('peso_ideal') or perfil_dict.get('Peso Ideal')
-    peso_ideal_excel = _parse_val(p_ideal_raw, 75.0)
-
-    peso_referencia_ponderado = (peso_actual * 0.75) + (peso_ideal_excel * 0.25)
-    genero = str(perfil_dict.get('GENERO', perfil_dict.get('Genero', perfil_dict.get('genero', 'masculino')))).strip()
-    ocupacion = str(perfil_dict.get('Ocupacion', perfil_dict.get('ocupacion', 'ligero'))).strip()
-    
-    # Llama a la función central para calcular el GET real y el ideal
-    tmb_calc, get_real_diario = calcular_tmb_y_get(
-        peso_actual=peso_actual,
-        altura_cm=altura,
-        edad=edad,
-        genero=genero,
-        actividad=ocupacion,
-        peso_ideal=peso_ideal_excel
-    )
-
-    tmb_meta, get_ideal = calcular_tmb_y_get(
-        peso_actual=peso_referencia_ponderado,
-        altura_cm=altura,
-        edad=edad,
-        genero=genero,
-        actividad=ocupacion,
-        peso_ideal=peso_ideal_excel
-    )
-
-    dias_activos = df_mes['Fecha'].nunique() if (df_mes is not None and not df_mes.empty) else 1
-
-    prom_cons_diario = (tot_cons / dias_activos) if dias_activos > 0 else 0
-    prom_ejercicio_diario = (tot_quem / dias_activos) if dias_activos > 0 else 0
-    
-    # Tu consumo neto real diario (lo que comiste menos lo que quemaste haciendo ejercicio)
-    balance_neto_real_diario = prom_cons_diario - prom_ejercicio_diario
-    
-    # El déficit diario real se calcula restando tu consumo neto al Gasto Energético Ideal (GET)
-    deficit_diario_real = get_ideal - balance_neto_real_diario
-    
-    # El cambio de peso debe ser negativo si hay déficit (baja de peso). 
-    # Se multiplica por los días activos del mes y se divide por la constante 7700.
-    cambio_peso_kg = -(deficit_diario_real * dias_activos) / 7700.0
-
-    # Determinación de factores según el género (respaldado por estándares nutricionales)
-    gen_clean = str(genero).strip().lower()
-    if gen_clean in ["femenino", "f", "mujer", "female"]:
-        factor_proteina = 1.2    # 1.2g por kilo para mujeres (preservación muscular)
-        fibr_rec = 25            # 25g diarios estándar para mujeres (OMS / Academia de Medicina)
-    else:
-        factor_proteina = 1.5    # 1.5g por kilo para varones
-        fibr_rec = 30            # 30g diarios estándar como piso para varones
-
-    # Cálculo final de macronutrientes y fibras
-    prot_rec = int(round(peso_referencia_ponderado * factor_proteina))
-    gras_rec = int(round((get_ideal * 0.25) / 9.0))
-    carb_rec = int(round((get_ideal * 0.50) / 4.0))
-
-    prom_d_cons = int(round(prom_cons_diario))
-    prom_d_prot = int(round((tot_prot / dias_activos))) if dias_activos > 0 else 0
-    prom_d_gras = int(round((tot_gras / dias_activos))) if dias_activos > 0 else 0
-    prom_d_carb = int(round((tot_carb / dias_activos))) if dias_activos > 0 else 0
-    prom_d_fibr = int(round((tot_fibr / dias_activos))) if dias_activos > 0 else 0
+    m = calcular_metricas_mensuales(df_mes, perfil_dict)
 
     table_comp = [
         [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Valor Ideal (Peso Ponderado 75/25)</b>", header_style)],
-        [Paragraph("Calorías", body_style), Paragraph(f"{prom_d_cons} kcal", body_style), Paragraph(f"{int(round(get_ideal))} kcal", body_style)],
-        [Paragraph("Proteínas", body_style), Paragraph(f"{prom_d_prot} g", body_style), Paragraph(f"{prot_rec} g", body_style)],
-        [Paragraph("Grasas", body_style), Paragraph(f"{prom_d_gras} g", body_style), Paragraph(f"{gras_rec} g", body_style)],
-        [Paragraph("Carbohidratos", body_style), Paragraph(f"{prom_d_carb} g", body_style), Paragraph(f"{carb_rec} g", body_style)],
-        [Paragraph("Fibras", body_style), Paragraph(f"{prom_d_fibr} g", body_style), Paragraph(f"{fibr_rec} g", body_style)]
+        [Paragraph("Calorías", body_style), Paragraph(f"{m['prom_cal']} kcal", body_style), Paragraph(f"{int(round(m['get_meta']))} kcal", body_style)],
+        [Paragraph("Proteínas", body_style), Paragraph(f"{m['prom_prot']} g", body_style), Paragraph(f"{m['ideal_prot']} g", body_style)],
+        [Paragraph("Grasas", body_style), Paragraph(f"{m['prom_gras']} g", body_style), Paragraph(f"{m['ideal_gras']} g", body_style)],
+        [Paragraph("Carbohidratos", body_style), Paragraph(f"{m['prom_carb']} g", body_style), Paragraph(f"{m['ideal_carb']} g", body_style)],
+        [Paragraph("Fibras", body_style), Paragraph(f"{m['prom_fibr']} g", body_style), Paragraph(f"{m['ideal_fibr']} g", body_style)]
     ]
     t_comp = Table(table_comp, colWidths=[150, 185, 185])
     t_comp.setStyle(TableStyle([
@@ -1809,9 +1748,9 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(t_comp)
     story.append(Spacer(1, 8))
 
-    story.append(Paragraph(f"• <b>PERFIL BASE ({mes_str}):</b> Peso Actual: {int(round(peso_actual))} kg | Peso Objetivo (75/25): {int(round(peso_referencia_ponderado))} kg | Altura: {int(round(altura))} cm", body_style))
-    story.append(Paragraph(f"• <b>DÉFICIT CALÓRICO DIARIO PROMEDIO:</b> {int(round(deficit_diario_real))} kcal / día", body_style))
-    story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {cambio_peso_kg:+.1f} kg", body_style))
+    story.append(Paragraph(f"• <b>PERFIL BASE ({mes_str}):</b> Peso Actual: {m['peso_actual']} kg | Peso Objetivo (75/25): {m['peso_referencia']} kg | Altura: {m['altura']} cm", body_style))
+    story.append(Paragraph(f"• <b>DÉFICIT CALÓRICO DIARIO PROMEDIO:</b> {m['deficit_diario_real']} kcal / día", body_style))
+    story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {m['cambio_peso_kg']:+.1f} kg", body_style))
 
     story.append(Spacer(1, 8))
     story.append(Paragraph("<b>Recomendación Nutricional Personalizada y Plan de Acción (IA):</b>", sub_style))
@@ -1820,9 +1759,9 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     es_texto_corto = not isinstance(texto_final, str) or len(texto_final.strip()) < 1200 or "<b>1. DIAGNÓSTICO" not in texto_final
 
     if es_texto_corto:
-        p_dict = {'calorias': prom_d_cons, 'proteinas': prom_d_prot, 'grasas': prom_d_gras, 'carbohidratos': prom_d_carb, 'fibras': prom_d_fibr}
-        m_dict = {'calorias': int(round(get_ideal)), 'proteinas': prot_rec, 'grasas': gras_rec, 'carbohidratos': carb_rec, 'fibras': fibr_rec}
-        b_dict = {'peso_actual': int(round(peso_actual)), 'peso_ideal': int(round(peso_ideal_excel)), 'altura': int(round(altura)), 'edad': edad}
+        p_dict = {'calorias': m['prom_cal'], 'proteinas': m['prom_prot'], 'grasas': m['prom_gras'], 'carbohidratos': m['prom_carb'], 'fibras': m['prom_fibr']}
+        m_dict = {'calorias': int(round(m['get_meta'])), 'proteinas': m['ideal_prot'], 'grasas': m['ideal_gras'], 'carbohidratos': m['ideal_carb'], 'fibras': m['ideal_fibr']}
+        b_dict = {'peso_actual': m['peso_actual'], 'peso_ideal': m['peso_ideal'], 'altura': m['altura'], 'edad': m['edad']}
         
         if 'generar_recomendacion_ia' in globals():
             texto_final = generar_recomendacion_ia(p_dict, m_dict, b_dict)
@@ -2783,7 +2722,7 @@ def generar_pdf_comidas_bytes(plantillas):
 # =======================================================================================================================================================
 #                   FINAL                                   OPERACION COMIDAS                                           FINAL
 # =======================================================================================================================================================
-#==============================================================================================================================================================
+#========================================================================================================================================================
 #                INICIO                             MANEJADORES HANDLE 2026 08 22                INICIO
 #==============================================================================================================================================================
 
