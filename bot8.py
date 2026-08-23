@@ -3716,13 +3716,13 @@ def main():
     if job_queue is not None:
         job_queue.run_daily(
             job_recordatorio_manana, 
-            time=time(hour=19, minute=40, second=0, tzinfo=tz),
+            time=time(hour=9, minute=0, second=0, tzinfo=tz),
             name="recordatorio_comidas_manana"
         )
 
         job_queue.run_daily(
             job_recordatorio_tarde, 
-            time=time(hour=16, minute=0, second=0, tzinfo=tz),
+            time=time(hour=17, minute=20, second=0, tzinfo=tz),
             name="recordatorio_comidas_tarde"
         )
     else:
