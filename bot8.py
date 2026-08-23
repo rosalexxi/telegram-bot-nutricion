@@ -610,8 +610,8 @@ AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT
 async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: bool = False):
     """
     Función independiente que calcula y envía el resumen.
-    - Python presenta todos los datos numéricos y duros de forma limpia.
-    - La IA se encarga exclusivamente de redactar el consejo/feedback como coach.
+    - División por 1000 y redondeo a entero para calorías y proteínas.
+    - LLM de Groq utilizando GROQ_TEXTO para emitir el consejo del coach.
     """
     try:
         gc = get_gspread_client()
@@ -699,8 +699,8 @@ async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: b
                             if "calor" in k_lower: val_cal = v
                             elif "prote" in k_lower: val_prot = v
                         
-                        cal = float(str(val_cal).replace(",", ".")) if str(val_cal).strip() else 0.0
-                        prot = float(str(val_prot).replace(",", ".")) if str(val_prot).strip() else 0.0
+                        cal = extraer_val(val_cal)
+                        prot = extraer_val(val_prot)
                         
                         if cal > 0 or prot > 0:
                             resumen_por_dia[fecha_reg]["cal"] += cal
@@ -734,9 +734,10 @@ async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: b
             await context.bot.send_message(chat_id=int(user_id), text=txt_vacio, parse_mode="Markdown")
             return
 
+        # Cálculo de promedios dividiendo por 1000 para limpiar los enteros guardados en el Excel
         divisor = dias_validos_nutri if dias_validos_nutri > 0 else 1
-        prom_calorias = round(calorias_totales / divisor, 1)
-        prom_proteinas = round(proteinas_totales / divisor, 1)
+        prom_calorias = int(round((calorias_totales / divisor) / 1000))
+        prom_proteinas = int(round((proteinas_totales / divisor) / 1000))
 
         perfil = obtener_perfil_usuario(user_id)
         tmb_str = "No registrado"
@@ -760,7 +761,7 @@ async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: b
         meta_ejercicio_proporcional = int(round((180 / 7) * total_dias_analizados))
 
         # -----------------------------------------------------------------
-        # 1. PYTHON ARMA EL REPORTE NUMÉRICO DURO (CERO GASTO DE TOKENS)
+        # 1. REPORTE NUMÉRICO LIMPIO POR PYTHON
         # -----------------------------------------------------------------
         reporte_python = (
             f"{titulo_reporte}\n\n"
@@ -772,20 +773,23 @@ async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: b
         )
 
         # -----------------------------------------------------------------
-        # 2. LA IA SOLO RECIBE LOS DATOS PARA EMITIR UN CONSEJO BREVE
+        # 2. LLAMADA A LA IA USANDO GROQ_TEXTO
         # -----------------------------------------------------------------
         prompt_ia = (
-            f"Actuá como un coach nutricional y deportivo directo y motivador. "
-            f"El usuario registró un promedio de {prom_calorias} kcal, {prom_proteinas}g de proteína "
-            f"y acumuló {int(minutos_ejercicio_totales)} minutos de ejercicio (su meta para este período era {meta_ejercicio_proporcional} min).\n\n"
-            f"Escribí únicamente un consejo breve y práctico (máximo 60 palabras) en Markdown con emojis, "
-            f"señalando qué ajustar o cómo mantener el ritmo para la próxima semana."
+            f"Actuá como un coach nutricional y deportivo directo, exigente y motivador. "
+            f"Datos del usuario: Promedio {prom_calorias} kcal/día, {prom_proteinas}g de proteína/día, "
+            f"y {int(minutos_ejercicio_totales)} minutos de ejercicio acumulados (su meta para este período era {meta_ejercicio_proporcional} min).\n\n"
+            f"Escribí un consejo breve, personalizado y al hueso (máximo 50 palabras) con emojis, "
+            f"diciéndole exactamente qué ajustar o cómo mejorar esta semana."
         )
 
         consejo_ia = ""
-        if client_ai:
+        # Detecta automáticamente si tu cliente de IA se llama 'client_ai' o 'client'
+        ai_client_to_use = client_ai if 'client_ai' in globals() and client_ai else (client if 'client' in globals() else None)
+        
+        if ai_client_to_use:
             try:
-                respuesta_ia = client_ai.chat.completions.create(
+                respuesta_ia = ai_client_to_use.chat.completions.create(
                     model=GROQ_TEXTO,
                     messages=[{"role": "user", "content": prompt_ia}],
                     temperature=0.7,
@@ -793,15 +797,16 @@ async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: b
                 )
                 consejo_ia = respuesta_ia.choices[0].message.content.strip()
             except Exception as e_groq:
-                logger.error(f"Error Groq para {user_id}: {e_groq}")
-                await registrar_log_en_sheet(sh, f"Error Groq User {user_id}", e_groq)
+                logger.error(f"Error Groq en consejo coach para {user_id}: {e_groq}")
+                try:
+                    await registrar_log_en_sheet(sh, f"Error Groq Coach User {user_id}", e_groq)
+                except Exception:
+                    pass
 
         if not consejo_ia:
-            consejo_ia = "💡 **Consejo:** ¡Mantené la constancia con las comidas y sumá movimiento diario!"
+            consejo_ia = "¡A meterle con todo esta semana! Cuidá tus porciones y sumá movimiento diario. 💪"
 
         aviso_peso_str = _verificar_aviso_peso(user_id, ahora_dt)
-        
-        # Unimos el reporte estructurado por Python + el consejo de la IA + aviso de peso
         texto_resumen_final = f"{reporte_python}\n\n💬 **Consejo del Coach:**\n{consejo_ia}{aviso_peso_str}"
 
         await context.bot.send_message(
@@ -812,13 +817,14 @@ async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: b
         logger.info(f"Resumen enviado exitosamente a {user_id}")
 
     except Exception as e_resumen:
-        logger.error(f"Error en resumen de {user_id}: {e_resumen}")
+        logger.error(f"Error general en resumen de {user_id}: {e_resumen}")
         try:
             gc = get_gspread_client()
             sh = gc.open(SPREADSHEET_NAME)
             await registrar_log_en_sheet(sh, f"Error Resumen User {user_id}", e_resumen)
         except Exception:
             pass
+
 
 async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
     """
