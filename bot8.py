@@ -1590,7 +1590,7 @@ def generar_pdf_instrucciones_bytes() -> bytes:
             Paragraph("<b>•/presi</b> <code>//p</code>.<br/>"
                       "<b>•/diario</b> <code>//d</code>.<br/>"
                       "<b>•/semanal</b> <code>//s</code>.<br/>"
-                      "<b>•/mensual</b> <code>//m</code>.<br/>"
+                      "<b>•/mensual</b> <code>//m</code>.<br/>", body_style)
         ],
     ]
 
