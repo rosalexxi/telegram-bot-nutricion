@@ -1418,13 +1418,13 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 
     await render_confirmation_screen(msg_obj, context)
     
-# =====================================================================================================================================================
+# ==================================================================================================================================================
 #                  FINAL                        INTERFAZ Y RENDER DE CONFIRMACIÓN                      FINAL
-# ======================================================================================================================================================
+# ================================================================================================================================================
 
-# ========================================================================================================================================================
+# ==================================================================================================================================================
 #                 INICIO                            COMANDO MENSAJE 2026 08 23                           INICIO
-# =======================================================================================================================================================
+# ================================================================================================================================================
 
 async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -1434,17 +1434,13 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Analizando los días transcurridos de tu semana con IA...")
     await enviar_resumen_semanal_usuario(context, user_id, semana_actual=True)
     
-# =====================================================================================================================================================
+# ================================================================================================================================================
 #                  FINAL                        ICOMANDO MENSAJE                     FINAL
-# ======================================================================================================================================================
+# =================================================================================================================================================
 
-# ========================================================================================================================================================
-#                 INICIO                            COMANDO START                               INICIO
-# ===================================================================================================================================================
-
-# ========================================================================================================================================================
-# INICIO COMANDO START REVISADO Y MEJORADO
-# ========================================================================================================================================================
+# ==================================================================================================================================================
+# INICIO                             COMANDO START REVISADO Y MEJORADO
+# =================================================================================================================================================
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
@@ -1736,125 +1732,6 @@ def generar_pdf_instrucciones_bytes() -> bytes:
     doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
-
-
-
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = (
-        "👋 ¡Hola! Bienvenido a tu Bot Nutricional Personalizado.\n\n"
-        "📌 Funciones y Comandos Disponibles:\n\n"
-        "• `/comidas`: Visualiza listado y descarga PDF.\n"
-        "• `/presi 120,80,70,nota` registra datos y nota.\n"
-        "• `/presi 120,80` omite pulso y nota.\n"
-        "• `/presi 2026-08` promedio mensual y PDF.\n"
-        "• `/diario`: Ingestas del día y PDF detallado.\n"
-        "• `/resumen`: Reporte mensual con IA y PDF.\n"
-        "• `/mensaje`: Reporte parcial semanal con IA.\n"
-        "• `/receta`: Carga con IA una comida en planilla.\n"
-        "• `/perfil`: Consulta datos biométricos.\n"
-        "• `/perfil 90 `: Actualiza el peso del mes.\n\n"
-        "📌 Ingreso de ingestas y actividad:\n\n"
-        "• **Comidas del listado precargado:**\n"
-        "  `*PIZZAJM` ingresa una unidad de la comida.\n"
-        "  `*PIZZAJM,1.5` o `*CHURRO,6` ingresa la cantidad.\n\n"
-        "• **Ingreso de comidas por IA:**\n"
-        "  Texto, Imagen, Voz (descripción, cantidad o peso).\n"
-        "• **Modificación:**\n"
-        "  Ingresar `COMIDA` se conserva el peso y vuelve a la IA.\n"
-        "  Ingresar `COMIDA,PESO` nuevos valores vuelve a la IA.\n\n"
-        "• **Actividades fisicas:**\n"
-        "  `*# minutos actividad, calorias` graba datos .\n\n"
-        "📄 Te adjuntamos el manual de instrucciones actualizado en PDF."
-    )
-    await update.message.reply_text(msg, parse_mode="Markdown")
-    pdf_buf = generar_pdf_instrucciones_bytes()
-    await context.bot.send_document(
-        chat_id=update.effective_chat.id,
-        document=pdf_buf,
-        filename="Manual_Bot_Nutricional.pdf"
-    )
-
-def generar_pdf_instrucciones_bytes():
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
-    styles = getSampleStyleSheet()
-    
-    PRIMARY = colors.HexColor('#0F172A')
-    SECONDARY = colors.HexColor('#2563EB')
-    TEXT_COLOR = colors.HexColor('#334155')
-    BG_LIGHT = colors.HexColor('#F8FAFC')
-    BORDER_COLOR = colors.HexColor('#E2E8F0')
-
-    title_style = ParagraphStyle('ModernTitle', parent=styles['Heading1'], fontSize=18, leading=22, textColor=PRIMARY, spaceAfter=4)
-    subtitle_style = ParagraphStyle('ModernSubtitle', parent=styles['Normal'], fontSize=10, leading=14, textColor=SECONDARY, spaceAfter=15)
-    section_style = ParagraphStyle('ModernSection', parent=styles['Heading2'], fontSize=12, leading=16, textColor=PRIMARY, spaceBefore=12, spaceAfter=6)
-    body_style = ParagraphStyle('ModernBody', parent=styles['Normal'], fontSize=9, leading=14, textColor=TEXT_COLOR)
-    
-    story = []
-
-    header_data = [
-        [Paragraph("🤖 Guía Interactiva del Bot Nutricional", title_style)],
-        [Paragraph("MANUAL DE USUARIO • ASISTENTE PERSONAL INTELIGENTE", subtitle_style)]
-    ]
-    header_table = Table(header_data, colWidths=[532])
-    header_table.setStyle(TableStyle([
-        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
-        ('TOPPADDING', (0,0), (-1,-1), 0),
-        ('LEFTPADDING', (0,0), (-1,-1), 0),
-        ('LINEBELOW', (0,1), (-1,1), 2, SECONDARY),
-    ]))
-    story.append(header_table)
-    story.append(Spacer(1, 10))
-
-    story.append(Paragraph("1. Comandos Principales", section_style))
-    
-    cmds_data = [
-        [Paragraph("<b>/start</b>", body_style), Paragraph("Inicia el bot y reenvía este manual informativo actualizado.", body_style)],
-        [Paragraph("<b>/comidas</b>", body_style), Paragraph("Visualiza el listado de comidas predeterminadas y descarga su plantilla en PDF.", body_style)],
-        [Paragraph("<b>/presion</b>", body_style), Paragraph("Registra valores (Ej: <code>120,80,70</code>) o consulta el resumen mensual de presión (Ej: <code>2026-08</code>).", body_style)],
-        [Paragraph("<b>/diario</b>", body_style), Paragraph("Consulta los consumos del día con agrupamiento inteligente y descarga de PDF detallado.", body_style)],
-        [Paragraph("<b>/resumen</b>", body_style), Paragraph("Obtiene el reporte mensual con tabla comparativa de macronutrientes y recomendaciones de IA.", body_style)],
-        [Paragraph("<b>/perfil</b>", body_style), Paragraph("Consulta o actualiza tus datos biométricos corporales específicos por mes.", body_style)],
-    ]
-    
-    t_cmds = Table(cmds_data, colWidths=[90, 442])
-    t_cmds.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), BG_LIGHT),
-        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ('LEFTPADDING', (0,0), (-1,-1), 8),
-        ('RIGHTPADDING', (0,0), (-1,-1), 8),
-    ]))
-    story.append(t_cmds)
-    story.append(Spacer(1, 10))
-
-    story.append(Paragraph("2. Métodos de Registro y Multiplicadores", section_style))
-    
-    input_data = [
-        [Paragraph("<b>💬 Texto Libre y Plantillas:</b> Podés escribir tus alimentos de forma natural o utilizar plantillas rápidas con multiplicadores de porción directamente (Ej: <code>*PIZZAJM,4</code> o <code>*CHURRO,0.5</code>).", body_style)],
-        [Paragraph("<b>🎤 Notas de Voz:</b> Grabá un audio dictando lo que comiste; el motor de transcripción procesará los datos automáticamente.", body_style)],
-        [Paragraph("<b>📸 Fotografías:</b> Enviá una foto de tu plato para que la inteligencia artificial analice los componentes y calcule los macronutrientes.", body_style)]
-    ]
-    
-    t_inputs = Table(input_data, colWidths=[532])
-    t_inputs.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), BG_LIGHT),
-        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('LINEBELOW', (0,0), (-1,-2), 0.5, BORDER_COLOR),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ('LEFTPADDING', (0,0), (-1,-1), 10),
-        ('RIGHTPADDING', (0,0), (-1,-1), 10),
-    ]))
-    story.append(KeepTogether([t_inputs]))
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
 
 # ==============================================================================================================================================
 #                 FINAL                            COMANDO START                               FINAL
