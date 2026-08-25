@@ -1449,7 +1449,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📌 **Comandos Principales:**\n"
         "• `/start`: Inicia el bot, apertura/reinicio de cuenta y reenvío de este manual.\n"
         "• `/comidas`: Visualiza listado de comidas predeterminadas y descarga su plantilla PDF.\n"
-        "• `/pres`: Registro y consulta de presión arterial.\n"
+        "• `/presi`: Registro y consulta de presión arterial.\n"
         "  └ `/presi 120,80,70,nota` (Completo) | `/presi 120,80,70` (Sin nota) | `1/presi 20,80` (Solo presión)\n"
         "  └ `/presi AAAA-MM` Consulta promedio mensual y descarga reporte PDF.\n"
         "• `/diario`: Ingestas del día con desglose nutricional por comida y PDF.\n"
@@ -1550,15 +1550,15 @@ def generar_pdf_instrucciones_bytes() -> bytes:
     cmds_data = [
         [Paragraph("Comando", body_bold), Paragraph("Descripción Detallada y Formato de Uso", body_bold)],
         [
-            Paragraph("<b>/start</b>", code_style), 
-            Paragraph("Primer ingreso o reinicio. Solicita datos personales para la apertura de cuenta y presenta la guía rápida con opción de descargar este manual PDF.", body_style)
+            Paragraph("<b>/inicio</b>", code_style), 
+            Paragraph("Primer ingreso. Solicita datos personales para la apertura de cuenta. Ya con la cuenta abierta presenta la guía rápida con opción de descargar este manual PDF.", body_style)
         ],
         [
             Paragraph("<b>/comidas</b>", code_style), 
             Paragraph("Visualiza el listado de comidas predeterminadas guardadas en tu planilla personal y descarga la plantilla en PDF.", body_style)
         ],
         [
-            Paragraph("<b>/presi</b><br/><i>(/presi)</i>", code_style), 
+            Paragraph("<b>/presi</b>", code_style), 
             Paragraph("<b>• Carga:</b> <code>/presi ALTA,BAJA,PULSO,NOTA</code> (Registra presión, pulso y nota en planilla).<br/>"
                       "<b>• Opciones cortas:</b> <code>/presi ALTA,BAJA,PULSO</code> o <code>/presi ALTA,BAJA</code> (omite nota y pulso).<br/>"
                       "<b>• Consulta:</b> <code>/presi AAAA-MM</code> Promedio del mes e informe PDF detallado.", body_style)
@@ -1573,7 +1573,7 @@ def generar_pdf_instrucciones_bytes() -> bytes:
                       "El corte se realiza de lunes a domingo. Los lunes muestra la semana cerrada; de martes a domingo muestra la semana en curso.", body_style)
         ],
         [
-            Paragraph("<b>/resumen</b>", code_style), 
+            Paragraph("<b>/mensual</b>", code_style), 
             Paragraph("Selección del mes de consulta. Presenta reporte mensual, resumen calórico, estimación de cambio de peso, tabla de macronutrientes y descarga de informe diario completo con recomendaciones de IA.", body_style)
         ],
         [
@@ -1585,6 +1585,13 @@ def generar_pdf_instrucciones_bytes() -> bytes:
             Paragraph("<b>/receta</b>", code_style), 
             Paragraph("Acceso directo a la <i>Calculadora Nutricional Web</i> para cargar recetas complejas o combinaciones de alimentos en la planilla personal.", body_style)
         ]
+        [
+            Paragraph("<b>atajos</b>", code_style), 
+            Paragraph("<b>•/presi</b> <code>//p</code>.<br/>"
+                      "<b>•/diario</b> <code>//d</code>.<br/>"
+                      "<b>•/semanal</b> <code>//s</code>.<br/>"
+                      "<b>•/mensual</b> <code>//m</code>.<br/>"
+        ],
     ]
 
     t_cmds = Table(cmds_data, colWidths=[90, 450])
@@ -3930,14 +3937,14 @@ def main():
         print("⚠️ Advertencia: job_queue no está disponible. Verifique que 'python-telegram-bot[job-queue]' esté instalado.")
 
     # Handlers de Comandos
-    app_bot.add_handler(CommandHandler(["start","inicio","i"], cmd_start))
-    app_bot.add_handler(CommandHandler(["comidas","comida","c"], cmd_comidas))
+    app_bot.add_handler(CommandHandler(["start","inicio"], cmd_start))
+    app_bot.add_handler(CommandHandler(["comidas","comida"], cmd_comidas))
     app_bot.add_handler(CommandHandler(["perfil","peso"], cmd_perfil))
     app_bot.add_handler(CommandHandler(["presion","presi","presio","p"], cmd_presion_handler))  
     app_bot.add_handler(CommandHandler(["diario","dia","d"], cmd_diario))
     app_bot.add_handler(CommandHandler(["resumen","mes","mensual","m"], cmd_resumen))
     app_bot.add_handler(CommandHandler(["mensaje","semana","semanal","s"], cmd_mensaje))
-    app_bot.add_handler(CommandHandler(["receta","planilla","r"], cmd_cargar_receta))
+    app_bot.add_handler(CommandHandler(["receta","planilla"], cmd_cargar_receta))
 
     # Handlers de Mensajes y Consultas
     app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
