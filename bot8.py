@@ -1440,7 +1440,304 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ========================================================================================================================================================
 #                 INICIO                            COMANDO START                               INICIO
-# =======================================================================================================================================================
+# ===================================================================================================================================================
+
+# ========================================================================================================================================================
+# INICIO COMANDO START REVISADO Y MEJORADO
+# ========================================================================================================================================================
+
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = (
+        "👋 **¡Bienvenido a tu Bot Nutricional Personalizado!**\n\n"
+        "Guía rápida de comandos e ingestas disponibles:\n\n"
+        "📌 **Comandos Principales:**\n"
+        "• `/start`: Inicia el bot, apertura/reinicio de cuenta y reenvío de este manual.\n"
+        "• `/comidas`: Visualiza listado de comidas predeterminadas y descarga su plantilla PDF.\n"
+        "• `/pres`: Registro y consulta de presión arterial.\n"
+        "  └ `/presi 120,80,70,nota` (Completo) | `/presi 120,80,70` (Sin nota) | `1/presi 20,80` (Solo presión)\n"
+        "  └ `/presi AAAA-MM` Consulta promedio mensual y descarga reporte PDF.\n"
+        "• `/diario`: Ingestas del día con desglose nutricional por comida y PDF.\n"
+        "• `/semanal`: Estadística de la semana pasada (calorías, proteínas, actividad física y consejo IA).\n"
+        "• `/mensual`: Reporte mensual con estimación de peso, macronutrientes, IA y PDF.\n"
+        "• `/perfil`: Consulta de datos biométricos | `/perfil 90` Actualiza el peso del mes.\n"
+        "• `/receta`: Acceso a la Calculadora Web para registrar platos y recetas complejas.\n\n"
+        "📌 **Métodos de Registro:**\n"
+        "• **Con IA:** Texto libre, Notas de voz 🎤 o Fotos de platos 📸.\n"
+        "• **Modificación parcial:** Editar por item manteniendo peso (`DESCRIPCION`) o recalculando (`DESCRIPCION,PESO`).\n"
+        "• **Sin IA (Plantillas):** `*DESAYUNO,1`, `*PIZZA,4` o `*TORTA,3` (multiplicadores por porción/unidad).\n"
+        "• **Actividad Física:** `# MINUTOS DESCRIPCION, CALORIAS` (Ej: `# 45 minutos caminata, 250`).\n\n"
+        "📄 *Te adjuntamos el Manual de Usuario completo en formato PDF profesional.*"
+    )
+    await update.message.reply_text(msg, parse_mode="Markdown")
+    
+    # Generación y envío del documento PDF mejorado
+    pdf_buf = io.BytesIO(generar_pdf_instrucciones_bytes())
+    await context.bot.send_document(
+        chat_id=update.effective_chat.id,
+        document=pdf_buf,
+        filename="Manual_Bot_Nutricional.pdf"
+    )
+
+def generar_pdf_instrucciones_bytes() -> bytes:
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=letter, 
+        rightMargin=36, 
+        leftMargin=36, 
+        topMargin=36, 
+        bottomMargin=36
+    )
+    
+    styles = getSampleStyleSheet()
+    
+    # Paleta de colores ejecutiva y refinada
+    PRIMARY = colors.HexColor('#1E293B')      # Slate 800 - Encabezados principales
+    SECONDARY = colors.HexColor('#2563EB')    # Blue 600 - Destacados y acentos
+    TEXT_MAIN = colors.HexColor('#334155')    # Slate 700 - Texto de lectura
+    TEXT_MUTED = colors.HexColor('#64748B')   # Slate 500 - Subtítulos
+    BG_LIGHT = colors.HexColor('#F8FAFC')     # Slate 50 - Fondo alternado
+    BG_CARD = colors.HexColor('#F1F5F9')      # Slate 100 - Cajas de código / ejemplos
+    BORDER_COLOR = colors.HexColor('#E2E8F0') # Slate 200 - Líneas de tabla
+
+    # Estilos tipográficos
+    title_style = ParagraphStyle(
+        'DocTitle', parent=styles['Heading1'], 
+        fontSize=18, leading=22, textColor=PRIMARY, fontName='Helvetica-Bold', spaceAfter=2
+    )
+    subtitle_style = ParagraphStyle(
+        'DocSubTitle', parent=styles['Normal'], 
+        fontSize=9.5, leading=12, textColor=SECONDARY, fontName='Helvetica-Bold', spaceAfter=8
+    )
+    section_style = ParagraphStyle(
+        'DocSection', parent=styles['Heading2'], 
+        fontSize=12, leading=15, textColor=PRIMARY, fontName='Helvetica-Bold', spaceBefore=10, spaceAfter=5
+    )
+    subsection_style = ParagraphStyle(
+        'DocSubSection', parent=styles['Heading3'], 
+        fontSize=10, leading=13, textColor=SECONDARY, fontName='Helvetica-Bold', spaceBefore=5, spaceAfter=3
+    )
+    body_style = ParagraphStyle(
+        'DocBody', parent=styles['Normal'], 
+        fontSize=8.5, leading=11.5, textColor=TEXT_MAIN, fontName='Helvetica'
+    )
+    body_bold = ParagraphStyle(
+        'DocBodyBold', parent=body_style, fontName='Helvetica-Bold'
+    )
+    code_style = ParagraphStyle(
+        'DocCode', parent=styles['Normal'], 
+        fontSize=8, leading=11, textColor=PRIMARY, fontName='Courier-Bold'
+    )
+
+    story = []
+
+    # --- ENCABEZADO PRINCIPAL ---
+    header_content = [
+        [Paragraph("🤖 GUÍA INTERACTIVA DEL BOT NUTRICIONAL", title_style)],
+        [Paragraph("MANUAL INTEGRAL DE USUARIO • ASISTENTE PERSONAL INTELIGENTE", subtitle_style)]
+    ]
+    t_header = Table(header_content, colWidths=[540])
+    t_header.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('LEFTPADDING', (0,0), (-1,-1), 0),
+        ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ('TOPPADDING', (0,0), (-1,-1), 0),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+        ('LINEBELOW', (0,1), (-1,1), 2, SECONDARY),
+    ]))
+    story.append(t_header)
+    story.append(Spacer(1, 6))
+
+    # --- SECCIÓN 1: COMANDOS PRINCIPALES ---
+    story.append(Paragraph("1. Comandos Principales del Sistema", section_style))
+    
+    cmds_data = [
+        [Paragraph("Comando", body_bold), Paragraph("Descripción Detallada y Formato de Uso", body_bold)],
+        [
+            Paragraph("<b>/start</b>", code_style), 
+            Paragraph("Primer ingreso o reinicio. Solicita datos personales para la apertura de cuenta y presenta la guía rápida con opción de descargar este manual PDF.", body_style)
+        ],
+        [
+            Paragraph("<b>/comidas</b>", code_style), 
+            Paragraph("Visualiza el listado de comidas predeterminadas guardadas en tu planilla personal y descarga la plantilla en PDF.", body_style)
+        ],
+        [
+            Paragraph("<b>/presi</b><br/><i>(/presi)</i>", code_style), 
+            Paragraph("<b>• Carga:</b> <code>/presi ALTA,BAJA,PULSO,NOTA</code> (Registra presión, pulso y nota en planilla).<br/>"
+                      "<b>• Opciones cortas:</b> <code>/presi ALTA,BAJA,PULSO</code> o <code>/presi ALTA,BAJA</code> (omite nota y pulso).<br/>"
+                      "<b>• Consulta:</b> <code>/presi AAAA-MM</code> Promedio del mes e informe PDF detallado.", body_style)
+        ],
+        [
+            Paragraph("<b>/diario</b>", code_style), 
+            Paragraph("Permite seleccionar el día de consulta. Muestra por pantalla los consumos del día y descarga el PDF detallado con todas las ingestas.", body_style)
+        ],
+        [
+            Paragraph("<b>/semanal</b>", code_style), 
+            Paragraph("Estadística de la semana pasada (resumen de calorías, proteínas, actividad física y consejo IA). "
+                      "El corte se realiza de lunes a domingo. Los lunes muestra la semana cerrada; de martes a domingo muestra la semana en curso.", body_style)
+        ],
+        [
+            Paragraph("<b>/resumen</b>", code_style), 
+            Paragraph("Selección del mes de consulta. Presenta reporte mensual, resumen calórico, estimación de cambio de peso, tabla de macronutrientes y descarga de informe diario completo con recomendaciones de IA.", body_style)
+        ],
+        [
+            Paragraph("<b>/perfil</b>", code_style), 
+            Paragraph("<b>• Consulta:</b> <code>/perfil</code> Muestra los datos biométricos corporales cargados en el sistema.<br/>"
+                      "<b>• Actualización:</b> <code>/perfil 90</code> Actualiza el peso registrado para el mes en curso.", body_style)
+        ],
+        [
+            Paragraph("<b>/receta</b>", code_style), 
+            Paragraph("Acceso directo a la <i>Calculadora Nutricional Web</i> para cargar recetas complejas o combinaciones de alimentos en la planilla personal.", body_style)
+        ]
+    ]
+
+    t_cmds = Table(cmds_data, colWidths=[90, 450])
+    t_cmds.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), SECONDARY),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+        ('RIGHTPADDING', (0,0), (-1,-1), 6),
+        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, BG_LIGHT])
+    ]))
+    
+    # Textos de cabecera en blanco
+    cmds_data[0][0].style.textColor = colors.white
+    cmds_data[0][1].style.textColor = colors.white
+
+    story.append(t_cmds)
+    story.append(Spacer(1, 8))
+
+    # --- SECCIÓN 2: MÉTODOS DE REGISTRO ---
+    story.append(Paragraph("2. Métodos de Registro de Ingestas y Actividades", section_style))
+
+    story.append(Paragraph("A. Con Intervención de IA (Texto, Voz e Imagen)", subsection_style))
+    
+    registro_ia_data = [
+        [
+            Paragraph("<b>💬 Texto Libre:</b> Escribí tus alimentos de forma natural detallando porciones (Ej: <i>'2 huevos revueltos con 1 tostada integral y café'</i>).", body_style)
+        ],
+        [
+            Paragraph("<b>🎤 Notas de Voz:</b> Dictá tu ingesta en una nota de voz; la IA convertirá el audio a texto y procesará los datos nutricionales.", body_style)
+        ],
+        [
+            Paragraph("<b>📸 Fotografías de Galería / Cámara:</b> Envía una foto del plato con o sin descripción aclaratoria (Ej: <i>'Milanesa casera de pollo al horno'</i>).", body_style)
+        ],
+        [
+            Paragraph("<b>⚙️ Proceso de Edición y Confirmación:</b><br/>"
+                      "• <b>Momento:</b> Desayuno, Almuerzo, Merienda o Cena.<br/>"
+                      "• <b>Edición parcial:</b> Seleccioná ítem por ítem enviando una <i>nueva descripción</i> (mantiene peso) o <i>descripción y peso</i> (recalcula completo).<br/>"
+                      "• <b>Fecha y Guardado:</b> Confirmá la fecha del consumo para asentar en tu planilla.", body_style)
+        ]
+    ]
+
+    t_reg_ia = Table(registro_ia_data, colWidths=[540])
+    t_reg_ia.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), BG_LIGHT),
+        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('LEFTPADDING', (0,0), (-1,-1), 8),
+        ('RIGHTPADDING', (0,0), (-1,-1), 8),
+    ]))
+    story.append(t_reg_ia)
+    story.append(Spacer(1, 6))
+
+    story.append(Paragraph("B. Sin Intervención de IA (Comidas Precargadas y Actividades)", subsection_style))
+
+    direct_data = [
+        [Paragraph("Tipo de Registro", body_bold), Paragraph("Sintaxis", body_bold), Paragraph("Ejemplos y Funcionamiento", body_bold)],
+        [
+            Paragraph("<b>Plantilla de Comidas</b>", body_style),
+            Paragraph("<code>*CODIGO, CANTI</code>", code_style),
+            Paragraph("• <code>*DESAYUNO,1</code> Ingresa 1 unidad de la comida seleccionada.<br/>"
+                      "• <code>*PIZZA,4</code> Registra 4 porciones de la plantilla.<br/>"
+                      "• <code>*TORTA,3</code> Ingresa 3 porciones (si la receta base fue cargada en fracciones de 100g, equivale a 300g).", body_style)
+        ],
+        [
+            Paragraph("<b>Actividad Física</b>", body_style),
+            Paragraph("<code># MINUTOS DESCRIPCION, CALORIAS</code>", code_style),
+            Paragraph("• <code># 45 minutos caminata al aire libre, 250 calorias</code><br/>"
+                      "• <code># 60 minutos aquagym, 450 calorias</code><br/>"
+                      "Graba directamente el tiempo y el gasto calórico en la planilla.", body_style)
+        ]
+    ]
+
+    t_direct = Table(direct_data, colWidths=[110, 160, 270])
+    t_direct.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), PRIMARY),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+        ('RIGHTPADDING', (0,0), (-1,-1), 6),
+        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, BG_LIGHT])
+    ]))
+    
+    direct_data[0][0].style.textColor = colors.white
+    direct_data[0][1].style.textColor = colors.white
+    direct_data[0][2].style.textColor = colors.white
+
+    story.append(t_direct)
+    story.append(Spacer(1, 8))
+
+    # --- SECCIÓN 3: CALCULADORA WEB DE RECETAS ---
+    story.append(KeepTogether([
+        Paragraph("3. Calculadora Nutricional Web (/receta)", section_style),
+        Paragraph("Permite cargar recetas elaboradas o combinaciones de alimentos habituales directamente en tu planilla personal.", body_style),
+        Spacer(1, 4)
+    ]))
+
+    receta_data = [
+        [
+            Paragraph("Campos Requeridos en WebApp", body_bold),
+            Paragraph("Ejemplo 1: Receta Elaborada (Torta Matera)", body_bold)
+        ],
+        [
+            Paragraph("• <b>Código/Nombre:</b> Alfanumérico para invocar con asterisco (*).<br/>"
+                      "• <b>Descripción:</b> Detalle corto de la preparación.<br/>"
+                      "• <b>Ingredientes:</b> Cantidades y productos detallados.<br/>"
+                      "• <b>Criterio de División:</b> Porción por gramos (Ej: 100g) o porciones unitarias.<br/>"
+                      "• <b>Acción:</b> Botón <i>'Guardar directamente en mi planilla'</i>.", body_style),
+            Paragraph("• <b>Código:</b> <code>TORTA</code> | <b>Descripción:</b> Torta matera fácil.<br/>"
+                      "• <b>Ingredientes:</b> 1/2 taza aceite girasol, 1 taza leche, 2 tazas harina leudante, 1 cda esencia vainilla, ralladura limón, 1 pizca sal, 2 huevos, 1 taza azúcar.<br/>"
+                      "• <b>Criterio:</b> Fracción de 100 g.", body_style)
+        ],
+        [
+            Paragraph("Ejemplo 2: Combinación de Ingesta Habitual (Desayuno Tradicional)", body_bold),
+            Paragraph("• <b>Código:</b> <code>DESAYUNO</code> | <b>Descripción:</b> Desayuno tradicional completo con tostadas, queso y mermelada.<br/>"
+                      "• <b>Ingredientes:</b> 1 taza café con leche, 2 tostadas finas pan integral, 20g mermelada bajas calorías, 20g queso crema light.<br/>"
+                      "• <b>Criterio:</b> Por porciones = 1.", body_style)
+        ]
+    ]
+
+    t_receta = Table(receta_data, colWidths=[270, 270])
+    t_receta.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), BG_CARD),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+        ('RIGHTPADDING', (0,0), (-1,-1), 6),
+        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('SPAN', (0,2), (1,2))
+    ]))
+    
+    story.append(t_receta)
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
@@ -3756,14 +4053,14 @@ def main():
         print("⚠️ Advertencia: job_queue no está disponible. Verifique que 'python-telegram-bot[job-queue]' esté instalado.")
 
     # Handlers de Comandos
-    app_bot.add_handler(CommandHandler("start", cmd_start))
-    app_bot.add_handler(CommandHandler("comidas", cmd_comidas))
-    app_bot.add_handler(CommandHandler("perfil", cmd_perfil))
-    app_bot.add_handler(CommandHandler(["presion","presi","presio"], cmd_presion_handler))  
-    app_bot.add_handler(CommandHandler("diario", cmd_diario))
-    app_bot.add_handler(CommandHandler("resumen", cmd_resumen))
-    app_bot.add_handler(CommandHandler("mensaje", cmd_mensaje))
-    app_bot.add_handler(CommandHandler("receta", cmd_cargar_receta))
+    app_bot.add_handler(CommandHandler(["start","inicio","i"], cmd_start))
+    app_bot.add_handler(CommandHandler(["comidas","comida","c"], cmd_comidas))
+    app_bot.add_handler(CommandHandler(["perfil","peso"], cmd_perfil))
+    app_bot.add_handler(CommandHandler(["presion","presi","presio","p"], cmd_presion_handler))  
+    app_bot.add_handler(CommandHandler(["diario","dia","d"], cmd_diario))
+    app_bot.add_handler(CommandHandler(["resumen","mes","mensual","m"], cmd_resumen))
+    app_bot.add_handler(CommandHandler(["mensaje","semana","semanal","s"], cmd_mensaje))
+    app_bot.add_handler(CommandHandler(["receta","planilla","r"], cmd_cargar_receta))
 
     # Handlers de Mensajes y Consultas
     app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
@@ -3779,10 +4076,8 @@ def main():
 if __name__ == "__main__":
     main()
 
-# ==================================================================================================================================================================================
+# ==================================================================================================================================================
 #                                   FINAL                                        MAIN EXECUTION                                        FINAL
-# ===================================================================================================================================================================================
-
-
+# ==================================================================================================================================================
 
 
