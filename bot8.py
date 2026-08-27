@@ -1711,6 +1711,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
                       "• <b>Ingredientes:</b> 1/2 taza aceite girasol, 1 taza leche, 2 tazas harina leudante, 1 cda esencia vainilla, ralladura limón, 1 pizca sal, 2 huevos, 1 taza azúcar.<br/>"
                       "• <b>Criterio:</b> Fracción de 100 g.", body_style)
         ],
+    ]
 
     t_receta = Table(receta_data, colWidths=[270, 270])
     t_receta.setStyle(TableStyle([
