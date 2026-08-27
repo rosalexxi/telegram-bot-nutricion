@@ -1450,8 +1450,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/start`: Inicia el bot, apertura/reinicio de cuenta y reenvío de este manual.\n"
         "• `/comidas`: Visualiza listado de comidas predeterminadas y descarga su plantilla PDF.\n"
         "• `/presi`: Registro y consulta de presión arterial.\n"
-        "  └ `/presi 120,80,70,nota` (Completo) | `/presi 120,80,70` (Sin nota) | `1/presi 20,80` (Solo presión)\n"
-        "  └ `/presi AAAA-MM` Consulta promedio mensual y descarga reporte PDF.\n"
+        "  `  /presi 120,80,70,nota` (Completo) | `/presi 120,80,70` (Sin nota) | `1/presi 20,80` (Solo presión)\n"
+        "  `  /presi AAAA-MM` Consulta promedio mensual y descarga reporte PDF.\n"
         "• `/diario`: Ingestas del día con desglose nutricional por comida y PDF.\n"
         "• `/semanal`: Estadística de la semana pasada (calorías, proteínas, actividad física y consejo IA).\n"
         "• `/mensual`: Reporte mensual con estimación de peso, macronutrientes, IA y PDF.\n"
@@ -1460,9 +1460,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📌 **Métodos de Registro:**\n"
         "• **Con IA:** Texto libre, Notas de voz 🎤 o Fotos de platos 📸.\n"
         "• **Modificación parcial:** Editar por item manteniendo peso (`DESCRIPCION`) o recalculando (`DESCRIPCION,PESO`).\n"
-        "• **Sin IA (Plantillas):** `*DESAYUNO,1`, `*PIZZA,4` o `*TORTA,3` (multiplicadores por porción/unidad).\n"
+        "• **Sin IA (Plantillas):** `*DESAYUNO,1`, `*PIZZA (porcion),4` o `*TORTA (fraccion x 100g),1.5` (multiplicadores por porción/unidad).\n"
         "• **Actividad Física:** `# MINUTOS DESCRIPCION, CALORIAS` (Ej: `# 45 minutos caminata, 250`).\n\n"
-        "📄 *Te adjuntamos el Manual de Usuario completo en formato PDF profesional.*"
+        "📄 *Te adjuntamos el Manual de Usuario completo en formato PDF.*"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
     
@@ -1681,7 +1681,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ('RIGHTPADDING', (0,0), (-1,-1), 6),
         ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
         ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, BG_LIGHT])
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.black, BG_LIGHT])
     ]))
     
     direct_data[0][0].style.textColor = colors.white
@@ -1704,22 +1704,13 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("Ejemplo 1: Receta Elaborada (Torta Matera)", body_bold)
         ],
         [
-            Paragraph("• <b>Código/Nombre:</b> Alfanumérico para invocar con asterisco (*).<br/>"
-                      "• <b>Descripción:</b> Detalle corto de la preparación.<br/>"
-                      "• <b>Ingredientes:</b> Cantidades y productos detallados.<br/>"
-                      "• <b>Criterio de División:</b> Porción por gramos (Ej: 100g) o porciones unitarias.<br/>"
-                      "• <b>Acción:</b> Botón <i>'Guardar directamente en mi planilla'</i>.", body_style),
-            Paragraph("• <b>Código:</b> <code>TORTA</code> | <b>Descripción:</b> Torta matera fácil.<br/>"
+            Paragraph("• <b>Código/Nombre:</b> <code>DESAYUNO</code> | <b>Descripción:</b> Desayuno tradicional completo con tostadas, queso y mermelada.<br/>"
+                      "• <b>Ingredientes:</b> 1 taza café con leche, 2 tostadas finas pan integral, 20g mermelada bajas calorías, 20g queso crema light.<br/>"
+                      "• <b>Criterio:</b>Por porciones = 1.", body_style)
+            Paragraph("• <b>Código/Nombre:</b> <code>TORTA</code> | <b>Descripción:</b> Torta matera fácil.<br/>"
                       "• <b>Ingredientes:</b> 1/2 taza aceite girasol, 1 taza leche, 2 tazas harina leudante, 1 cda esencia vainilla, ralladura limón, 1 pizca sal, 2 huevos, 1 taza azúcar.<br/>"
                       "• <b>Criterio:</b> Fracción de 100 g.", body_style)
         ],
-        [
-            Paragraph("Ejemplo 2: Combinación de Ingesta Habitual (Desayuno Tradicional)", body_bold),
-            Paragraph("• <b>Código:</b> <code>DESAYUNO</code> | <b>Descripción:</b> Desayuno tradicional completo con tostadas, queso y mermelada.<br/>"
-                      "• <b>Ingredientes:</b> 1 taza café con leche, 2 tostadas finas pan integral, 20g mermelada bajas calorías, 20g queso crema light.<br/>"
-                      "• <b>Criterio:</b> Por porciones = 1.", body_style)
-        ]
-    ]
 
     t_receta = Table(receta_data, colWidths=[270, 270])
     t_receta.setStyle(TableStyle([
