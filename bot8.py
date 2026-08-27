@@ -1259,12 +1259,46 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 
 async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Comando /mensaje: Dispara manualmente el resumen parcial de la semana en curso.
+    Muestra el reporte semanal en pantalla.
     """
-    user_id = update.effective_user.id
-    await update.message.reply_text("⏳ Analizando los días transcurridos de tu semana con IA...")
-    await enviar_resumen_semanal_usuario(context, user_id, semana_actual=True)
-    
+    try:
+        user_id = update.effective_user.id
+        
+        # 1. Enviar mensaje inicial de carga
+        msg_espera = await update.message.reply_text("⏳ Analizando los días transcurridos de tu semana con IA...")
+
+        # 2. Obtener métricas semanales del usuario
+        # (Asegúrate de ajustar esta llamada a la función que uses para calcular la semana)
+        m_semana = calcular_metricas_semanales(user_id) if 'calcular_metricas_semanales' in globals() else None
+
+        if not m_semana or m_semana.get('dias_registrados', 0) == 0:
+            await msg_espera.edit_text("⚠️ No hay suficiente información de comidas registradas para esta semana.")
+            return
+
+        prompt_semana = f"REPORTE SEMANAL:\nConsumo promedio: {m_semana.get('prom_cal', 0)} kcal/día."
+
+        # 3. Llamada no bloqueante a la IA
+        recomendacion = await asyncio.to_thread(obtener_recomendacion_ia, prompt_semana)
+
+        txt = (
+            f"📅 **Resumen Nutricional Semanal:**\n\n"
+            f"• **Promedio Diario:** `{m_semana.get('prom_cal', 0)} kcal`\n"
+            f"• **Días Registrados:** `{m_semana.get('dias_registrados', 0)}`\n\n"
+            f"🤖 **Recomendación IA:**\n"
+            f"{recomendacion}"
+        )
+
+        # 4. Reemplazar el mensaje de "Analizando..." con el resultado final
+        await msg_espera.edit_text(txt, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Error en cmd_mensaje: {e}")
+        if 'msg_espera' in locals():
+            await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
+        else:
+            await update.message.reply_text(f"⚠️ Error al calcular resumen semanal: {e}")
+            
+            
 # ========================================================================================================================================
 #                  FINAL                        ICOMANDO MENSAJE                     FINAL
 # =======================================================================================================================================
@@ -1679,7 +1713,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         query = update.callback_query
         user_id = update.effective_user.id
 
-        # 1. Obtener el mes string (ya sea por comando /m 2026-08 o por botón del menú)
         mes_str = None
         if query and query.data:
             await query.answer()
@@ -1692,7 +1725,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             ahora = obtener_ahora_arg()
             mes_str = ahora.strftime("%Y-%m")
 
-        # 2. Obtener datos y calcular métricas con la función auxiliar real
         df_datos = obtener_datos_usuario(user_id)
         df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)] if not df_datos.empty and 'Fecha' in df_datos.columns else pd.DataFrame()
 
@@ -1706,9 +1738,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
         m = calcular_metricas_mensuales(df_mes, perfil)
-        m['mes_str'] = mes_str
 
-        # 3. Armar datos para el prompt
         prompt_para_ia_pantalla = (
             f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
             f"- Consumo: {m['prom_cal']} kcal/día (Meta: {m['ideal_cal']} kcal)\n"
@@ -1718,8 +1748,8 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"- Fibra: {m['prom_fibr']} g (Meta: {m['ideal_fibr']} g)\n"
         )
         
-        # 4. Consulta rápida a la IA con await
-        recomendacion_pantalla = await obtener_recomendacion_ia(prompt_para_ia_pantalla)
+        # CORRECTO: Se ejecuta en un hilo separado mediante asyncio.to_thread
+        recomendacion_pantalla = await asyncio.to_thread(obtener_recomendacion_ia, prompt_para_ia_pantalla)
 
         txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
@@ -1754,7 +1784,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.callback_query.edit_message_text(msg_err)
         else:
             await update.message.reply_text(msg_err)
-
+            
 
 #                                                    GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
 # ======================================================================================================================================
