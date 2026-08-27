@@ -607,6 +607,34 @@ AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT
 #                       INICIO                     FUNCIONES AUXILIARES Y FORMATO 2026 08 23                INICIO
 # =============================================================================================================================================
 
+async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
+    """
+    Función centralizada para registrar errores tanto en la consola de Render como en Google Sheets.
+    """
+    mensaje_consola = f"Error en [{contexto}]"
+    if user_id:
+        mensaje_consola += f" - User ID: {user_id}"
+    mensaje_consola += f": {excepcion}"
+
+    # 1. Log en consola / Render
+    logger.error(mensaje_consola)
+
+    # 2. Log en Google Sheets (pestaña 'Logs')
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        
+        ctx_str = f"ERROR | {contexto}" + (f" (User {user_id})" if user_id else "")
+        await registrar_log_en_sheet(
+            sh=sh, 
+            contexto=ctx_str, 
+            detalle=str(excepcion)
+        )
+    except Exception as e_sheet:
+        logger.error(f"Fallo secundario: No se pudo escribir el error en Google Sheets: {e_sheet}")
+
+
+
 def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.7) -> str:
     """
     Función centralizada para realizar todas las consultas de texto a Groq/IA.
@@ -840,32 +868,6 @@ async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: b
         except Exception:
             pass
             
-async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
-    """
-    Función centralizada para registrar errores tanto en la consola de Render como en Google Sheets.
-    """
-    mensaje_consola = f"Error en [{contexto}]"
-    if user_id:
-        mensaje_consola += f" - User ID: {user_id}"
-    mensaje_consola += f": {excepcion}"
-
-    # 1. Log en consola / Render
-    logger.error(mensaje_consola)
-
-    # 2. Log en Google Sheets (pestaña 'Logs')
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        
-        ctx_str = f"ERROR | {contexto}" + (f" (User {user_id})" if user_id else "")
-        await registrar_log_en_sheet(
-            sh=sh, 
-            contexto=ctx_str, 
-            detalle=str(excepcion)
-        )
-    except Exception as e_sheet:
-        logger.error(f"Fallo secundario: No se pudo escribir el error en Google Sheets: {e_sheet}")
-
 def parse_raw_val(val):
     if val is None or val == "":
         return 0.0
