@@ -633,15 +633,13 @@ async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
     except Exception as e_sheet:
         logger.error(f"Fallo secundario: No se pudo escribir el error en Google Sheets: {e_sheet}")
 
-
-
 def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.7) -> str:
     """
     Función centralizada para realizar todas las consultas de texto a Groq/IA.
     Maneja validaciones globales, modelos de fallback y captura de excepciones.
     """
     if 'client_ai' not in globals() or not client_ai:
-        return ""
+        return "⚠️ Error: El cliente 'client_ai' no está inicializado o no es accesible globalmente."
 
     modelo = globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile")
 
@@ -657,218 +655,10 @@ def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float 
             return content.strip() if content else ""
     except Exception as e:
         logger.error(f"⚠️ Error en ejecucion centralizada de IA: {e}")
+        return f"⚠️ Error en API de Groq: {str(e)}"
         
-    return ""
-
-async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: bool = False):
-    """
-    Función independiente que calcula y envía el resumen.
-    - División por 1000 y redondeo a entero para calorías y proteínas.
-    - Llamada centralizada a la IA para emitir el consejo del coach.
-    """
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        
-        meta_cal = None
-        meta_prot = None
-        try:
-            sheet_usuarios = sh.worksheet("Usuarios")
-            registros_usuarios = sheet_usuarios.get_all_records()
-            for u in registros_usuarios:
-                if str(u.get("User ID", "")).strip() == str(user_id):
-                    meta_cal = u.get("Calorias_Objetivo")
-                    meta_prot = u.get("Proteinas_Objetivo")
-                    break
-        except Exception:
-            pass
-
-        ahora_dt = obtener_ahora_arg()
-        hoy = ahora_dt.date() if hasattr(ahora_dt, "date") else ahora_dt
-        dias_desde_lunes = hoy.weekday() # Lunes = 0, Domingo = 6
-
-        # Definición de fechas según el modo
-        if semana_actual:
-            lunes_base = hoy - timedelta(days=dias_desde_lunes)
-            dias_a_incluir = dias_desde_lunes 
-            
-            if dias_a_incluir <= 0:
-                lunes_pasado = hoy - timedelta(days=7)
-                fechas_objetivo = set((lunes_pasado + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7))
-                titulo_reporte = "🗓️ **RESUMEN DE TU SEMANA ANTERIOR**"
-                modo_evaluacion = "semana_pasada"
-            else:
-                fechas_objetivo = set((lunes_base + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(dias_a_incluir))
-                titulo_reporte = f"📊 **PROGRESO PARCIAL DE ESTA SEMANA** ({dias_a_incluir} días cerrados analizados)"
-                modo_evaluacion = "parcial"
-        else:
-            lunes_pasado = hoy - timedelta(days=dias_desde_lunes + 7)
-            fechas_objetivo = set((lunes_pasado + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7))
-            titulo_reporte = "🗓️ **RESUMEN DE TU SEMANA PASADA**"
-            modo_evaluacion = "semana_pasada"
-
-        nombre_hoja_usuario = f"User_{user_id}"
-        sheet_usuario = sh.worksheet(nombre_hoja_usuario)
-        registros_comidas = sheet_usuario.get_all_records()
-
-        resumen_por_dia = {fecha: {"cal": 0.0, "prot": 0.0, "comidas": set(), "ejercicio": 0.0} for fecha in fechas_objetivo}
-
-        for reg in registros_comidas:
-            fecha_reg = ""
-            for k, v in reg.items():
-                if "fecha" in str(k).lower():
-                    fecha_reg = str(v or "").strip()
-                    break
-
-            if fecha_reg in resumen_por_dia:
-                momento_actividad = ""
-                for k, v in reg.items():
-                    k_lower = str(k).lower()
-                    if "momento" in k_lower or "actividad" in k_lower:
-                        momento_actividad = str(v or "").strip()
-                        break
-
-                es_actividad = "actividad" in momento_actividad.lower() or "ejercicio" in momento_actividad.lower()
-
-                if es_actividad:
-                    desc = ""
-                    for k, v in reg.items():
-                        k_lower = str(k).lower()
-                        if "descrip" in k_lower or "alimento" in k_lower or "detalle" in k_lower:
-                            val_str = str(v or "").strip()
-                            if val_str:
-                                desc = val_str
-                                break
-                    if not desc:
-                        desc = momento_actividad
-                        
-                    resumen_por_dia[fecha_reg]["ejercicio"] += extraer_val(desc)
-                else:
-                    momento_reg = momento_actividad.capitalize()
-                    try:
-                        val_cal, val_prot = 0, 0
-                        for k, v in reg.items():
-                            k_lower = str(k).lower()
-                            if "calor" in k_lower: val_cal = v
-                            elif "prote" in k_lower: val_prot = v
-                        
-                        cal = extraer_val(val_cal)
-                        prot = extraer_val(val_prot)
-                        
-                        if cal > 0 or prot > 0:
-                            resumen_por_dia[fecha_reg]["cal"] += cal
-                            resumen_por_dia[fecha_reg]["prot"] += prot
-                            if momento_reg in ["Desayuno", "Almuerzo", "Merienda", "Cena"]:
-                                resumen_por_dia[fecha_reg]["comidas"].add(momento_reg)
-                    except (ValueError, TypeError):
-                        pass
-
-        dias_validos_nutri = 0
-        calorias_totales = 0.0
-        proteinas_totales = 0.0
-        minutos_ejercicio_totales = 0.0
-        dias_con_ejercicio = 0
-
-        for fecha, datos in resumen_por_dia.items():
-            minutos_ejercicio_totales += datos["ejercicio"]
-            if datos["ejercicio"] > 0:
-                dias_con_ejercicio += 1
-
-            if len(datos["comidas"]) >= 2:
-                dias_validos_nutri += 1
-                calorias_totales += datos["cal"]
-                proteinas_totales += datos["prot"]
-
-        if semana_actual and modo_evaluacion == "parcial" and dias_validos_nutri == 0:
-            txt_vacio = (
-                f"⚠️ **No hay suficientes datos para generar el reporte aún.**\n\n"
-                f"Para calcular tu progreso parcial necesitamos que al menos los días anteriores tengan un mínimo de 2 comidas registradas."
-            )
-            await context.bot.send_message(chat_id=int(user_id), text=txt_vacio, parse_mode="Markdown")
-            return
-
-        # Cálculo de promedios dividiendo por 1000 para limpiar los enteros guardados en el Excel
-        divisor = dias_validos_nutri if dias_validos_nutri > 0 else 1
-        prom_calorias = int(round((calorias_totales / divisor) / 1000))
-        prom_proteinas = int(round((proteinas_totales / divisor) / 1000))
-
-        perfil = obtener_perfil_usuario(user_id)
-        tmb_str = "No registrado"
-        get_str = "No registrado"
-
-        if perfil and perfil.get('Peso') and perfil.get('Altura') and perfil.get('Edad'):
-            tmb, get_val = calcular_tmb_y_get(
-                peso_actual=perfil.get('Peso'),
-                altura_cm=perfil.get('Altura'),
-                edad=perfil.get('Edad'),
-                genero=perfil.get('Sexo', 'masculino'),
-                actividad=perfil.get('Ocupacion', 'sedentario')
-            )
-            tmb_str = f"{int(tmb)} kcal"
-            get_str = f"{int(get_val)} kcal"
-
-        meta_cal_val = meta_cal or get_str
-        meta_prot_val = meta_prot or "Consumo adecuado"
-
-        total_dias_analizados = len(fechas_objetivo)
-        meta_ejercicio_proporcional = int(round((180 / 7) * total_dias_analizados))
-
-        # -----------------------------------------------------------------
-        # 1. REPORTE NUMÉRICO LIMPIO POR PYTHON
-        # -----------------------------------------------------------------
-        reporte_python = (
-            f"{titulo_reporte}\n\n"
-            f"📈 **Estadísticas ({dias_validos_nutri}/{total_dias_analizados} días válidos):**\n"
-            f"• **Calorías prom:** {prom_calorias} kcal/día (Meta: {meta_cal_val})\n"
-            f"• **Proteínas prom:** {prom_proteinas} g/día (Meta: {meta_prot_val})\n"
-            f"• **Ejercicio total:** {int(minutos_ejercicio_totales)} min (Meta prop: {meta_ejercicio_proporcional} min en {dias_con_ejercicio} días)\n"
-            f"• **Gasto energético (GET):** {get_str}"
-        )
-
-        # -----------------------------------------------------------------
-        # 2. LLAMADA A LA IA USANDO LA FUNCIÓN CENTRALIZADA
-        # -----------------------------------------------------------------
-        prompt_ia = (
-            f"Actuá como un coach nutricional y deportivo exigente, empático y muy motivador. "
-            f"Analizá estos datos del usuario: Promedio {prom_calorias} kcal/día, {prom_proteinas}g de proteína/día, "
-            f"y {int(minutos_ejercicio_totales)} minutos de ejercicio acumulados (su meta proporcional era {meta_ejercicio_proporcional} min).\n\n"
-            f"Escribí un consejo detallado de 3 a 4 párrafos cortos (entre 80 y 100 palabras en total) en Markdown con emojis. "
-            f"Evaluá el rendimiento de sus calorías y proteínas, dale feedback sobre su nivel de actividad física y dejale una recomendación "
-            f"práctica y clara para mejorar o mantener el ritmo en los próximos días."
-        )
-
-        # Se utiliza la función centralizada
-        
-        consejo_ia = ejecutar_consulta_ia(prompt=prompt_ia, max_tokens=300, temperature=0.7)
-
-        # Mensaje fallback en caso de no recibir respuesta de la IA
-        if not consejo_ia:
-            consejo_ia = (
-                f"¡Hola! Estuve analizando tus números de la semana. Venís registrando un promedio de {prom_calorias} kcal y {prom_proteinas}g de proteínas, "
-                f"junto con {int(minutos_ejercicio_totales)} minutos de actividad.\n\n"
-                f"💡 **Recomendación del Coach:** Intentá mantener la constancia en tus comidas principales y asegurate de sumar un poco más "
-                f"de movimiento diario para acercarte a la meta propuesta. ¡A no aflojar que venís por buen camino! 💪"
-            )
-
-        aviso_peso_str = _verificar_aviso_peso(user_id, ahora_dt)
-        texto_resumen_final = f"{reporte_python}\n\n💬 **Consejo del Coach:**\n{consejo_ia}{aviso_peso_str}"
-
-        await context.bot.send_message(
-            chat_id=int(user_id),
-            text=texto_resumen_final,
-            parse_mode="Markdown"
-        )
-        logger.info(f"Resumen enviado exitosamente a {user_id}")
-
-    except Exception as e_resumen:
-        logger.error(f"Error general en resumen de {user_id}: {e_resumen}")
-        try:
-            gc = get_gspread_client()
-            sh = gc.open(SPREADSHEET_NAME)
-            await registrar_log_en_sheet(sh, f"Error Resumen User {user_id}", str(e_resumen))
-        except Exception:
-            pass
-            
+    return "⚠️ La API de Groq devolvió una respuesta vacía."
+                
 def parse_raw_val(val):
     if val is None or val == "":
         return 0.0
