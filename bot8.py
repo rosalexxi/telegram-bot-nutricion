@@ -1584,7 +1584,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         [
             Paragraph("<b>/receta</b>", code_style), 
             Paragraph("Acceso directo a la <i>Calculadora Nutricional Web</i> para cargar recetas complejas o combinaciones de alimentos en la planilla personal.", body_style)
-        ], # Coma agregada correctamente aquí
+        ],
         [
             Paragraph("<b>atajos</b>", code_style), 
             Paragraph("<b>•/presi</b> <code>//p</code>.<br/>"
@@ -1681,7 +1681,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ('RIGHTPADDING', (0,0), (-1,-1), 6),
         ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
         ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.black, BG_LIGHT])
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, BG_LIGHT]) # Corregido: se eliminó colors.black
     ]))
     
     direct_data[0][0].style.textColor = colors.white
@@ -1698,21 +1698,21 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         Spacer(1, 4)
     ]))
 
-receta_data = [
+    receta_data = [
         [
             Paragraph("Ejemplo 1: Combinacion de ingestas (DESAYUNO)", body_bold),
-            Paragraph("Ejemplo 1: Receta Elaborada (TORTA)", body_bold)
+            Paragraph("Ejemplo 2: Receta Elaborada (TORTA)", body_bold)
         ],
         [
             Paragraph("• <b>Código/Nombre:</b> <code>DESAYUNO</code><br/>"
                       "• <b>Descripción:</b> Desayuno tradicional completo con tostadas, queso y mermelada.<br/>"
                       "• <b>Ingredientes:</b> 1 taza café con leche, 2 tostadas finas pan integral, 20g mermelada bajas calorías, 20g queso crema light.<br/>"
-                      "• <b>Criterio:</b> Por porciones = 1.", body_style), # <--- Coma agregada al final del Paragraph
+                      "• <b>Criterio:</b> Por porciones = 1.", body_style),
             Paragraph("• <b>Código/Nombre:</b> <code>TORTA</code><br/>"
                       "• <b>Descripción:</b> Torta matera fácil.<br/>"
                       "• <b>Ingredientes:</b> 1/2 taza aceite girasol, 1 taza leche, 2 tazas harina leudante, 1 pizca sal, 2 huevos, 1 taza azúcar.<br/>"
                       "• <b>Criterio:</b> Fracción de 100 g.", body_style)
-        ],
+        ]
     ]
 
     t_receta = Table(receta_data, colWidths=[270, 270])
@@ -1724,8 +1724,8 @@ receta_data = [
         ('LEFTPADDING', (0,0), (-1,-1), 6),
         ('RIGHTPADDING', (0,0), (-1,-1), 6),
         ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('SPAN', (0,2), (1,2))
+        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR)
+        # Corregido: Se eliminó la regla 'SPAN' para la fila 2 que no existía
     ]))
     
     story.append(t_receta)
