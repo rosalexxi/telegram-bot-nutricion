@@ -12,6 +12,7 @@ import threading
 import inspect
 import logging
 import unicodedata
+import asyncio
 
 from datetime import datetime, date, timedelta, time
 import pytz
@@ -1254,7 +1255,7 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 # =====================================================================================================================================
 
 # ======================================================================================================================================
-#                 INICIO                            COMANDO MENSAJE 2026 08 23                           INICIO
+#                 INICIO                            COMANDO MENSAJE SEMANAL  2026 08 23                  INICIO
 # =====================================================================================================================================
 
 async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1263,32 +1264,44 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     try:
         user_id = update.effective_user.id
-        
-        # 1. Enviar mensaje inicial de carga
         msg_espera = await update.message.reply_text("⏳ Analizando los días transcurridos de tu semana con IA...")
 
-        # 2. Obtener métricas semanales del usuario
-        # (Asegúrate de ajustar esta llamada a la función que uses para calcular la semana)
-        m_semana = calcular_metricas_semanales(user_id) if 'calcular_metricas_semanales' in globals() else None
+        # Obtener los datos reales registrados del usuario
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
 
-        if not m_semana or m_semana.get('dias_registrados', 0) == 0:
+        if df_datos.empty:
             await msg_espera.edit_text("⚠️ No hay suficiente información de comidas registradas para esta semana.")
             return
 
-        prompt_semana = f"REPORTE SEMANAL:\nConsumo promedio: {m_semana.get('prom_cal', 0)} kcal/día."
+        # Si tenés una función auxiliar para la semana, usala pasando el DataFrame
+        perfil = obtener_perfil_usuario(user_id) if 'obtener_perfil_usuario' in globals() else {}
+        
+        if 'calcular_metricas_semanales' in globals():
+            m = calcular_metricas_semanales(df_datos, perfil)
+        else:
+            # Fallback en caso de usar el cálculo mensual adaptado a la semana
+            m = calcular_metricas_mensuales(df_datos, perfil)
 
-        # 3. Llamada no bloqueante a la IA
+        if not m or m.get('dias_registrados', 0) == 0:
+            await msg_espera.edit_text("⚠️ No hay suficiente información de comidas registradas para esta semana.")
+            return
+
+        prompt_semana = (
+            f"REPORTE SEMANAL:\n"
+            f"- Consumo: {m.get('prom_cal', 0)} kcal/día (Meta: {m.get('ideal_cal', 0)} kcal)\n"
+            f"- Proteínas: {m.get('prom_prot', 0)} g (Meta: {m.get('ideal_prot', 0)} g)\n"
+        )
+
         recomendacion = await asyncio.to_thread(obtener_recomendacion_ia, prompt_semana)
 
         txt = (
             f"📅 **Resumen Nutricional Semanal:**\n\n"
-            f"• **Promedio Diario:** `{m_semana.get('prom_cal', 0)} kcal`\n"
-            f"• **Días Registrados:** `{m_semana.get('dias_registrados', 0)}`\n\n"
+            f"• **Promedio Diario Consumido:** `{m.get('prom_cal', 0)} kcal`\n"
+            f"• **Días Registrados:** `{m.get('dias_registrados', 0)}`\n\n"
             f"🤖 **Recomendación IA:**\n"
             f"{recomendacion}"
         )
 
-        # 4. Reemplazar el mensaje de "Analizando..." con el resultado final
         await msg_espera.edit_text(txt, parse_mode="Markdown")
 
     except Exception as e:
@@ -1296,11 +1309,10 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if 'msg_espera' in locals():
             await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
         else:
-            await update.message.reply_text(f"⚠️ Error al calcular resumen semanal: {e}")
-            
+            await update.message.reply_text(f"⚠️ Error al calcular resumen semanal: {e}")            
             
 # ========================================================================================================================================
-#                  FINAL                        ICOMANDO MENSAJE                     FINAL
+#                  FINAL                        COMANDO MENSAJE SEMANAL                    FINAL
 # =======================================================================================================================================
 
 # ===========================================================================================================================================
@@ -1707,7 +1719,7 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
 
 async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Muestra el reporte del mes actual o el especificado con la recomendación rápida de la IA.
+    Muestra el reporte del mes en pantalla usando la función de IA síncrona.
     """
     try:
         query = update.callback_query
@@ -1748,7 +1760,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"- Fibra: {m['prom_fibr']} g (Meta: {m['ideal_fibr']} g)\n"
         )
         
-        # CORRECTO: Se ejecuta en un hilo separado mediante asyncio.to_thread
+        # Ejecución segura en hilo secundario
         recomendacion_pantalla = await asyncio.to_thread(obtener_recomendacion_ia, prompt_para_ia_pantalla)
 
         txt = (
