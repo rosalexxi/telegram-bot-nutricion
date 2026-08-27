@@ -637,32 +637,42 @@ def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float 
         
     return ""
     
-def obtener_recomendacion_ia(resumen_texto: str) -> str:
+def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
     """
-    Genera un análisis conversacional, fluido y sin repetición de números.
+    Genera la recomendación de la IA. Si es_semanal=True produce un texto breve
+    y directo para Telegram. Si es False, genera un análisis fluido.
     """
-    prompt_pantalla = f"""
-    Actúa como un nutricionista personal realizando una devolución profesional y cercana.
-    
-    Analiza la siguiente información de tu paciente:
-    {resumen_texto}
+    if es_semanal:
+        prompt_pantalla = f"""
+        Actúa como un coach nutricional experto. Revisa los siguientes datos semanales:
+        {resumen_texto}
 
-    REGLAS OBLIGATORIAS:
-    1. PROHIBIDO REPETIR CIFRAS O METAS NUMÉRICAS. Los valores numéricos ya se muestran en la tabla de arriba.
-    2. NO USES NUMERALES (##). Usa texto en negrita simple para destacar subtítulos.
-    3. Redacta entre 2 y 3 párrafos fluidos y bien explicados (aprovecha para dar una devolución detallada y rica en contenido).
-    4. Enfócate en la calidad de la alimentación: explica el impacto biológico o práctico de cómo va su consumo actual (ejemplo: saciedad, energía, síntesis muscular, tránsito intestinal).
-    5. Aporta recomendaciones concretas de combinaciones de alimentos o ajustes de hábitos para corregir los desvíos.
-    """
+        REGLAS PARA TELEGRAM SEMANAL:
+        1. Escribe 1 solo párrafo breve de análisis general sin repetir números.
+        2. Da máximo 2 consejos prácticos concretos en viñetas simples (-).
+        3. Extensión máxima total: 120 palabras (debe ser muy compacto para no cortarse).
+        4. NO USES NUMERALES (##).
+        """
+        max_t = 300
+    else:
+        prompt_pantalla = f"""
+        Actúa como un nutricionista clínico personal realizando un análisis mensual completo.
+        Analiza la información de tu paciente:
+        {resumen_texto}
 
-    res = ejecutar_consulta_ia(prompt=prompt_pantalla, max_tokens=700, temperature=0.6)
+        REGLAS OBLIGATORIAS:
+        1. PROHIBIDO REPETIR CIFRAS O METAS NUMÉRICAS.
+        2. NO USES NUMERALES (##).
+        3. Redacta 2 párrafos fluidos y bien explicados enfocado en saciedad, energía y recuperación.
+        """
+        max_t = 600
+
+    res = ejecutar_consulta_ia(prompt=prompt_pantalla, max_tokens=max_t, temperature=0.5)
     
-    # Limpieza de seguridad por si la IA genera etiquetas incompatibles
     if res:
         res = res.replace("##", "").replace("###", "")
         
-    return res if res else "⚠️ No se pudo obtener el análisis nutricional en este momento."
-                                   
+    return res if res else "⚠️ No se pudo obtener el análisis nutricional en este momento."                                   
 def parse_raw_val(val):
     if val is None or val == "":
         return 0.0
@@ -1842,16 +1852,16 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
     styles = getSampleStyleSheet()
     
-    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
-    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=11, textColor=colors.HexColor('#2563EB'), spaceBefore=8, spaceAfter=4)
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8, leading=11, textColor=colors.HexColor('#1E293B'))
-    rec_style = ParagraphStyle('RecBody', parent=styles['Normal'], fontSize=8, leading=11, textColor=colors.HexColor('#0F172A'), spaceAfter=4)
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=14, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
+    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=10, textColor=colors.HexColor('#2563EB'), spaceBefore=6, spaceAfter=2)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#1E293B'))
+    rec_style = ParagraphStyle('RecBody', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#0F172A'), spaceAfter=1)
     header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
 
     story = [
         Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str}</b>", title_style),
         Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
-        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=8)
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=6)
     ]
 
     headers_h1 = ["Fecha", "Cal. Consumid.", "Cal. Quemad.", "Bal. Neto", "Proteinas (g)", "Grasas (g)", "Carbohidratos (g)", "Fibras (g)"]
@@ -1928,7 +1938,7 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
 
     story.append(PageBreak())
     story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes</b>", title_style))
-    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=8))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=6))
 
     perfil_dict = perfil if isinstance(perfil, dict) else {}
     m = calcular_metricas_mensuales(df_mes, perfil_dict)
@@ -1948,36 +1958,67 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
         ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
     ]))
     story.append(t_comp)
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 4))
 
     story.append(Paragraph(f"• <b>PERFIL BASE ({mes_str}):</b> Peso Actual: {m['peso_actual']} kg | Peso Objetivo (75/25): {m['peso_referencia']} kg | Altura: {m['altura']} cm", body_style))
     story.append(Paragraph(f"• <b>DÉFICIT CALÓRICO DIARIO PROMEDIO:</b> {m['deficit_diario_real']} kcal / día", body_style))
     story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {m['cambio_peso_kg']:+.1f} kg", body_style))
 
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 4))
     story.append(Paragraph("<b>Recomendación Nutricional Personalizada y Plan de Acción (IA):</b>", sub_style))
 
-    texto_final = recomendacion
-    es_texto_corto = not isinstance(texto_final, str) or len(texto_final.strip()) < 1200 or "<b>1. DIAGNÓSTICO" not in texto_final
+    # --- LISTA AMPLIADA DE ALIMENTOS (10 REGLONES CADA UNA - SIN ESPACIOS EXCESIVOS) ---
+    alimentos_ingerir = [
+        "<b>1. ALIMENTOS Y COMIDAS QUE DEBERÍAS INGERIR (10 OPCIONES SUGERIDAS)</b>",
+        "- Pechuga de pollo, pavo o pescados blancos (merluza, merluza negra, pollo sin piel).",
+        "- Pescados grasos saludables (salmón, atún, sardinas) por su aporte de omega 3.",
+        "- Huevos enteros o claras de huevo (alto valor biológico y saciedad).",
+        "- Legumbres variadas (lentejas, garbanzos, porotos negros, arvejas).",
+        "- Avena integral, quinoa, arroz integral y cebada perlada.",
+        "- Batata, papa hervida/al horno o choclo como fuente de energía limpia.",
+        "- Verduras de hoja verde (espinaca, acelga, rúcula, lechuga).",
+        "- Vegetales crucíferos (brócoli, coliflor, repollo de Bruselas).",
+        "- Frutas frescas bajas en azúcar (manzana verde, pera, frutos rojos, frutillas).",
+        "- Frutos secos y semillas (almendras, nueces, chía, lino) en porciones controladas."
+    ]
 
-    if es_texto_corto:
-        p_dict = {'calorias': m['prom_cal'], 'proteinas': m['prom_prot'], 'grasas': m['prom_gras'], 'carbohidratos': m['prom_carb'], 'fibras': m['prom_fibr']}
-        m_dict = {'calorias': int(round(m['get_meta'])), 'proteinas': m['ideal_prot'], 'grasas': m['ideal_gras'], 'carbohidratos': m['ideal_carb'], 'fibras': m['ideal_fibr']}
-        b_dict = {'peso_actual': m['peso_actual'], 'peso_ideal': m['peso_ideal'], 'altura': m['altura'], 'edad': m['edad']}
-        
-        if 'generar_recomendacion_ia' in globals():
-            texto_final = generar_recomendacion_ia(p_dict, m_dict, b_dict)
+    alimentos_reducir = [
+        "<b>2. ALIMENTOS Y COMIDAS QUE DEBERÍAS REDUCIR O EVITAR (10 OPCIONES A CONTROLAR)</b>",
+        "- Ultraprocesados, snacks industriales y papas fritas de paquete.",
+        "- Fiambres, embutidos y carnes procesadas altas en sodio y grasas saturadas.",
+        "- Cortes de carne vacina o de cerdo con alto contenido graso visibile.",
+        "- Bebidas azucaradas, gaseosas comunes y jugos industriales.",
+        "- Aderezos comerciales hipercalóricos (mayonesa común, salsas compradas).",
+        "- Harinas refinadas, pan blanco, galletitas dulces y bizcochitos.",
+        "- Productos de pastelería, facturas, tartas comerciales y empanadas fritas.",
+        "- Lácteos enteros con alto porcentaje graso (quesos duros estacionados, crema).",
+        "- Comidas rápidas (hamburguesas comerciales, frituras en abundante aceite).",
+        "- Bebidas alcohólicas por su aporte de calorías vacías."
+    ]
 
-    if isinstance(texto_final, str):
-        for bloque in texto_final.strip().split('\n\n'):
+    # Incorporar recomendación general
+    if isinstance(recomendacion, str) and recomendacion.strip():
+        for bloque in recomendacion.strip().split('\n\n'):
             if bloque.strip():
                 story.append(Paragraph(bloque.strip().replace('\n', '<br/>'), rec_style))
-                story.append(Spacer(1, 4))
+                story.append(Spacer(1, 2))
+
+    story.append(Spacer(1, 4))
+
+    # Renderizar listas de 10 alimentos compactas sin saltos de línea innecesarios
+    for item in alimentos_ingerir:
+        story.append(Paragraph(item, rec_style))
+    
+    story.append(Spacer(1, 4))
+    
+    for item in alimentos_reducir:
+        story.append(Paragraph(item, rec_style))
 
     doc.build(story)
     buffer.seek(0)
     return buffer
-
+    
+    
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("Generando PDF... ⏳")
@@ -2048,7 +2089,7 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
 #                   FINAL                                COMANDO RESUMEN                                           FINAL
 # ======================================================================================================================================
 
-# ============================================================================================================================================
+# ======================================================================================================================================
 #                   INICIO                               COMNADO PRESION                                          INICIO
 # ======================================================================================================================================
 
