@@ -1704,11 +1704,13 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("Ejemplo 1: Receta Elaborada (Torta Matera)", body_bold)
         ],
         [
-            Paragraph("• <b>Código/Nombre:</b> <code>DESAYUNO</code> | <b>Descripción:</b> Desayuno tradicional completo con tostadas, queso y mermelada.<br/>"
+            Paragraph("• <b>Código/Nombre:</b> <code>DESAYUNO</code>"
+            	      "• <b>Descripción:</b> Desayuno tradicional completo con tostadas, queso y mermelada.<br/>"
                       "• <b>Ingredientes:</b> 1 taza café con leche, 2 tostadas finas pan integral, 20g mermelada bajas calorías, 20g queso crema light.<br/>"
                       "• <b>Criterio:</b>Por porciones = 1.", body_style)
-            Paragraph("• <b>Código/Nombre:</b> <code>TORTA</code> | <b>Descripción:</b> Torta matera fácil.<br/>"
-                      "• <b>Ingredientes:</b> 1/2 taza aceite girasol, 1 taza leche, 2 tazas harina leudante, 1 cda esencia vainilla, ralladura limón, 1 pizca sal, 2 huevos, 1 taza azúcar.<br/>"
+            Paragraph("• <b>Código/Nombre:</b> <code>TORTA</code>"
+                      "• <b>Descripción:</b> Torta matera fácil.<br/>"
+                      "• <b>Ingredientes:</b> 1/2 taza aceite girasol, 1 taza leche, 2 tazas harina leudante, 1 pizca sal, 2 huevos, 1 taza azúcar.<br/>"
                       "• <b>Criterio:</b> Fracción de 100 g.", body_style)
         ],
     ]
