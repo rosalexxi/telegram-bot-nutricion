@@ -1695,6 +1695,9 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     story.append(KeepTogether([
         Paragraph("3. Calculadora Nutricional Web (/receta)", section_style),
         Paragraph("Permite cargar recetas elaboradas o combinaciones de alimentos habituales directamente en tu planilla personal.", body_style),
+        Paragraph("• <code>*Código/Nombre:</code> Código identificatorio para buscar la receta cargada en la planilla utilizando * .<br/>"
+                  "• <code>*Descripción:</code> Descripcion de la receta o detalle de los componentes de una ingesta guardada.<br/>"
+                  "• <code>*Criterio:</code> Criterio a utilizar si la receta fue cargada en fracciones de 100g o porciones.", body_style)
         Spacer(1, 4)
     ]))
 
