@@ -660,7 +660,7 @@ def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float 
         logger.error(f"⚠️ Error en ejecución de IA (Groq): {e}")
         
     return ""
-
+    
 def obtener_recomendacion_ia(resumen_texto: str) -> str:
     """
     Genera una recomendación sintética y directa para la pantalla de Telegram.
@@ -1668,27 +1668,47 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
 
     return "<b>⚠️ No se pudo generar la recomendación mediante IA en este momento.</b>"    
 
+#                                                       MOSTRAR EL RESUMEN DEL MES POR PANTALLA
+# =============================================================================================================================================
+
 async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Muestra el reporte del mes actual o el especificado con la recomendación rápida de la IA.
     """
     try:
+        query = update.callback_query
         user_id = update.effective_user.id
-        mes_str = context.args[0] if context.args else None
-        
-        m = calcular_metricas_mes(user_id, mes_str)
-        if not m or m.get('dias_registrados', 0) == 0:
-            msg = f"⚠️ No hay registros de comidas para el mes `{mes_str or 'actual'}`."
-            if update.callback_query:
-                await update.callback_query.answer()
-                await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
+
+        # 1. Obtener el mes string (ya sea por comando /m 2026-08 o por botón del menú)
+        mes_str = None
+        if query and query.data:
+            await query.answer()
+            if query.data.startswith("resumen_mes_"):
+                mes_str = query.data.replace("resumen_mes_", "")
+        elif context.args:
+            mes_str = context.args[0]
+
+        if not mes_str or mes_str == "otro":
+            ahora = obtener_ahora_arg()
+            mes_str = ahora.strftime("%Y-%m")
+
+        # 2. Obtener datos y calcular métricas con la función auxiliar real
+        df_datos = obtener_datos_usuario(user_id)
+        df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)] if not df_datos.empty and 'Fecha' in df_datos.columns else pd.DataFrame()
+
+        if df_mes.empty:
+            msg = f"⚠️ No hay registros de comidas para el mes `{mes_str}`."
+            if query:
+                await query.edit_message_text(msg, parse_mode="Markdown")
             else:
                 await update.message.reply_text(msg, parse_mode="Markdown")
             return
 
-        mes_str = m['mes_str']
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
+        m = calcular_metricas_mensuales(df_mes, perfil)
+        m['mes_str'] = mes_str
 
-        # Se arman los datos sintéticos para el prompt liviano
+        # 3. Armar datos para el prompt
         prompt_para_ia_pantalla = (
             f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
             f"- Consumo: {m['prom_cal']} kcal/día (Meta: {m['ideal_cal']} kcal)\n"
@@ -1698,8 +1718,8 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"- Fibra: {m['prom_fibr']} g (Meta: {m['ideal_fibr']} g)\n"
         )
         
-        # Consulta rápida a la IA solo para la pantalla
-        recomendacion_pantalla = obtener_recomendacion_ia(prompt_para_ia_pantalla)
+        # 4. Consulta rápida a la IA con await
+        recomendacion_pantalla = await obtener_recomendacion_ia(prompt_para_ia_pantalla)
 
         txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
@@ -1722,9 +1742,8 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         keyboard = [[InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"pdf_mes_{mes_str}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        if update.callback_query:
-            await update.callback_query.answer()
-            await update.callback_query.edit_message_text(txt, reply_markup=reply_markup, parse_mode="Markdown")
+        if query:
+            await query.edit_message_text(txt, reply_markup=reply_markup, parse_mode="Markdown")
         else:
             await update.message.reply_text(txt, reply_markup=reply_markup, parse_mode="Markdown")
 
@@ -1732,11 +1751,9 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.error(f"Error en mostrar_resumen_mes: {e}")
         msg_err = f"⚠️ Ocurrió un error al generar el resumen mensual: {e}"
         if update.callback_query:
-            await update.callback_query.answer()
             await update.callback_query.edit_message_text(msg_err)
         else:
             await update.message.reply_text(msg_err)
-
 
 
 #                                                    GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
@@ -3479,8 +3496,9 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 #                    FINAL                                    MENSAJES PROGRAMADOS                                        FINAL
 # =============================================================================================================================================
 
+
 # =============================================================================================================================================
-#                   INICIO                                        MAIN EXECUTION  2026 08 20                                      INICIO
+#                                                   INICIO MAIN EXECUTION                                                    INICIO
 # =============================================================================================================================================
 
 async def job_recordatorio_manana(context):
@@ -3536,10 +3554,16 @@ def main():
     app_bot.add_handler(CommandHandler(["mensaje","semana","semanal","s"], cmd_mensaje))
     app_bot.add_handler(CommandHandler(["receta","planilla"], cmd_cargar_receta))
 
+    # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
+    app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
+    app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^pdf_mes_"))
+
     # Handlers de Mensajes y Consultas
     app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Callback genérico (debe ir al final de los CallbackQueryHandler)
     app_bot.add_handler(CallbackQueryHandler(handle_callback_query))
 
     print("🤖 Bot Nutricional iniciado correctamente en Telegram con tareas programadas...")
@@ -3551,7 +3575,9 @@ if __name__ == "__main__":
     main()
 
 # =============================================================================================================================================
-#                                   FINAL                                        MAIN EXECUTION                                        FINAL
+#                                                   FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
+
+
 
 
