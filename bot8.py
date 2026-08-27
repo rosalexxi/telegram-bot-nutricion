@@ -838,6 +838,7 @@ async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: b
         )
 
         # Se utiliza la función centralizada
+        
         consejo_ia = ejecutar_consulta_ia(prompt=prompt_ia, max_tokens=300, temperature=0.7)
 
         # Mensaje fallback en caso de no recibir respuesta de la IA
@@ -1793,8 +1794,8 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = None) -> str:
     """
-    Genera un informe nutricional detallado y extenso (~500-600 palabras)
-    con diagnóstico integral, alimentos a incorporar y alimentos a evitar.
+    Envía los datos biométricos y promedios mensuales a Groq para que redacte
+    un informe nutricional completo de 500-600 palabras con estructura HTML para PDF.
     """
     if biometria is None:
         biometria = {}
@@ -1808,107 +1809,83 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
     carb_r, carb_m = int(round(promedios.get('carbohidratos', 0))), int(round(metas.get('carbohidratos', 200)))
     fibr_r, fibr_m = int(round(promedios.get('fibras', 0))), int(round(metas.get('fibras', 25)))
 
-    bloques = []
+    prompt_pdf = f"""
+    Actúa como un nutricionista clínico experto. Analiza el siguiente resumen mensual de un paciente y redacta un informe extenso y profesional de entre 500 y 600 palabras.
 
-    # Seccion 1: Diagnostico
-    bloques.append(
-        "<b>1. DIAGNÓSTICO NUTRICIONAL INTEGRAL DEL MES</b>\n"
-        f"Tras analizar minuciosamente tus registros diarios frente a los requerimientos teóricos calculados para tu perfil, "
-        f"se observan tendencias clave en tu patron de alimentacion. En cuanto al balance energetico, registras un promedio "
-        f"de <b>{cal_r} kcal/dia</b> frente a un objetivo de <b>{cal_m} kcal/dia</b>. "
-        f"Al evaluar la distribucion de macronutrientes, tu ingesta proteica promedia <b>{prot_r}g</b> (meta: {prot_m}g), "
-        f"las grasas alcanzan <b>{gras_r}g</b> (meta: {gras_m}g), los carbohidratos se ubican en <b>{carb_r}g</b> "
-        f"(meta: {carb_m}g) y la fibra aporta <b>{fibr_r}g</b> (meta: {fibr_m}g). "
-        f"Este perfil refleja desvíos específicos que requieren ajustes estratégicos para optimizar el metabolismo, mejorar la composición "
-        f"corporal de forma progresiva y asegurar la saciedad sin comprometer el nivel de energía diario."
-    )
+    DATOS DEL PACIENTE:
+    - Peso actual: {peso_act} kg | Peso objetivo: {peso_id} kg
 
-    # Seccion 2: Analisis por Macronutriente
-    lineas_analisis = ["<b>2. ANÁLISIS DE BRECHAS Y DESVÍOS ESPECÍFICOS</b>"]
+    PROMEDIOS DIARIOS CONSUMIDOS VS METAS OBJETIVO:
+    - Calorías: {cal_r} kcal (Meta: {cal_m} kcal)
+    - Proteínas: {prot_r} g (Meta: {prot_m} g)
+    - Grasas: {gras_r} g (Meta: {gras_m} g)
+    - Carbohidratos: {carb_r} g (Meta: {carb_m} g)
+    - Fibra: {fibr_r} g (Meta: {fibr_m} g)
+
+    ESTRUCTURA Y FORMATO DE LA RESPUESTA:
+    Usa etiquetas HTML básicas (<b>, <br/>) para dar formato. El informe DEBE dividirse en exactamente estas 5 secciones encabezadas en negrita:
+
+    <b>1. DIAGNÓSTICO NUTRICIONAL INTEGRAL DEL MES</b>
+    (Análisis profundo del balance energético global y el cumplimiento del perfil).
+
+    <b>2. ANÁLISIS DE BRECHAS Y DESVÍOS ESPECÍFICOS</b>
+    (Puntos bala con • evaluando déficit o exceso de cada macronutriente y fibra con respecto a las metas).
+
+    <b>3. ALIMENTOS Y COMIDAS QUE DEBERÍAS INGERIR (PARA SUPLIR DÉFICITS)</b>
+    (Recomendaciones concretas de alimentos para los nutrientes faltantes).
+
+    <b>4. ALIMENTOS Y COMIDAS QUE DEBERÍAS REDUCIR O EVITAR (PARA CORREGIR EXCESOS)</b>
+    (Lista de alimentos a moderar o eliminar según las grasas/carbohidratos consumidos).
+
+    <b>5. RECOMENDACIÓN GENERAL Y ESTRATEGIA DE HÁBITOS</b>
+    (Estrategias sobre consumo de agua, distribución de platos y hábitos sostenibles).
+
+    REGLA STRICTA: Devuelve ÚNICAMENTE el texto del informe formateado en HTML sin incluir mensajes adicionales, saludos ni introducciones fuera del informe.
+    """
+
+    # Hacemos la llamada a Groq pasando max_tokens=1200 para dar espacio a las 600 palabras
     
-    if cal_m > 0 and cal_r > cal_m * 1.1:
-        lineas_analisis.append(f"• <b>Exceso Calórico:</b> Estás consumiendo un {int(round(((cal_r/cal_m)-1)*100))}% por encima de la meta. Es prioritario reducir la densidad calórica de los platos para no enlentecer la pérdida de peso.")
-    elif cal_m > 0 and cal_r < cal_m * 0.85:
-        lineas_analisis.append(f"• <b>Déficit Calórico Pronunciado:</b> Tu ingesta está un {int(round(((1-(cal_r/cal_m))*100)))}% por debajo. Ojo con restringir demasiado, ya que puede ralentizar el metabolismo y generar pérdida de masa muscular.")
-    else:
-        lineas_analisis.append("• <b>Calorías Normocalóricas/Equilibradas:</b> Tu consumo energético total se mantiene alineado con las metas planificadas.")
+    respuesta = ejecutar_consulta_ia(prompt=prompt_pdf, max_tokens=1200, temperature=0.5)
+    
+    if respuesta:
+        return respuesta
 
-    if fibr_r < fibr_m * 0.85:
-        lineas_analisis.append(f"• <b>Déficit de Fibras ({fibr_r}g vs {fibr_m}g):</b> La baja ingesta dificulta la salud intestinal, perjudica el control glucémico y reduce la saciedad a largo plazo.")
-    else:
-        lineas_analisis.append(f"• <b>Nivel Nutritivo de Fibra Óptimo:</b> Estás cubriendo adecuadamente la cuota de digestibilidad y salud microbiana.")
-
-    if gras_r > gras_m * 1.15:
-        lineas_analisis.append(f"• <b>Exceso de Grasas ({gras_r}g vs {gras_m}g):</b> Un aporte elevado de grasas (especialmente saturadas) suma calorías rápidamente sin aportar volumen ni saciedad duradera.")
-    elif gras_r < gras_m * 0.8:
-        lineas_analisis.append(f"• <b>Déficit de Grasas Saludables:</b> Requiere atención para mantener un perfil hormonal óptimo.")
-    else:
-        lineas_analisis.append(f"• <b>Balance de Grasas Adecuado:</b> Ingesta lipídica controlada dentro de los rangos meta.")
-
-    if carb_r < carb_m * 0.85:
-        lineas_analisis.append(f"• <b>Déficit de Carbohidratos Complejos ({carb_r}g vs {carb_m}g):</b> Esto puede ocasionar fatiga, bajo rendimiento físico y antojos de azúcares al final de la jornada.")
-    elif carb_r > carb_m * 1.15:
-        lineas_analisis.append(f"• <b>Exceso de Carbohidratos:</b> Es conveniente reemplazar carbohidratos refinados por opciones complejas de menor índice glucémico.")
-    else:
-        lineas_analisis.append(f"• <b>Nivel de Carbohidratos Estable:</b> Buen balance de hidratos para energía constante.")
-
-    if prot_r < prot_m * 0.85:
-        lineas_analisis.append(f"• <b>Déficit Proteico ({prot_r}g vs {prot_m}g):</b> Fundamental aumentar su presencia para preservar la masa magra y aumentar la termogénesis alimentaria.")
-
-    bloques.append("\n".join(lineas_analisis))
-
-    # Seccion 3: Alimentos Sugeridos (Incorporar)
-    lineas_inc = ["<b>3. ALIMENTOS Y COMIDAS QUE DEBERÍAS INGERIR (PARA SUPLIR DÉFICITS)</b>"]
-    if fibr_r < fibr_m * 0.85:
-        lineas_inc.append("• <b>Para la Fibra:</b> Incorporá 1 porción diaria de legumbres (lentejas, garbanzos, porotos) en ensaladas o guisos magros. Sumá 1 a 2 cucharadas de semillas (chía o lino hidratadas) en tus desayunos, y consumí frutas enteras con cáscara (manzana, pera, frutos rojos).")
-    if carb_r < carb_m * 0.85:
-        lineas_inc.append("• <b>Para Carbohidratos Complejos:</b> Sumá fuentes de absorción lenta como avena integral, quinoa, arroz integral, batata, choclo o mandioca hervida. Te darán energía sostenida sin picos glucémicos.")
-    if prot_r < prot_m * 0.85:
-        lineas_inc.append("• <b>Para Proteínas Magras:</b> Priorizá pechuga de pollo/pavo, claras de huevo, atún al natural, cortes vacunos magros (peceto, cuadril, bola de lomo), queso blanco magro y yogur griego natural sin azúcar.")
-    if len(lineas_inc) == 1:
-        lineas_inc.append("• Mantené la variedad de vegetales de hoja verde, hortalizas multicolores y cereales integrales para sostener tus excelentes promedios.")
-    bloques.append("\n".join(lineas_inc))
-
-    # Seccion 4: Alimentos a Reducir/Omitir (Excesos)
-    lineas_red = ["<b>4. ALIMENTOS Y COMIDAS QUE DEBERÍAS REDUCIR O EVITAR (PARA CORREGIR EXCESOS)</b>"]
-    if gras_r > gras_m * 1.15:
-        lineas_red.append("• <b>Grasas y Frituras:</b> Evitá carnes vacunas de corte graso (costilla, asado, entraña), fiambres, embutidos (chorizos, salchichas), aderezos industriales (mayonesa, salsa golf), frituras y manteca/crema. Reemplazalos por aceite de oliva en crudo (1 cucharadita) y cocciones al horno o plancha.")
-    if carb_r > carb_m * 1.15 or (cal_m > 0 and cal_r > cal_m * 1.1):
-        lineas_red.append("• <b>Ultraprocesados y Azúcares:</b> Reducí al mínimo productos de panadería refinados, galletitas dulces/saladas, gaseosas azucaradas, jugos industriales y harinas blancas refinadas.")
-    if len(lineas_red) == 1:
-        lineas_red.append("• Moderá el uso de aceites al cocinar y controlá las porciones de frutos secos o quesos duros para no sobrepasar la densidad calórica.")
-    bloques.append("\n".join(lineas_red))
-
-    # Seccion 5: Plan de Accion y Cierre
-    bloques.append(
-        "<b>5. RECOMENDACIÓN GENERAL Y ESTRATEGIA DE HÁBITOS</b>\n"
-        "Para consolidar estos cambios, asegurá una ingesta de agua potable de al menos <b>2 a 2.5 litros diarios</b>. "
-        "La hidratación adecuada optimiza la función renal, mejora el tránsito intestinal favorecido por la fibra y ayuda a "
-        "diferenciar la sed real de la ansiedad. Organizá tus compras semanales en base a las fuentes proteicas magras y vegetales frescos "
-        "sugeridos, garantizando platos estructurados con la regla del plato (50% vegetales, 25% proteína magra, 25% carbohidrato complejo)."
-    )
-
-    return "\n\n".join(bloques)
-
+    return "<b>⚠️ No se pudo generar la recomendación mediante IA en este momento.</b>"
+    
 #                                                       RECOMENDACIÓN BREVE PARA PANTALLA (~100 PALABRAS) 2026 08 27
 # =========================================================================================================================================
 
 def obtener_recomendacion_ia(resumen_texto: str) -> str:
-    texto_fallback = (
-        "Ajustá tu balance diario moderando las grasas saturadas e incrementando fibras con legumbres, "
-        "semillas y vegetales frescos. Priorizá proteínas magras y carbohidratos complejos. "
-        "¡Mantené la constancia y asegurá 2 litros de agua al día!"
-    )
+    """
+    Envía el resumen de métricas a Groq para que redacte una devolución breve
+    y directa de entre 100 y 150 palabras para la pantalla de Telegram.
+    """
+    prompt_pantalla = f"""
+    Actúa como un coach de nutrición entusiasta y profesional.
+    Analiza el siguiente resumen de datos del mes de un usuario:
 
-    prompt = (
-        "Basado en el siguiente resumen nutricional, redactá una recomendación BREVE, DIRECTA Y MOTIVADORA "
-        "de EXACTAMENTE 90 a 110 PALABRAS (no te pases de 120 palabras). "
-        "Resumí los desvíos principales de fibra, grasas o carbohidratos y menciona 2 o 3 alimentos concretos a incorporar y a evitar:\n\n"
-        f"{resumen_texto}"
-    )
+    {resumen_texto}
 
-    respuesta = ejecutar_consulta_ia(prompt=prompt, max_tokens=200, temperature=0.7)
-    return respuesta if respuesta else texto_fallback
+    REQUISITOS DE LA RESPUESTA:
+    1. Redacta una recomendación BREVE, DIRECTA Y MOTIVADORA de entre 100 y 150 palabras.
+    2. Señala el principal acierto o desvío de la dieta (fibra, grasas, carbohidratos o calorías).
+    3. Menciona 2 o 3 alimentos concretos a incorporar o reducir.
+    4. Cierra con un mensaje corto de ánimo.
+    5. Usa formato Markdown de Telegram (*negrita* para resaltar puntos clave). NO uses HTML.
+
+    REGLA STRICTA: Devuelve ÚNICAMENTE el texto de la recomendación. No agregues saludos formales ni introducciones.
+    """
+
+    # Subimos max_tokens a 400 para permitir un resumen fluido de 150 palabras sin cortes
+    
+    respuesta = ejecutar_consulta_ia(prompt=prompt_pdf if 'prompt_pdf' in locals() else prompt_pantalla, max_tokens=400, temperature=0.7)
+    
+    if respuesta:
+        return respuesta
+
+    return "⚠️ No se pudo obtener la recomendación de la IA para la pantalla en este momento."
+    
+    
 
 #                                                                MOSTRAR RESUMEN MES (TELEGRAM HANDLER)
 # ========================================================================================================================================
@@ -1934,12 +1911,12 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
                 await query_or_update.message.reply_text(txt, parse_mode="Markdown")
             return
 
-        # --- LECTURA UNIFICADA DEL PERFIL (Igual que el PDF) ---
+        # Lectura unificada del perfil
         perfil_dict = obtener_perfil_usuario(user_id, mes_target=mes_str)
         if not perfil_dict:
             perfil_dict = {}
 
-        # Validamos campos mínimos indispensables para el cálculo
+        # Validamos campos mínimos indispensables
         campos_criticos = ['Edad', 'edad', 'Altura', 'altura', 'Peso', 'peso']
         if not perfil_dict or not any(k in perfil_dict and parse_raw_val(perfil_dict[k]) > 0 for k in campos_criticos):
             txt_incompleto = (
@@ -1953,7 +1930,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
                 await query_or_update.message.reply_text(txt_incompleto, parse_mode="Markdown")
             return
 
-        # --- LLAMADA ÚNICA A LA FUNCIÓN CENTRALIZADA DE MÉTRICAS ---
+        # Cálculo centralizado de métricas mensuales
         m = calcular_metricas_mensuales(df_mes, perfil_dict)
 
         dict_promedios = {
@@ -1979,11 +1956,13 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             'edad': m['edad']
         }
 
+        # 1. Generamos el informe completo para el PDF a través de Groq
         recomendacion_pdf = generar_recomendacion_ia(dict_promedios, dict_metas, dict_biometria)
 
+        # 2. Generamos el resumen corto para la pantalla de Telegram a través de Groq
         prompt_para_ia_pantalla = (
             f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
-            f"- Peso registrado: {m['peso_actual']} kg | Peso Objetivo Ponderado: {m['peso_referencia']} kg\n"
+            f"- Peso registrado: {m['peso_actual']} kg | Peso Objetivo: {m['peso_referencia']} kg\n"
             f"- Cambio de peso estimado: {m['cambio_peso_kg']:+.1f} kg\n"
             f"CONSUMO PROMEDIO DIARIO ({m['dias_registrados']} días registrados):\n"
             f"- Calorías: {m['prom_cal']} kcal (Meta: {m['ideal_cal']} kcal)\n"
@@ -1994,6 +1973,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
         )
         recomendacion_pantalla = obtener_recomendacion_ia(prompt_para_ia_pantalla)
 
+        # Guardamos la recomendación del PDF en la sesión del usuario
         user_data_ref = getattr(query_or_update, 'user_data', None)
         if user_data_ref is None and hasattr(query_or_update, 'message') and hasattr(query_or_update.message, 'user_data'):
             user_data_ref = query_or_update.message.user_data
@@ -2015,7 +1995,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             f"• **Carbohidratos:** `{m['prom_carb']} g` / Meta: `{m['ideal_carb']} g`\n"
             f"• **Fibras:** `{m['prom_fibr']} g` / Meta: `{m['ideal_fibr']} g`\n\n"
             f"🤖 **Recomendación de la IA:**\n"
-            f"_{recomendacion_pantalla}_\n\n"
+            f"{recomendacion_pantalla}\n\n"
             f"📄 Podés descargar el reporte completo en PDF a continuación:"
         )
 
@@ -2034,6 +2014,7 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
         else:
             await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
+            
 
             
 #                                                    GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
