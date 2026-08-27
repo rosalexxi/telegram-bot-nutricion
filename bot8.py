@@ -639,21 +639,21 @@ def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float 
     
 def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
     """
-    Genera la recomendación de la IA. Si es_semanal=True produce un texto breve
-    y directo para Telegram. Si es False, genera un análisis fluido.
+    Genera la recomendación de la IA.
     """
     if es_semanal:
         prompt_pantalla = f"""
-        Actúa como un coach nutricional experto. Revisa los siguientes datos semanales:
+        Actúa como un coach nutricional breve y conciso.
+        Analiza este resumen semanal:
         {resumen_texto}
 
-        REGLAS PARA TELEGRAM SEMANAL:
-        1. Escribe 1 solo párrafo breve de análisis general sin repetir números.
-        2. Da máximo 2 consejos prácticos concretos en viñetas simples (-).
-        3. Extensión máxima total: 120 palabras (debe ser muy compacto para no cortarse).
+        REGLAS OBLIGATORIAS:
+        1. Escribe UN solo párrafo corto de análisis general (máximo 50 palabras).
+        2. Agrega solo 3 recomendaciones breves en puntos (-).
+        3. Extensión TOTAL máxima: 100 palabras. Debe ser muy breve para no cortarse jamás en Telegram.
         4. NO USES NUMERALES (##).
         """
-        max_t = 300
+        max_t = 250  # Límite controlado para evitar respuestas inconclusas
     else:
         prompt_pantalla = f"""
         Actúa como un nutricionista clínico personal realizando un análisis mensual completo.
@@ -663,16 +663,20 @@ def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> st
         REGLAS OBLIGATORIAS:
         1. PROHIBIDO REPETIR CIFRAS O METAS NUMÉRICAS.
         2. NO USES NUMERALES (##).
-        3. Redacta 2 párrafos fluidos y bien explicados enfocado en saciedad, energía y recuperación.
+        3. Redacta 2 párrafos fluidos enfocados en saciedad, energía y recuperación.
         """
         max_t = 600
 
-    res = ejecutar_consulta_ia(prompt=prompt_pantalla, max_tokens=max_t, temperature=0.5)
-    
-    if res:
-        res = res.replace("##", "").replace("###", "")
-        
-    return res if res else "⚠️ No se pudo obtener el análisis nutricional en este momento."                                   
+    try:
+        res = ejecutar_consulta_ia(prompt=prompt_pantalla, max_tokens=max_t, temperature=0.4)
+        if res:
+            return res.replace("##", "").replace("###", "").strip()
+    except Exception as e:
+        logger.error(f"Error en la consulta de IA: {e}")
+
+    return "⚠️ No se pudo obtener el análisis nutricional en este momento."
+
+
 def parse_raw_val(val):
     if val is None or val == "":
         return 0.0
