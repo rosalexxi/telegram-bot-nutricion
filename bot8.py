@@ -1439,7 +1439,7 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =======================================================================================================================================
 
 # ===========================================================================================================================================
-#                        INICIO                             COMANDO START  2026 08 26                 INICIO
+#                        INICIO                             COMANDO START REVISADO Y MEJORADO                 INICIO
 # ==========================================================================================================================================
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1551,7 +1551,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         [Paragraph("Comando", body_bold), Paragraph("Descripción Detallada y Formato de Uso", body_bold)],
         [
             Paragraph("<b>/inicio</b>", code_style), 
-            Paragraph("Primer ingreso: solicita los datos biometricos para completar el perfil y completar la apertura de la cuenta.<br/> Ya con la cuenta abierta presenta la guía rápida con opción de descargar este manual en PDF.", body_style)
+            Paragraph("Primer ingreso. Solicita datos personales para la apertura de cuenta. Ya con la cuenta abierta presenta la guía rápida con opción de descargar este manual PDF.", body_style)
         ],
         [
             Paragraph("<b>/comidas</b>", code_style), 
@@ -1565,7 +1565,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>/diario</b>", code_style), 
-            Paragraph("Permite seleccionar el día de consulta. Muestra por pantalla el resumen de los consumos del día y descarga el PDF detallado con todas las ingestas.", body_style)
+            Paragraph("Permite seleccionar el día de consulta. Muestra por pantalla los consumos del día y descarga el PDF detallado con todas las ingestas.", body_style)
         ],
         [
             Paragraph("<b>/semanal</b>", code_style), 
@@ -1574,7 +1574,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>/mensual</b>", code_style), 
-            Paragraph("Presenta reporte mensual, resumen calórico, estimación de cambio de peso, tabla de macronutrientes y descarga de informe diario completo con recomendaciones de IA.", body_style)
+            Paragraph("Selección del mes de consulta. Presenta reporte mensual, resumen calórico, estimación de cambio de peso, tabla de macronutrientes y descarga de informe diario completo con recomendaciones de IA.", body_style)
         ],
         [
             Paragraph("<b>/perfil</b>", code_style), 
@@ -1587,10 +1587,10 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ], # Coma agregada correctamente aquí
         [
             Paragraph("<b>atajos</b>", code_style), 
-            Paragraph("<b>•/presi</b> <code>   /p</code>.<br/>"
-                      "<b>•/diario</b> <code>   /d</code>.<br/>"
-                      "<b>•/semanal</b> <code>   /s</code>.<br/>"
-                      "<b>•/mensual</b> <code>   /m</code>.<br/>", body_style)
+            Paragraph("<b>•/presi</b> <code>//p</code>.<br/>"
+                      "<b>•/diario</b> <code>//d</code>.<br/>"
+                      "<b>•/semanal</b> <code>//s</code>.<br/>"
+                      "<b>•/mensual</b> <code>//m</code>.<br/>", body_style)
         ],
     ]
 
