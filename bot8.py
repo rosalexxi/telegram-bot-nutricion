@@ -1732,9 +1732,11 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
 #                                                       MOSTRAR EL RESUMEN DEL MES POR PANTALLA
 # =============================================================================================================================================
 
+
 async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Muestra el reporte del mes en pantalla usando la función de IA síncrona.
+    Muestra el reporte del mes ignorando el día en curso (hasta ayer 23:59:59)
+    y previene cortes por el límite de caracteres de Telegram.
     """
     try:
         query = update.callback_query
@@ -1753,10 +1755,21 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             mes_str = ahora.strftime("%Y-%m")
 
         df_datos = obtener_datos_usuario(user_id)
-        df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)] if not df_datos.empty and 'Fecha' in df_datos.columns else pd.DataFrame()
+        
+        if not df_datos.empty and 'Fecha' in df_datos.columns:
+            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
+            
+            # FILTRO CRÍTICO: Registros del mes seleccionado hasta AYER a las 23:59:59
+            hoy_comienzo = pd.Timestamp.now().floor('D')
+            df_mes = df_datos[
+                (df_datos['Fecha'].astype(str).str.startswith(mes_str)) & 
+                (df_datos['Fecha_dt'] < hoy_comienzo)
+            ].copy()
+        else:
+            df_mes = pd.DataFrame()
 
         if df_mes.empty:
-            msg = f"⚠️ No hay registros de comidas para el mes `{mes_str}`."
+            msg = f"⚠️ No hay registros cerrados de días anteriores para el mes `{mes_str}`."
             if query:
                 await query.edit_message_text(msg, parse_mode="Markdown")
             else:
@@ -1768,41 +1781,49 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         prompt_para_ia_pantalla = (
             f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
-            f"- Consumo: {m['prom_cal']} kcal/día (Meta: {m['ideal_cal']} kcal)\n"
+            f"- Días cerrados evaluados: {m['dias_registrados']}\n"
+            f"- Consumo promedio: {m['prom_cal']} kcal/día (Meta: {m['ideal_cal']} kcal)\n"
             f"- Proteínas: {m['prom_prot']} g (Meta: {m['ideal_prot']} g)\n"
             f"- Grasas: {m['prom_gras']} g (Meta: {m['ideal_gras']} g)\n"
             f"- Carb: {m['prom_carb']} g (Meta: {m['ideal_carb']} g)\n"
             f"- Fibra: {m['prom_fibr']} g (Meta: {m['ideal_fibr']} g)\n"
         )
         
-        # Ejecución segura en hilo secundario
         recomendacion_pantalla = await asyncio.to_thread(obtener_recomendacion_ia, prompt_para_ia_pantalla)
 
-        txt = (
-            f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
+        encabezado_txt = (
+            f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n"
+            f"ℹ️ *Calculado sobre días cerrados (excluye hoy)*\n\n"
             f"• **Promedio Consumidas:** `{m['prom_cal']} kcal` / día\n"
             f"• **Promedio Quemadas:** `{m['prom_quem']} kcal` / día\n"
             f"• **Balance Neto Diario:** `{m['prom_bal_neto']} kcal` / día\n"
             f"• **Cambio Estimado de Peso:** `{m['cambio_peso_kg']:+.1f} kg` en el mes\n\n"
-            f"• Días con registro: `{m['dias_registrados']}`\n"
-            f"📈 **Promedio Diario vs. Objetivos (Ponderados 75/25):**\n"
+            f"• Días evaluados: `{m['dias_registrados']}`\n"
+            f"📈 **Promedio Diario vs. Objetivos:**\n"
             f"• **Calorías:** `{m['prom_cal']} kcal` / Meta: `{m['ideal_cal']} kcal`\n"
             f"• **Proteínas:** `{m['prom_prot']} g` / Meta: `{m['ideal_prot']} g`\n"
             f"• **Grasas:** `{m['prom_gras']} g` / Meta: `{m['ideal_gras']} g`\n"
             f"• **Carbohidratos:** `{m['prom_carb']} g` / Meta: `{m['ideal_carb']} g`\n"
             f"• **Fibras:** `{m['prom_fibr']} g` / Meta: `{m['ideal_fibr']} g`\n\n"
-            f"🤖 **Recomendación de la IA:**\n"
-            f"{recomendacion_pantalla}\n\n"
-            f"📄 Podés descargar el reporte completo en PDF a continuación:"
+            f"🤖 **Análisis Nutricional:**\n"
         )
+        
+        pie_txt = f"\n\n📄 Podés descargar el reporte completo en PDF a continuación:"
+
+        # LÍMITE DE TELEGRAM: Cortar recomendación si supera los 4000 caracteres totales
+        espacio_disponible = 3900 - len(encabezado_txt) - len(pie_txt)
+        if len(recomendacion_pantalla) > espacio_disponible:
+            recomendacion_pantalla = recomendacion_pantalla[:espacio_disponible - 3] + "..."
+
+        txt_final = f"{encabezado_txt}{recomendacion_pantalla}{pie_txt}"
 
         keyboard = [[InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"pdf_mes_{mes_str}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         if query:
-            await query.edit_message_text(txt, reply_markup=reply_markup, parse_mode="Markdown")
+            await query.edit_message_text(txt_final, reply_markup=reply_markup, parse_mode="Markdown")
         else:
-            await update.message.reply_text(txt, reply_markup=reply_markup, parse_mode="Markdown")
+            await update.message.reply_text(txt_final, reply_markup=reply_markup, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Error en mostrar_resumen_mes: {e}")
@@ -1811,7 +1832,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.callback_query.edit_message_text(msg_err)
         else:
             await update.message.reply_text(msg_err)
-            
+
 
 #                                                    GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
 # ======================================================================================================================================
@@ -1909,7 +1930,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes</b>", title_style))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=8))
 
-    # --- LLAMADA ÚNICA A LA FUNCIÓN CENTRALIZADA DE MÉTRICAS PARA EL PDF ---
     perfil_dict = perfil if isinstance(perfil, dict) else {}
     m = calcular_metricas_mensuales(df_mes, perfil_dict)
 
@@ -1966,28 +1986,56 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         user_id = query.from_user.id
         mes_str = query.data.replace("pdf_mes_", "")
 
-        # Verificación y generación de ruta
-        if 'generar_pdf_mensual' in globals():
-            path_pdf = await asyncio.to_thread(generar_pdf_mensual, user_id, mes_str)
+        # 1. Obtener datos y filtrar el día actual (solo días cerrados hasta ayer a las 23:59:59)
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        
+        if not df_datos.empty and 'Fecha' in df_datos.columns:
+            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
+            hoy_comienzo = pd.Timestamp.now().floor('D')
+            df_mes = df_datos[
+                (df_datos['Fecha'].astype(str).str.startswith(mes_str)) & 
+                (df_datos['Fecha_dt'] < hoy_comienzo)
+            ].copy()
         else:
-            path_pdf = None
+            df_mes = pd.DataFrame()
 
-        if path_pdf and os.path.exists(path_pdf):
-            with open(path_pdf, 'rb') as doc:
-                await context.bot.send_document(
-                    chat_id=query.message.chat_id,
-                    document=doc,
-                    filename=f"Reporte_Nutricional_{mes_str}.pdf",
-                    caption=f"📄 Reporte mensual completo correspondiente a **{mes_str}**.",
-                    parse_mode="Markdown"
-                )
-        else:
-            # Notificación detallada para depuración rápida
+        if df_mes.empty:
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
-                text=f"⚠️ No se encontró el archivo PDF generado para el período `{mes_str}`. Verifique la función `generar_pdf_mensual`.",
+                text=f"⚠️ No hay registros de días cerrados en el mes `{mes_str}` para generar el PDF.",
                 parse_mode="Markdown"
             )
+            return
+
+        # 2. Cargar dependencias adicionales del reporte
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
+        df_presion = pd.DataFrame()  # O la llamada correspondiente a la presión del usuario
+        tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
+
+        # 3. Generar la recomendación extensa de IA para el PDF
+        prompt_para_pdf = f"Genera un análisis nutricional clínico extenso para el reporte PDF del mes {mes_str}."
+        recomendacion_pdf = await asyncio.to_thread(obtener_recomendacion_ia, prompt_para_pdf) if 'obtener_recomendacion_ia' in globals() else ""
+
+        # 4. Generar el PDF directamente en buffer de memoria mediante la función indicada
+        pdf_buffer = await asyncio.to_thread(
+            generar_pdf_resumen_bytes,
+            mes_str,
+            df_mes,
+            df_presion,
+            perfil,
+            tmb_val,
+            recomendacion_pdf,
+            user_id
+        )
+
+        # 5. Enviar el documento directamente desde el buffer de memoria a Telegram
+        await context.bot.send_document(
+            chat_id=query.message.chat_id,
+            document=pdf_buffer,
+            filename=f"Reporte_Nutricional_{mes_str}.pdf",
+            caption=f"📄 Reporte mensual completo correspondiente a **{mes_str}** (días cerrados).",
+            parse_mode="Markdown"
+        )
 
     except Exception as e:
         logger.error(f"Error al enviar PDF: {e}")
