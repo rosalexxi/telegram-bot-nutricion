@@ -607,11 +607,36 @@ AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT
 #                       INICIO                     FUNCIONES AUXILIARES Y FORMATO 2026 08 23                INICIO
 # =============================================================================================================================================
 
+def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.7) -> str:
+    """
+    Función centralizada para realizar todas las consultas de texto a Groq/IA.
+    Maneja validaciones globales, modelos de fallback y captura de excepciones.
+    """
+    if 'client_ai' not in globals() or not client_ai:
+        return ""
+
+    modelo = globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile")
+
+    try:
+        response = client_ai.chat.completions.create(
+            model=modelo,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+        if response and response.choices:
+            content = response.choices[0].message.content
+            return content.strip() if content else ""
+    except Exception as e:
+        logger.error(f"⚠️ Error en ejecucion centralizada de IA: {e}")
+        
+    return ""
+
 async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: bool = False):
     """
     Función independiente que calcula y envía el resumen.
     - División por 1000 y redondeo a entero para calorías y proteínas.
-    - LLM de Groq utilizando client_ai y GROQ_TEXTO para emitir el consejo del coach.
+    - Llamada centralizada a la IA para emitir el consejo del coach.
     """
     try:
         gc = get_gspread_client()
@@ -773,7 +798,7 @@ async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: b
         )
 
         # -----------------------------------------------------------------
-        # 2. LLAMADA A LA IA USANDO client_ai y GROQ_TEXTO
+        # 2. LLAMADA A LA IA USANDO LA FUNCIÓN CENTRALIZADA
         # -----------------------------------------------------------------
         prompt_ia = (
             f"Actuá como un coach nutricional y deportivo exigente, empático y muy motivador. "
@@ -784,23 +809,10 @@ async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: b
             f"práctica y clara para mejorar o mantener el ritmo en los próximos días."
         )
 
-        consejo_ia = ""
-        if client_ai:
-            try:
-                respuesta_ia = client_ai.chat.completions.create(
-                    model=GROQ_TEXTO,
-                    messages=[{"role": "user", "content": prompt_ia}],
-                    temperature=0.7,
-                    max_tokens=300
-                )
-                consejo_ia = respuesta_ia.choices[0].message.content.strip()
-            except Exception as e_groq:
-                logger.error(f"Error Groq en consejo coach para {user_id}: {e_groq}")
-                try:
-                    await registrar_log_en_sheet(sh, f"Error Groq Coach User {user_id}", e_groq)
-                except Exception:
-                    pass
+        # Se utiliza la función centralizada
+        consejo_ia = ejecutar_consulta_ia(prompt=prompt_ia, max_tokens=300, temperature=0.7)
 
+        # Mensaje fallback en caso de no recibir respuesta de la IA
         if not consejo_ia:
             consejo_ia = (
                 f"¡Hola! Estuve analizando tus números de la semana. Venís registrando un promedio de {prom_calorias} kcal y {prom_proteinas}g de proteínas, "
@@ -824,10 +836,10 @@ async def enviar_resumen_semanal_usuario(context, user_id: int, semana_actual: b
         try:
             gc = get_gspread_client()
             sh = gc.open(SPREADSHEET_NAME)
-            await registrar_log_en_sheet(sh, f"Error Resumen User {user_id}", e_resumen)
+            await registrar_log_en_sheet(sh, f"Error Resumen User {user_id}", str(e_resumen))
         except Exception:
             pass
-
+            
 async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
     """
     Función centralizada para registrar errores tanto en la consola de Render como en Google Sheets.
@@ -1697,7 +1709,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         Paragraph("Permite cargar recetas elaboradas o combinaciones de alimentos habituales directamente en tu planilla personal.", body_style),
         Paragraph("• <code>*Código/Nombre:</code> Código identificatorio para buscar la receta cargada en la planilla utilizando * .<br/>"
                   "• <code>*Descripción:</code> Descripcion de la receta o detalle de los componentes de una ingesta guardada.<br/>"
-                  "• <code>*Criterio:</code> Criterio a utilizar si la receta fue cargada en fracciones de 100g o porciones.", body_style),
+                  "• <code>*Criterio:</code> Criterio a utilizar si la receta fue cargada en fracciones de 100g o porciones.<br/><br/>", body_style),
         Spacer(1, 4)
     ]))
 
@@ -1876,7 +1888,7 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
 
     return "\n\n".join(bloques)
 
-#                                                       RECOMENDACIÓN BREVE PARA PANTALLA (~100 PALABRAS)
+#                                                       RECOMENDACIÓN BREVE PARA PANTALLA (~100 PALABRAS) 2026 08 27
 # =========================================================================================================================================
 
 def obtener_recomendacion_ia(resumen_texto: str) -> str:
@@ -1886,10 +1898,6 @@ def obtener_recomendacion_ia(resumen_texto: str) -> str:
         "¡Mantené la constancia y asegurá 2 litros de agua al día!"
     )
 
-    if 'client_ai' not in globals() or not client_ai:
-        return texto_fallback
-
-    modelo = globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile")
     prompt = (
         "Basado en el siguiente resumen nutricional, redactá una recomendación BREVE, DIRECTA Y MOTIVADORA "
         "de EXACTAMENTE 90 a 110 PALABRAS (no te pases de 120 palabras). "
@@ -1897,18 +1905,8 @@ def obtener_recomendacion_ia(resumen_texto: str) -> str:
         f"{resumen_texto}"
     )
 
-    try:
-        response = client_ai.chat.completions.create(
-            model=modelo,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=200
-        )
-        res = response.choices[0].message.content.strip()
-        return res if res else texto_fallback
-    except Exception as e:
-        print(f"⚠️ Warning: Falló obtener_recomendacion_ia para pantalla: {e}")
-        return texto_fallback
+    respuesta = ejecutar_consulta_ia(prompt=prompt, max_tokens=200, temperature=0.7)
+    return respuesta if respuesta else texto_fallback
 
 #                                                                MOSTRAR RESUMEN MES (TELEGRAM HANDLER)
 # ========================================================================================================================================
