@@ -1700,8 +1700,8 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 
 receta_data = [
         [
-            Paragraph("Campos Requeridos en WebApp", body_bold),
-            Paragraph("Ejemplo 1: Receta Elaborada (Torta Matera)", body_bold)
+            Paragraph("Ejemplo 1: Combinacion de ingestas (DESAYUNO)", body_bold),
+            Paragraph("Ejemplo 1: Receta Elaborada (TORTA)", body_bold)
         ],
         [
             Paragraph("• <b>Código/Nombre:</b> <code>DESAYUNO</code><br/>"
