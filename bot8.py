@@ -1260,49 +1260,62 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 
 async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Muestra el reporte semanal real de los últimos 7 días.
+    Reporte semanal: si es lunes, analiza la semana anterior completa (lunes a domingo).
+    Si es otro día, analiza desde el lunes de la semana actual hasta hoy.
     """
     try:
         user_id = update.effective_user.id
-        msg_espera = await update.message.reply_text("⏳ Analizando los días transcurridos de tu semana con IA...")
+        msg_espera = await update.message.reply_text("⏳ Analizando los días de tu semana con IA...")
 
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
 
         if df_datos.empty or 'Fecha' not in df_datos.columns:
-            await msg_espera.edit_text("⚠️ No hay suficiente información de comidas registradas.")
+            await msg_espera.edit_text("⚠️ No hay información de comidas registradas.")
             return
 
-        # FILTRO CRÍTICO: Últimos 7 días exactos
         df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
-        hace_7_dias = pd.Timestamp.now() - pd.Timedelta(days=7)
-        df_semana = df_datos[df_datos['Fecha_dt'] >= hace_7_dias].copy()
+        ahora = pd.Timestamp.now()
+        dia_semana = ahora.weekday()  # 0 es Lunes, 6 es Domingo
+
+        # REGLA DEL LUNES: Si es lunes, tomar los 7 días de la semana pasada
+        if dia_semana == 0:
+            fin_rango = ahora.floor('D') - pd.Timedelta(seconds=1)
+            inicio_rango = ahora.floor('D') - pd.Timedelta(days=7)
+            etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
+        else:
+            # Martes a Domingo: Desde el lunes de esta semana hasta hoy
+            inicio_rango = ahora.floor('D') - pd.Timedelta(days=dia_semana)
+            fin_rango = ahora
+            etiqueta_periodo = "Semana Actual (En curso)"
+
+        df_semana = df_datos[(df_datos['Fecha_dt'] >= inicio_rango) & (df_datos['Fecha_dt'] <= fin_rango)].copy()
 
         if df_semana.empty:
-            await msg_espera.edit_text("⚠️ No registraste comidas en los últimos 7 días.")
+            await msg_espera.edit_text(f"⚠️ No registraste comidas en el período: **{etiqueta_periodo}**.", parse_mode="Markdown")
             return
 
         perfil = obtener_perfil_usuario(user_id) if 'obtener_perfil_usuario' in globals() else {}
-        
-        # Usar cálculo de métricas sobre los 7 días
         m = calcular_metricas_mensuales(df_semana, perfil) if 'calcular_metricas_mensuales' in globals() else {}
 
         prompt_semana = (
-            f"REPORTE DE LOS ÚLTIMOS 7 DÍAS:\n"
+            f"REPORTE SEMANAL ({etiqueta_periodo}):\n"
             f"- Días registrados: {m.get('dias_registrados', 0)}\n"
-            f"- Consumo: {m.get('prom_cal', 0)} kcal/día (Meta: {m.get('ideal_cal', 0)} kcal)\n"
+            f"- Consumo promedio: {m.get('prom_cal', 0)} kcal/día (Meta: {m.get('ideal_cal', 0)} kcal)\n"
             f"- Proteínas: {m.get('prom_prot', 0)} g (Meta: {m.get('ideal_prot', 0)} g)\n"
             f"- Grasas: {m.get('prom_gras', 0)} g (Meta: {m.get('ideal_gras', 0)} g)\n"
             f"- Carb: {m.get('prom_carb', 0)} g (Meta: {m.get('ideal_carb', 0)} g)\n"
             f"- Fibra: {m.get('prom_fibr', 0)} g (Meta: {m.get('ideal_fibr', 0)} g)\n"
         )
 
+        # Llamada asíncrona no bloqueante
         recomendacion = await asyncio.to_thread(obtener_recomendacion_ia, prompt_semana)
 
         txt = (
-            f"📅 **Resumen Nutricional Semanal (Últimos 7 días):**\n\n"
+            f"📅 **Resumen Nutricional Semanal:**\n"
+            f"ℹ️ *Periodo: {etiqueta_periodo}*\n\n"
             f"• **Promedio diario consumido:** `{m.get('prom_cal', 0)} kcal` / Meta: `{m.get('ideal_cal', 0)} kcal`\n"
             f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Meta: `{m.get('ideal_prot', 0)} g`\n"
-            f"• **Días Registrados:** `{m.get('dias_registrados', 0)} de 7`\n\n"
+            f"• **Días Registrados:** `{m.get('dias_registrados', 0)}`\n\n"
             f"🤖 **Recomendación IA:**\n"
             f"{recomendacion}"
         )
@@ -1313,7 +1326,6 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error en cmd_mensaje: {e}")
         if 'msg_espera' in locals():
             await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
-            
                         
 # ========================================================================================================================================
 #                  FINAL                        COMANDO MENSAJE SEMANAL                    FINAL
