@@ -1691,17 +1691,22 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     story.append(t_direct)
     story.append(Spacer(1, 8))
 
-    # --- SECCIÓN 3: CALCULADORA WEB DE RECETAS ---
+# --- SECCIÓN 3: CALCULADORA WEB DE RECETAS ---
     story.append(KeepTogether([
         Paragraph("3. Calculadora Nutricional Web (/receta)", section_style),
         Paragraph("Permite cargar recetas elaboradas o combinaciones de alimentos habituales directamente en tu planilla personal.", body_style),
         Spacer(1, 4)
     ]))
 
+    # Definimos estilos con texto blanco para el encabezado oscuro
+    header_example_style = ParagraphStyle(
+        'HeaderExampleStyle', parent=body_bold, textColor=colors.white
+    )
+
     receta_data = [
         [
-            Paragraph("Ejemplo 1: Combinacion de ingestas (DESAYUNO)", body_bold),
-            Paragraph("Ejemplo 2: Receta Elaborada (TORTA)", body_bold)
+            Paragraph("Ejemplo 1: Combinación de ingestas (DESAYUNO)", header_example_style),
+            Paragraph("Ejemplo 2: Receta Elaborada (TORTA)", header_example_style)
         ],
         [
             Paragraph("• <b>Código/Nombre:</b> <code>DESAYUNO</code><br/>"
@@ -1717,15 +1722,15 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 
     t_receta = Table(receta_data, colWidths=[270, 270])
     t_receta.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), BG_CARD),
+        ('BACKGROUND', (0,0), (-1,0), PRIMARY),  # Fondo oscuro (igual al de la Sección 2)
+        ('BACKGROUND', (0,1), (-1,1), BG_CARD),  # Fondo claro para el contenido
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('TOPPADDING', (0,0), (-1,-1), 4),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
         ('LEFTPADDING', (0,0), (-1,-1), 6),
         ('RIGHTPADDING', (0,0), (-1,-1), 6),
         ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
         ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR)
-        # Corregido: Se eliminó la regla 'SPAN' para la fila 2 que no existía
     ]))
     
     story.append(t_receta)
