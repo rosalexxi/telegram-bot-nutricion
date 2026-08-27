@@ -633,32 +633,58 @@ async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
     except Exception as e_sheet:
         logger.error(f"Fallo secundario: No se pudo escribir el error en Google Sheets: {e_sheet}")
 
-def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.7) -> str:
+def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4) -> str:
     """
-    Función centralizada para realizar todas las consultas de texto a Groq/IA.
-    Maneja validaciones globales, modelos de fallback y captura de excepciones.
+    Función centralizada optimizada para respuestas rápidas de pantalla.
     """
-    if 'client_ai' not in globals() or not client_ai:
-        return "⚠️ Error: El cliente 'client_ai' no está inicializado o no es accesible globalmente."
-
-    modelo = globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile")
-
     try:
-        response = client_ai.chat.completions.create(
+        client = globals().get('client_ai') or globals().get('groq_client')
+        if not client:
+            logger.error("⚠️ No se encontró el cliente de Groq inicializado.")
+            return ""
+
+        modelo = globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile")
+
+        response = client.chat.completions.create(
             model=modelo,
             messages=[{"role": "user", "content": prompt}],
             temperature=temperature,
             max_tokens=max_tokens
         )
-        if response and response.choices:
+        
+        if response and response.choices and len(response.choices) > 0:
             content = response.choices[0].message.content
             return content.strip() if content else ""
+            
     except Exception as e:
-        logger.error(f"⚠️ Error en ejecucion centralizada de IA: {e}")
-        return f"⚠️ Error en API de Groq: {str(e)}"
+        logger.error(f"⚠️ Error en ejecución de IA (Groq): {e}")
         
-    return "⚠️ La API de Groq devolvió una respuesta vacía."
-                
+    return ""
+
+def obtener_recomendacion_ia(resumen_texto: str) -> str:
+    """
+    Genera una recomendación sintética y directa para la pantalla de Telegram.
+    """
+    prompt_pantalla = f"""
+    Actúa como un coach nutricional. Revisa estos datos de un usuario y escribe 3 puntos breves en Markdown con emojis para Telegram:
+
+    {resumen_texto}
+
+    REGLAS ESTRICTAS:
+    - Longitud: MÁXIMO 100 palabras en total.
+    - Punto 1: Evaluación rápida del balance calórico y proteínas.
+    - Punto 2: Consejo práctico de 1 o 2 alimentos a sumar o reducir.
+    - Punto 3: Una frase corta de motivación final.
+    - Responde DIRECTAMENTE con los puntos, sin saludos ni introducciones.
+    """
+
+    respuesta = ejecutar_consulta_ia(prompt=prompt_pantalla, max_tokens=250, temperature=0.4)
+    
+    if respuesta:
+        return respuesta
+
+    return "⚠️ No se pudo obtener la recomendación de la IA en este momento."
+                           
 def parse_raw_val(val):
     if val is None or val == "":
         return 0.0
@@ -1640,136 +1666,40 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
     if respuesta:
         return respuesta
 
-    return "<b>⚠️ No se pudo generar la recomendación mediante IA en este momento.</b>"
-    
-#                                                       RECOMENDACIÓN BREVE PARA PANTALLA (~100 PALABRAS) 2026 08 27
-# =========================================================================================================================================
+    return "<b>⚠️ No se pudo generar la recomendación mediante IA en este momento.</b>"    
 
-def obtener_recomendacion_ia(resumen_texto: str) -> str:
+async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Envía el resumen de métricas a Groq para que redacte una devolución breve
-    y directa de entre 100 y 150 palabras para la pantalla de Telegram.
+    Muestra el reporte del mes actual o el especificado con la recomendación rápida de la IA.
     """
-    prompt_pantalla = f"""
-    Actúa como un coach de nutrición entusiasta y profesional.
-    Analiza el siguiente resumen de datos del mes de un usuario:
-
-    {resumen_texto}
-
-    REQUISITOS DE LA RESPUESTA:
-    1. Redacta una recomendación BREVE, DIRECTA Y MOTIVADORA de entre 100 y 150 palabras.
-    2. Señala el principal acierto o desvío de la dieta (fibra, grasas, carbohidratos o calorías).
-    3. Menciona 2 o 3 alimentos concretos a incorporar o reducir.
-    4. Cierra con un mensaje corto de ánimo.
-    5. Usa formato Markdown de Telegram (*negrita* para resaltar puntos clave). NO uses HTML.
-
-    REGLA STRICTA: Devuelve ÚNICAMENTE el texto de la recomendación. No agregues saludos formales ni introducciones.
-    """
-
-    # Subimos max_tokens a 400 para permitir un resumen fluido de 150 palabras sin cortes
-    
-    respuesta = ejecutar_consulta_ia(prompt=prompt_pdf if 'prompt_pdf' in locals() else prompt_pantalla, max_tokens=400, temperature=0.7)
-    
-    if respuesta:
-        return respuesta
-
-    return "⚠️ No se pudo obtener la recomendación de la IA para la pantalla en este momento."
-    
-    
-
-#                                                                MOSTRAR RESUMEN MES (TELEGRAM HANDLER)
-# ========================================================================================================================================
-
-async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
     try:
-        df_datos = obtener_datos_usuario(user_id)
+        user_id = update.effective_user.id
+        mes_str = context.args[0] if context.args else None
         
-        if df_datos is None or df_datos.empty:
-            txt = f"📊 No hay registros ingresados para el usuario `{user_id}`."
-            if hasattr(query_or_update, 'edit_message_text'):
-                await query_or_update.edit_message_text(txt, parse_mode="Markdown")
+        m = calcular_metricas_mes(user_id, mes_str)
+        if not m or m.get('dias_registrados', 0) == 0:
+            msg = f"⚠️ No hay registros de comidas para el mes `{mes_str or 'actual'}`."
+            if update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
             else:
-                await query_or_update.message.reply_text(txt, parse_mode="Markdown")
+                await update.message.reply_text(msg, parse_mode="Markdown")
             return
 
-        df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)] if 'Fecha' in df_datos.columns else pd.DataFrame()
-        if df_mes.empty:
-            txt = f"📊 No hay registros para el mes `{mes_str}`."
-            if hasattr(query_or_update, 'edit_message_text'):
-                await query_or_update.edit_message_text(txt, parse_mode="Markdown")
-            else:
-                await query_or_update.message.reply_text(txt, parse_mode="Markdown")
-            return
+        mes_str = m['mes_str']
 
-        # Lectura unificada del perfil
-        perfil_dict = obtener_perfil_usuario(user_id, mes_target=mes_str)
-        if not perfil_dict:
-            perfil_dict = {}
-
-        # Validamos campos mínimos indispensables
-        campos_criticos = ['Edad', 'edad', 'Altura', 'altura', 'Peso', 'peso']
-        if not perfil_dict or not any(k in perfil_dict and parse_raw_val(perfil_dict[k]) > 0 for k in campos_criticos):
-            txt_incompleto = (
-                f"⚠️ **Datos biométricos incompletos para el mes `{mes_str}`.**\n\n"
-                f"No se ingresaron o están incompletos los datos de edad, altura o peso en tu perfil para este mes. "
-                f"Por favor, completá tu perfil del mes para generar el resumen y el reporte PDF."
-            )
-            if hasattr(query_or_update, 'edit_message_text'):
-                await query_or_update.edit_message_text(txt_incompleto, parse_mode="Markdown")
-            else:
-                await query_or_update.message.reply_text(txt_incompleto, parse_mode="Markdown")
-            return
-
-        # Cálculo centralizado de métricas mensuales
-        m = calcular_metricas_mensuales(df_mes, perfil_dict)
-
-        dict_promedios = {
-            'calorias': m['prom_cal'],
-            'proteinas': m['prom_prot'],
-            'grasas': m['prom_gras'],
-            'carbohidratos': m['prom_carb'],
-            'fibras': m['prom_fibr']
-        }
-
-        dict_metas = {
-            'calorias': m['ideal_cal'],
-            'proteinas': m['ideal_prot'],
-            'grasas': m['ideal_gras'],
-            'carbohidratos': m['ideal_carb'],
-            'fibras': m['ideal_fibr']
-        }
-
-        dict_biometria = {
-            'peso_actual': m['peso_actual'],
-            'peso_ideal': m['peso_ideal'],
-            'altura': m['altura'],
-            'edad': m['edad']
-        }
-
-        # 1. Generamos el informe completo para el PDF a través de Groq
-        recomendacion_pdf = generar_recomendacion_ia(dict_promedios, dict_metas, dict_biometria)
-
-        # 2. Generamos el resumen corto para la pantalla de Telegram a través de Groq
+        # Se arman los datos sintéticos para el prompt liviano
         prompt_para_ia_pantalla = (
             f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
-            f"- Peso registrado: {m['peso_actual']} kg | Peso Objetivo: {m['peso_referencia']} kg\n"
-            f"- Cambio de peso estimado: {m['cambio_peso_kg']:+.1f} kg\n"
-            f"CONSUMO PROMEDIO DIARIO ({m['dias_registrados']} días registrados):\n"
-            f"- Calorías: {m['prom_cal']} kcal (Meta: {m['ideal_cal']} kcal)\n"
+            f"- Consumo: {m['prom_cal']} kcal/día (Meta: {m['ideal_cal']} kcal)\n"
             f"- Proteínas: {m['prom_prot']} g (Meta: {m['ideal_prot']} g)\n"
             f"- Grasas: {m['prom_gras']} g (Meta: {m['ideal_gras']} g)\n"
-            f"- Carbohidratos: {m['prom_carb']} g (Meta: {m['ideal_carb']} g)\n"
-            f"- Fibras: {m['prom_fibr']} g (Meta: {m['ideal_fibr']} g)\n"
+            f"- Carb: {m['prom_carb']} g (Meta: {m['ideal_carb']} g)\n"
+            f"- Fibra: {m['prom_fibr']} g (Meta: {m['ideal_fibr']} g)\n"
         )
+        
+        # Consulta rápida a la IA solo para la pantalla
         recomendacion_pantalla = obtener_recomendacion_ia(prompt_para_ia_pantalla)
-
-        # Guardamos la recomendación del PDF en la sesión del usuario
-        user_data_ref = getattr(query_or_update, 'user_data', None)
-        if user_data_ref is None and hasattr(query_or_update, 'message') and hasattr(query_or_update.message, 'user_data'):
-            user_data_ref = query_or_update.message.user_data
-
-        if isinstance(user_data_ref, dict):
-            user_data_ref['ultima_recomendacion_ia'] = recomendacion_pdf
 
         txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n\n"
@@ -1789,24 +1719,26 @@ async def mostrar_resumen_mes(query_or_update, user_id, mes_str):
             f"📄 Podés descargar el reporte completo en PDF a continuación:"
         )
 
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"descargar_pdf_resumen_{mes_str}")]
-        ])
+        keyboard = [[InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"pdf_mes_{mes_str}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-        if hasattr(query_or_update, 'edit_message_text'):
-            await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
+        if update.callback_query:
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(txt, reply_markup=reply_markup, parse_mode="Markdown")
         else:
-            await query_or_update.message.reply_text(txt, parse_mode="Markdown", reply_markup=keyboard)
+            await update.message.reply_text(txt, reply_markup=reply_markup, parse_mode="Markdown")
 
     except Exception as e:
-        error_txt = f"⚠️ Ocurrió un error al procesar el resumen: `{str(e)}`"
-        if hasattr(query_or_update, 'edit_message_text'):
-            await query_or_update.edit_message_text(error_txt, parse_mode="Markdown")
+        logger.error(f"Error en mostrar_resumen_mes: {e}")
+        msg_err = f"⚠️ Ocurrió un error al generar el resumen mensual: {e}"
+        if update.callback_query:
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(msg_err)
         else:
-            await query_or_update.message.reply_text(error_txt, parse_mode="Markdown")
-            
+            await update.message.reply_text(msg_err)
 
-            
+
+
 #                                                    GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
 # ======================================================================================================================================
 
