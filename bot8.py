@@ -639,26 +639,30 @@ def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float 
     
 def obtener_recomendacion_ia(resumen_texto: str) -> str:
     """
-    Genera un análisis nutricional detallado de pantalla.
+    Genera un análisis conversacional, fluido y sin repetición de números.
     """
     prompt_pantalla = f"""
-    Actúa como un coach nutricional experto y cercano. Revisa los siguientes datos del usuario y escribe una evaluación clara en Markdown con emojis para Telegram:
-
+    Actúa como un nutricionista personal realizando una devolución profesional y cercana.
+    
+    Analiza la siguiente información de tu paciente:
     {resumen_texto}
 
-    ESTRUCTURA DE RESPUESTA REQUERIDA:
-    1. 📊 **Balance Calórico y Proteínas:** Analiza si está en superávit o déficit y cómo va con las proteínas.
-    2. 🥗 **Ajustes Prácticos:** Sugiere 2 cambios específicos de alimentos para mejorar grasas, carbohidratos o fibras según los datos.
-    3. 💪 **Conclusión:** Una frase breve de enfoque para los próximos días.
-
-    REGLAS:
-    - Responde directamente con el contenido (sin intros ni saludos).
-    - Mantené un tono profesional pero motivador.
+    REGLAS OBLIGATORIAS:
+    1. PROHIBIDO REPETIR CIFRAS O METAS NUMÉRICAS. Los valores numéricos ya se muestran en la tabla de arriba.
+    2. NO USES NUMERALES (##). Usa texto en negrita simple para destacar subtítulos.
+    3. Redacta entre 2 y 3 párrafos fluidos y bien explicados (aprovecha para dar una devolución detallada y rica en contenido).
+    4. Enfócate en la calidad de la alimentación: explica el impacto biológico o práctico de cómo va su consumo actual (ejemplo: saciedad, energía, síntesis muscular, tránsito intestinal).
+    5. Aporta recomendaciones concretas de combinaciones de alimentos o ajustes de hábitos para corregir los desvíos.
     """
 
-    res = ejecutar_consulta_ia(prompt=prompt_pantalla, max_tokens=600, temperature=0.5)
-    return res if res else "⚠️ No se pudo obtener la recomendación de la IA en este momento."
-                               
+    res = ejecutar_consulta_ia(prompt=prompt_pantalla, max_tokens=700, temperature=0.6)
+    
+    # Limpieza de seguridad por si la IA genera etiquetas incompatibles
+    if res:
+        res = res.replace("##", "").replace("###", "")
+        
+    return res if res else "⚠️ No se pudo obtener el análisis nutricional en este momento."
+                                   
 def parse_raw_val(val):
     if val is None or val == "":
         return 0.0
@@ -1259,13 +1263,9 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 # =====================================================================================================================================
 
 async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Reporte semanal: si es lunes, analiza la semana anterior completa (lunes a domingo).
-    Si es otro día, analiza desde el lunes de la semana actual hasta hoy.
-    """
     try:
         user_id = update.effective_user.id
-        msg_espera = await update.message.reply_text("⏳ Analizando los días de tu semana con IA...")
+        msg_espera = await update.message.reply_text("⏳ Analizando los días transcurridos con IA...")
 
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
 
@@ -1275,48 +1275,46 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
         ahora = pd.Timestamp.now()
-        dia_semana = ahora.weekday()  # 0 es Lunes, 6 es Domingo
+        dia_semana = ahora.weekday()  # 0: Lunes, 1: Martes, 2: Miércoles, 3: Jueves...
 
-        # REGLA DEL LUNES: Si es lunes, tomar los 7 días de la semana pasada
+        # Lunes: toma la semana anterior completa (7 días)
         if dia_semana == 0:
-            fin_rango = ahora.floor('D') - pd.Timedelta(seconds=1)
             inicio_rango = ahora.floor('D') - pd.Timedelta(days=7)
+            fin_rango = ahora.floor('D') - pd.Timedelta(seconds=1)
             etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
         else:
-            # Martes a Domingo: Desde el lunes de esta semana hasta hoy
+            # Martes en adelante: Desde el lunes hasta el día anterior a las 23:59:59
             inicio_rango = ahora.floor('D') - pd.Timedelta(days=dia_semana)
-            fin_rango = ahora
-            etiqueta_periodo = "Semana Actual (En curso)"
+            fin_rango = ahora.floor('D') - pd.Timedelta(seconds=1)
+            etiqueta_periodo = f"Semana Actual (Lunes a {ahora.strftime('%A')})"
 
         df_semana = df_datos[(df_datos['Fecha_dt'] >= inicio_rango) & (df_datos['Fecha_dt'] <= fin_rango)].copy()
 
         if df_semana.empty:
-            await msg_espera.edit_text(f"⚠️ No registraste comidas en el período: **{etiqueta_periodo}**.", parse_mode="Markdown")
+            await msg_espera.edit_text(f"⚠️ No hay registros acumulados para los días transcurridos de esta semana.")
             return
 
         perfil = obtener_perfil_usuario(user_id) if 'obtener_perfil_usuario' in globals() else {}
         m = calcular_metricas_mensuales(df_semana, perfil) if 'calcular_metricas_mensuales' in globals() else {}
 
         prompt_semana = (
-            f"REPORTE SEMANAL ({etiqueta_periodo}):\n"
-            f"- Días registrados: {m.get('dias_registrados', 0)}\n"
-            f"- Consumo promedio: {m.get('prom_cal', 0)} kcal/día (Meta: {m.get('ideal_cal', 0)} kcal)\n"
-            f"- Proteínas: {m.get('prom_prot', 0)} g (Meta: {m.get('ideal_prot', 0)} g)\n"
-            f"- Grasas: {m.get('prom_gras', 0)} g (Meta: {m.get('ideal_gras', 0)} g)\n"
-            f"- Carb: {m.get('prom_carb', 0)} g (Meta: {m.get('ideal_carb', 0)} g)\n"
-            f"- Fibra: {m.get('prom_fibr', 0)} g (Meta: {m.get('ideal_fibr', 0)} g)\n"
+            f"DATOS SEMANALES:\n"
+            f"- Días evaluados: {m.get('dias_registrados', 0)}\n"
+            f"- Consumo medio: {m.get('prom_cal', 0)} kcal/día (Objetivo: {m.get('ideal_cal', 0)} kcal)\n"
+            f"- Proteínas: {m.get('prom_prot', 0)} g (Objetivo: {m.get('ideal_prot', 0)} g)\n"
+            f"- Grasas: {m.get('prom_gras', 0)} g (Objetivo: {m.get('ideal_gras', 0)} g)\n"
+            f"- Carbohidratos: {m.get('prom_carb', 0)} g (Objetivo: {m.get('ideal_carb', 0)} g)\n"
+            f"- Fibra: {m.get('prom_fibr', 0)} g (Objetivo: {m.get('ideal_fibr', 0)} g)\n"
         )
 
-        # Llamada asíncrona no bloqueante
         recomendacion = await asyncio.to_thread(obtener_recomendacion_ia, prompt_semana)
 
         txt = (
             f"📅 **Resumen Nutricional Semanal:**\n"
-            f"ℹ️ *Periodo: {etiqueta_periodo}*\n\n"
             f"• **Promedio diario consumido:** `{m.get('prom_cal', 0)} kcal` / Meta: `{m.get('ideal_cal', 0)} kcal`\n"
             f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Meta: `{m.get('ideal_prot', 0)} g`\n"
-            f"• **Días Registrados:** `{m.get('dias_registrados', 0)}`\n\n"
-            f"🤖 **Recomendación IA:**\n"
+            f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`\n\n"
+            f"🤖 **Análisis Nutricional:**\n"
             f"{recomendacion}"
         )
 
@@ -1326,6 +1324,7 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error en cmd_mensaje: {e}")
         if 'msg_espera' in locals():
             await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
+
                         
 # ========================================================================================================================================
 #                  FINAL                        COMANDO MENSAJE SEMANAL                    FINAL
@@ -1960,20 +1959,18 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     return buffer
 
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Maneja la descarga del PDF cuando se presiona el botón interactivo.
-    """
     query = update.callback_query
-    await query.answer("Generando tu PDF, un momento por favor... ⏳")
+    await query.answer("Generando PDF... ⏳")
 
     try:
         user_id = query.from_user.id
         mes_str = query.data.replace("pdf_mes_", "")
 
-        # Reemplazar con el nombre de tu función real que construye el archivo PDF
-        path_pdf = None
+        # Verificación y generación de ruta
         if 'generar_pdf_mensual' in globals():
             path_pdf = await asyncio.to_thread(generar_pdf_mensual, user_id, mes_str)
+        else:
+            path_pdf = None
 
         if path_pdf and os.path.exists(path_pdf):
             with open(path_pdf, 'rb') as doc:
@@ -1981,13 +1978,15 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
                     chat_id=query.message.chat_id,
                     document=doc,
                     filename=f"Reporte_Nutricional_{mes_str}.pdf",
-                    caption=f"📄 Acá tenés tu reporte completo correspondiente a **{mes_str}**.",
+                    caption=f"📄 Reporte mensual completo correspondiente a **{mes_str}**.",
                     parse_mode="Markdown"
                 )
         else:
+            # Notificación detallada para depuración rápida
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
-                text="⚠️ Ocurrió un inconveniente al generar el archivo PDF. Verifique los registros del sistema."
+                text=f"⚠️ No se encontró el archivo PDF generado para el período `{mes_str}`. Verifique la función `generar_pdf_mensual`.",
+                parse_mode="Markdown"
             )
 
     except Exception as e:
@@ -1996,7 +1995,7 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
             chat_id=query.message.chat_id,
             text=f"⚠️ Error al procesar la descarga del PDF: {e}"
         )
-        
+                
 # ======================================================================================================================================
 #                   FINAL                                COMANDO RESUMEN                                           FINAL
 # ======================================================================================================================================
