@@ -72,32 +72,7 @@ else:
 
 # Helper para conexion a Google Sheets y obtencion / creacion dinamica de pestañas por ID de usuario
 
-def get_user_worksheet(user_id):
-    """
-    Obtiene o crea una pestaña dinámica 'Comidas_<user_id>' dentro de la planilla.
-    """
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    
-    sheet_name = f"Comidas_{user_id}"
-    
-    # Se usa el auxiliar get_or_create_worksheet
-    ws = get_or_create_worksheet(sh, sheet_name)
-    
-    # Si está vacía, se inicializa con los encabezados correspondientes
-    if not ws.get_all_values():
-        ws.append_row([
-            "Código / Nombre", 
-            "Descripción", 
-            "Peso (g x1000)", 
-            "Calorías (x1000)", 
-            "Proteínas (g x1000)", 
-            "Grasas (g x1000)", 
-            "Carbohidratos (g x1000)", 
-            "Fibras (g x1000)"
-        ])
-        
-    return ws
+
 
 # =====================================================================================================================================
 #                FINAL                                   CABECERA                                       FINAL
@@ -664,28 +639,26 @@ def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float 
     
 def obtener_recomendacion_ia(resumen_texto: str) -> str:
     """
-    Genera una recomendación sintética y directa para la pantalla de Telegram.
+    Genera un análisis nutricional detallado de pantalla.
     """
     prompt_pantalla = f"""
-    Actúa como un coach nutricional. Revisa estos datos de un usuario y escribe 3 puntos breves en Markdown con emojis para Telegram:
+    Actúa como un coach nutricional experto y cercano. Revisa los siguientes datos del usuario y escribe una evaluación clara en Markdown con emojis para Telegram:
 
     {resumen_texto}
 
-    REGLAS ESTRICTAS:
-    - Longitud: MÁXIMO 100 palabras en total.
-    - Punto 1: Evaluación rápida del balance calórico y proteínas.
-    - Punto 2: Consejo práctico de 1 o 2 alimentos a sumar o reducir.
-    - Punto 3: Una frase corta de motivación final.
-    - Responde DIRECTAMENTE con los puntos, sin saludos ni introducciones.
+    ESTRUCTURA DE RESPUESTA REQUERIDA:
+    1. 📊 **Balance Calórico y Proteínas:** Analiza si está en superávit o déficit y cómo va con las proteínas.
+    2. 🥗 **Ajustes Prácticos:** Sugiere 2 cambios específicos de alimentos para mejorar grasas, carbohidratos o fibras según los datos.
+    3. 💪 **Conclusión:** Una frase breve de enfoque para los próximos días.
+
+    REGLAS:
+    - Responde directamente con el contenido (sin intros ni saludos).
+    - Mantené un tono profesional pero motivador.
     """
 
-    respuesta = ejecutar_consulta_ia(prompt=prompt_pantalla, max_tokens=250, temperature=0.4)
-    
-    if respuesta:
-        return respuesta
-
-    return "⚠️ No se pudo obtener la recomendación de la IA en este momento."
-                           
+    res = ejecutar_consulta_ia(prompt=prompt_pantalla, max_tokens=600, temperature=0.5)
+    return res if res else "⚠️ No se pudo obtener la recomendación de la IA en este momento."
+                               
 def parse_raw_val(val):
     if val is None or val == "":
         return 0.0
@@ -1081,6 +1054,33 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
 #                 INICIO                           GOOGLE SHEETS OPERACIONES                                      INICIO
 # =============================================================================================================================================
 
+def get_user_worksheet(user_id):
+    """
+    Obtiene o crea una pestaña dinámica 'Comidas_<user_id>' dentro de la planilla.
+    """
+    gc = get_gspread_client()
+    sh = gc.open(SPREADSHEET_NAME)
+    
+    sheet_name = f"Comidas_{user_id}"
+    
+    # Se usa el auxiliar get_or_create_worksheet
+    ws = get_or_create_worksheet(sh, sheet_name)
+    
+    # Si está vacía, se inicializa con los encabezados correspondientes
+    if not ws.get_all_values():
+        ws.append_row([
+            "Código / Nombre", 
+            "Descripción", 
+            "Peso (g x1000)", 
+            "Calorías (x1000)", 
+            "Proteínas (g x1000)", 
+            "Grasas (g x1000)", 
+            "Carbohidratos (g x1000)", 
+            "Fibras (g x1000)"
+        ])
+        
+    return ws
+
 def get_gspread_client():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     if os.path.exists(GOOGLE_SHEETS_KEY_PATH):
@@ -1260,44 +1260,49 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 
 async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Muestra el reporte semanal en pantalla.
+    Muestra el reporte semanal real de los últimos 7 días.
     """
     try:
         user_id = update.effective_user.id
         msg_espera = await update.message.reply_text("⏳ Analizando los días transcurridos de tu semana con IA...")
 
-        # Obtener los datos reales registrados del usuario
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
 
-        if df_datos.empty:
-            await msg_espera.edit_text("⚠️ No hay suficiente información de comidas registradas para esta semana.")
+        if df_datos.empty or 'Fecha' not in df_datos.columns:
+            await msg_espera.edit_text("⚠️ No hay suficiente información de comidas registradas.")
             return
 
-        # Si tenés una función auxiliar para la semana, usala pasando el DataFrame
+        # FILTRO CRÍTICO: Últimos 7 días exactos
+        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
+        hace_7_dias = pd.Timestamp.now() - pd.Timedelta(days=7)
+        df_semana = df_datos[df_datos['Fecha_dt'] >= hace_7_dias].copy()
+
+        if df_semana.empty:
+            await msg_espera.edit_text("⚠️ No registraste comidas en los últimos 7 días.")
+            return
+
         perfil = obtener_perfil_usuario(user_id) if 'obtener_perfil_usuario' in globals() else {}
         
-        if 'calcular_metricas_semanales' in globals():
-            m = calcular_metricas_semanales(df_datos, perfil)
-        else:
-            # Fallback en caso de usar el cálculo mensual adaptado a la semana
-            m = calcular_metricas_mensuales(df_datos, perfil)
-
-        if not m or m.get('dias_registrados', 0) == 0:
-            await msg_espera.edit_text("⚠️ No hay suficiente información de comidas registradas para esta semana.")
-            return
+        # Usar cálculo de métricas sobre los 7 días
+        m = calcular_metricas_mensuales(df_semana, perfil) if 'calcular_metricas_mensuales' in globals() else {}
 
         prompt_semana = (
-            f"REPORTE SEMANAL:\n"
+            f"REPORTE DE LOS ÚLTIMOS 7 DÍAS:\n"
+            f"- Días registrados: {m.get('dias_registrados', 0)}\n"
             f"- Consumo: {m.get('prom_cal', 0)} kcal/día (Meta: {m.get('ideal_cal', 0)} kcal)\n"
             f"- Proteínas: {m.get('prom_prot', 0)} g (Meta: {m.get('ideal_prot', 0)} g)\n"
+            f"- Grasas: {m.get('prom_gras', 0)} g (Meta: {m.get('ideal_gras', 0)} g)\n"
+            f"- Carb: {m.get('prom_carb', 0)} g (Meta: {m.get('ideal_carb', 0)} g)\n"
+            f"- Fibra: {m.get('prom_fibr', 0)} g (Meta: {m.get('ideal_fibr', 0)} g)\n"
         )
 
         recomendacion = await asyncio.to_thread(obtener_recomendacion_ia, prompt_semana)
 
         txt = (
-            f"📅 **Resumen Nutricional Semanal:**\n\n"
-            f"• **Promedio Diario Consumido:** `{m.get('prom_cal', 0)} kcal`\n"
-            f"• **Días Registrados:** `{m.get('dias_registrados', 0)}`\n\n"
+            f"📅 **Resumen Nutricional Semanal (Últimos 7 días):**\n\n"
+            f"• **Promedio diario consumido:** `{m.get('prom_cal', 0)} kcal` / Meta: `{m.get('ideal_cal', 0)} kcal`\n"
+            f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Meta: `{m.get('ideal_prot', 0)} g`\n"
+            f"• **Días Registrados:** `{m.get('dias_registrados', 0)} de 7`\n\n"
             f"🤖 **Recomendación IA:**\n"
             f"{recomendacion}"
         )
@@ -1308,9 +1313,8 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error en cmd_mensaje: {e}")
         if 'msg_espera' in locals():
             await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
-        else:
-            await update.message.reply_text(f"⚠️ Error al calcular resumen semanal: {e}")            
             
+                        
 # ========================================================================================================================================
 #                  FINAL                        COMANDO MENSAJE SEMANAL                    FINAL
 # =======================================================================================================================================
@@ -1943,43 +1947,44 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     buffer.seek(0)
     return buffer
 
-async def generar_y_enviar_pdf_resumen(query, user_id, mes_str, context):
-    df_datos = obtener_datos_usuario(user_id)
-    df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)] if not df_datos.empty and 'Fecha' in df_datos.columns else pd.DataFrame()
-    
-    df_presion = obtener_datos_presion(user_id)
-    df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if not df_presion.empty and 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
-    
-    perfil = obtener_perfil_usuario(user_id, mes_target=mes_str)
-    
-    recomendacion = context.user_data.get('ultima_recomendacion_ia') if context and hasattr(context, 'user_data') else None
-    
-    if not recomendacion:
-        dias_act = df_mes['Fecha'].nunique() if not df_mes.empty else 1
-        p_act = parse_raw_val(perfil.get('Peso')) if perfil else 108.5
-        p_id = parse_raw_val(perfil.get('Peso_ideal', perfil.get('Peso_Ideal', 75.0))) if perfil else 75.0
-        p_ref = (p_act * 0.75) + (p_id * 0.25)
+async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Maneja la descarga del PDF cuando se presiona el botón interactivo.
+    """
+    query = update.callback_query
+    await query.answer("Generando tu PDF, un momento por favor... ⏳")
+
+    try:
+        user_id = query.from_user.id
+        mes_str = query.data.replace("pdf_mes_", "")
+
+        # Reemplazar con el nombre de tu función real que construye el archivo PDF
+        path_pdf = None
+        if 'generar_pdf_mensual' in globals():
+            path_pdf = await asyncio.to_thread(generar_pdf_mensual, user_id, mes_str)
+
+        if path_pdf and os.path.exists(path_pdf):
+            with open(path_pdf, 'rb') as doc:
+                await context.bot.send_document(
+                    chat_id=query.message.chat_id,
+                    document=doc,
+                    filename=f"Reporte_Nutricional_{mes_str}.pdf",
+                    caption=f"📄 Acá tenés tu reporte completo correspondiente a **{mes_str}**.",
+                    parse_mode="Markdown"
+                )
+        else:
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text="⚠️ Ocurrió un inconveniente al generar el archivo PDF. Verifique los registros del sistema."
+            )
+
+    except Exception as e:
+        logger.error(f"Error al enviar PDF: {e}")
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=f"⚠️ Error al procesar la descarga del PDF: {e}"
+        )
         
-        tot_c = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if not df_mes.empty else 0
-        prompt_ia = f"Resumen {mes_str}: Consumo diario {int(round(tot_c/dias_act))} kcal. Peso actual: {int(round(p_act))}kg, Meta ponderada: {int(round(p_ref))}kg. Da un consejo nutricional."
-        recomendacion = obtener_recomendacion_ia(prompt_ia)
-
-    tmb_val, _ = calcular_tmb_y_get(
-        perfil.get('Peso', 108.5) if perfil else 108.5,
-        perfil.get('Altura', 167.0) if perfil else 167.0,
-        perfil.get('Edad', 64) if perfil else 64,
-        perfil.get('GENERO', perfil.get('Genero', 'masculino')) if perfil else 'masculino',
-        perfil.get('Ocupacion', 'jubilado') if perfil else 'jubilado'
-    )
-
-    pdf_bytes = generar_pdf_resumen_bytes(mes_str, df_mes, df_p_mes, perfil, tmb_val, recomendacion, user_id)
-    
-    await context.bot.send_document(
-        chat_id=query.message.chat_id,
-        document=pdf_bytes,
-        filename=f"Reporte_Nutricional_{mes_str}.pdf"
-    )
-
 # ======================================================================================================================================
 #                   FINAL                                COMANDO RESUMEN                                           FINAL
 # ======================================================================================================================================
