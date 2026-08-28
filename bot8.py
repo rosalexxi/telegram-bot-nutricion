@@ -1142,7 +1142,7 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
 # =======================================================================================================================================
   
    
-   def guardar_comida_precargada_db(user_id, fila):
+def guardar_comida_precargada_db(user_id, fila):
     """
     Encapsula el acceso a la persistencia (Sheets) para la creación de una comida precargada.
     Valida el código único y realiza la escritura.
