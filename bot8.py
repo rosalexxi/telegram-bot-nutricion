@@ -656,31 +656,29 @@ def obtener_perfil_usuario(user_id, mes_target=None):
         return None
 
 def requiere_registro(func):
-    """Decorador que valida que el usuario figure registrado."""
+    """Decorador que valida que el user_id de Telegram exista en la hoja 'Usuarios'."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = str(update.effective_user.id).strip()
-        perfil = obtener_perfil_usuario(update.effective_user.id) if 'obtener_perfil_usuario' in globals() else None
-        
-        # 1. Convertir si es un DataFrame de pandas
-        if hasattr(perfil, 'to_dict'):
-            perfil = perfil.to_dict(orient='records')[0] if not perfil.empty else {}
-
         es_valido = False
 
-        if isinstance(perfil, dict) and perfil:
-            # 2. Buscar el ID considerando el espacio ("User ID") y variantes
-            id_encontrado = None
-            for key in ['User ID', 'user_id', 'User_ID', 'ID', 'id', 'Telegram_ID']:
-                if key in perfil and perfil[key] is not None:
-                    id_encontrado = str(perfil[key]).split('.')[0].strip()
-                    break
+        try:
+            # Consultar la pestaña general "Usuarios"
+            gc = get_gspread_client()
+            sh = gc.open(SPREADSHEET_NAME)
+            ws_usuarios = sh.worksheet("Usuarios")
+            records = ws_usuarios.get_all_records()
 
-            # 3. Validar coincidencia de ID o existencia de perfil cargado
-            if id_encontrado and id_encontrado == user_id:
-                es_valido = True
-            elif any(k in perfil for k in ['Nombre', 'Estado', 'Edad', 'Peso', 'Altura']):
-                es_valido = True
+            # Buscar si el ID de Telegram está en la columna "User ID"
+            for r in records:
+                id_hoja = str(r.get("User ID", r.get("user_id", ""))).split('.')[0].strip()
+                if id_hoja == user_id:
+                    es_valido = True
+                    break
+        except Exception as e:
+            print(f"Error al verificar registro en Usuarios: {e}")
+            # Si falla la conexión, permitimos paso o fallamos según conveniencia
+            es_valido = False
 
         if not es_valido:
             mensaje_bloqueo = (
@@ -698,7 +696,6 @@ def requiere_registro(func):
 
         return await func(update, context, *args, **kwargs)
     return wrapper
-    
     
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 3. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA Y ESCRITURA)
