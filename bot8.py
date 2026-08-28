@@ -1024,21 +1024,18 @@ def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: 
     return tmb, get
 
 def calcular_metricas_mensuales(df_mes, perfil_dict):
-    """Procesa todos los cálculos mensuales garantizando consistencia y exactitud metabólica."""
+    """Procesa todos los cálculos mensuales garantizando consistencia."""
     dias_registrados = df_mes['Fecha'].nunique() if (df_mes is not None and not df_mes.empty) else 1
     if dias_registrados == 0:
         dias_registrados = 1
 
-    # 1. Sumatorias mensuales de consumo y ejercicio
     tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
     tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
 
-    # 2. Promedios diarios
     prom_cons = tot_cons_mes / dias_registrados
     prom_quem = tot_quem_mes / dias_registrados
     prom_bal_neto = prom_cons - prom_quem
 
-    # 3. Macronutrientes totales
     tot_prot = float(df_mes['Proteinas'].sum()) if df_mes is not None and 'Proteinas' in df_mes.columns else 0.0
     tot_gras = float(df_mes['Grasas'].sum()) if df_mes is not None and 'Grasas' in df_mes.columns else 0.0
     tot_carb = float(df_mes['Carbohidratos'].sum()) if df_mes is not None and 'Carbohidratos' in df_mes.columns else 0.0
@@ -1060,42 +1057,23 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
                     return val
         return default
 
-    # 4. Extracción de datos biométricos
     edad = int(get_perfil_num(['Edad', 'edad'], 64))
     altura = get_perfil_num(['Altura', 'altura'], 167.0)
     peso_actual = get_perfil_num(['Peso', 'peso'], 108.5)
     peso_ideal = get_perfil_num(['Peso_ideal', 'peso_ideal', 'Peso Ideal'], 75.0)
     
     genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
-    ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
+    ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'jubilado')).strip()
 
-    # Peso de referencia (solo usado para definir las metas ideales de macros)
     peso_referencia = (peso_actual * 0.75) + (peso_ideal * 0.25)
 
-    # 5. GASTO BASE REAL: Se calcula sobre el PESO ACTUAL REAL del organismo
-    _, get_real = calcular_tmb_y_get(
-        peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
-    )
-
-    # 6. GASTO META: Se calcula sobre el peso ponderado para fijar los objetivos de consumo
     _, get_meta = calcular_tmb_y_get(
         peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
     )
 
-    # --- CÁLCULO CORREGIDO DE DÉFICIT Y CAMBIO DE PESO ---
-    # Gasto Total = GET Real (peso actual) + Ejercicio registrado
-    gasto_diario_total = get_real + prom_quem
+    deficit_diario_real = get_meta - prom_bal_neto
+    cambio_peso_kg = -(deficit_diario_real * dias_registrados) / 7700.0
 
-    # Balance diario: Consumidas menos Gastadas
-    # Ej: Si consume 2282 y gasta 2683, balance_diario = -401 kcal (Déficit de 401)
-    balance_diario = prom_cons - gasto_diario_total
-
-    # Cambio de peso: Balance negativo representa descenso (-kg)
-    cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
-    deficit_diario_real = -balance_diario
-    # ----------------------------------------------------
-
-    # 7. Definición de Objetivos Ideales (Metas)
     gen_clean = genero.lower()
     if gen_clean in ["femenino", "f", "mujer", "female"]:
         factor_proteina = 1.2
@@ -1129,7 +1107,6 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "altura": int(round(altura)),
         "edad": edad,
         "get_meta": get_meta,
-        "get_real": get_real,
         "deficit_diario_real": int(round(deficit_diario_real)),
         "cambio_peso_kg": cambio_peso_kg,
         "tot_cons": tot_cons_mes,
@@ -1139,7 +1116,7 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "tot_carb": tot_carb,
         "tot_fibr": tot_fibr
     }
-    
+
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 3. INTEGRACIÓN CON IA (GROQ)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
