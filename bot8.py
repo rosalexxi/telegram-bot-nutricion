@@ -21,6 +21,7 @@ from google.oauth2.service_account import Credentials
 from groq import Groq
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, render_template_string
+from functools import wraps
 
 # ReportLab para PDF
 from reportlab.lib.pagesizes import letter
@@ -1074,7 +1075,43 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "tot_carb": tot_carb,
         "tot_fibr": tot_fibr
     }
-    
+
+def requiere_registro(func):
+    """
+    Decorador que verifica si el usuario está registrado en la base de datos
+    antes de ejecutar cualquier comando. Si no existe, bloquea la ejecución
+    y le pide registrarse con /ingreso.
+    """
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        user_id = update.effective_user.id
+        
+        # Consultar la hoja Usuarios
+        perfil = obtener_perfil_usuario(user_id) if 'obtener_perfil_usuario' in globals() else {}
+        
+        # Si no existe registro o no tiene nombre asignado
+        if not perfil or not perfil.get('nombre'):
+            mensaje_bloqueo = (
+                "⚠️ **¡Aún no estás registrado!**\n\n"
+                "Para poder utilizar este comando y acceder a tu plan nutricional, "
+                "primero necesitás darte de alta en el sistema.\n\n"
+                "👉 Usá el comando `/ingreso` o `/nuevo` para crear tu ficha en un par de pasos."
+            )
+            
+            # Responder según el tipo de interacción (Mensaje de texto o Botón Callback)
+            if update.message:
+                await update.message.reply_text(mensaje_bloqueo, parse_mode="Markdown")
+            elif update.callback_query:
+                await update.callback_query.answer("⚠️ Registro requerido", show_alert=True)
+                await update.callback_query.message.reply_text(mensaje_bloqueo, parse_mode="Markdown")
+                
+            return  # Corta la ejecución del comando original
+
+        return await func(update, context, *args, **kwargs)
+    return wrapper
+
+
+
 # =============================================================================================================================================
 #                FINAL                        FUNCIONES AUXILIARES Y FORMATO                                      FINAL
 # =============================================================================================================================================
@@ -1650,6 +1687,7 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 #                 INICIO                            COMANDO MENSAJE SEMANAL  2026 08 23                  INICIO   DB OK
 # =====================================================================================================================================
 
+@requiere_registro
 async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id
@@ -1775,6 +1813,7 @@ async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ING_NOMBRE
 
 # Alias directo para cmd_nuevo_usuario
+
 async def cmd_nuevo_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await cmd_ingreso_start(update, context)
 
@@ -2278,6 +2317,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 #               INICIO                      COMANDO RESUMEN     2026 08 27                        INICIO  DB OK
 # ==============================================================================================================================================
 
+@requiere_registro
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Manejador del comando /resumen.
@@ -2768,7 +2808,7 @@ def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
     buffer.seek(0)
     return buffer
 
-
+@requiere_registro
 async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
@@ -2895,6 +2935,7 @@ async def generar_y_enviar_pdf_presion(query, user_id, mes_str, context):
 #                    INICIO                                    COMANDO RECETAS                                   INCIO  DB OK
 # ==================================================================================================================================
 
+@requiere_registro
 async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Envía un botón interactivo y enlace con el user_id para acceder
@@ -2923,6 +2964,7 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                   INICIO                                    COMANDO DIARIO   2026 08 22                         INICIO  DB OK
 # =====================================================================================================================================
 
+@requiere_registro
 async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Manejador del comando /diario.
@@ -3094,6 +3136,7 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
 #                   INICIO                               COMANDO PERFIL   2026 08 20                          INICIO  DB OK
 # ======================================================================================================================================
 
+@requiere_registro
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.replace('/perfil', '').strip()
@@ -3180,6 +3223,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                      INICIO                                   OPERACIONES COMIDAS 2026-08-19                          INICIO  DB OK
 # =======================================================================================================================================
 
+@requiere_registro
 async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
@@ -3376,6 +3420,12 @@ def generar_pdf_comidas_bytes(plantillas):
 #                INICIO                             MANEJADORES HANDLE 2026 08 22                                  INICIO DB OK
 #=========================================================================================================================================
 
+
+#====================================================================================================================================
+#                FINAL                                     MANEJADORES HANDLE                                    FINAL
+#===================================================================================================================================
+
+@requiere_registro
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("🎙️ Procesando audio con IA...")
     try:
@@ -3396,6 +3446,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
 
+@requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando foto con Inteligencia Artificial...")
     try:
@@ -3410,6 +3461,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar imagen: {e}")
 
+@requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
@@ -3418,9 +3470,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not raw_text:
         return
 
-    # A. SI EL USUARIO PRESIONÓ "SELECCIONAR FECHA" EN /diario   2026 08 20
+    # A. SI EL USUARIO PRESIONÓ "SELECCIONAR FECHA" EN /diario
     # ==================================================================================================
-
     if context.user_data.get('awaiting_diario_custom_date'):
         fecha_parseada = None
         txt = raw_text.replace('/', '-').replace('.', '-')
@@ -3452,7 +3503,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if fecha_parseada:
             context.user_data['awaiting_diario_custom_date'] = False
-            # Se envía update.message para asegurar respuesta directa
             await mostrar_diario_fecha(update.message, user_id, fecha_parseada)
             return
         else:
@@ -3462,7 +3512,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     # B. SI EL USUARIO PRESIONÓ "OTRO DÍA" EN EL MENÚ DE CONFIRMACIÓN DE INGESTA
     # =========================================================================
-
     if context.user_data.get('awaiting_custom_date'):
         fecha_parseada = None
         txt = raw_text.replace('/', '-').replace('.', '-')
@@ -3516,7 +3565,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 0. DETECCIÓN DE ACTIVIDAD FÍSICA DIRECTA CON PREFIJO '#'
     # =========================================================================
-
     if raw_text.startswith('#'):
         contenido = raw_text[1:].strip()
         
@@ -3554,7 +3602,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 1. SI EL USUARIO PRESIONÓ "EDITAR" Y ESTÁ ENVIANDO LA CORRECCIÓN
     # =========================================================================
-
     if context.user_data.get('awaiting_edit_item_val'):
         idx = context.user_data.get('editing_item_idx')
         items = context.user_data.get('pending_items', [])
@@ -3609,7 +3656,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 2. COMIDAS PRECARGADAS EN PLANTILLAS DEL USUARIO (MENSAJES QUE EMPIEZAN CON *)
     # =========================================================================
-
     if raw_text.startswith('*'):
         contenido = raw_text[1:].strip()
         partes = [p.strip() for p in contenido.split(',')]
@@ -3639,8 +3685,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     break
 
             texto_base = str(val_descripcion).strip() if val_descripcion else str(plantilla_encontrada.get('Nombre', 'Comida')).strip()
-            
-            # Barremos por completo CUALQUIER símbolo § previo que estuviera guardado en la celda origen
             texto_base = texto_base.replace('§', '').strip()
             
             if texto_base.startswith('(x'):
@@ -3649,10 +3693,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             multiplicador_str = f"{int(multiplicador)}" if multiplicador.is_integer() else f"{multiplicador}"
             
-            # Pantalla limpia sin símbolo raro ni multiplicadores extra
             nombre_pantalla = f"(x{multiplicador_str}) {texto_base}"
-            
-            # Excel con un ÚNICO símbolo § al final absoluto
             nombre_sheets = f"(x{multiplicador_str}) {texto_base} §"
 
             item_generado = {
@@ -3677,7 +3718,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                   
     # 3. INGRESO DIRECTO DE COMIDA POR TEXTO LIBRE (IA)
     # =========================================================================
-
     msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
     try:
         data = analizar_con_groq(raw_text)
@@ -3697,6 +3737,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 #==============================================================================================================================
 
+@requiere_registro
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
