@@ -945,13 +945,28 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     }
 
 def requiere_registro(func):
-    """Decorador que verifica si el usuario está registrado."""
+    """Decorador con diagnóstico para detectar por qué falla la validación."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = update.effective_user.id
-        perfil = obtener_perfil_usuario(user_id) if 'obtener_perfil_usuario' in globals() else {}
         
-        if not perfil or not perfil.get('nombre'):
+        # 1. Ejecutar la función y printear qué devuelve
+        try:
+            perfil = obtener_perfil_usuario(user_id)
+        except Exception as e:
+            logger.error(f"❌ ERROR al ejecutar obtener_perfil_usuario({user_id}): {e}")
+            perfil = {}
+
+        # 2. Log de depuración en consola/Render
+        logger.info(f"🔍 DIAGNÓSTICO REGISTRO | User ID Telegram: {user_id} | Perfil devuelto: {perfil}")
+
+        # 3. Verificación
+        tiene_registro = False
+        if isinstance(perfil, dict) and perfil:
+            # Revisa si hay algún campo con contenido
+            tiene_registro = any(bool(v) for v in perfil.values())
+
+        if not tiene_registro:
             mensaje_bloqueo = (
                 "⚠️ **¡Aún no estás registrado!**\n\n"
                 "Para poder utilizar este comando y acceder a tu plan nutricional, "
