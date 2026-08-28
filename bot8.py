@@ -1722,6 +1722,10 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                      INICIO                  COMANDO INGRESO (ALTA DE USUARIO)               INICIO DB OK
 # ======================================================================================================================================
 
+# =====================================================================================================================================
+#                      INICIO                  COMANDO INGRESO (ALTA DE USUARIO)               INICIO DB OK
+# ======================================================================================================================================
+
 # Estados del flujo de conversación
 ING_NOMBRE, ING_EDAD, ING_SEXO, ING_ALTURA, ING_PESO, ING_MUNECA, ING_OCUPACION, ING_CUMPLE = range(10, 18)
 
@@ -1746,6 +1750,22 @@ def calcular_peso_ideal(sexo: str, altura_cm: float) -> float:
         return (altura_cm - 100) - ((altura_cm - 150) / 2.5)
 
 async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    # --- VERIFICACIÓN DE USUARIO EXISTENTE ---
+    perfil_existente = obtener_perfil_usuario(user_id) if 'obtener_perfil_usuario' in globals() else {}
+    
+    if perfil_existente and perfil_existente.get('nombre'):
+        nombre_usr = perfil_existente.get('nombre', 'Usuario')
+        await update.message.reply_text(
+            f"ℹ️ **¡Ya tenés una cuenta activa, {nombre_usr}!**\n\n"
+            f"Tu ficha ya está registrada en el sistema con el ID `{user_id}`.\n"
+            "Podés consultar o actualizar tu información en cualquier momento con el comando `/perfil`.",
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+
+    # --- SI NO EXISTE, INICIA LA SOLICITUD DE DATOS ---
     await update.message.reply_text(
         "📝 **Apertura de Ficha Nutricional**\n\n"
         "Vamos a registrar tus datos biométricos para inicializar tu cuenta.\n"
@@ -1937,6 +1957,10 @@ conv_handler_ingreso = ConversationHandler(
     },
     fallbacks=[CommandHandler('cancelar', ing_cancelar)]
 )
+
+# =====================================================================================================================================
+#              FINAL                                   COMANDO INGRESO (ALTA DE USUARIO)               FINAL
+# ======================================================================================================================================
 
 # =====================================================================================================================================
 #              FINAL                                   COMANDO INGRESO (ALTA DE USUARIO)               FINAL
