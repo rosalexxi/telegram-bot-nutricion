@@ -704,6 +704,29 @@ def requiere_registro(func):
 # 3. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA Y ESCRITURA)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
+def obtener_ultimo_peso(user_id: int) -> dict:
+    """
+    Busca el último registro de peso del usuario en la pestaña 'Usuarios' de Google Sheets.
+    Retorna un diccionario con la fecha o None si no lo encuentra.
+    """
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        sheet_usuarios = sh.worksheet("Usuarios")
+        registros = sheet_usuarios.get_all_records()
+
+        for u in registros:
+            raw_id = u.get("User ID")
+            if raw_id and str(raw_id).strip() == str(user_id).strip():
+                fecha_peso = u.get("Ultimo Mes Peso") or u.get("MES") or u.get("fecha")
+                if fecha_peso:
+                    return {"fecha": str(fecha_peso).strip()}
+                    
+        return None
+    except Exception as e:
+        logger.error(f"Error en obtener_ultimo_peso para User {user_id}: {e}")
+        return None
+        
 def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
     gc = get_gspread_client()
     sh = gc.open(SPREADSHEET_NAME)
