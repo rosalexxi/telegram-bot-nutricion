@@ -546,26 +546,6 @@ def api_guardar_comida():
 #                       INICIO                     FUNCIONES AUXILIARES Y FORMATO 2026 08 27                INICIO  
 # =============================================================================================================================================
 
-def obtener_codigo_unico(ws, codigo_base):
-    """
-    Lee los códigos existentes en la Columna A de la hoja recibida por parámetro
-    y asigna un sufijo numérico incremental si el código ya existe.
-    Ejemplo: PIZZA -> PIZZA1 -> PIZZA2
-    """
-    codigos_existentes = set(ws.col_values(1))
-    codigo_limpio = str(codigo_base).strip().upper()
-    
-    if codigo_limpio not in codigos_existentes:
-        return codigo_limpio
-
-    i = 1
-    mientras_repetido = f"{codigo_limpio}{i}"
-    while mientras_repetido in codigos_existentes:
-        i += 1
-        mientras_repetido = f"{codigo_limpio}{i}"
-        
-    return mientras_repetido
-
 async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
     """
     Función centralizada para registrar errores tanto en la consola de Render como en Google Sheets.
@@ -578,24 +558,16 @@ async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
     # 1. Log en consola / Render
     logger.error(mensaje_consola)
 
-    # 2. Log en Google Sheets (pestaña 'Logs')
+    # 2. Log en Google Sheets (invocando a la función de la capa de Sheets)
     try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        
         ctx_str = f"ERROR | {contexto}" + (f" (User {user_id})" if user_id else "")
-        await registrar_log_en_sheet(
-            sh=sh, 
-            contexto=ctx_str, 
-            detalle=str(excepcion)
-        )
+        if 'registrar_log_en_sheet' in globals():
+            await registrar_log_en_sheet(contexto=ctx_str, detalle=str(excepcion))
     except Exception as e_sheet:
         logger.error(f"Fallo secundario: No se pudo escribir el error en Google Sheets: {e_sheet}")
 
 def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4) -> str:
-    """
-    Función centralizada optimizada para respuestas rápidas de pantalla.
-    """
+    """Función centralizada optimizada para respuestas rápidas de pantalla."""
     try:
         client = globals().get('client_ai') or globals().get('groq_client')
         if not client:
@@ -621,10 +593,7 @@ def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float 
     return ""
     
 def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
-    """
-    Genera el análisis nutricional interactuando directamente con Groq.
-    Soporta los flujos de recomendación semanal (concisa) y mensual (detallada).
-    """
+    """Genera el análisis nutricional interactuando directamente con Groq."""
     if es_semanal:
         prompt_pantalla = f"""
         Actúa como un coach nutricional breve y conciso.
@@ -638,7 +607,7 @@ def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> st
         4. NO USES NUMERALES (##).
         5. Cierra siempre la última oración con punto final.
         """
-        max_t = 350  # Límite holgado para evitar cortes en el listado
+        max_t = 350
     else:
         prompt_pantalla = f"""
         Actúa como un nutricionista clínico personal realizando un análisis mensual completo.
@@ -651,29 +620,22 @@ def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> st
         3. Redacta 2 párrafos fluidos enfocados en saciedad, energía y recuperación.
         4. Cierra siempre la última oración con punto final.
         """
-        max_t = 700  # Espacio suficiente para dos párrafos desarrollados
+        max_t = 700
 
     try:
-        # Validación de API Key desde la constante global o entorno
-        api_key = GROQ_API_KEY or os.getenv("GROQ_API_KEY")
+        api_key = globals().get('GROQ_API_KEY') or os.getenv("GROQ_API_KEY")
         if not api_key:
             logger.error("GROQ_API_KEY no configurada.")
             return "⚠️ No se pudo obtener el análisis (falta la clave de API)."
 
         client = Groq(api_key=api_key)
-        modelo_target = GROQ_TEXTO if 'GROQ_TEXTO' in globals() else "openai/gpt-oss-120b"
+        modelo_target = globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile")
 
         response = client.chat.completions.create(
             model=modelo_target,
             messages=[
-                {
-                    "role": "system",
-                    "content": "Eres un nutricionista profesional y empático. Proporciona respuestas claras sin dejar oraciones inconclusas."
-                },
-                {
-                    "role": "user",
-                    "content": prompt_pantalla
-                }
+                {"role": "system", "content": "Eres un nutricionista profesional y empático. Proporciona respuestas claras sin dejar oraciones inconclusas."},
+                {"role": "user", "content": prompt_pantalla}
             ],
             max_tokens=max_t,
             temperature=0.4,
@@ -681,7 +643,6 @@ def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> st
 
         res = response.choices[0].message.content.strip()
         if res:
-            # Limpieza de encabezados Markdown para mantener coherencia estética
             return res.replace("##", "").replace("###", "").strip()
 
     except Exception as e:
@@ -733,90 +694,37 @@ def obtener_momento_y_fecha_auto():
         momento = "Cena"
         
     return fecha_obj.strftime("%Y-%m-%d"), momento
-    
-#               FUNCIÓN CENTRALIZADA: CÁLCULO DE TMB Y GET (Mifflin-St Jeor)  2026 08 22
-
 
 def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: str = "masculino", actividad: str = "jubilado", peso_ideal: float = None) -> tuple[float, float]:
-    """
-    Calcula la Tasa Metabólica Basal (TMB) usando Mifflin-St Jeor y la Tasa de Gasto Energético Total (GET).
-    Ajusta dinámicamente según el género y el nivel de actividad u ocupación del usuario.
-    
-    Retorna: (tmb, get)
-    """
-    # 1. Ajuste de valores base por seguridad
+    """Calcula TMB (Mifflin-St Jeor) y GET (Gasto Energético Total)."""
     peso = float(peso_actual) if peso_actual and peso_actual > 0 else 70.0
     altura = float(altura_cm) if altura_cm and altura_cm > 0 else 170.0
     años = int(edad) if edad and edad > 0 else 40
 
-    # 2. Ecuación de Mifflin-St Jeor según Género
-    # Hombres:  (10 * peso) + (6.25 * altura) - (5 * edad) + 5
-    # Mujeres:  (10 * peso) + (6.25 * altura) - (5 * edad) - 161
     gen_clean = str(genero).strip().lower()
     if gen_clean in ["femenino", "f", "mujer", "female"]:
         tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * años) - 161.0
     else:
-        # Por defecto masculino
         tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * años) + 5.0
 
-    # 3. Mapeo del Factor de Actividad / Ocupación
-    # Se normaliza el string de la ocupación para asignar el multiplicador de PAL (Physical Activity Level)
     act_clean = str(actividad).strip().lower()
 
     if any(k in act_clean for k in ["sedentario", "escritorio", "oficina", "jubilado", "reposo"]):
-        factor_actividad = 1.2        # Sedentario / Muy ligera actividad
+        factor_actividad = 1.2
     elif any(k in act_clean for k in ["ligero", "pie", "docente", "vendedor", "caminar"]):
-        factor_actividad = 1.40      # Actividad ligera (1-3 días ejerc. o trabajo de pie)
+        factor_actividad = 1.40
     elif any(k in act_clean for k in ["moderado", "mozo", "limpieza", "deporte"]):
-        factor_actividad = 1.60       # Actividad moderada (3-5 días ejerc. / trabajo activo)
+        factor_actividad = 1.60
     elif any(k in act_clean for k in ["intenso", "construccion", "atleta", "fuerza"]):
-        factor_actividad = 1.75      # Actividad intensa (6-7 días ejerc. pesado)
+        factor_actividad = 1.75
     elif any(k in act_clean for k in ["muy intenso", "cargador", "alto rendimiento"]):
-        factor_actividad = 1.9        # Actividad extrema / trabajo físico muy pesado
+        factor_actividad = 1.9
     else:
-        factor_actividad = 1.40        # Valor por defecto seguro para adultos
+        factor_actividad = 1.40
 
-    # 4. Cálculo del GET
     get = tmb * factor_actividad
-
     return tmb, get
-    
-def obtener_datos_usuario(user_id):
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws = get_or_create_worksheet(sh, f"User_{user_id}")
-        records = ws.get_all_records()
-        if not records:
-            return pd.DataFrame()
-        
-        df = pd.DataFrame(records)
-        col_map = {}
-        for c in df.columns:
-            c_lower = str(c).lower()
-            if 'fecha' in c_lower: col_map[c] = 'Fecha'
-            elif 'momento' in c_lower or 'actividad' in c_lower: col_map[c] = 'Momento'
-            elif 'alimento' in c_lower or 'detalle' in c_lower: col_map[c] = 'Alimento'
-            elif 'peso' in c_lower: col_map[c] = 'Peso'
-            elif 'calor' in c_lower: col_map[c] = 'Calorias'
-            elif 'prote' in c_lower: col_map[c] = 'Proteinas'
-            elif 'grasa' in c_lower: col_map[c] = 'Grasas'
-            elif 'hidrat' in c_lower or 'carbo' in c_lower: col_map[c] = 'Carbohidratos'
-            elif 'fibra' in c_lower: col_map[c] = 'Fibras'
 
-        df = df.rename(columns=col_map)
-        if "Fecha" in df.columns and not df.empty:
-            df['Fecha'] = df['Fecha'].astype(str).str.strip()
-            for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
-                if col in df.columns:
-                    df[col] = df[col].apply(parse_float_from_sheets)
-                else:
-                    df[col] = 0.0
-        return df
-    except Exception as e:
-        print(f"Error al obtener datos del usuario {user_id}: {e}")
-        return pd.DataFrame()
- 
 async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
     df = obtener_datos_usuario(user_id)
     
@@ -876,35 +784,8 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
         await query_or_update.edit_message_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
     else:
         await query_or_update.message.reply_text(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
-        
-def obtener_ultimo_peso(user_id: int) -> dict:
-    """
-    Busca el último registro de peso del usuario en la pestaña 'Usuarios' de Google Sheets.
-    Retorna un diccionario con la fecha o None si no lo encuentra.
-    """
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        sheet_usuarios = sh.worksheet("Usuarios")
-        registros = sheet_usuarios.get_all_records()
-
-        for u in registros:
-            raw_id = u.get("User ID")
-            if raw_id and str(raw_id).strip() == str(user_id).strip():
-                fecha_peso = u.get("Ultimo Mes Peso") or u.get("MES") or u.get("fecha")
-                if fecha_peso:
-                    return {"fecha": str(fecha_peso).strip()}
-                    
-        return None
-    except Exception as e:
-        logger.error(f"Error en obtener_ultimo_peso para User {user_id}: {e}")
-        return None
 
 async def _validar_peso_mes_actual(update: Update, context: ContextTypes.DEFAULT_TYPE, funcion_nombre: str) -> bool:
-    """
-    Verifica si existe un registro de peso para el mes y año en curso.
-    Contempla celdas de Google Sheets con formato de fecha (ej: 1/08/2026, 2026-08, etc.).
-    """
     user_id = update.effective_user.id
     
     try:
@@ -917,20 +798,16 @@ async def _validar_peso_mes_actual(update: Update, context: ContextTypes.DEFAULT
     motivo = "No se encontró ningún registro de peso histórico."
 
     if ultimo_registro:
-        # Obtiene el valor de la fecha probando distintas llaves posibles
         fecha_val = (
             ultimo_registro.get("fecha") or 
             ultimo_registro.get("Ultimo Mes Peso") or 
             ultimo_registro.get("MES") or 
             ""
         )
-
         fecha_str = str(fecha_val).strip()
 
         if fecha_str:
             ahora = obtener_ahora_arg()
-            
-            # Listado de formatos habituales de Google Sheets
             formatos = [
                 "%d/%m/%Y", "%Y-%m-%d", "%d/%m/%y",
                 "%Y-%m", "%m/%Y", "%Y-%m-%d %H:%M:%S",
@@ -938,8 +815,6 @@ async def _validar_peso_mes_actual(update: Update, context: ContextTypes.DEFAULT
             ]
 
             fecha_dt = None
-            
-            # 1. Parsear como fecha real
             for fmt in formatos:
                 try:
                     fecha_dt = datetime.strptime(fecha_str, fmt)
@@ -947,21 +822,17 @@ async def _validar_peso_mes_actual(update: Update, context: ContextTypes.DEFAULT
                 except ValueError:
                     continue
 
-            # 2. Evaluación de coincidencia con el mes y año actuales
             if fecha_dt:
                 if fecha_dt.year == ahora.year and fecha_dt.month == ahora.month:
                     peso_valido = True
                 else:
                     motivo = f"Tu último registro de peso es de **{fecha_dt.strftime('%m/%Y')}**."
             else:
-                # 3. Comparación textual directa por si viene como texto simple (ej: '2026-08')
-                mes_str_iso = ahora.strftime("%Y-%m")    # 2026-08
-                mes_str_lat = ahora.strftime("%m/%Y")    # 08/2026
-                
+                mes_str_iso = ahora.strftime("%Y-%m")
+                mes_str_lat = ahora.strftime("%m/%Y")
                 if mes_str_iso in fecha_str or mes_str_lat in fecha_str:
                     peso_valido = True
 
-    # Si el peso no está actualizado para el mes en curso, frena la ejecución del comando
     if not peso_valido:
         mensaje = (
             f"⚠️ **Actualización de peso requerida**\n\n"
@@ -977,10 +848,7 @@ async def _validar_peso_mes_actual(update: Update, context: ContextTypes.DEFAULT
     return True
 
 def calcular_metricas_mensuales(df_mes, perfil_dict):
-    """
-    Función centralizada global para procesar todos los cálculos mensuales, 
-    garantizando 100% de consistencia entre Telegram, PDFs y otros módulos.
-    """
+    """Procesa todos los cálculos mensuales garantizando consistencia."""
     dias_registrados = df_mes['Fecha'].nunique() if (df_mes is not None and not df_mes.empty) else 1
     if dias_registrados == 0:
         dias_registrados = 1
@@ -1077,19 +945,12 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     }
 
 def requiere_registro(func):
-    """
-    Decorador que verifica si el usuario está registrado en la base de datos
-    antes de ejecutar cualquier comando. Si no existe, bloquea la ejecución
-    y le pide registrarse con /ingreso.
-    """
+    """Decorador que verifica si el usuario está registrado."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = update.effective_user.id
-        
-        # Consultar la hoja Usuarios
         perfil = obtener_perfil_usuario(user_id) if 'obtener_perfil_usuario' in globals() else {}
         
-        # Si no existe registro o no tiene nombre asignado
         if not perfil or not perfil.get('nombre'):
             mensaje_bloqueo = (
                 "⚠️ **¡Aún no estás registrado!**\n\n"
@@ -1097,19 +958,15 @@ def requiere_registro(func):
                 "primero necesitás darte de alta en el sistema.\n\n"
                 "👉 Usá el comando `/ingreso` o `/nuevo` para crear tu ficha en un par de pasos."
             )
-            
-            # Responder según el tipo de interacción (Mensaje de texto o Botón Callback)
             if update.message:
                 await update.message.reply_text(mensaje_bloqueo, parse_mode="Markdown")
             elif update.callback_query:
                 await update.callback_query.answer("⚠️ Registro requerido", show_alert=True)
                 await update.callback_query.message.reply_text(mensaje_bloqueo, parse_mode="Markdown")
-                
-            return  # Corta la ejecución del comando original
+            return
 
         return await func(update, context, *args, **kwargs)
     return wrapper
-
 
 
 # =============================================================================================================================================
@@ -1467,7 +1324,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         print(f"❌ Error crítico al actualizar la pestaña 'usuarios': {e}")
 
 
-def obtener_perfil_usuario_db(user_id, mes_target=None):
+def obtener_perfil_usuario(user_id, mes_target=None):
     """Obtiene la información de perfil leída de Google Sheets."""
     try:
         gc = get_gspread_client()
@@ -3153,7 +3010,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             guardar_perfil_db(user_id, nuevo_peso, mes_actual)
             
             # Recargar el perfil actualizado desde la capa de datos
-            perfil_actualizado = obtener_perfil_usuario_db(user_id, mes_target=mes_actual)
+            perfil_actualizado = obtener_perfil_usuario(user_id, mes_target=mes_actual)
             
             if perfil_actualizado:
                 edad = parse_raw_val(perfil_actualizado.get('EDAD', perfil_actualizado.get('Edad', 64)))
@@ -3184,7 +3041,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # CASO 2: Consulta (/perfil solo)
     try:
-        perfil = obtener_perfil_usuario_db(user_id, mes_target=mes_actual)
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
 
         if perfil:
             peso = parse_raw_val(perfil.get('PESO', perfil.get('Peso')))
