@@ -52,6 +52,9 @@ FRANJAS_COMIDAS = {
 
 load_dotenv()
 
+# Estados de conversación para Perfil y Fecha personalizada
+AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT_ITEM = range(4)
+
 GROQ_TEXTO = "openai/gpt-oss-120b"
 GROQ_FOTO = "qwen/qwen3.6-27b"
 GROQ_AUDIO = "whisper-large-v3"
@@ -75,8 +78,6 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
 
-# Estados de conversación para Perfil y Fecha personalizada
-AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT_ITEM = range(4)
 
 # =====================================================================================================================================
 #                FINAL                                   CABECERA                                       FINAL
@@ -620,7 +621,8 @@ def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float 
     
 def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
     """
-    Genera la recomendación de la IA.
+    Genera el análisis nutricional interactuando directamente con Groq.
+    Soporta los flujos de recomendación semanal (concisa) y mensual (detallada).
     """
     if es_semanal:
         prompt_pantalla = f"""
@@ -631,10 +633,11 @@ def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> st
         REGLAS OBLIGATORIAS:
         1. Escribe UN solo párrafo corto de análisis general (máximo 50 palabras).
         2. Agrega solo 3 recomendaciones breves en puntos (-).
-        3. Extensión TOTAL máxima: 100 palabras. Debe ser muy breve para no cortarse jamás en Telegram.
+        3. Extensión TOTAL máxima: 120 palabras.
         4. NO USES NUMERALES (##).
+        5. Cierra siempre la última oración con punto final.
         """
-        max_t = 250  # Límite controlado para evitar respuestas inconclusas
+        max_t = 350  # Límite holgado para evitar cortes en el listado
     else:
         prompt_pantalla = f"""
         Actúa como un nutricionista clínico personal realizando un análisis mensual completo.
@@ -645,18 +648,45 @@ def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> st
         1. PROHIBIDO REPETIR CIFRAS O METAS NUMÉRICAS.
         2. NO USES NUMERALES (##).
         3. Redacta 2 párrafos fluidos enfocados en saciedad, energía y recuperación.
+        4. Cierra siempre la última oración con punto final.
         """
-        max_t = 600
+        max_t = 700  # Espacio suficiente para dos párrafos desarrollados
 
     try:
-        res = ejecutar_consulta_ia(prompt=prompt_pantalla, max_tokens=max_t, temperature=0.4)
+        # Validación de API Key desde la constante global o entorno
+        api_key = GROQ_API_KEY or os.getenv("GROQ_API_KEY")
+        if not api_key:
+            logger.error("GROQ_API_KEY no configurada.")
+            return "⚠️ No se pudo obtener el análisis (falta la clave de API)."
+
+        client = Groq(api_key=api_key)
+        modelo_target = GROQ_TEXTO if 'GROQ_TEXTO' in globals() else "openai/gpt-oss-120b"
+
+        response = client.chat.completions.create(
+            model=modelo_target,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Eres un nutricionista profesional y empático. Proporciona respuestas claras sin dejar oraciones inconclusas."
+                },
+                {
+                    "role": "user",
+                    "content": prompt_pantalla
+                }
+            ],
+            max_tokens=max_t,
+            temperature=0.4,
+        )
+
+        res = response.choices[0].message.content.strip()
         if res:
+            # Limpieza de encabezados Markdown para mantener coherencia estética
             return res.replace("##", "").replace("###", "").strip()
+
     except Exception as e:
-        logger.error(f"Error en la consulta de IA: {e}")
+        logger.error(f"Error en la consulta de IA (es_semanal={es_semanal}): {e}")
 
     return "⚠️ No se pudo obtener el análisis nutricional en este momento."
-
 
 def parse_raw_val(val):
     if val is None or val == "":
