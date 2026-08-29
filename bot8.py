@@ -1545,11 +1545,16 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 # =====================================================================================================================================
 
 # ======================================================================================================================================
-#                 INICIO                            COMANDO MENSAJE SEMANAL  2026 08 23                  INICIO   DB OK
+#                 INICIO                            COMANDO SEMANA                  INICIO   DB OK
 # =====================================================================================================================================
 
 @requiere_registro
 async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Manejador del comando /mensaje.
+    Analiza los días transcurridos de la semana actual (o la semana anterior completa si es lunes)
+    y envía a la IA el detalle completo de macronutrientes para obtener un consejo acertado.
+    """
     try:
         user_id = update.effective_user.id
         msg_espera = await update.message.reply_text("⏳ Analizando los días transcurridos con IA...")
@@ -1584,22 +1589,33 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         perfil = obtener_perfil_usuario(user_id) if 'obtener_perfil_usuario' in globals() else {}
         m = calcular_metricas_mensuales(df_semana, perfil) if 'calcular_metricas_mensuales' in globals() else {}
 
+        # PROMPT 100% DINÁMICO: Incluye la brecha exacta de todos los macros para dar respuestas acertadas
         prompt_semana = (
-            f"DATOS SEMANALES:\n"
+            f"Actúa como un nutricionista clínico experto. Proporcioná una devolución concisa pero muy precisa y detallada "
+            f"para ser leída en pantalla de Telegram sobre la evolución de la {etiqueta_periodo}:\n\n"
+            f"DATOS REEVALUADOS:\n"
             f"- Días evaluados: {m.get('dias_registrados', 0)}\n"
-            f"- Consumo medio: {m.get('prom_cal', 0)} kcal/día (Objetivo: {m.get('ideal_cal', 0)} kcal)\n"
-            f"- Proteínas: {m.get('prom_prot', 0)} g (Objetivo: {m.get('ideal_prot', 0)} g)\n"
-            f"- Grasas: {m.get('prom_gras', 0)} g (Objetivo: {m.get('ideal_gras', 0)} g)\n"
-            f"- Carbohidratos: {m.get('prom_carb', 0)} g (Objetivo: {m.get('ideal_carb', 0)} g)\n"
-            f"- Fibra: {m.get('prom_fibr', 0)} g (Objetivo: {m.get('ideal_fibr', 0)} g)\n"
+            f"- Calorías consumidas: {m.get('prom_cal', 0)} kcal/día (Meta: {m.get('ideal_cal', 0)} kcal)\n"
+            f"- Proteínas: {m.get('prom_prot', 0)} g/día (Meta: {m.get('ideal_prot', 0)} g)\n"
+            f"- Grasas: {m.get('prom_gras', 0)} g/día (Meta: {m.get('ideal_gras', 0)} g)\n"
+            f"- Carbohidratos: {m.get('prom_carb', 0)} g/día (Meta: {m.get('ideal_carb', 0)} g)\n"
+            f"- Fibra: {m.get('prom_fibr', 0)} g/día (Meta: {m.get('ideal_fibr', 0)} g)\n\n"
+            f"INSTRUCCIONES:\n"
+            f"Analizá los desvíos y déficits numéricos exactos de cada macronutriente. "
+            f"Recomendá alimentos específicos de forma acertada según lo que falte (ej. si falta grasa, sugerí palta, cortes de carne o frutos secos) "
+            f"o lo que haya que recortar si hay excesos."
         )
 
         recomendacion = await asyncio.to_thread(obtener_recomendacion_ia, prompt_semana)
 
         txt = (
             f"📅 **Resumen Nutricional Semanal:**\n"
-            f"• **Promedio diario consumido:** `{m.get('prom_cal', 0)} kcal` / Meta: `{m.get('ideal_cal', 0)} kcal`\n"
+            f"ℹ️ *{etiqueta_periodo}*\n\n"
+            f"• **Promedio Calorías:** `{m.get('prom_cal', 0)} kcal` / Meta: `{m.get('ideal_cal', 0)} kcal`\n"
             f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Meta: `{m.get('ideal_prot', 0)} g`\n"
+            f"• **Grasas:** `{m.get('prom_gras', 0)} g` / Meta: `{m.get('ideal_gras', 0)} g`\n"
+            f"• **Carbohidratos:** `{m.get('prom_carb', 0)} g` / Meta: `{m.get('ideal_carb', 0)} g`\n"
+            f"• **Fibras:** `{m.get('prom_fibr', 0)} g` / Meta: `{m.get('ideal_fibr', 0)} g`\n"
             f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`\n\n"
             f"🤖 **Análisis Nutricional:**\n"
             f"{recomendacion}"
@@ -1612,9 +1628,8 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if 'msg_espera' in locals():
             await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
 
-                        
-# ========================================================================================================================================
-#                      FINAL                        COMANDO MENSAJE SEMANAL                    FINAL
+# ======================================================================================================================================
+#                      FINAL                        COMANDO SEMANA                                          FINAL
 # =======================================================================================================================================
 
 # =====================================================================================================================================
@@ -2198,7 +2213,7 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = None) -> str:
     """
     Envía los datos biométricos y promedios mensuales a Groq para que redacte
-    un informe nutricional completo de 500-600 palabras dinámico con listas de alimentos a medida.
+    un informe nutricional completo de 500-600 palabras dinámico basado en desvíos exactos.
     """
     if biometria is None:
         biometria = {}
@@ -2213,17 +2228,17 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
     fibr_r, fibr_m = int(round(promedios.get('fibras', 0))), int(round(metas.get('fibras', 25)))
 
     prompt_pdf = f"""
-    Actúa como un nutricionista clínico experto. Analiza el siguiente resumen mensual de un paciente y redacta un informe extenso y profesional de entre 500 y 600 palabras.
+    Actúa como un nutricionista clínico experto. Analiza minuciosamente el siguiente resumen nutricional de un paciente y redacta un informe extenso y profesional de entre 500 y 600 palabras.
 
-    DATOS DEL PACIENTE:
+    DATOS BIOMÉTRICOS DEL PACIENTE:
     - Peso actual: {peso_act} kg | Peso objetivo: {peso_id} kg
 
-    PROMEDIOS DIARIOS CONSUMIDOS VS METAS OBJETIVO:
-    - Calorías: {cal_r} kcal (Meta: {cal_m} kcal)
-    - Proteínas: {prot_r} g (Meta: {prot_m} g)
-    - Grasas: {gras_r} g (Meta: {gras_m} g)
-    - Carbohidratos: {carb_r} g (Meta: {carb_m} g)
-    - Fibra: {fibr_r} g (Meta: {fibr_m} g)
+    BALANCE MENSUAL CONSUMIDO VS METAS OBJETIVO:
+    - Calorías: {cal_r} kcal/día (Meta: {cal_m} kcal)
+    - Proteínas: {prot_r} g/día (Meta: {prot_m} g)
+    - Grasas: {gras_r} g/día (Meta: {gras_m} g)
+    - Carbohidratos: {carb_r} g/día (Meta: {carb_m} g)
+    - Fibra: {fibr_r} g/día (Meta: {fibr_m} g)
 
     ESTRUCTURA Y FORMATO DE LA RESPUESTA:
     Usa etiquetas HTML básicas (<b>, <br/>) para dar formato. El informe DEBE dividirse en exactamente estas 5 secciones encabezadas en negrita:
@@ -2232,13 +2247,13 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
     (Análisis profundo del balance energético global y el cumplimiento del perfil).
 
     <b>2. ANÁLISIS DE BRECHAS Y DESVÍOS ESPECÍFICOS</b>
-    (Puntos bala con • evaluando déficit o exceso de cada macronutriente y fibra con respecto a las metas).
+    (Puntos bala evaluando numéricamente el déficit o exceso de cada macronutriente y fibra con respecto a las metas).
 
     <b>3. ALIMENTOS Y COMIDAS QUE DEBERÍAS INGERIR (10 OPCIONES DINÁMICAS SEGÚN DÉFICITS)</b>
-    (Lista numerada del 1 al 10 con alimentos específicos orientados a corregir los déficits detectados).
+    (Lista numerada del 1 al 10 recomendando alimentos concretos para suplir únicamente los nutrientes donde hay déficit).
 
     <b>4. ALIMENTOS Y COMIDAS QUE DEBERÍAS REDUCIR O EVITAR (10 OPCIONES DINÁMICAS SEGÚN EXCESOS)</b>
-    (Lista numerada del 1 al 10 con alimentos específicos a moderar/evitar orientados a corregir los excesos detectados).
+    (Lista numerada del 1 al 10 indicando alimentos específicos a moderar o cortar para corregir únicamente los excesos detectados).
 
     <b>5. RECOMENDACIÓN GENERAL Y ESTRATEGIA DE HÁBITOS</b>
     (Estrategias sobre consumo de agua, distribución de platos y hábitos sostenibles).
@@ -2298,16 +2313,17 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         perfil = obtener_perfil_usuario_db(user_id, mes_target=mes_str) if 'obtener_perfil_usuario_db' in globals() else {}
         m = calcular_metricas_mensuales(df_mes, perfil)
 
-        # EVALUACIÓN DE MES: Solo consulta a la IA si es el mes en curso
+        # EVALUACIÓN DE MES: Consulta precisa a la IA si es el mes en curso
         if mes_str == mes_actual_str:
             prompt_para_ia_pantalla = (
-                f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
-                f"- Días cerrados evaluados: {m['dias_registrados']}\n"
-                f"- Consumo promedio: {m['prom_cal']} kcal/día (Meta: {m['ideal_cal']} kcal)\n"
-                f"- Proteínas: {m['prom_prot']} g (Meta: {m['ideal_prot']} g)\n"
-                f"- Grasas: {m['prom_gras']} g (Meta: {m['ideal_gras']} g)\n"
-                f"- Carb: {m['prom_carb']} g (Meta: {m['ideal_carb']} g)\n"
-                f"- Fibra: {m['prom_fibr']} g (Meta: {m['ideal_fibr']} g)\n"
+                f"Actúa como un nutricionista clínico. Proporcioná un análisis conciso y directo para pantalla basado en estos datos del mes en curso:\n"
+                f"- Días evaluados: {m['dias_registrados']}\n"
+                f"- Calorías consumidas: {m['prom_cal']} kcal/día (Meta: {m['ideal_cal']} kcal)\n"
+                f"- Proteínas: {m['prom_prot']} g/día (Meta: {m['ideal_prot']} g)\n"
+                f"- Grasas: {m['prom_gras']} g/día (Meta: {m['ideal_gras']} g)\n"
+                f"- Carbohidratos: {m['prom_carb']} g/día (Meta: {m['ideal_carb']} g)\n"
+                f"- Fibra: {m['prom_fibr']} g/día (Meta: {m['ideal_fibr']} g)\n\n"
+                f"Analizá las brechas de cada macronutriente. Indicá qué nutrientes corregir, sugiriendo alimentos específicos para compensar los déficits (ej. si faltan grasas, palta, frutos secos o carnes con algo de grasa) o recortar los excesos detectados."
             )
             recomendacion_pantalla = await asyncio.to_thread(obtener_recomendacion_ia, prompt_para_ia_pantalla)
         else:
@@ -2480,7 +2496,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(Spacer(1, 4))
     story.append(Paragraph("<b>Informe Nutricional Mensual:</b>", sub_style))
 
-    # Incorporar recomendación (dinámica de la IA o mensaje estático para meses anteriores)
     if isinstance(recomendacion, str) and recomendacion.strip():
         for bloque in recomendacion.strip().split('\n\n'):
             if bloque.strip():
