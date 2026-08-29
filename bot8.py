@@ -3983,6 +3983,183 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 #                FINAL                                     MANEJADORES HANDLE                                    FINAL
 #===================================================================================================================================
 
+# =====================================================================================================================================
+#                INICIO                               MENSAJES PROGRAMADOS 2026 08 26                         INICIO  DB OK
+# ======================================================================================================================================
+
+def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
+    """
+    Verifica si existe la fila del mes actual en la hoja Perfil_USERID.
+    Si no existe (ej: 1 de cada mes), calcula el factor promedio de los últimos 2 meses,
+    toma los datos vigentes y crea la nueva fila inicializada de forma transparente.
+    """
+    mes_actual_str = ahora_dt.strftime("%Y-%m")
+    nombre_hoja_perfil = f"Perfil_{user_id}"
+
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        
+        try:
+            sheet_perfil = sh.worksheet(nombre_hoja_perfil)
+        except Exception:
+            logger.warning(f"No existe la hoja {nombre_hoja_perfil} para inicializar mes.")
+            return
+
+        registros = sheet_perfil.get_all_records()
+        meses_registrados = [str(r.get("Mes", "")).strip() for r in registros if r.get("Mes")]
+        
+        if mes_actual_str in meses_registrados:
+            return
+
+        logger.info(f"Inicializando nueva fila mensual ({mes_actual_str}) para User {user_id}...")
+
+        ultimo_peso = ""
+        for r in reversed(registros):
+            p = str(r.get("Peso", "")).strip()
+            if p:
+                ultimo_peso = p
+                break
+
+        factor_promedio = calcular_factor_actividad_promedio(user_id) if 'calcular_factor_actividad_promedio' in globals() else 1375
+
+        nueva_fila = [
+            mes_actual_str,      # Columna Mes
+            ultimo_peso,         # Columna Peso
+            factor_promedio,     # Columna Factor de Actividad
+        ]
+
+        sheet_perfil.append_row(nueva_fila, value_input_option="USER_ENTERED")
+        logger.info(f"Fila del mes {mes_actual_str} creada exitosamente para User {user_id} con Factor: {factor_promedio}")
+
+    except Exception as e:
+        logger.error(f"Error al garantizar fila mensual para User {user_id}: {e}")
+
+
+async def ejecutar_recordatorio_comidas(context, momento: str):
+    """
+    Verifica y envía alertas de comidas pendientes y resumen semanal.
+    - Garantiza la inicialización de la fila mensual del usuario (día 1°).
+    - LUNES a la mañana: Si no tiene peso cargado, manda aviso genérico preventivo.
+    - MARTES a la mañana: Valida el peso. Si está OK, dispara el resumen semanal; si no, envía el aviso y omite el informe.
+    """
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        
+        sheet_usuarios = sh.worksheet("Usuarios")
+        registros_usuarios = sheet_usuarios.get_all_records()
+        usuarios_validos = []
+        
+        for u in registros_usuarios:
+            estado = str(u.get("Estado", "")).strip().lower()
+            notif = str(u.get("Notificaciones", "")).strip().lower()
+            raw_user_id = u.get("User ID")
+            
+            if estado == "activo" and notif in ["si", "sí"] and raw_user_id:
+                try:
+                    # Casteo seguro convirtiendo primero a float por si viene como '12345.0'
+                    uid_int = int(round(float(raw_user_id)))
+                    usuarios_validos.append(uid_int)
+                except (ValueError, TypeError):
+                    continue
+
+    except Exception as e:
+        logger.error(f"Error al acceder a la pestaña 'Usuarios': {e}")
+        return
+
+    ahora_dt = obtener_ahora_arg()
+    hoy = ahora_dt.date() if hasattr(ahora_dt, "date") else ahora_dt
+    ayer = hoy - timedelta(days=1)
+    anteayer = hoy - timedelta(days=2)
+
+    str_hoy = hoy.strftime("%Y-%m-%d")
+    str_ayer = ayer.strftime("%Y-%m-%d")
+    str_anteayer = anteayer.strftime("%Y-%m-%d")
+
+    todas_comidas = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
+    
+    es_lunes_manana = (hoy.weekday() == 0 and momento == 'manana')
+    es_martes_manana = (hoy.weekday() == 1 and momento == 'manana')
+
+    for user_id in usuarios_validos:
+        try:
+            # 0. Garantizar fila mensual en Perfil (Automático y transparente)
+            _garantizar_fila_mes_actual(user_id, ahora_dt)
+
+            # 1. Recordatorio preventivo de peso el Lunes a la mañana
+            if es_lunes_manana:
+                await _validar_peso_mes_actual(context=context, user_id=user_id)
+
+            # 2. Envío automático del resumen semanal (Martes a la mañana)
+            if es_martes_manana:
+                # Se valida el peso: si retorna True, se emite el reporte semanal
+                peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
+                if peso_ok and 'enviar_resumen_semanal_usuario' in globals():
+                    await enviar_resumen_semanal_usuario(context, user_id, semana_actual=False)
+
+            # 3. Recordatorio habitual de comidas pendientes
+            nombre_hoja_usuario = f"User_{user_id}"
+            sheet_usuario = sh.worksheet(nombre_hoja_usuario)
+            registros_comidas = sheet_usuario.get_all_records()
+
+            comidas_anteayer = set()
+            comidas_ayer = set()
+            comidas_hoy = set()
+
+            for reg in registros_comidas:
+                fecha_reg = str(reg.get("Fecha", "")).strip()
+                momento_actividad = str(reg.get("Momento/Actividad") or reg.get("Momento", "")).strip()
+                momento_reg = momento_actividad.capitalize()
+
+                if fecha_reg == str_anteayer:
+                    comidas_anteayer.add(momento_reg)
+                elif fecha_reg == str_ayer:
+                    comidas_ayer.add(momento_reg)
+                elif fecha_reg == str_hoy:
+                    comidas_hoy.add(momento_reg)
+
+            faltantes = []
+            if momento == 'manana':
+                for c in todas_comidas:
+                    if c not in comidas_anteayer:
+                        faltantes.append(f"{c} de anteayer ({str_anteayer})")
+                for c in todas_comidas:
+                    if c not in comidas_ayer:
+                        faltantes.append(f"{c} de ayer ({str_ayer})")
+
+            elif momento == 'tarde':
+                for c in todas_comidas:
+                    if c not in comidas_ayer:
+                        faltantes.append(f"{c} de ayer ({str_ayer})")
+                if "Desayuno" not in comidas_hoy:
+                    faltantes.append("Desayuno de hoy")
+                if "Almuerzo" not in comidas_hoy:
+                    faltantes.append("Almuerzo de hoy")
+
+            if faltantes:
+                lista_formateada = "\n• " + "\n• ".join(faltantes)
+                mensaje_recordatorio = (
+                    f"📌 **Recordatorio de comidas pendientes:**\n"
+                    f"{lista_formateada}\n\n"
+                    f"Si ya las consumiste, podés registrarlas en cualquier momento."
+                )
+                await context.bot.send_message(
+                    chat_id=int(user_id), 
+                    text=mensaje_recordatorio, 
+                    parse_mode="Markdown"
+                )
+                logger.info(f"Recordatorio de comidas ({momento}) enviado a {user_id}")
+
+        except Exception as e:
+            logger.error(f"Error procesando usuario {user_id}: {e}")
+            if 'registrar_log_en_sheet' in globals():
+                await registrar_log_en_sheet(sh, f"Procesando User {user_id}", e)
+
+# =============================================================================================================================================
+#                    FINAL                                    MENSAJES PROGRAMADOS                                        FINAL
+# =============================================================================================================================================
+
 # =============================================================================================================================================
 #                    INICIO                                 MAIN EXECUTION 2026 08 27                                 INICIO  DB OK
 # =============================================================================================================================================
@@ -4018,7 +4195,7 @@ def main():
     if job_queue is not None:
         job_queue.run_daily(
             job_recordatorio_manana, 
-            time=time(hour=15, minute=20, second=0, tzinfo=tz),
+            time=time(hour=15, minute=35, second=0, tzinfo=tz),
             name="recordatorio_comidas_manana"
         )
 
