@@ -1687,7 +1687,6 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 # ======================================================================================================================================
 #                  FINAL                        INTERFAZ Y RENDER DE CONFIRMACIÓN                      FINAL
 # =====================================================================================================================================
-
 # ======================================================================================================================================
 #                 INICIO                            COMANDO SEMANA 2026                 INICIO   DB OK
 # ======================================================================================================================================
@@ -1713,8 +1712,11 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
-        ahora = pd.Timestamp.now()
+        ahora = obtener_ahora_arg()
         dia_semana = ahora.weekday()  # 0: Lunes, 1: Martes...
+
+        # Nombres de días en español
+        dias_esp = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 
         # Lunes: toma la semana anterior completa (7 días)
         if dia_semana == 0:
@@ -1725,7 +1727,8 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Martes en adelante: Desde el lunes hasta el día anterior a las 23:59:59
             inicio_rango = ahora.floor('D') - pd.Timedelta(days=dia_semana)
             fin_rango = ahora.floor('D') - pd.Timedelta(seconds=1)
-            etiqueta_periodo = f"Semana Actual (Lunes a {ahora.strftime('%A')})"
+            nombre_dia_actual = dias_esp[dia_semana]
+            etiqueta_periodo = f"Semana Actual (Lunes a {nombre_dia_actual})"
 
         df_semana = df_datos[(df_datos['Fecha_dt'] >= inicio_rango) & (df_datos['Fecha_dt'] <= fin_rango)].copy()
 
@@ -1777,6 +1780,7 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ======================================================================================================================================
 #                      FINAL                        COMANDO SEMANA                                          FINAL
 # ======================================================================================================================================
+
 # =====================================================================================================================================
 #                       INICIO                  COMANDO INGRESO (ALTA DE USUARIO)                               INICIO
 # ======================================================================================================================================
@@ -2367,14 +2371,21 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
     if frecuencias is None:
         frecuencias = {}
 
-    peso_act = int(round(biometria.get('peso_actual', 0)))
-    peso_id = int(round(biometria.get('peso_ideal', 0)))
+    # Función auxiliar defensiva contra strings con decimales ('1.48', etc.)
+    def _to_int(val, default=0):
+        try:
+            return int(round(float(val)))
+        except (ValueError, TypeError):
+            return default
+
+    peso_act = _to_int(biometria.get('peso_actual', 0))
+    peso_id = _to_int(biometria.get('peso_ideal', 0))
     
-    cal_r, cal_m = int(round(promedios.get('calorias', 0))), int(round(metas.get('calorias', 2000)))
-    prot_r, prot_m = int(round(promedios.get('proteinas', 0))), int(round(metas.get('proteinas', 100)))
-    gras_r, gras_m = int(round(promedios.get('grasas', 0))), int(round(metas.get('grasas', 55)))
-    carb_r, carb_m = int(round(promedios.get('carbohidratos', 0))), int(round(metas.get('carbohidratos', 200)))
-    fibr_r, fibr_m = int(round(promedios.get('fibras', 0))), int(round(metas.get('fibras', 25)))
+    cal_r, cal_m = _to_int(promedios.get('calorias', 0)), _to_int(metas.get('calorias', 2000))
+    prot_r, prot_m = _to_int(promedios.get('proteinas', 0)), _to_int(metas.get('proteinas', 100))
+    gras_r, gras_m = _to_int(promedios.get('grasas', 0)), _to_int(metas.get('grasas', 55))
+    carb_r, carb_m = _to_int(promedios.get('carbohidratos', 0)), _to_int(metas.get('carbohidratos', 200))
+    fibr_r, fibr_m = _to_int(promedios.get('fibras', 0)), _to_int(metas.get('fibras', 25))
 
     # Formatear el bloque de frecuencias de alimentos consumidos en el mes
     frec_str = "\n".join([f"- {cat}: {cant} ingestas" for cat, cant in frecuencias.items()]) if frecuencias else "- No hay frecuencias registradas."
@@ -2582,6 +2593,12 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
     styles = getSampleStyleSheet()
+
+    def _to_int(val):
+        try:
+            return int(round(float(val)))
+        except (ValueError, TypeError):
+            return 0
     
     title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=14, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
     sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=10, textColor=colors.HexColor('#2563EB'), spaceBefore=6, spaceAfter=2)
@@ -2624,37 +2641,37 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
 
             table_data_h1.append([
                 Paragraph(str(f), body_style),
-                Paragraph(f"{int(round(c_cons))} kcal", body_style),
-                Paragraph(f"{int(round(c_quem))} kcal", body_style),
-                Paragraph(f"{int(round(b_neto))} kcal", body_style),
-                Paragraph(f"{int(round(prot))} g", body_style),
-                Paragraph(f"{int(round(gras))} g", body_style),
-                Paragraph(f"{int(round(carb))} g", body_style),
-                Paragraph(f"{int(round(fibr))} g", body_style)
+                Paragraph(f"{_to_int(c_cons)} kcal", body_style),
+                Paragraph(f"{_to_int(c_quem)} kcal", body_style),
+                Paragraph(f"{_to_int(b_neto)} kcal", body_style),
+                Paragraph(f"{_to_int(prot)} g", body_style),
+                Paragraph(f"{_to_int(gras)} g", body_style),
+                Paragraph(f"{_to_int(carb)} g", body_style),
+                Paragraph(f"{_to_int(fibr)} g", body_style)
             ])
         
         tot_neto = tot_cons - tot_quem
         table_data_h1.append([
             Paragraph("<b>TOTAL MES</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_cons))} kcal</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_quem))} kcal</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_neto))} kcal</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_prot))} g</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_gras))} g</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_carb))} g</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_fibr))} g</b>", body_style)
+            Paragraph(f"<b>{_to_int(tot_cons)} kcal</b>", body_style),
+            Paragraph(f"<b>{_to_int(tot_quem)} kcal</b>", body_style),
+            Paragraph(f"<b>{_to_int(tot_neto)} kcal</b>", body_style),
+            Paragraph(f"<b>{_to_int(tot_prot)} g</b>", body_style),
+            Paragraph(f"<b>{_to_int(tot_gras)} g</b>", body_style),
+            Paragraph(f"<b>{_to_int(tot_carb)} g</b>", body_style),
+            Paragraph(f"<b>{_to_int(tot_fibr)} g</b>", body_style)
         ])
 
         dias_activos = len(fechas_unicas) if len(fechas_unicas) > 0 else 1
         table_data_h1.append([
             Paragraph("<b>PROM. DIARIO</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_cons/dias_activos))} kcal</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_quem/dias_activos))} kcal</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_neto/dias_activos))} kcal</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_prot/dias_activos))} g</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_gras/dias_activos))} g</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_carb/dias_activos))} g</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_fibr/dias_activos))} g</b>", body_style)
+            Paragraph(f"<b>{_to_int(tot_cons/dias_activos)} kcal</b>", body_style),
+            Paragraph(f"<b>{_to_int(tot_quem/dias_activos)} kcal</b>", body_style),
+            Paragraph(f"<b>{_to_int(tot_neto/dias_activos)} kcal</b>", body_style),
+            Paragraph(f"<b>{_to_int(tot_prot/dias_activos)} g</b>", body_style),
+            Paragraph(f"<b>{_to_int(tot_gras/dias_activos)} g</b>", body_style),
+            Paragraph(f"<b>{_to_int(tot_carb/dias_activos)} g</b>", body_style),
+            Paragraph(f"<b>{_to_int(tot_fibr/dias_activos)} g</b>", body_style)
         ])
 
     t1 = Table(table_data_h1, colWidths=[65, 75, 70, 70, 65, 60, 80, 55])
@@ -2676,7 +2693,7 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
 
     table_comp = [
         [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Valor Ideal (Peso Ponderado 75/25)</b>", header_style)],
-        [Paragraph("Calorías", body_style), Paragraph(f"{m['prom_cal']} kcal", body_style), Paragraph(f"{int(round(m['get_meta']))} kcal", body_style)],
+        [Paragraph("Calorías", body_style), Paragraph(f"{m['prom_cal']} kcal", body_style), Paragraph(f"{_to_int(m['get_meta'])} kcal", body_style)],
         [Paragraph("Proteínas", body_style), Paragraph(f"{m['prom_prot']} g", body_style), Paragraph(f"{m['ideal_prot']} g", body_style)],
         [Paragraph("Grasas", body_style), Paragraph(f"{m['prom_gras']} g", body_style), Paragraph(f"{m['ideal_gras']} g", body_style)],
         [Paragraph("Carbohidratos", body_style), Paragraph(f"{m['prom_carb']} g", body_style), Paragraph(f"{m['ideal_carb']} g", body_style)],
@@ -3897,182 +3914,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 #                FINAL                                     MANEJADORES HANDLE                                    FINAL
 #===================================================================================================================================
 
-# =====================================================================================================================================
-#                INICIO                               MENSAJES PROGRAMADOS 2026 08 26                         INICIO  DB OK
-# ======================================================================================================================================
-
-def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
-    """
-    Verifica si existe la fila del mes actual en la hoja Perfil_USERID.
-    Si no existe (ej: 1 de cada mes), calcula el factor promedio de los últimos 2 meses,
-    toma los datos vigentes y crea la nueva fila inicializada de forma transparente.
-    """
-    mes_actual_str = ahora_dt.strftime("%Y-%m")
-    nombre_hoja_perfil = f"Perfil_{user_id}"
-
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        
-        try:
-            sheet_perfil = sh.worksheet(nombre_hoja_perfil)
-        except Exception:
-            logger.warning(f"No existe la hoja {nombre_hoja_perfil} para inicializar mes.")
-            return
-
-        registros = sheet_perfil.get_all_records()
-        meses_registrados = [str(r.get("Mes", "")).strip() for r in registros if r.get("Mes")]
-        
-        if mes_actual_str in meses_registrados:
-            return
-
-        logger.info(f"Inicializando nueva fila mensual ({mes_actual_str}) para User {user_id}...")
-
-        ultimo_peso = ""
-        for r in reversed(registros):
-            p = str(r.get("Peso", "")).strip()
-            if p:
-                ultimo_peso = p
-                break
-
-        factor_promedio = calcular_factor_actividad_promedio(user_id) if 'calcular_factor_actividad_promedio' in globals() else 1375
-
-        nueva_fila = [
-            mes_actual_str,      # Columna Mes
-            ultimo_peso,         # Columna Peso
-            factor_promedio,     # Columna Factor de Actividad
-        ]
-
-        sheet_perfil.append_row(nueva_fila, value_input_option="USER_ENTERED")
-        logger.info(f"Fila del mes {mes_actual_str} creada exitosamente para User {user_id} con Factor: {factor_promedio}")
-
-    except Exception as e:
-        logger.error(f"Error al garantizar fila mensual para User {user_id}: {e}")
-
-
-async def ejecutar_recordatorio_comidas(context, momento: str):
-    """
-    Verifica y envía alertas de comidas pendientes y resumen semanal.
-    - Garantiza la inicialización de la fila mensual del usuario (día 1°).
-    - LUNES a la mañana: Si no tiene peso cargado, manda aviso genérico preventivo.
-    - MARTES a la mañana: Valida el peso. Si está OK, dispara el resumen semanal; si no, envía el aviso y omite el informe.
-    """
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        
-        sheet_usuarios = sh.worksheet("Usuarios")
-        registros_usuarios = sheet_usuarios.get_all_records()
-        usuarios_validos = []
-        
-        for u in registros_usuarios:
-            estado = str(u.get("Estado", "")).strip().lower()
-            notif = str(u.get("Notificaciones", "")).strip().lower()
-            raw_user_id = u.get("User ID")
-            
-            if estado == "activo" and notif in ["si", "sí"] and raw_user_id:
-                try:
-                    uid_int = int(raw_user_id)
-                    usuarios_validos.append(uid_int)
-                except ValueError:
-                    continue
-
-    except Exception as e:
-        logger.error(f"Error al acceder a la pestaña 'Usuarios': {e}")
-        return
-
-    ahora_dt = obtener_ahora_arg()
-    hoy = ahora_dt.date() if hasattr(ahora_dt, "date") else ahora_dt
-    ayer = hoy - timedelta(days=1)
-    anteayer = hoy - timedelta(days=2)
-
-    str_hoy = hoy.strftime("%Y-%m-%d")
-    str_ayer = ayer.strftime("%Y-%m-%d")
-    str_anteayer = anteayer.strftime("%Y-%m-%d")
-
-    todas_comidas = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
-    
-    es_lunes_manana = (hoy.weekday() == 0 and momento == 'manana')
-    es_martes_manana = (hoy.weekday() == 1 and momento == 'manana')
-
-    for user_id in usuarios_validos:
-        try:
-            # 0. Garantizar fila mensual en Perfil (Automático y transparente)
-            _garantizar_fila_mes_actual(user_id, ahora_dt)
-
-            # 1. Recordatorio preventivo de peso el Lunes a la mañana
-            if es_lunes_manana:
-                await _validar_peso_mes_actual(context=context, user_id=user_id)
-
-            # 2. Envío automático del resumen semanal (Martes a la mañana)
-            if es_martes_manana:
-                # Se valida el peso: si retorna True, se emite el reporte semanal
-                peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
-                if peso_ok and 'enviar_resumen_semanal_usuario' in globals():
-                    await enviar_resumen_semanal_usuario(context, user_id, semana_actual=False)
-
-            # 3. Recordatorio habitual de comidas pendientes
-            nombre_hoja_usuario = f"User_{user_id}"
-            sheet_usuario = sh.worksheet(nombre_hoja_usuario)
-            registros_comidas = sheet_usuario.get_all_records()
-
-            comidas_anteayer = set()
-            comidas_ayer = set()
-            comidas_hoy = set()
-
-            for reg in registros_comidas:
-                fecha_reg = str(reg.get("Fecha", "")).strip()
-                momento_actividad = str(reg.get("Momento/Actividad") or reg.get("Momento", "")).strip()
-                momento_reg = momento_actividad.capitalize()
-
-                if fecha_reg == str_anteayer:
-                    comidas_anteayer.add(momento_reg)
-                elif fecha_reg == str_ayer:
-                    comidas_ayer.add(momento_reg)
-                elif fecha_reg == str_hoy:
-                    comidas_hoy.add(momento_reg)
-
-            faltantes = []
-            if momento == 'manana':
-                for c in todas_comidas:
-                    if c not in comidas_anteayer:
-                        faltantes.append(f"{c} de anteayer ({str_anteayer})")
-                for c in todas_comidas:
-                    if c not in comidas_ayer:
-                        faltantes.append(f"{c} de ayer ({str_ayer})")
-
-            elif momento == 'tarde':
-                for c in todas_comidas:
-                    if c not in comidas_ayer:
-                        faltantes.append(f"{c} de ayer ({str_ayer})")
-                if "Desayuno" not in comidas_hoy:
-                    faltantes.append("Desayuno de hoy")
-                if "Almuerzo" not in comidas_hoy:
-                    faltantes.append("Almuerzo de hoy")
-
-            if faltantes:
-                lista_formateada = "\n• " + "\n• ".join(faltantes)
-                mensaje_recordatorio = (
-                    f"📌 **Recordatorio de comidas pendientes:**\n"
-                    f"{lista_formateada}\n\n"
-                    f"Si ya las consumiste, podés registrarlas en cualquier momento."
-                )
-                await context.bot.send_message(
-                    chat_id=int(user_id), 
-                    text=mensaje_recordatorio, 
-                    parse_mode="Markdown"
-                )
-                logger.info(f"Recordatorio de comidas ({momento}) enviado a {user_id}")
-
-        except Exception as e:
-            logger.error(f"Error procesando usuario {user_id}: {e}")
-            if 'registrar_log_en_sheet' in globals():
-                await registrar_log_en_sheet(sh, f"Procesando User {user_id}", e)
-
-# =============================================================================================================================================
-#                    FINAL                                    MENSAJES PROGRAMADOS                                        FINAL
-# =============================================================================================================================================
-
 # =============================================================================================================================================
 #                    INICIO                                 MAIN EXECUTION 2026 08 27                                 INICIO  DB OK
 # =============================================================================================================================================
@@ -4108,7 +3949,7 @@ def main():
     if job_queue is not None:
         job_queue.run_daily(
             job_recordatorio_manana, 
-            time=time(hour=9, minute=0, second=0, tzinfo=tz),
+            time=time(hour=12, minute=30, second=0, tzinfo=tz),
             name="recordatorio_comidas_manana"
         )
 
