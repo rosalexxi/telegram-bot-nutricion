@@ -1545,7 +1545,7 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 # =====================================================================================================================================
 
 # ======================================================================================================================================
-#                 INICIO                            COMANDO SEMANA                  INICIO   DB OK
+#                 INICIO                            COMANDO SEMANA 2026                 INICIO   DB OK
 # =====================================================================================================================================
 
 @requiere_registro
@@ -2180,7 +2180,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 # ==============================================================================================================================================
 
 # ==============================================================================================================================================
-#               INICIO                      COMANDO RESUMEN     2026 08 27                        INICIO DB OK
+#               INICIO                      COMANDO RESUMEN     2026 08 28                        INICIO DB OK
 # ==============================================================================================================================================
 
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2198,7 +2198,7 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual}")],
         [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
-        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_otro")]
+        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
     ])
 
     await update.message.reply_text(
@@ -2282,12 +2282,46 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         mes_str = None
         if query and query.data:
             await query.answer()
-            if query.data.startswith("resumen_mes_"):
-                mes_str = query.data.replace("resumen_mes_", "")
+            cb_data = query.data
+
+            # DESPLIEGUE DEL SUBMENÚ PARA SELECCIONAR OTROS MESES
+            if cb_data == "resumen_mes_menu_otros":
+                botones_meses = []
+                primer_dia_mes_actual = ahora.replace(day=1)
+                for i in range(1, 7):
+                    mes_iter = (primer_dia_mes_actual - pd.DateOffset(months=i)).strftime("%Y-%m")
+                    botones_meses.append([InlineKeyboardButton(f"🗓️ Período {mes_iter}", callback_data=f"resumen_mes_{mes_iter}")])
+                
+                botones_meses.append([InlineKeyboardButton("🔙 Volver", callback_data="resumen_volver_menu")])
+                
+                await query.edit_message_text(
+                    "🗓️ **Seleccioná el mes que querés consultar:**", 
+                    reply_markup=InlineKeyboardMarkup(botones_meses),
+                    parse_mode="Markdown"
+                )
+                return
+
+            elif cb_data == "resumen_volver_menu":
+                mes_anterior_str = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual_str}")],
+                    [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior_str}")],
+                    [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+                ])
+                await query.edit_message_text(
+                    "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", 
+                    reply_markup=keyboard, 
+                    parse_mode="Markdown"
+                )
+                return
+
+            elif cb_data.startswith("resumen_mes_"):
+                mes_str = cb_data.replace("resumen_mes_", "")
+
         elif context.args:
             mes_str = context.args[0]
 
-        if not mes_str or mes_str == "otro":
+        if not mes_str:
             mes_str = mes_actual_str
 
         df_datos = obtener_datos_usuario(user_id)
@@ -2295,21 +2329,27 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not df_datos.empty and 'Fecha' in df_datos.columns:
             df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
             hoy_comienzo = pd.Timestamp.now().floor('D')
-            df_mes = df_datos[
-                (df_datos['Fecha'].astype(str).str.startswith(mes_str)) & 
-                (df_datos['Fecha_dt'] < hoy_comienzo)
-            ].copy()
+            
+            # Si es el mes actual evalúa días cerrados hasta ayer; si es histórico, evalúa el mes completo
+            if mes_str == mes_actual_str:
+                df_mes = df_datos[
+                    (df_datos['Fecha'].astype(str).str.startswith(mes_str)) & 
+                    (df_datos['Fecha_dt'] < hoy_comienzo)
+                ].copy()
+            else:
+                df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)].copy()
         else:
             df_mes = pd.DataFrame()
 
         if df_mes.empty:
-            msg = f"⚠️ No hay registros cerrados de días anteriores para el mes `{mes_str}`."
+            msg = f"⚠️ No hay registros cargados para el mes `{mes_str}`."
             if query:
                 await query.edit_message_text(msg, parse_mode="Markdown")
             else:
                 await update.message.reply_text(msg, parse_mode="Markdown")
             return
 
+        # OBTENCIÓN DE PERFIL HISTÓRICO ESPECÍFICO DEL MES CONSULTADO
         perfil = obtener_perfil_usuario_db(user_id, mes_target=mes_str) if 'obtener_perfil_usuario_db' in globals() else {}
         m = calcular_metricas_mensuales(df_mes, perfil)
 
@@ -2318,6 +2358,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             prompt_para_ia_pantalla = (
                 f"Actúa como un nutricionista clínico. Proporcioná un análisis conciso y directo para pantalla basado en estos datos del mes en curso:\n"
                 f"- Días evaluados: {m['dias_registrados']}\n"
+                f"- Peso de referencia del mes: {m['peso_actual']} kg\n"
                 f"- Calorías consumidas: {m['prom_cal']} kcal/día (Meta: {m['ideal_cal']} kcal)\n"
                 f"- Proteínas: {m['prom_prot']} g/día (Meta: {m['ideal_prot']} g)\n"
                 f"- Grasas: {m['prom_gras']} g/día (Meta: {m['ideal_gras']} g)\n"
@@ -2334,7 +2375,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         encabezado_txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n"
-            f"ℹ️ *Calculado sobre días cerrados (excluye hoy)*\n\n"
+            f"⚖️ *Peso registrado en el período: `{m['peso_actual']} kg`*\n\n"
             f"• **Promedio Consumidas:** `{m['prom_cal']} kcal` / día\n"
             f"• **Promedio Quemadas:** `{m['prom_quem']} kcal` / día\n"
             f"• **Balance Neto Diario:** `{m['prom_bal_neto']} kcal` / día\n"
@@ -2489,7 +2530,7 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(t_comp)
     story.append(Spacer(1, 4))
 
-    story.append(Paragraph(f"• <b>PERFIL BASE ({mes_str}):</b> Peso Actual: {m['peso_actual']} kg | Peso Objetivo (75/25): {m['peso_referencia']} kg | Altura: {m['altura']} cm", body_style))
+    story.append(Paragraph(f"• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {m['peso_actual']} kg | Peso Objetivo (75/25): {m['peso_referencia']} kg | Altura: {m['altura']} cm", body_style))
     story.append(Paragraph(f"• <b>DÉFICIT CALÓRICO DIARIO PROMEDIO:</b> {m['deficit_diario_real']} kcal / día", body_style))
     story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {m['cambio_peso_kg']:+.1f} kg", body_style))
 
@@ -2522,21 +2563,26 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         if not df_datos.empty and 'Fecha' in df_datos.columns:
             df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
             hoy_comienzo = pd.Timestamp.now().floor('D')
-            df_mes = df_datos[
-                (df_datos['Fecha'].astype(str).str.startswith(mes_str)) & 
-                (df_datos['Fecha_dt'] < hoy_comienzo)
-            ].copy()
+            
+            if mes_str == mes_actual_str:
+                df_mes = df_datos[
+                    (df_datos['Fecha'].astype(str).str.startswith(mes_str)) & 
+                    (df_datos['Fecha_dt'] < hoy_comienzo)
+                ].copy()
+            else:
+                df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)].copy()
         else:
             df_mes = pd.DataFrame()
 
         if df_mes.empty:
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
-                text=f"⚠️ No hay registros de días cerrados en el mes `{mes_str}` para generar el PDF.",
+                text=f"⚠️ No hay registros de días en el mes `{mes_str}` para generar el PDF.",
                 parse_mode="Markdown"
             )
             return
 
+        # RECUPERA EL PERFIL HISTÓRICO CORRESPONDIENTE AL MES DEL PDF
         perfil = obtener_perfil_usuario_db(user_id, mes_target=mes_str) if 'obtener_perfil_usuario_db' in globals() else {}
         df_presion = pd.DataFrame()
         tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
@@ -2587,7 +2633,7 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
             chat_id=query.message.chat_id,
             text=f"⚠️ Error al procesar la descarga del PDF: {e}"
         )
-                
+
 # ======================================================================================================================================
 #                   FINAL                                COMANDO RESUMEN                                           FINAL
 # ======================================================================================================================================
