@@ -4213,13 +4213,13 @@ def main():
 
     # Handlers de Comandos
     app_bot.add_handler(CommandHandler("start", cmd_start))
-    app_bot.add_handler(CommandHandler("comidas", cmd_comidas))
-    app_bot.add_handler(CommandHandler("perfil", cmd_perfil))
-    app_bot.add_handler(CommandHandler(["presion","presi","presio"], cmd_presion_handler))  
-    app_bot.add_handler(CommandHandler("diario", cmd_diario))
-    app_bot.add_handler(CommandHandler("resumen", cmd_resumen))
-    app_bot.add_handler(CommandHandler("mensaje", cmd_mensaje))
-    app_bot.add_handler(CommandHandler("receta", cmd_cargar_receta))
+    app_bot.add_handler(CommandHandler(["comidas", "comida"], cmd_comidas))
+    app_bot.add_handler(CommandHandler(["perfil", "peso"], cmd_perfil))
+    app_bot.add_handler(CommandHandler(["presion", "presi", "presio"], cmd_presion_handler))  
+    app_bot.add_handler(CommandHandler(["diario", "dia", "d"], cmd_diario))
+    app_bot.add_handler(CommandHandler(["resumen", "mes", "mensual", "m"], cmd_resumen))
+    app_bot.add_handler(CommandHandler(["mensaje", "semana", "semanal", "s"], cmd_mensaje))
+    app_bot.add_handler(CommandHandler(["receta", "planilla"], cmd_cargar_receta))
 
     # Handlers de Mensajes y Consultas
     app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
