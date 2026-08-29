@@ -959,10 +959,12 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         if fila_usuario:
             from gspread.utils import rowcol_to_a1
             celda_a1 = rowcol_to_a1(fila_usuario, col_idx)
-            ws_usuarios.update(celda_a1, [[str(mes)]])
+            # Garantiza el formato YYYY-MM-01 exacto en la pestaña Usuarios
+            fecha_usuarios_str = f"{str(mes)[:7]}-01"
+            ws_usuarios.update(celda_a1, [[fecha_usuarios_str]])
     except Exception as e:
         print(f"❌ Error crítico al actualizar la pestaña 'usuarios': {e}")
-
+        
 def obtener_comidas_usuario(user_id):
     try:
         gc = get_gspread_client()
@@ -2163,10 +2165,9 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 # ==============================================================================================================================================
 
 # ==============================================================================================================================================
-#               INICIO                      COMANDO RESUMEN     2026 08 27                        INICIO  DB OK
+#               INICIO                      COMANDO RESUMEN     2026 08 27                        INICIO DB OK
 # ==============================================================================================================================================
 
-@requiere_registro
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Manejador del comando /resumen.
@@ -2197,7 +2198,7 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = None) -> str:
     """
     Envía los datos biométricos y promedios mensuales a Groq para que redacte
-    un informe nutricional completo de 500-600 palabras con estructura HTML para PDF.
+    un informe nutricional completo de 500-600 palabras dinámico con listas de alimentos a medida.
     """
     if biometria is None:
         biometria = {}
@@ -2233,11 +2234,11 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
     <b>2. ANÁLISIS DE BRECHAS Y DESVÍOS ESPECÍFICOS</b>
     (Puntos bala con • evaluando déficit o exceso de cada macronutriente y fibra con respecto a las metas).
 
-    <b>3. ALIMENTOS Y COMIDAS QUE DEBERÍAS INGERIR (PARA SUPLIR DÉFICITS)</b>
-    (Recomendaciones concretas de alimentos para los nutrientes faltantes).
+    <b>3. ALIMENTOS Y COMIDAS QUE DEBERÍAS INGERIR (10 OPCIONES DINÁMICAS SEGÚN DÉFICITS)</b>
+    (Lista numerada del 1 al 10 con alimentos específicos orientados a corregir los déficits detectados).
 
-    <b>4. ALIMENTOS Y COMIDAS QUE DEBERÍAS REDUCIR O EVITAR (PARA CORREGIR EXCESOS)</b>
-    (Lista de alimentos a moderar o eliminar según las grasas/carbohidratos consumidos).
+    <b>4. ALIMENTOS Y COMIDAS QUE DEBERÍAS REDUCIR O EVITAR (10 OPCIONES DINÁMICAS SEGÚN EXCESOS)</b>
+    (Lista numerada del 1 al 10 con alimentos específicos a moderar/evitar orientados a corregir los excesos detectados).
 
     <b>5. RECOMENDACIÓN GENERAL Y ESTRATEGIA DE HÁBITOS</b>
     (Estrategias sobre consumo de agua, distribución de platos y hábitos sostenibles).
@@ -2245,8 +2246,6 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
     REGLA STRICTA: Devuelve ÚNICAMENTE el texto del informe formateado en HTML sin incluir mensajes adicionales, saludos ni introducciones fuera del informe.
     """
 
-    # Hacemos la llamada a Groq pasando max_tokens=1200 para dar espacio a las 600 palabras
-    
     respuesta = ejecutar_consulta_ia(prompt=prompt_pdf, max_tokens=1200, temperature=0.5)
     
     if respuesta:
@@ -2257,15 +2256,13 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
 #                                                       MOSTRAR EL RESUMEN DEL MES POR PANTALLA
 # =============================================================================================================================================
 
-
 async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Muestra el reporte del mes ignorando el día en curso (hasta ayer 23:59:59)
-    y previene cortes por el límite de caracteres de Telegram.
-    """
     try:
         query = update.callback_query
         user_id = update.effective_user.id
+
+        ahora = obtener_ahora_arg()
+        mes_actual_str = ahora.strftime("%Y-%m")
 
         mes_str = None
         if query and query.data:
@@ -2276,15 +2273,12 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             mes_str = context.args[0]
 
         if not mes_str or mes_str == "otro":
-            ahora = obtener_ahora_arg()
-            mes_str = ahora.strftime("%Y-%m")
+            mes_str = mes_actual_str
 
         df_datos = obtener_datos_usuario(user_id)
         
         if not df_datos.empty and 'Fecha' in df_datos.columns:
             df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
-            
-            # FILTRO CRÍTICO: Registros del mes seleccionado hasta AYER a las 23:59:59
             hoy_comienzo = pd.Timestamp.now().floor('D')
             df_mes = df_datos[
                 (df_datos['Fecha'].astype(str).str.startswith(mes_str)) & 
@@ -2301,20 +2295,26 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await update.message.reply_text(msg, parse_mode="Markdown")
             return
 
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
+        perfil = obtener_perfil_usuario_db(user_id, mes_target=mes_str) if 'obtener_perfil_usuario_db' in globals() else {}
         m = calcular_metricas_mensuales(df_mes, perfil)
 
-        prompt_para_ia_pantalla = (
-            f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
-            f"- Días cerrados evaluados: {m['dias_registrados']}\n"
-            f"- Consumo promedio: {m['prom_cal']} kcal/día (Meta: {m['ideal_cal']} kcal)\n"
-            f"- Proteínas: {m['prom_prot']} g (Meta: {m['ideal_prot']} g)\n"
-            f"- Grasas: {m['prom_gras']} g (Meta: {m['ideal_gras']} g)\n"
-            f"- Carb: {m['prom_carb']} g (Meta: {m['ideal_carb']} g)\n"
-            f"- Fibra: {m['prom_fibr']} g (Meta: {m['ideal_fibr']} g)\n"
-        )
-        
-        recomendacion_pantalla = await asyncio.to_thread(obtener_recomendacion_ia, prompt_para_ia_pantalla)
+        # EVALUACIÓN DE MES: Solo consulta a la IA si es el mes en curso
+        if mes_str == mes_actual_str:
+            prompt_para_ia_pantalla = (
+                f"REPORTE NUTRICIONAL DEL MES ({mes_str}):\n"
+                f"- Días cerrados evaluados: {m['dias_registrados']}\n"
+                f"- Consumo promedio: {m['prom_cal']} kcal/día (Meta: {m['ideal_cal']} kcal)\n"
+                f"- Proteínas: {m['prom_prot']} g (Meta: {m['ideal_prot']} g)\n"
+                f"- Grasas: {m['prom_gras']} g (Meta: {m['ideal_gras']} g)\n"
+                f"- Carb: {m['prom_carb']} g (Meta: {m['ideal_carb']} g)\n"
+                f"- Fibra: {m['prom_fibr']} g (Meta: {m['ideal_fibr']} g)\n"
+            )
+            recomendacion_pantalla = await asyncio.to_thread(obtener_recomendacion_ia, prompt_para_ia_pantalla)
+        else:
+            recomendacion_pantalla = (
+                "📌 *Este reporte corresponde a un período mensual ya finalizado. "
+                "Las métricas presentadas son el registro histórico consolidado del mes.*"
+            )
 
         encabezado_txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n"
@@ -2335,7 +2335,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         pie_txt = f"\n\n📄 Podés descargar el reporte completo en PDF a continuación:"
 
-        # LÍMITE DE TELEGRAM: Cortar recomendación si supera los 4000 caracteres totales
         espacio_disponible = 3900 - len(encabezado_txt) - len(pie_txt)
         if len(recomendacion_pantalla) > espacio_disponible:
             recomendacion_pantalla = recomendacion_pantalla[:espacio_disponible - 3] + "..."
@@ -2358,8 +2357,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             await update.message.reply_text(msg_err)
 
-
-#                                                    GENERAR PDF RESUMEN BYTES (FORZADO DE REPORTE COMPLETO)
+#                                                    GENERAR PDF RESUMEN BYTES
 # ======================================================================================================================================
 
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
@@ -2480,60 +2478,19 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {m['cambio_peso_kg']:+.1f} kg", body_style))
 
     story.append(Spacer(1, 4))
-    story.append(Paragraph("<b>Recomendación Nutricional Personalizada y Plan de Acción (IA):</b>", sub_style))
+    story.append(Paragraph("<b>Informe Nutricional Mensual:</b>", sub_style))
 
-    # --- LISTA AMPLIADA DE ALIMENTOS (10 REGLONES CADA UNA - SIN ESPACIOS EXCESIVOS) ---
-    alimentos_ingerir = [
-        "<b>1. ALIMENTOS Y COMIDAS QUE DEBERÍAS INGERIR (10 OPCIONES SUGERIDAS)</b>",
-        "- Pechuga de pollo, pavo o pescados blancos (merluza, merluza negra, pollo sin piel).",
-        "- Pescados grasos saludables (salmón, atún, sardinas) por su aporte de omega 3.",
-        "- Huevos enteros o claras de huevo (alto valor biológico y saciedad).",
-        "- Legumbres variadas (lentejas, garbanzos, porotos negros, arvejas).",
-        "- Avena integral, quinoa, arroz integral y cebada perlada.",
-        "- Batata, papa hervida/al horno o choclo como fuente de energía limpia.",
-        "- Verduras de hoja verde (espinaca, acelga, rúcula, lechuga).",
-        "- Vegetales crucíferos (brócoli, coliflor, repollo de Bruselas).",
-        "- Frutas frescas bajas en azúcar (manzana verde, pera, frutos rojos, frutillas).",
-        "- Frutos secos y semillas (almendras, nueces, chía, lino) en porciones controladas."
-    ]
-
-    alimentos_reducir = [
-        "<b>2. ALIMENTOS Y COMIDAS QUE DEBERÍAS REDUCIR O EVITAR (10 OPCIONES A CONTROLAR)</b>",
-        "- Ultraprocesados, snacks industriales y papas fritas de paquete.",
-        "- Fiambres, embutidos y carnes procesadas altas en sodio y grasas saturadas.",
-        "- Cortes de carne vacina o de cerdo con alto contenido graso visibile.",
-        "- Bebidas azucaradas, gaseosas comunes y jugos industriales.",
-        "- Aderezos comerciales hipercalóricos (mayonesa común, salsas compradas).",
-        "- Harinas refinadas, pan blanco, galletitas dulces y bizcochitos.",
-        "- Productos de pastelería, facturas, tartas comerciales y empanadas fritas.",
-        "- Lácteos enteros con alto porcentaje graso (quesos duros estacionados, crema).",
-        "- Comidas rápidas (hamburguesas comerciales, frituras en abundante aceite).",
-        "- Bebidas alcohólicas por su aporte de calorías vacías."
-    ]
-
-    # Incorporar recomendación general
+    # Incorporar recomendación (dinámica de la IA o mensaje estático para meses anteriores)
     if isinstance(recomendacion, str) and recomendacion.strip():
         for bloque in recomendacion.strip().split('\n\n'):
             if bloque.strip():
                 story.append(Paragraph(bloque.strip().replace('\n', '<br/>'), rec_style))
                 story.append(Spacer(1, 2))
 
-    story.append(Spacer(1, 4))
-
-    # Renderizar listas de 10 alimentos compactas sin saltos de línea innecesarios
-    for item in alimentos_ingerir:
-        story.append(Paragraph(item, rec_style))
-    
-    story.append(Spacer(1, 4))
-    
-    for item in alimentos_reducir:
-        story.append(Paragraph(item, rec_style))
-
     doc.build(story)
     buffer.seek(0)
     return buffer
-    
-    
+
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("Generando PDF... ⏳")
@@ -2542,7 +2499,9 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         user_id = query.from_user.id
         mes_str = query.data.replace("pdf_mes_", "")
 
-        # 1. Obtener datos y filtrar el día actual (solo días cerrados hasta ayer a las 23:59:59)
+        ahora = obtener_ahora_arg()
+        mes_actual_str = ahora.strftime("%Y-%m")
+
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
         
         if not df_datos.empty and 'Fecha' in df_datos.columns:
@@ -2563,16 +2522,31 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
             )
             return
 
-        # 2. Cargar dependencias adicionales del reporte
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
-        df_presion = pd.DataFrame()  # O la llamada correspondiente a la presión del usuario
+        perfil = obtener_perfil_usuario_db(user_id, mes_target=mes_str) if 'obtener_perfil_usuario_db' in globals() else {}
+        df_presion = pd.DataFrame()
         tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
 
-        # 3. Generar la recomendación extensa de IA para el PDF
-        prompt_para_pdf = f"Genera un análisis nutricional clínico extenso para el reporte PDF del mes {mes_str}."
-        recomendacion_pdf = await asyncio.to_thread(obtener_recomendacion_ia, prompt_para_pdf) if 'obtener_recomendacion_ia' in globals() else ""
+        # Solo solicitar recomendación a la IA si es el mes en curso
+        if mes_str == mes_actual_str:
+            m = calcular_metricas_mensuales(df_mes, perfil)
+            promedios_dict = {
+                'calorias': m['prom_cal'], 'proteinas': m['prom_prot'],
+                'grasas': m['prom_gras'], 'carbohidratos': m['prom_carb'], 'fibras': m['prom_fibr']
+            }
+            metas_dict = {
+                'calorias': m['ideal_cal'], 'proteinas': m['ideal_prot'],
+                'grasas': m['ideal_gras'], 'carbohidratos': m['ideal_carb'], 'fibras': m['ideal_fibr']
+            }
+            biometria_dict = {'peso_actual': m['peso_actual'], 'peso_ideal': m['peso_referencia']}
 
-        # 4. Generar el PDF directamente en buffer de memoria mediante la función indicada
+            recomendacion_pdf = await asyncio.to_thread(generar_recomendacion_ia, promedios_dict, metas_dict, biometria_dict)
+        else:
+            recomendacion_pdf = (
+                "<b>INFORME HISTÓRICO CONSOLIDADO:</b><br/>"
+                "Este reporte PDF corresponde a un período mensual finalizado. "
+                "Los datos presentados reflejan el balance metabólico exacto y los promedios registrados durante dicho mes."
+            )
+
         pdf_buffer = await asyncio.to_thread(
             generar_pdf_resumen_bytes,
             mes_str,
@@ -2584,12 +2558,11 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
             user_id
         )
 
-        # 5. Enviar el documento directamente desde el buffer de memoria a Telegram
         await context.bot.send_document(
             chat_id=query.message.chat_id,
             document=pdf_buffer,
             filename=f"Reporte_Nutricional_{mes_str}.pdf",
-            caption=f"📄 Reporte mensual completo correspondiente a **{mes_str}** (días cerrados).",
+            caption=f"📄 Reporte mensual correspondiente a **{mes_str}**.",
             parse_mode="Markdown"
         )
 
