@@ -1259,7 +1259,7 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "tot_fibr": tot_fibr
     }
     
- def obtener_categorias_diccionario(sh):
+def obtener_categorias_diccionario(sh):
     """
     Lee la pestaña 'Categorias_Comida' y devuelve un diccionario {categoria: [lista_de_palabras_clave]}.
     """
