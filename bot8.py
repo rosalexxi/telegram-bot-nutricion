@@ -1687,6 +1687,7 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 # ======================================================================================================================================
 #                  FINAL                        INTERFAZ Y RENDER DE CONFIRMACIÓN                      FINAL
 # =====================================================================================================================================
+
 # ======================================================================================================================================
 #                 INICIO                            COMANDO SEMANA 2026                 INICIO   DB OK
 # ======================================================================================================================================
@@ -1712,7 +1713,9 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
-        ahora = obtener_ahora_arg()
+        
+        # Conversión a Timestamp para disponer de .floor('D')
+        ahora = pd.Timestamp(obtener_ahora_arg())
         dia_semana = ahora.weekday()  # 0: Lunes, 1: Martes...
 
         # Nombres de días en español
@@ -2437,6 +2440,9 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
 #                                                       MOSTRAR EL RESUMEN DEL MES POR PANTALLA
 # =============================================================================================================================================
 
+#                                                       MOSTRAR EL RESUMEN DEL MES POR PANTALLA
+# =============================================================================================================================================
+
 async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         query = update.callback_query
@@ -2521,6 +2527,14 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) or {}
         m = calcular_metricas_mensuales(df_mes, perfil)
 
+        # Función auxiliar para formatear enteros o floats defensivamente
+        def _fmt(val, dec=0):
+            try:
+                num = float(val)
+                return f"{num:.{dec}f}" if dec > 0 else f"{int(round(num))}"
+            except (ValueError, TypeError):
+                return "0"
+
         # EVALUACIÓN DE MES: Consulta a la IA incluyendo conteo de frecuencias
         if mes_str == mes_actual_str:
             conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
@@ -2528,13 +2542,13 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
 
             prompt_para_ia_pantalla = (
                 f"Actúa como un nutricionista clínico. Proporcioná un análisis conciso y directo para pantalla basado en estos datos del mes en curso:\n"
-                f"- Días evaluados: {m['dias_registrados']}\n"
-                f"- Peso de referencia: {m['peso_actual']} kg\n"
-                f"- Calorías: {m['prom_cal']} kcal/día (Meta: {m['ideal_cal']} kcal)\n"
-                f"- Proteínas: {m['prom_prot']} g/día (Meta: {m['ideal_prot']} g)\n"
-                f"- Grasas: {m['prom_gras']} g/día (Meta: {m['ideal_gras']} g)\n"
-                f"- Carbohidratos: {m['prom_carb']} g/día (Meta: {m['ideal_carb']} g)\n"
-                f"- Fibra: {m['prom_fibr']} g/día (Meta: {m['ideal_fibr']} g)\n"
+                f"- Días evaluados: {m.get('dias_registrados', 0)}\n"
+                f"- Peso de referencia: {_fmt(m.get('peso_actual', 0), 1)} kg\n"
+                f"- Calorías: {_fmt(m.get('prom_cal', 0))} kcal/día (Meta: {_fmt(m.get('ideal_cal', 0))} kcal)\n"
+                f"- Proteínas: {_fmt(m.get('prom_prot', 0))} g/día (Meta: {_fmt(m.get('ideal_prot', 0))} g)\n"
+                f"- Grasas: {_fmt(m.get('prom_gras', 0))} g/día (Meta: {_fmt(m.get('ideal_gras', 0))} g)\n"
+                f"- Carbohidratos: {_fmt(m.get('prom_carb', 0))} g/día (Meta: {_fmt(m.get('ideal_carb', 0))} g)\n"
+                f"- Fibra: {_fmt(m.get('prom_fibr', 0))} g/día (Meta: {_fmt(m.get('ideal_fibr', 0))} g)\n"
                 f"Frecuencia de ingestas en el mes:\n{frec_txt}\n\n"
                 f"Analizá los desvíos. Indicá qué alimentos ajustar, recomendando opciones precisas según las categorías de comida donde hay faltantes o excesos."
             )
@@ -2547,18 +2561,18 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         encabezado_txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n"
-            f"⚖️ *Peso registrado en el período: `{m['peso_actual']} kg`*\n\n"
-            f"• **Promedio Consumidas:** `{m['prom_cal']} kcal` / día\n"
-            f"• **Promedio Quemadas:** `{m['prom_quem']} kcal` / día\n"
-            f"• **Balance Neto Diario:** `{m['prom_bal_neto']} kcal` / día\n"
-            f"• **Cambio Estimado de Peso:** `{m['cambio_peso_kg']:+.1f} kg` en el mes\n\n"
-            f"• Días evaluados: `{m['dias_registrados']}`\n"
+            f"⚖️ *Peso registrado en el período: `{_fmt(m.get('peso_actual', 0), 1)} kg`*\n\n"
+            f"• **Promedio Consumidas:** `{_fmt(m.get('prom_cal', 0))} kcal` / día\n"
+            f"• **Promedio Quemadas:** `{_fmt(m.get('prom_quem', 0))} kcal` / día\n"
+            f"• **Balance Neto Diario:** `{_fmt(m.get('prom_bal_neto', 0))} kcal` / día\n"
+            f"• **Cambio Estimado de Peso:** `{float(m.get('cambio_peso_kg', 0)):+.1f} kg` en el mes\n\n"
+            f"• Días evaluados: `{m.get('dias_registrados', 0)}`\n"
             f"📈 **Promedio Diario vs. Objetivos:**\n"
-            f"• **Calorías:** `{m['prom_cal']} kcal` / Meta: `{m['ideal_cal']} kcal`\n"
-            f"• **Proteínas:** `{m['prom_prot']} g` / Meta: `{m['ideal_prot']} g`\n"
-            f"• **Grasas:** `{m['prom_gras']} g` / Meta: `{m['ideal_gras']} g`\n"
-            f"• **Carbohidratos:** `{m['prom_carb']} g` / Meta: `{m['ideal_carb']} g`\n"
-            f"• **Fibras:** `{m['prom_fibr']} g` / Meta: `{m['ideal_fibr']} g`\n\n"
+            f"• **Calorías:** `{_fmt(m.get('prom_cal', 0))} kcal` / Meta: `{_fmt(m.get('ideal_cal', 0))} kcal`\n"
+            f"• **Proteínas:** `{_fmt(m.get('prom_prot', 0))} g` / Meta: `{_fmt(m.get('ideal_prot', 0))} g`\n"
+            f"• **Grasas:** `{_fmt(m.get('prom_gras', 0))} g` / Meta: `{_fmt(m.get('ideal_gras', 0))} g`\n"
+            f"• **Carbohidratos:** `{_fmt(m.get('prom_carb', 0))} g` / Meta: `{_fmt(m.get('ideal_carb', 0)} g`\n"
+            f"• **Fibras:** `{_fmt(m.get('prom_fibr', 0))} g` / Meta: `{_fmt(m.get('ideal_fibr', 0))} g`\n\n"
             f"🤖 **Análisis Nutricional:**\n"
         )
         
@@ -2585,7 +2599,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.callback_query.edit_message_text(msg_err)
         else:
             await update.message.reply_text(msg_err)
-
+            
 #                                                    GENERAR PDF RESUMEN BYTES
 # ======================================================================================================================================
 
@@ -3949,7 +3963,7 @@ def main():
     if job_queue is not None:
         job_queue.run_daily(
             job_recordatorio_manana, 
-            time=time(hour=12, minute=30, second=0, tzinfo=tz),
+            time=time(hour=12, minute=40, second=0, tzinfo=tz),
             name="recordatorio_comidas_manana"
         )
 
