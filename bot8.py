@@ -2437,8 +2437,6 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
 
     return "<b>⚠️ No se pudo generar la recomendación mediante IA en este momento.</b>"    
 
-#                                                       MOSTRAR EL RESUMEN DEL MES POR PANTALLA
-# =============================================================================================================================================
 
 #                                                       MOSTRAR EL RESUMEN DEL MES POR PANTALLA
 # =============================================================================================================================================
@@ -2571,7 +2569,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"• **Calorías:** `{_fmt(m.get('prom_cal', 0))} kcal` / Meta: `{_fmt(m.get('ideal_cal', 0))} kcal`\n"
             f"• **Proteínas:** `{_fmt(m.get('prom_prot', 0))} g` / Meta: `{_fmt(m.get('ideal_prot', 0))} g`\n"
             f"• **Grasas:** `{_fmt(m.get('prom_gras', 0))} g` / Meta: `{_fmt(m.get('ideal_gras', 0))} g`\n"
-            f"• **Carbohidratos:** `{_fmt(m.get('prom_carb', 0))} g` / Meta: `{_fmt(m.get('ideal_carb', 0)} g`\n"
+            f"• **Carbohidratos:** `{_fmt(m.get('prom_carb', 0))} g` / Meta: `{_fmt(m.get('ideal_carb', 0))} g`\n"
             f"• **Fibras:** `{_fmt(m.get('prom_fibr', 0))} g` / Meta: `{_fmt(m.get('ideal_fibr', 0))} g`\n\n"
             f"🤖 **Análisis Nutricional:**\n"
         )
@@ -2599,6 +2597,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.callback_query.edit_message_text(msg_err)
         else:
             await update.message.reply_text(msg_err)
+            
             
 #                                                    GENERAR PDF RESUMEN BYTES
 # ======================================================================================================================================
