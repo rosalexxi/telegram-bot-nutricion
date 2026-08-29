@@ -4163,6 +4163,88 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 # =============================================================================================================================================
 #                    INICIO                                 MAIN EXECUTION 2026 08 27                                 INICIO  DB OK
 # =============================================================================================================================================
+async def job_recordatorio_manana(context):
+    """Tarea programada para el recordatorio matutino con protección contra fallas."""
+    try:
+        await ejecutar_recordatorio_comidas(context, momento='manana')
+    except Exception as e:
+        logger.error(f"❌ Error en job_recordatorio_manana: {e}")
+
+async def job_recordatorio_tarde(context):
+    """Tarea programada para el recordatorio vespertino con protección contra fallas."""
+    try:
+        await ejecutar_recordatorio_comidas(context, momento='tarde')
+    except Exception as e:
+        logger.error(f"❌ Error en job_recordatorio_tarde: {e}")
+
+def main():
+    # Inicia el servidor Web Flask en un hilo independiente
+    threading.Thread(target=run_flask, daemon=True).start()
+
+    if not TELEGRAM_TOKEN:
+        print("❌ TELEGRAM_BOT_TOKEN no configurado.")
+        return
+
+    # Construcción de la aplicación del bot de Telegram
+    app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    job_queue = app_bot.job_queue
+    tz = pytz.timezone('America/Argentina/Buenos_Aires')
+
+    # Configuración de notificaciones automáticas diarias
+    if job_queue is not None:
+        job_queue.run_daily(
+            job_recordatorio_manana, 
+            time=time(hour=8, minute=30, second=0, tzinfo=tz),
+            name="recordatorio_comidas_manana"
+        )
+
+        job_queue.run_daily(
+            job_recordatorio_tarde, 
+            time=time(hour=18, minute=0, second=0, tzinfo=tz),
+            name="recordatorio_comidas_tarde"
+        )
+    else:
+        print("⚠️ Advertencia: job_queue no está disponible. Verifique que 'python-telegram-bot[job-queue]' esté instalado.")
+
+    # --- HANDLER CONVERSACIONAL (ALTA Y REGISTRO DE NUEVO USUARIO) ---
+    app_bot.add_handler(conv_handler_ingreso)
+
+    # --- HANDLERS DE COMANDOS ---
+    	
+    # Handlers de Comandos
+    app_bot.add_handler(CommandHandler("start", cmd_start))    app_bot.add_handler(CommandHandler(["comidas", "comida"], cmd_comidas))
+    app_bot.add_handler(CommandHandler(["perfil", "peso"], cmd_perfil))
+    app_bot.add_handler(CommandHandler(["presion", "presi", "presio"], cmd_presion_handler))  
+    app_bot.add_handler(CommandHandler(["diario", "dia", "d"], cmd_diario))
+    app_bot.add_handler(CommandHandler(["resumen", "mes", "mensual", "m"], cmd_resumen))
+    app_bot.add_handler(CommandHandler(["mensaje", "semana", "semanal", "s"], cmd_mensaje))
+    app_bot.add_handler(CommandHandler(["receta", "planilla"], cmd_cargar_receta))
+
+    # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
+    app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
+    app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^pdf_mes_"))
+
+    # --- HANDLERS DE MENSAJES Y CONSULTAS ---
+    app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Callback genérico (debe ir al final de los CallbackQueryHandler)
+    app_bot.add_handler(CallbackQueryHandler(handle_callback_query))
+
+    print("🤖 Bot Nutricional iniciado correctamente en Telegram con tareas programadas...")
+    
+    # Inicio del bot en loop de eventos asíncrono
+    app_bot.run_polling(drop_pending_updates=True)
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
 
 async def job_recordatorio_manana(context):
     """Tarea programada para el recordatorio matutino con protección contra fallas."""
