@@ -630,7 +630,6 @@ def obtener_perfil_usuario(user_id, mes_target=None):
             target_clean = str(mes_target).strip()
             for r in records:
                 m_val = str(r.get('MES', r.get('Mes', r.get('mes', '')))).strip()
-                # Corta a 7 caracteres por si Google Sheets devuelve fecha completa YYYY-MM-DD
                 if m_val.startswith(target_clean):
                     perfil_raw = r
                     break
@@ -647,40 +646,59 @@ def obtener_perfil_usuario(user_id, mes_target=None):
             
             if k_upper == 'EDAD':
                 val = parse_float_from_sheets(v)
+                # Si en sheets ingresaron 45000 por error, se corrige; de lo contrario toma el valor real
                 val_norm = val / 1000.0 if val > 1000 else val
-                perfil['Edad'] = val_norm
-                perfil['edad'] = val_norm
+                perfil['Edad'] = round(val_norm)
+                perfil['edad'] = round(val_norm)
+
             elif k_upper == 'PESO':
                 val = parse_float_from_sheets(v)
+                # Normaliza gramos a kg si cargaron 80000 gr en vez de 80 kg
                 val_norm = val / 1000.0 if val > 1000 else val
                 peso_hallado = val_norm
-                # Guardamos todas las variantes de nombre de clave posible
                 perfil['Peso'] = val_norm
                 perfil['peso'] = val_norm
                 perfil['peso_actual'] = val_norm
+
             elif k_upper == 'ALTURA':
                 val = parse_float_from_sheets(v)
-                val_norm = val / 1000.0 if val > 1000 else val
-                perfil['Altura'] = val_norm
-                perfil['altura'] = val_norm
+                # CORRECCIÓN CLAVE: La altura debe ser en cm (ej: 175). 
+                # Si viene en metros (ej: 1.75 o 1.48), se multiplica por 100.
+                # Si viene multiplicada por mil (ej: 1750), se ajusta.
+                if 1.0 <= val <= 2.5:
+                    val_norm = val * 100.0  # Transforma 1.48 m a 148 cm
+                elif val > 1000:
+                    val_norm = val / 10.0   # Si vino 1750 -> 175 cm
+                else:
+                    val_norm = val
+                
+                perfil['Altura'] = round(val_norm, 1)
+                perfil['altura'] = round(val_norm, 1)
+
             elif k_upper in ['PESO_IDEAL', 'PESO IDEAL']:
                 val = parse_float_from_sheets(v)
                 val_norm = val / 1000.0 if val > 1000 else val
                 perfil['Peso_ideal'] = val_norm
                 perfil['peso_ideal'] = val_norm
+
             elif k_upper in ['GENERO', 'SEXO']:
                 perfil['Sexo'] = str(v).strip()
                 perfil['genero'] = str(v).strip()
+
             elif k_upper == 'OCUPACION':
-                # Procesa el número (ej: 1400 -> 1.4)
                 val = parse_float_from_sheets(v)
-                val_norm = (val / 1000.0) if val > 1000 else val
-                # Si por alguna razón vino en 0 o vacío, asigna por defecto 1.375
+                # El factor de actividad suele ser entre 1.2 y 2.0 (ej: 1.375 o 1400 -> 1.4)
+                if val > 100:
+                    val_norm = val / 1000.0
+                else:
+                    val_norm = val
+                
                 factor_final = val_norm if val_norm > 0 else 1.375
                 
                 perfil['Ocupacion'] = factor_final
                 perfil['ocupacion'] = factor_final
                 perfil['factor_actividad'] = factor_final
+
             elif k_upper == 'MES':
                 perfil['Mes'] = str(v).strip()
                 perfil['mes'] = str(v).strip()
@@ -692,7 +710,7 @@ def obtener_perfil_usuario(user_id, mes_target=None):
     except Exception as e:
         print(f"Error obteniendo perfil del usuario {user_id}: {e}")
         return None
-
+        
 def requiere_registro(func):
     """Decorador que valida que el user_id de Telegram exista en la hoja 'Usuarios'."""
     @wraps(func)
@@ -1112,29 +1130,47 @@ def obtener_momento_y_fecha_auto():
 # 2. CÁLCULOS BIOMÉTRICOS Y MÉTRICAS
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
-def calcular_tmb_y_get(peso_actual: int, altura_cm: int, edad: int, genero: str = "masculino", actividad: int = 1375, peso_ideal: int = None) -> tuple[float, float]:
+def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero: str = "masculino", actividad = 1375, peso_ideal = None) -> tuple[float, float]:
     """
     Calcula TMB (Mifflin-St Jeor) y GET (Gasto Energético Total).
-    Los parámetros numéricos deben venir como ENTEROS (multiplicados por 1000).
+    Procesa números enteros (*1000) o strings/floats numéricos de forma tolerante.
     """
+    def _parse_num(val, default):
+        if val is None:
+            return default
+        try:
+            # Si viene como string, normaliza comas y limpia espacios
+            return float(str(val).replace(',', '.').strip())
+        except (ValueError, TypeError):
+            return default
+
     try:
-        # Convertimos de entero (*1000) a valor real
-        peso = float(int(peso_actual)) / 1000.0 if peso_actual and int(peso_actual) > 0 else 70.0
-        altura = float(int(altura_cm)) / 1000.0 if altura_cm and int(altura_cm) > 0 else 170.0
-        años = int(int(edad) / 1000) if edad and int(edad) > 1000 else int(edad)
+        # 1. Obtención segura como float
+        p_num = _parse_num(peso_actual, 70000.0)
+        a_num = _parse_num(altura_cm, 170.0)
+        e_num = _parse_num(edad, 30.0)
+        act_num = _parse_num(actividad, 1375.0)
+
+        # 2. Conversiones a escala real
+        peso = p_num / 1000.0 if p_num > 1000 else p_num
         
-        # El factor de actividad VIENE OBLIGATORIAMENTE como entero (ej: 1500, 1375)
-        factor_actividad = float(int(actividad)) / 1000.0
+        # Si la altura viene en cm o *1000
+        altura = a_num / 1000.0 if a_num > 1000 else a_num
         
+        años = int(e_num / 1000.0) if e_num > 1000 else int(e_num)
+        
+        # 3. Factor de Actividad: si es 1480 o 1500 pasa a 1.48 o 1.50; si ya era 1.48 se respeta
+        factor_actividad = act_num / 1000.0 if act_num > 100 else act_num
+
         if factor_actividad <= 0:
-            raise ValueError(f"Factor de actividad inválido: {actividad}")
-            
-    except (ValueError, TypeError) as e:
-        print(f"ERROR CRÍTICO en calcular_tmb_y_get: Se esperaba un entero multiplicado por 1000. Recibido: actividad={actividad}. Detalle: {e}")
-        raise e  # Lanza el error para detectarlo de inmediato
+            factor_actividad = 1.375
+
+    except Exception as e:
+        print(f"ERROR en calcular_tmb_y_get: {e}")
+        peso, altura, años, factor_actividad = 70.0, 170.0, 30, 1.375
 
     gen_clean = str(genero).strip().lower()
-    
+
     # Mifflin-St Jeor
     if gen_clean in ["femenino", "f", "mujer", "female"]:
         tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * años) - 161.0
@@ -1142,7 +1178,8 @@ def calcular_tmb_y_get(peso_actual: int, altura_cm: int, edad: int, genero: str 
         tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * años) + 5.0
 
     get = tmb * factor_actividad
-    return tmb, get
+    return round(tmb, 2), round(get, 2)
+    
     
 def calcular_metricas_mensuales(df_mes, perfil_dict):
     """Procesa todos los cálculos mensuales garantizando consistencia y exactitud metabólica."""
@@ -1497,6 +1534,10 @@ async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
 #                                          VALIDACIÓN CENTRALIZADA DE PESO
 # =============================================================================================================================================
 
+# =============================================================================================================================================
+#                                         VALIDACIÓN CENTRALIZADA DE PESO (CORREGIDA)
+# =============================================================================================================================================
+
 async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.DEFAULT_TYPE = None, user_id: int = None) -> bool:
     """
     Verifica si el usuario registró su peso en el mes en curso.
@@ -1518,21 +1559,34 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
     peso_valido = False
 
     if ultimo_registro:
-        fecha_val = (
-            ultimo_registro.get("fecha") or 
-            ultimo_registro.get("Ultimo Mes Peso") or 
-            ultimo_registro.get("MES") or 
-            ""
-        )
-        fecha_str = str(fecha_val).strip()
+        # Si el backend devuelve un dict, sacamos el valor; si devuelve directamente el dato, lo tomamos
+        if isinstance(ultimo_registro, dict):
+            fecha_val = (
+                ultimo_registro.get("fecha") or 
+                ultimo_registro.get("Ultimo Mes Peso") or 
+                ultimo_registro.get("MES") or 
+                ""
+            )
+        else:
+            fecha_val = ultimo_registro
+
+        # Si ya viene como datetime/Timestamp, lo convertimos a string limpio YYYY-MM-DD
+        if hasattr(fecha_val, 'strftime'):
+            fecha_str = fecha_val.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            fecha_str = str(fecha_val).strip()
 
         if fecha_str:
-            ahora = obtener_ahora_arg() if 'obtener_ahora_arg' in globals() else datetime.now()
+            ahora_raw = obtener_ahora_arg() if 'obtener_ahora_arg' in globals() else datetime.now()
+            # Quitamos tzinfo para evitar choques entre datetimes "aware" y "naive"
+            if hasattr(ahora_raw, 'tzinfo') and ahora_raw.tzinfo is not None:
+                ahora = ahora_raw.replace(tzinfo=None)
+            else:
+                ahora = ahora_raw
             
             formatos = [
-                "%d/%m/%Y", "%Y-%m-%d", "%d/%m/%y",
-                "%Y-%m", "%m/%Y", "%Y-%m-%d %H:%M:%S",
-                "%d/%m/%Y %H:%M:%S", "%Y-%m-%d %H:%M"
+                "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%d/%m/%Y %H:%M:%S",
+                "%d/%m/%Y", "%Y-%m-%d", "%d/%m/%y", "%Y-%m", "%m/%Y"
             ]
 
             fecha_dt = None
@@ -1571,7 +1625,7 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
         return False
 
     return True
-
+    
 # =============================================================================================================================================
 #                FINAL                        FUNCIONES AUXILIARES Y FORMATO                                      FINAL
 # =============================================================================================================================================
