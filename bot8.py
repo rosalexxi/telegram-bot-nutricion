@@ -624,13 +624,18 @@ def obtener_perfil_usuario(user_id, mes_target=None):
             return None
         
         perfil_raw = None
+
+        # Si viene un mes (ej: "2026-05"), buscamos la fila que coincida en la columna MES
         if mes_target:
-            for r in reversed(records):
-                m_val = str(r.get('MES', r.get('Mes', ''))).strip()
-                if m_val == mes_target:
+            target_clean = str(mes_target).strip()
+            for r in records:
+                m_val = str(r.get('MES', r.get('Mes', r.get('mes', '')))).strip()
+                # Corta a 7 caracteres por si Google Sheets devuelve fecha completa YYYY-MM-DD
+                if m_val.startswith(target_clean):
                     perfil_raw = r
                     break
         
+        # Si no se especificó mes o no se encontró esa fila, toma la última por defecto
         if not perfil_raw:
             perfil_raw = records[-1]
         
@@ -638,32 +643,43 @@ def obtener_perfil_usuario(user_id, mes_target=None):
         for k, v in perfil_raw.items():
             k_upper = str(k).strip().upper()
             
-            # Normalización numérica dividiendo por 1000 si el valor viene en miles
             if k_upper == 'EDAD':
                 val = parse_float_from_sheets(v)
-                perfil['Edad'] = val / 1000.0 if val > 1000 else val
+                val_norm = val / 1000.0 if val > 1000 else val
+                perfil['Edad'] = val_norm
+                perfil['edad'] = val_norm
             elif k_upper == 'PESO':
                 val = parse_float_from_sheets(v)
-                perfil['Peso'] = val / 1000.0 if val > 1000 else val
-                perfil['peso_actual'] = perfil['Peso']
+                val_norm = val / 1000.0 if val > 1000 else val
+                # Guardamos todas las variantes de nombre de clave posible
+                perfil['Peso'] = val_norm
+                perfil['peso'] = val_norm
+                perfil['peso_actual'] = val_norm
             elif k_upper == 'ALTURA':
                 val = parse_float_from_sheets(v)
-                perfil['Altura'] = val / 1000.0 if val > 1000 else val
+                val_norm = val / 1000.0 if val > 1000 else val
+                perfil['Altura'] = val_norm
+                perfil['altura'] = val_norm
             elif k_upper in ['PESO_IDEAL', 'PESO IDEAL']:
                 val = parse_float_from_sheets(v)
-                perfil['Peso_ideal'] = val / 1000.0 if val > 1000 else val
+                val_norm = val / 1000.0 if val > 1000 else val
+                perfil['Peso_ideal'] = val_norm
+                perfil['peso_ideal'] = val_norm
             elif k_upper in ['GENERO', 'SEXO']:
                 perfil['Sexo'] = str(v).strip()
+                perfil['genero'] = str(v).strip()
             elif k_upper == 'OCUPACION':
                 perfil['Ocupacion'] = str(v).strip()
+                perfil['ocupacion'] = str(v).strip()
             elif k_upper == 'MES':
                 perfil['Mes'] = str(v).strip()
+                perfil['mes'] = str(v).strip()
 
         return perfil
     except Exception as e:
         print(f"Error obteniendo perfil del usuario {user_id}: {e}")
         return None
-
+        
 def requiere_registro(func):
     """Decorador que valida que el user_id de Telegram exista en la hoja 'Usuarios'."""
     @wraps(func)
@@ -2360,8 +2376,8 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await update.message.reply_text(msg, parse_mode="Markdown")
             return
 
-        # OBTENCIÓN DE PERFIL HISTÓRICO ESPECÍFICO DEL MES CONSULTADO
-        perfil = obtener_perfil_usuario_db(user_id, mes_target=mes_str) if 'obtener_perfil_usuario_db' in globals() else {}
+        # OBTENCIÓN DE PERFIL HISTÓRICO ESPECÍFICO DEL MES CONSULTADO (Se corrigió la invocación a la función real)
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) or {}
         m = calcular_metricas_mensuales(df_mes, perfil)
 
         # EVALUACIÓN DE MES: Consulta precisa a la IA si es el mes en curso
@@ -2409,7 +2425,8 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         txt_final = f"{encabezado_txt}{recomendacion_pantalla}{pie_txt}"
 
-        keyboard = [[InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"pdf_mes_{mes_str}")]]
+        # Se alineó el callback_data con el handler (descargar_pdf_resumen_)
+        keyboard = [[InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"descargar_pdf_resumen_{mes_str}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         if query:
@@ -2424,6 +2441,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.callback_query.edit_message_text(msg_err)
         else:
             await update.message.reply_text(msg_err)
+            
 
 #                                                    GENERAR PDF RESUMEN BYTES
 # ======================================================================================================================================
@@ -3313,11 +3331,6 @@ def generar_pdf_comidas_bytes(plantillas):
 #=========================================================================================================================================
 #                INICIO                             MANEJADORES HANDLE 2026 08 22                                  INICIO DB OK
 #=========================================================================================================================================
-
-
-#====================================================================================================================================
-#                FINAL                                     MANEJADORES HANDLE                                    FINAL
-#===================================================================================================================================
 
 @requiere_registro
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
