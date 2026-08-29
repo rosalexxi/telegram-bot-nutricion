@@ -637,18 +637,27 @@ def obtener_perfil_usuario(user_id, mes_target=None):
         perfil = {}
         for k, v in perfil_raw.items():
             k_upper = str(k).strip().upper()
+            
+            # Normalización numérica dividiendo por 1000 si el valor viene en miles
             if k_upper == 'EDAD':
-                perfil['Edad'] = parse_float_from_sheets(v)
+                val = parse_float_from_sheets(v)
+                perfil['Edad'] = val / 1000.0 if val > 1000 else val
             elif k_upper == 'PESO':
-                perfil['Peso'] = parse_float_from_sheets(v)
+                val = parse_float_from_sheets(v)
+                perfil['Peso'] = val / 1000.0 if val > 1000 else val
+                perfil['peso_actual'] = perfil['Peso']
             elif k_upper == 'ALTURA':
-                perfil['Altura'] = parse_float_from_sheets(v)
+                val = parse_float_from_sheets(v)
+                perfil['Altura'] = val / 1000.0 if val > 1000 else val
+            elif k_upper in ['PESO_IDEAL', 'PESO IDEAL']:
+                val = parse_float_from_sheets(v)
+                perfil['Peso_ideal'] = val / 1000.0 if val > 1000 else val
             elif k_upper in ['GENERO', 'SEXO']:
-                perfil['Sexo'] = str(v)
+                perfil['Sexo'] = str(v).strip()
             elif k_upper == 'OCUPACION':
-                perfil['Ocupacion'] = str(v)
+                perfil['Ocupacion'] = str(v).strip()
             elif k_upper == 'MES':
-                perfil['Mes'] = str(v)
+                perfil['Mes'] = str(v).strip()
 
         return perfil
     except Exception as e:
@@ -1079,9 +1088,12 @@ def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: 
     años = int(edad) if edad and edad > 0 else 40
 
     gen_clean = str(genero).strip().lower()
+    
+    # Estandarización de género para Mifflin-St Jeor
     if gen_clean in ["femenino", "f", "mujer", "female"]:
         tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * años) - 161.0
     else:
+        # Aplica la constante +5 para masculino (M, masculino, male, etc.)
         tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * años) + 5.0
 
     act_clean = str(actividad).strip().lower()
@@ -1134,49 +1146,47 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     def get_perfil_num(key_list, default):
         for k in key_list:
             if k in perfil_dict and perfil_dict[k] is not None:
-                val = parse_raw_val(perfil_dict[k])
+                val = parse_raw_val(perfil_dict[k]) if 'parse_raw_val' in globals() else float(perfil_dict[k])
                 if val != 0.0:
                     return val
         return default
 
     # 4. Extracción de datos biométricos
-    edad = int(get_perfil_num(['Edad', 'edad'], 64))
-    altura = get_perfil_num(['Altura', 'altura'], 167.0)
-    peso_actual = get_perfil_num(['Peso', 'peso'], 108.5)
-    peso_ideal = get_perfil_num(['Peso_ideal', 'peso_ideal', 'Peso Ideal'], 75.0)
+    edad = int(get_perfil_num(['Edad', 'edad', 'EDAD'], 64))
+    altura = get_perfil_num(['Altura', 'altura', 'ALTURA'], 167.0)
+    peso_actual = get_perfil_num(['Peso', 'peso', 'peso_actual', 'PESO'], 108.5)
+    peso_ideal = get_perfil_num(['Peso_ideal', 'peso_ideal', 'Peso Ideal', 'PESO_IDEAL'], 75.0)
     
-    genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
-    ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
+    # Mapeo directo de M / F (o palabras completas) a formato estandarizado
+    raw_genero = str(perfil_dict.get('Sexo') or perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'M')).strip().upper()
+    if raw_genero in ['F', 'FEMENINO', 'MUJER', 'FEMALE']:
+        genero = 'femenino'
+    else:
+        genero = 'masculino'
 
-    # Peso de referencia (solo usado para definir las metas ideales de macros)
+    ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('OCUPACION') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
+
+    # Peso de referencia (usado para metas ideales de macros)
     peso_referencia = (peso_actual * 0.75) + (peso_ideal * 0.25)
 
-    # 5. GASTO BASE REAL: Se calcula sobre el PESO ACTUAL REAL del organismo
+    # 5. GASTO BASE REAL: Calculado sobre el PESO ACTUAL REAL del organismo
     _, get_real = calcular_tmb_y_get(
         peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
     )
 
-    # 6. GASTO META: Se calcula sobre el peso ponderado para fijar los objetivos de consumo
+    # 6. GASTO META: Calculado sobre el peso ponderado
     _, get_meta = calcular_tmb_y_get(
         peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
     )
 
-    # --- CÁLCULO CORREGIDO DE DÉFICIT Y CAMBIO DE PESO ---
-    # Gasto Total = GET Real (peso actual) + Ejercicio registrado
+    # --- CÁLCULO DE DÉFICIT Y CAMBIO DE PESO ---
     gasto_diario_total = get_real + prom_quem
-
-    # Balance diario: Consumidas menos Gastadas
-    # Ej: Si consume 2282 y gasta 2683, balance_diario = -401 kcal (Déficit de 401)
     balance_diario = prom_cons - gasto_diario_total
-
-    # Cambio de peso: Balance negativo representa descenso (-kg)
     cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
     deficit_diario_real = -balance_diario
-    # ----------------------------------------------------
 
     # 7. Definición de Objetivos Ideales (Metas)
-    gen_clean = genero.lower()
-    if gen_clean in ["femenino", "f", "mujer", "female"]:
+    if genero == "femenino":
         factor_proteina = 1.2
         ideal_fibr = 25
     else:
@@ -1202,9 +1212,9 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "ideal_gras": ideal_gras,
         "ideal_carb": ideal_carb,
         "ideal_fibr": ideal_fibr,
-        "peso_actual": int(round(peso_actual)),
-        "peso_ideal": int(round(peso_ideal)),
-        "peso_referencia": int(round(peso_referencia)),
+        "peso_actual": round(peso_actual, 1),
+        "peso_ideal": round(peso_ideal, 1),
+        "peso_referencia": round(peso_referencia, 1),
         "altura": int(round(altura)),
         "edad": edad,
         "get_meta": get_meta,
@@ -1218,6 +1228,7 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "tot_carb": tot_carb,
         "tot_fibr": tot_fibr
     }
+    
     
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 3. INTEGRACIÓN CON IA (GROQ)
