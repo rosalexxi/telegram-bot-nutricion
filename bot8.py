@@ -1262,10 +1262,10 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "ideal_gras": ideal_gras,
         "ideal_carb": ideal_carb,
         "ideal_fibr": ideal_fibr,
-        "peso_actual": int(round(peso_actual)),
-        "peso_ideal": int(round(peso_ideal)),
-        "peso_referencia": int(round(peso_referencia)),
-        "altura": int(round(altura)),
+        "peso_actual": round(float(peso_actual), 1),
+        "peso_ideal": round(float(peso_ideal), 1),
+        "peso_referencia": round(float(peso_referencia), 1),
+        "altura": round(float(altura), 1),
         "edad": edad,
         "get_meta": get_meta,
         "get_real": get_real,
@@ -3057,11 +3057,11 @@ async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Manejador del comando /diario.
     Muestra el menú de selección de fecha solo si el peso del mes en curso está al día.
     """
-    # 1. Validación estricta del peso del mes actual (Si no está al día, envía aviso y cancela)
-    if not await _validar_peso_mes_actual(update, context, funcion_nombre="reporte diario"):
+    # Usá exactamente la misma signatura de llamada que en cmd_mensaje
+    if not await _validar_peso_mes_actual(update=update, context=context):
         return
 
-    # 2. Despliegue del menú si el peso está al día
+    # Despliegue del menú si el peso está al día
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📅 Hoy", callback_data="diario_hoy"), InlineKeyboardButton("📆 Ayer", callback_data="diario_ayer")],
         [InlineKeyboardButton("🗓️ Seleccionar Fecha", callback_data="diario_otro")]
@@ -3072,7 +3072,6 @@ async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=keyboard, 
         parse_mode="Markdown"
     )
-
 async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
     """
     Función auxiliar para procesar y renderizar el reporte del diario agrupado por evento.
