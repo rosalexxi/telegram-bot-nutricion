@@ -2351,6 +2351,21 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 #               INICIO                           COMANDO RESUMEN                             INICIO DB OK
 # ==============================================================================================================================================
 
+import os
+import re
+import io
+import logging
+import asyncio
+from datetime import timedelta
+import pandas as pd
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+logger = logging.getLogger(__name__)
+
 @requiere_registro
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -2381,14 +2396,13 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = None, frecuencias: dict = None) -> str:
     """
     Envía datos biométricos, promedios mensuales y frecuencias de alimentos a Groq/IA
-    para que redacte un informe nutricional clínico de 500-600 palabras exacto y sin aproximaciones.
+    para que redacte un informe nutricional clínico completo para el PDF.
     """
     if biometria is None:
         biometria = {}
     if frecuencias is None:
         frecuencias = {}
 
-    # Se usa float y redondeo a 1 decimal para conservar los gramos/decimales del peso (ej. 108.4 kg)
     peso_act = round(float(biometria.get('peso_actual', 0)), 1)
     peso_id = round(float(biometria.get('peso_ideal', 0)), 1)
     
@@ -2401,7 +2415,7 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
     frec_str = "\n".join([f"- {cat}: {cant} ingestas" for cat, cant in frecuencias.items()]) if frecuencias else "- No hay frecuencias registradas."
 
     prompt_pdf = f"""
-    Actúa como un nutricionista clínico experto. Analiza minuciosamente el siguiente resumen nutricional mensual de un paciente y redacta un informe extenso y profesional de entre 500 y 600 palabras.
+    Actúa como un nutricionista clínico experto. Analiza minuciosamente el siguiente resumen nutricional mensual de un paciente y redacta un informe extenso y profesional.
 
     DATOS BIOMÉTRICOS DEL PACIENTE:
     - Peso actual: {peso_act} kg | Peso objetivo: {peso_id} kg
@@ -2420,24 +2434,24 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
     Usa etiquetas HTML básicas (<b>, <br/>) para dar formato. El informe DEBE dividirse en exactamente estas 5 secciones encabezadas en negrita:
 
     <b>1. DIAGNÓSTICO NUTRICIONAL INTEGRAL DEL MES</b>
-    (Análisis profundo del balance energético global y cumplimiento del perfil basándote en la relación entre los nutrientes y los grupos de alimentos consumidos).
+    (Análisis profundo del balance energético global y cumplimiento del perfil).
 
     <b>2. ANÁLISIS DE BRECHAS Y DESVÍOS ESPECÍFICOS</b>
-    (Evaluación numérica del déficit o exceso de macronutrientes, fibra y la calidad de la selección de alimentos, con foco en el balance entre Harinas Refinadas e Integrales).
+    (Evaluación numérica del déficit o exceso de macronutrientes y fibra).
 
-    <b>3. ALIMENTOS Y COMIDAS QUE DEBERÍAS INGERIR (10 OPCIONES DINÁMICAS SEGÚN DÉFICITS)</b>
-    (Lista numerada del 1 al 10 recomendando alimentos concretos para suplir únicamente los nutrientes y grupos faltantes según la tabla).
+    <b>3. ALIMENTOS Y COMIDAS QUE DEBERÍAS INGERIR (10 OPCIONES)</b>
+    (Lista numerada del 1 al 10 recomendando alimentos concretos para suplir faltantes).
 
-    <b>4. ALIMENTOS Y COMIDAS QUE DEBERÍAS REDUCIR O EVITAR (10 OPCIONES DINÁMICAS SEGÚN EXCESOS)</b>
-    (Lista numerada del 1 al 10 indicando alimentos específicos a moderar o cortar para corregir excesos detectados).
+    <b>4. ALIMENTOS Y COMIDAS QUE DEBERÍAS REDUCIR O EVITAR (10 OPCIONES)</b>
+    (Lista numerada del 1 al 10 indicando alimentos específicos a moderar).
 
     <b>5. RECOMENDACIÓN GENERAL Y ESTRATEGIA DE HÁBITOS</b>
-    (Estrategias sobre consumo de agua, distribución de platos y hábitos sostenibles).
+    (Estrategias sobre consumo de agua y hábitos sostenibles).
 
-    REGLA STRICTA: Devuelve ÚNICAMENTE el texto del informe formateado en HTML sin incluir mensajes adicionales, saludos ni introducciones fuera del informe.
+    REGLA STRICTA: Devuelve ÚNICAMENTE el texto formateado en HTML limpio, asegurando cerrar correctamente todas las etiquetas <b>. No uses comillas dobles dentro de etiquetas ni anides mal el formato.
     """
 
-    respuesta = ejecutar_consulta_ia(prompt=prompt_pdf, max_tokens=1200, temperature=0.5)
+    respuesta = ejecutar_consulta_ia(prompt=prompt_pdf, max_tokens=1500, temperature=0.3)
     
     if respuesta:
         return respuesta
@@ -2540,17 +2554,15 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
             frec_txt = "\n".join([f"- {cat}: {cant} veces" for cat, cant in conteo_frecuencias.items()]) if conteo_frecuencias else "No registrado."
 
+            # PROMPT CORTO Y CONCISO PARA PANTALLA (Evita desbordes y cortes en Telegram)
             prompt_para_ia_pantalla = (
-                f"Actúa como un nutricionista clínico. Proporcioná un análisis conciso y directo para pantalla basado en estos datos del mes en curso:\n"
-                f"- Días evaluados: {m.get('dias_registrados', 0)}\n"
-                f"- Peso de referencia: {_fmt(m.get('peso_actual', 0), 1)} kg\n"
-                f"- Calorías: {_fmt(m.get('prom_cal', 0))} kcal/día (Meta: {_fmt(m.get('ideal_cal', 0))} kcal)\n"
-                f"- Proteínas: {_fmt(m.get('prom_prot', 0))} g/día (Meta: {_fmt(m.get('ideal_prot', 0))} g)\n"
-                f"- Grasas: {_fmt(m.get('prom_gras', 0))} g/día (Meta: {_fmt(m.get('ideal_gras', 0))} g)\n"
-                f"- Carbohidratos: {_fmt(m.get('prom_carb', 0))} g/día (Meta: {_fmt(m.get('ideal_carb', 0))} g)\n"
-                f"- Fibra: {_fmt(m.get('prom_fibr', 0))} g/día (Meta: {_fmt(m.get('ideal_fibr', 0))} g)\n"
-                f"Frecuencia de ingestas en el mes:\n{frec_txt}\n\n"
-                f"Analizá los desvíos. Indicá qué alimentos ajustar, recomendando opciones precisas según las categorías de comida donde hay faltantes o excesos."
+                f"Actúa como un nutricionista clínico. Redacta un resumen breve, directo y al grano (máximo 180 palabras) en un solo bloque o viñetas cortas para pantalla de Telegram, evaluando estos datos mensuales:\n"
+                f"- Peso actual: {_fmt(m.get('peso_actual', 0), 1)} kg (Meta: {_fmt(m.get('peso_referencia', 0), 1)} kg)\n"
+                f"- Calorías promedio: {_fmt(m.get('prom_cal', 0))} kcal (Meta: {_fmt(m.get('ideal_cal', 0))} kcal)\n"
+                f"- Proteínas: {_fmt(m.get('prom_prot', 0))} g (Meta: {_fmt(m.get('ideal_prot', 0))} g)\n"
+                f"- Grasas: {_fmt(m.get('prom_gras', 0))} g (Meta: {_fmt(m.get('ideal_gras', 0))} g)\n"
+                f"- Fibra: {_fmt(m.get('prom_fibr', 0))} g (Meta: {_fmt(m.get('ideal_fibr', 0))} g)\n"
+                f"Menciona brevemente el principal desvío y 2 recomendaciones concretas. No uses textos largos."
             )
             recomendacion_pantalla = await asyncio.to_thread(obtener_recomendacion_ia, prompt_para_ia_pantalla)
         else:
@@ -2561,23 +2573,22 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         encabezado_txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n"
-            f"⚖️ *Peso registrado en el período: `{_fmt(m.get('peso_actual', 0), 1)} kg`*\n\n"
-            f"• **Promedio Consumidas:** `{_fmt(m.get('prom_cal', 0))} kcal` / día\n"
-            f"• **Promedio Quemadas:** `{_fmt(m.get('prom_quem', 0))} kcal` / día\n"
-            f"• **Balance Neto Diario:** `{_fmt(m.get('prom_bal_neto', 0))} kcal` / día\n"
-            f"• **Cambio Estimado de Peso:** `{float(m.get('cambio_peso_kg', 0)):+.1f} kg` en el mes\n\n"
-            f"• Días evaluados: `{m.get('dias_registrados', 0)}`\n"
-            f"📈 **Promedio Diario vs. Objetivos:**\n"
-            f"• **Calorías:** `{_fmt(m.get('prom_cal', 0))} kcal` / Meta: `{_fmt(m.get('ideal_cal', 0))} kcal`\n"
-            f"• **Proteínas:** `{_fmt(m.get('prom_prot', 0))} g` / Meta: `{_fmt(m.get('ideal_prot', 0))} g`\n"
-            f"• **Grasas:** `{_fmt(m.get('prom_gras', 0))} g` / Meta: `{_fmt(m.get('ideal_gras', 0))} g`\n"
-            f"• **Carbohidratos:** `{_fmt(m.get('prom_carb', 0))} g` / Meta: `{_fmt(m.get('ideal_carb', 0))} g`\n"
-            f"• **Fibras:** `{_fmt(m.get('prom_fibr', 0))} g` / Meta: `{_fmt(m.get('ideal_fibr', 0))} g`\n\n"
+            f"⚖️ *Peso registrado: `{_fmt(m.get('peso_actual', 0), 1)} kg`*\n\n"
+            f"• Consumidas: `{_fmt(m.get('prom_cal', 0))} kcal` | Quemadas: `{_fmt(m.get('prom_quem', 0))} kcal`\n"
+            f"• Balance Neto: `{_fmt(m.get('prom_bal_neto', 0))} kcal/día`\n"
+            f"• Camb. Est. Peso: `{float(m.get('cambio_peso_kg', 0)):+.1f} kg` ({m.get('dias_registrados', 0)} días)\n\n"
+            f"📈 **Promedios vs. Objetivos:**\n"
+            f"• Calorías: `{_fmt(m.get('prom_cal', 0))}` / `{_fmt(m.get('ideal_cal', 0))} kcal`\n"
+            f"• Proteínas: `{_fmt(m.get('prom_prot', 0))}` / `{_fmt(m.get('ideal_prot', 0))} g`\n"
+            f"• Grasas: `{_fmt(m.get('prom_gras', 0))}` / `{_fmt(m.get('ideal_gras', 0))} g`\n"
+            f"• Carbs: `{_fmt(m.get('prom_carb', 0))}` / `{_fmt(m.get('ideal_carb', 0))} g`\n"
+            f"• Fibras: `{_fmt(m.get('prom_fibr', 0))}` / `{_fmt(m.get('ideal_fibr', 0))} g`\n\n"
             f"🤖 **Análisis Nutricional:**\n"
         )
         
-        pie_txt = f"\n\n📄 Podés descargar el reporte completo en PDF a continuación:"
+        pie_txt = f"\n\n📄 Podés descargar el informe completo en PDF abajo:"
 
+        # Control de espacio seguro para Telegram
         espacio_disponible = 3900 - len(encabezado_txt) - len(pie_txt)
         if len(recomendacion_pantalla) > espacio_disponible:
             recomendacion_pantalla = recomendacion_pantalla[:espacio_disponible - 3] + "..."
@@ -2715,7 +2726,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(t_comp)
     story.append(Spacer(1, 4))
 
-    # Peso con un decimal exacto en el reporte PDF
     peso_act_pdf = round(float(m.get('peso_actual', 0)), 1)
     peso_ref_pdf = round(float(m.get('peso_referencia', 0)), 1)
 
@@ -2726,11 +2736,30 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(Spacer(1, 4))
     story.append(Paragraph("<b>Informe Nutricional Mensual:</b>", sub_style))
 
+    # --- SANEAMIENTO ESTRICTO DE ETIQUETAS HTML PARA EL PDF ---
     if isinstance(recomendacion, str) and recomendacion.strip():
-        for bloque in recomendacion.strip().split('\n\n'):
-            if bloque.strip():
-                story.append(Paragraph(bloque.strip().replace('\n', '<br/>'), rec_style))
-                story.append(Spacer(1, 2))
+        rec_limpia = recomendacion.strip()
+        
+        # Eliminar comillas dobles problemáticas que confunden al parser de ReportLab
+        rec_limpia = rec_limpia.replace('""', '"').replace('"', '')
+
+        for bloque in rec_limpia.split('\n\n'):
+            bloque_txt = bloque.strip()
+            if bloque_txt:
+                bloque_formateado = bloque_txt.replace('\n', '<br/>')
+                
+                # Asegurar balance de etiquetas <b> básicas si la IA las dejó abiertas
+                if bloque_formateado.count('<b>') > bloque_formateado.count('</b>'):
+                    bloque_formateado += '</b>'
+
+                try:
+                    story.append(Paragraph(bloque_formateado, rec_style))
+                    story.append(Spacer(1, 2))
+                except Exception:
+                    # Fallback seguro: si falla por sintaxis XML/HTML, se inyecta como texto plano sin formato
+                    texto_plano = re.sub('<[^<]+?>', '', bloque_formateado)
+                    story.append(Paragraph(texto_plano, rec_style))
+                    story.append(Spacer(1, 2))
 
     doc.build(story)
     buffer.seek(0)
@@ -2744,7 +2773,6 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
 
     try:
         user_id = query.from_user.id
-        # Limpieza flexible de prefijos de callback para asegurar compatibilidad total
         cb_val = query.data
         for prefix in ["descargar_pdf_resumen_", "pdf_mes_"]:
             if cb_val.startswith(prefix):
