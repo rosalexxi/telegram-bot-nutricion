@@ -2393,6 +2393,45 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # =============================================================================================================================================
 
+def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
+    """Genera el análisis nutricional breve para pantalla apoyándose en la función centralizada de IA."""
+    if es_semanal:
+        prompt = f"""
+        Actúa como un coach nutricional breve y conciso.
+        Analiza este resumen semanal:
+        {resumen_texto}
+
+        REGLAS OBLIGATORIAS:
+        1. Escribe UN solo párrafo corto de análisis general (máximo 50 palabras).
+        2. Agrega solo 3 recomendaciones breves en puntos (-).
+        3. Extensión TOTAL máxima: 120 palabras.
+        4. NO USES NUMERALES (##).
+        5. Cierra siempre la última oración con punto final.
+        """
+        max_t = 350
+    else:
+        prompt = f"""
+        Actúa como un nutricionista clínico. Escribe un único párrafo muy corto y directo (máximo 40 palabras) evaluando el balance general del mes. 
+        Datos a evaluar:
+        {resumen_texto}
+
+        REGLAS OBLIGATORIAS:
+        1. Máximo un párrafo breve.
+        2. Prohibido repetir cifras numéricas exactas.
+        3. Cierra con punto final y no dejes ideas inconclusas.
+        """
+        max_t = 120  # Límite estricto para que entre holgadamente en Telegram sin cortarse
+
+    system_msg = "Eres un nutricionista profesional y empático. Proporciona respuestas claras y breves."
+    res = ejecutar_consulta_ia(prompt, max_tokens=max_t, temperature=0.3, system_prompt=system_msg)
+    
+    if res:
+        return res.replace("##", "").replace("###", "").strip()
+        
+    return "⚠️ No se pudo obtener el análisis nutricional en este momento."
+
+# =============================================================================================================================================
+
 def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = None, frecuencias: dict = None) -> str:
     """
     Envía datos biométricos, promedios mensuales y frecuencias de alimentos a Groq/IA
@@ -2551,20 +2590,12 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
                 return "0"
 
         if mes_str == mes_actual_str:
-            conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
-            frec_txt = "\n".join([f"- {cat}: {cant} veces" for cat, cant in conteo_frecuencias.items()]) if conteo_frecuencias else "No registrado."
-
-            # PROMPT CORTO Y CONCISO PARA PANTALLA (Evita desbordes y cortes en Telegram)
-            prompt_para_ia_pantalla = (
-                f"Actúa como un nutricionista clínico. Redacta un resumen breve, directo y al grano (máximo 180 palabras) en un solo bloque o viñetas cortas para pantalla de Telegram, evaluando estos datos mensuales:\n"
-                f"- Peso actual: {_fmt(m.get('peso_actual', 0), 1)} kg (Meta: {_fmt(m.get('peso_referencia', 0), 1)} kg)\n"
-                f"- Calorías promedio: {_fmt(m.get('prom_cal', 0))} kcal (Meta: {_fmt(m.get('ideal_cal', 0))} kcal)\n"
-                f"- Proteínas: {_fmt(m.get('prom_prot', 0))} g (Meta: {_fmt(m.get('ideal_prot', 0))} g)\n"
-                f"- Grasas: {_fmt(m.get('prom_gras', 0))} g (Meta: {_fmt(m.get('ideal_gras', 0))} g)\n"
-                f"- Fibra: {_fmt(m.get('prom_fibr', 0))} g (Meta: {_fmt(m.get('ideal_fibr', 0))} g)\n"
-                f"Menciona brevemente el principal desvío y 2 recomendaciones concretas. No uses textos largos."
+            resumen_texto_base = (
+                f"Peso actual: {_fmt(m.get('peso_actual', 0), 1)} kg (Meta: {_fmt(m.get('peso_referencia', 0), 1)} kg). "
+                f"Calorías promedio: {_fmt(m.get('prom_cal', 0))} kcal (Meta: {_fmt(m.get('ideal_cal', 0))} kcal). "
+                f"Proteínas: {_fmt(m.get('prom_prot', 0))} g. Grasas: {_fmt(m.get('prom_gras', 0))} g. Fibra: {_fmt(m.get('prom_fibr', 0))} g."
             )
-            recomendacion_pantalla = await asyncio.to_thread(obtener_recomendacion_ia, prompt_para_ia_pantalla)
+            recomendacion_pantalla = await asyncio.to_thread(obtener_recomendacion_ia, resumen_texto_base, es_semanal=False)
         else:
             recomendacion_pantalla = (
                 "📌 *Este reporte corresponde a un período mensual ya finalizado. "
@@ -2588,7 +2619,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         pie_txt = f"\n\n📄 Podés descargar el informe completo en PDF abajo:"
 
-        # Control de espacio seguro para Telegram
         espacio_disponible = 3900 - len(encabezado_txt) - len(pie_txt)
         if len(recomendacion_pantalla) > espacio_disponible:
             recomendacion_pantalla = recomendacion_pantalla[:espacio_disponible - 3] + "..."
@@ -2736,11 +2766,8 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(Spacer(1, 4))
     story.append(Paragraph("<b>Informe Nutricional Mensual:</b>", sub_style))
 
-    # --- SANEAMIENTO ESTRICTO DE ETIQUETAS HTML PARA EL PDF ---
     if isinstance(recomendacion, str) and recomendacion.strip():
         rec_limpia = recomendacion.strip()
-        
-        # Eliminar comillas dobles problemáticas que confunden al parser de ReportLab
         rec_limpia = rec_limpia.replace('""', '"').replace('"', '')
 
         for bloque in rec_limpia.split('\n\n'):
@@ -2748,7 +2775,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
             if bloque_txt:
                 bloque_formateado = bloque_txt.replace('\n', '<br/>')
                 
-                # Asegurar balance de etiquetas <b> básicas si la IA las dejó abiertas
                 if bloque_formateado.count('<b>') > bloque_formateado.count('</b>'):
                     bloque_formateado += '</b>'
 
@@ -2756,7 +2782,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
                     story.append(Paragraph(bloque_formateado, rec_style))
                     story.append(Spacer(1, 2))
                 except Exception:
-                    # Fallback seguro: si falla por sintaxis XML/HTML, se inyecta como texto plano sin formato
                     texto_plano = re.sub('<[^<]+?>', '', bloque_formateado)
                     story.append(Paragraph(texto_plano, rec_style))
                     story.append(Spacer(1, 2))
