@@ -2346,7 +2346,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 # ==============================================================================================================================================
 
 # ==============================================================================================================================================
-#               INICIO                      COMANDO RESUMEN     2026 08 28                        INICIO DB OK
+#               INICIO                      COMANDO RESUMEN     2026 08 30                        INICIO DB OK
 # ==============================================================================================================================================
 
 @requiere_registro
@@ -2355,7 +2355,6 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Manejador del comando /resumen.
     Muestra el menú de selección de mes solo si el peso del mes en curso está al día.
     """
-    # Validación centralizada usando la función del bloque de auxiliares
     if not await _validar_peso_mes_actual(update, context):
         return
 
@@ -2375,7 +2374,6 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-#                                                        RECOMENDACIÓN EXTENSA PARA PDF (~500 - 600 PALABRAS)
 # =============================================================================================================================================
 
 def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = None, frecuencias: dict = None) -> str:
@@ -2388,8 +2386,9 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
     if frecuencias is None:
         frecuencias = {}
 
-    peso_act = int(round(biometria.get('peso_actual', 0)))
-    peso_id = int(round(biometria.get('peso_ideal', 0)))
+    # Se usa float y redondeo a 1 decimal para conservar los gramos/decimales del peso (ej. 108.4 kg)
+    peso_act = round(float(biometria.get('peso_actual', 0)), 1)
+    peso_id = round(float(biometria.get('peso_ideal', 0)), 1)
     
     cal_r, cal_m = int(round(promedios.get('calorias', 0))), int(round(metas.get('calorias', 2000)))
     prot_r, prot_m = int(round(promedios.get('proteinas', 0))), int(round(metas.get('proteinas', 100)))
@@ -2397,7 +2396,6 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
     carb_r, carb_m = int(round(promedios.get('carbohidratos', 0))), int(round(metas.get('carbohidratos', 200)))
     fibr_r, fibr_m = int(round(promedios.get('fibras', 0))), int(round(metas.get('fibras', 25)))
 
-    # Formatear el bloque de frecuencias de alimentos consumidos en el mes
     frec_str = "\n".join([f"- {cat}: {cant} ingestas" for cat, cant in frecuencias.items()]) if frecuencias else "- No hay frecuencias registradas."
 
     prompt_pdf = f"""
@@ -2444,7 +2442,6 @@ def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = Non
 
     return "<b>⚠️ No se pudo generar la recomendación mediante IA en este momento.</b>"    
 
-#                                                       MOSTRAR EL RESUMEN DEL MES POR PANTALLA
 # =============================================================================================================================================
 
 async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2499,7 +2496,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not mes_str:
             mes_str = mes_actual_str
 
-        # Si el usuario pide consultar el mes en curso, verificamos el peso centralizado
         if mes_str == mes_actual_str:
             if not await _validar_peso_mes_actual(update, context):
                 return
@@ -2531,7 +2527,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) or {}
         m = calcular_metricas_mensuales(df_mes, perfil)
 
-        # Función auxiliar para formatear enteros o floats defensivamente
         def _fmt(val, dec=0):
             try:
                 num = float(val)
@@ -2539,7 +2534,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             except (ValueError, TypeError):
                 return "0"
 
-        # EVALUACIÓN DE MES: Consulta a la IA incluyendo conteo de frecuencias
         if mes_str == mes_actual_str:
             conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
             frec_txt = "\n".join([f"- {cat}: {cant} veces" for cat, cant in conteo_frecuencias.items()]) if conteo_frecuencias else "No registrado."
@@ -2604,8 +2598,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             await update.message.reply_text(msg_err)
 
-
-#                                                    GENERAR PDF RESUMEN BYTES
 # ======================================================================================================================================
 
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
@@ -2721,7 +2713,11 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(t_comp)
     story.append(Spacer(1, 4))
 
-    story.append(Paragraph(f"• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {m['peso_actual']} kg | Peso Objetivo (75/25): {m['peso_referencia']} kg | Altura: {m['altura']} cm", body_style))
+    # Peso con un decimal exacto en el reporte PDF
+    peso_act_pdf = round(float(m.get('peso_actual', 0)), 1)
+    peso_ref_pdf = round(float(m.get('peso_referencia', 0)), 1)
+
+    story.append(Paragraph(f"• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {peso_act_pdf} kg | Peso Objetivo (75/25): {peso_ref_pdf} kg | Altura: {m['altura']} cm", body_style))
     story.append(Paragraph(f"• <b>DÉFICIT CALÓRICO DIARIO PROMEDIO:</b> {m['deficit_diario_real']} kcal / día", body_style))
     story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {m['cambio_peso_kg']:+.1f} kg", body_style))
 
@@ -2738,13 +2734,20 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     buffer.seek(0)
     return buffer
 
+# ======================================================================================================================================
+
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("Generando PDF... ⏳")
 
     try:
         user_id = query.from_user.id
-        mes_str = query.data.replace("descargar_pdf_resumen_", "").replace("pdf_mes_", "")
+        # Limpieza flexible de prefijos de callback para asegurar compatibilidad total
+        cb_val = query.data
+        for prefix in ["descargar_pdf_resumen_", "pdf_mes_"]:
+            if cb_val.startswith(prefix):
+                cb_val = cb_val.replace(prefix, "")
+        mes_str = cb_val
 
         ahora = obtener_ahora_arg()
         mes_actual_str = ahora.strftime("%Y-%m")
@@ -4171,8 +4174,8 @@ def main():
 
     # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
     app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
-    app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^pdf_mes_"))
-
+    app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
+    
     # --- HANDLERS DE MENSAJES Y CONSULTAS ---
     app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
