@@ -4301,8 +4301,8 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         gc = get_gspread_client()
         sh = gc.open(SPREADSHEET_NAME)
         
-        # 1. Identificar especialidad del profesional en la hoja 'Profesionales'
-        especialidad_prof = "General"
+        # 1. Validar e identificar especialidad del profesional en la hoja 'Profesionales'
+        especialidad_prof = None
         try:
             ws_prof = sh.worksheet("Profesionales")
             recs_prof = ws_prof.get_all_records()
@@ -4313,6 +4313,10 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     break
         except Exception:
             pass
+
+        if not especialidad_prof:
+            await msg_espera.edit_text("⛔ **Acceso denegado:** Este comando es exclusivo para profesionales registrados.", parse_mode="Markdown")
+            return
 
         # 2. Filtrar pacientes del médico
         ws_usuarios = sh.worksheet("Usuarios")
@@ -4345,6 +4349,8 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         texto_reporte = f"📋 **Listado de Pacientes Asignados**\n🩺 *Especialidad:* `{especialidad_prof}`\n\n"
         datos_para_pdf = []
 
+        nombres_hojas = [ws.title for ws in sh.worksheets()]
+
         for pac in pacientes_del_medico:
             u_id = pac["user_id"]
             nombre = pac["nombre"]
@@ -4363,17 +4369,21 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-            try:
-                ws_presion = sh.worksheet(f"Presion_{u_id}")
-                recs_presion = ws_presion.get_all_records()
-                if recs_presion:
-                    ult_pres = recs_presion[-1]
-                    sys = ult_pres.get("Sistolica", ult_pres.get("sistolica", ""))
-                    dia = ult_pres.get("Diastolica", ult_pres.get("diastolica", ""))
-                    if sys and dia:
-                        presion_str = f"{sys}/{dia} mmHg"
-            except Exception:
-                pass
+            # Búsqueda flexible de la hoja de Presión
+            recs_presion_all = []
+            hoja_presion_nombre = next((h for h in nombres_hojas if h.lower() in [f"presion_{u_id}".lower(), f"presión_{u_id}".lower()]), None)
+            if hoja_presion_nombre:
+                try:
+                    ws_p = sh.worksheet(hoja_presion_nombre)
+                    recs_presion_all = ws_p.get_all_records()
+                    if recs_presion_all:
+                        ult_pres = recs_presion_all[-1]
+                        sys = ult_pres.get("Alta", ult_pres.get("Sistolica", ult_pres.get("sistónica", ult_pres.get("sistolica", ""))))
+                        dia = ult_pres.get("Baja", ult_pres.get("Diastolica", ult_pres.get("diastólica", ult_pres.get("diastolica", ""))))
+                        if sys and dia:
+                            presion_str = f"{sys}/{dia} mmHg"
+                except Exception:
+                    pass
 
             try:
                 ws_comidas = sh.worksheet(f"Comidas_{u_id}")
@@ -4398,21 +4408,14 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "--------------------------------------------------\n"
             )
 
-            # Recopilar métricas históricas de hasta 6 meses con proteínas y presión mensual
+            # Recopilar métricas históricas de hasta 6 meses
             historial_6m = []
             perfil_dict = recs_perfil[-1] if 'recs_perfil' in locals() and recs_perfil else {}
-            
-            # Cargar registros de presión completos para el histórico si existen
-            recs_presion_all = []
-            try:
-                ws_presion = sh.worksheet(f"Presion_{u_id}")
-                recs_presion_all = ws_presion.get_all_records()
-            except Exception:
-                pass
 
             for m_str in meses_a_evaluar:
                 df_u = obtener_datos_usuario(u_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
                 prom_prot_m = 0
+                prom_grasas_m = 0
                 dias_m = 0
                 prom_cal_m = 0
 
@@ -4422,25 +4425,26 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     metricas_m = calcular_metricas_mensuales(df_m, perfil_dict)
                     prom_cal_m = metricas_m.get("prom_cal", 0)
                     prom_prot_m = metricas_m.get("prom_prot", 0)
+                    prom_grasas_m = metricas_m.get("prom_grasas", metricas_m.get("prom_grasa", 0))
                     dias_m = metricas_m.get("dias_registrados", 0)
 
-                # Buscar presión para este mes específico
                 presion_m_str = "S/D"
                 presiones_mes = []
                 for p in recs_presion_all:
-                    f_pres = str(p.get("Fecha", p.get("fecha", "")))
+                    f_pres = str(p.get("Fecha", p.get("fecha", p.get("Fecha_Hora", p.get("fecha_hora", "")))))
                     if m_str in f_pres:
-                        s = p.get("Sistolica", p.get("sistolica", ""))
-                        d = p.get("Diastolica", p.get("diastolica", ""))
+                        s = p.get("Alta", p.get("Sistolica", p.get("sistólica", p.get("sistolica", ""))))
+                        d = p.get("Baja", p.get("Diastolica", p.get("diastólica", p.get("diastolica", ""))))
                         if s and d:
                             presiones_mes.append(f"{s}/{d}")
                 if presiones_mes:
-                    presion_m_str = presiones_mes[-1] # Última del mes
+                    presion_m_str = presiones_mes[-1]
 
                 historial_6m.append({
                     "mes": m_str,
                     "prom_cal": prom_cal_m,
                     "prom_prot": prom_prot_m,
+                    "prom_grasas": prom_grasas_m,
                     "presion": presion_m_str,
                     "dias": dias_m
                 })
@@ -4451,7 +4455,7 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "historial": historial_6m
             })
 
-        # 4. Generación de PDF avanzado sin la tabla superior y con proteínas/presión en el histórico
+        # 4. Generación de PDF avanzado
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
         styles = getSampleStyleSheet()
@@ -4461,22 +4465,23 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elements.append(Paragraph(f"Generado el: {ahora.strftime('%Y-%m-%d %H:%M')} | Período analizado: Últimos 6 meses", styles['Normal']))
         elements.append(Spacer(1, 15))
 
-        elements.append(Paragraph("<b>Evolución Mensual por Paciente (Calorías, Proteínas y Presión)</b>", styles['Heading2']))
+        elements.append(Paragraph("<b>Evolución Mensual por Paciente (Calorías, Proteínas, Grasas y Presión)</b>", styles['Heading2']))
         elements.append(Spacer(1, 10))
 
         for d in datos_para_pdf:
             elements.append(Paragraph(f"<b>Paciente: {d['nombre']} (ID: {d['user_id']})</b>", styles['Normal']))
-            hist_data = [["Mes", "Prom. Calorías", "Prom. Proteínas", "Presión", "Días Reg."]]
+            hist_data = [["Mes", "Calorías", "Proteínas", "Grasas", "Presión", "Días"]]
             for h in d["historial"]:
                 hist_data.append([
                     h["mes"], 
                     f"{h['prom_cal']} kcal", 
                     f"{h['prom_prot']} g", 
+                    f"{h['prom_grasas']} g", 
                     h["presion"], 
                     str(h["dias"])
                 ])
             
-            t_hist = Table(hist_data, colWidths=[90, 110, 110, 100, 90])
+            t_hist = Table(hist_data, colWidths=[80, 100, 95, 95, 102, 80])
             t_hist.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2C3E50")),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -4499,7 +4504,7 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(
             document=buffer,
             filename=f"Reporte_Clinico_{especialidad_prof}_{ahora.strftime('%Y-%m')}.pdf",
-            caption="📄 **Reporte clínico actualizado sin tabla resumen y con métricas ampliadas.**",
+            caption="📄 **Reporte clínico actualizado leyendo las columnas 'Alta' y 'Baja'.**",
             parse_mode="Markdown"
         )
 
