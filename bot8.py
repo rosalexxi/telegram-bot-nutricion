@@ -14,6 +14,7 @@ import inspect
 import logging
 import unicodedata
 import asyncio
+import psycopg2
 
 from datetime import datetime, date, timedelta, time
 import pytz
