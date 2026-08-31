@@ -1842,6 +1842,262 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
 # ======================================================================================================================================
 
 # ======================================================================================================================================
+#                   INICIO                                    COMANDO DIARIO                                    INICIO  DB OK
+# =====================================================================================================================================
+
+@requiere_registro
+async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Manejador del comando /diario.
+    Muestra el menú de selección de fecha solo si el peso del mes en curso está al día.
+    """
+    # Usá exactamente la misma signatura de llamada que en cmd_mensaje
+    if not await _validar_peso_mes_actual(update=update, context=context):
+        return
+
+    # Despliegue del menú si el peso está al día
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 Hoy", callback_data="diario_hoy"), InlineKeyboardButton("📆 Ayer", callback_data="diario_ayer")],
+        [InlineKeyboardButton("🗓️ Seleccionar Fecha", callback_data="diario_otro")]
+    ])
+    
+    await update.message.reply_text(
+        "📅 **Consulta de Diario:** Seleccioná qué día querés revisar:", 
+        reply_markup=keyboard, 
+        parse_mode="Markdown"
+    )
+
+async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
+    """
+    Función auxiliar para procesar y renderizar el reporte del diario agrupado por evento
+    consultando exclusivamente desde la base de datos (Supabase).
+    """
+    try:
+        # Consulta directo a Supabase con la nueva función
+        df = obtener_datos_usuario_db(user_id)
+        df_diario = df[df['Fecha'] == fecha_str] if not df.empty else pd.DataFrame()
+
+        if df_diario.empty:
+            texto = f"⚠️ No se encontraron registros de ingestas para la fecha `{fecha_str}`."
+            reply_markup = None
+        else:
+            # 1. Encabezado
+            texto = f"📅 Registro del día {fecha_str}:\n\n"
+            
+            # 2. Agrupación por momento manteniendo el orden de aparición original
+            momentos_vistos = []
+            agrupado = {}
+            
+            for _, r in df_diario.iterrows():
+                momento = str(r.get('Momento', '')).strip()
+                alimento = str(r.get('Alimento', '')).strip()
+                
+                if momento not in agrupado:
+                    agrupado[momento] = []
+                    momentos_vistos.append(momento)
+                if alimento:
+                    agrupado[momento].append(alimento)
+
+            # Formateo agrupado tipo listado bullet
+            for m in momentos_vistos:
+                items_str = ", ".join(agrupado[m])
+                texto += f"• {m}: {items_str}\n"
+
+            # 3. Totales y métricas nutricionales
+            c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
+            c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
+            b_neto = c_cons - c_quem
+            
+            p_tot = df_diario[df_diario['Calorias'] > 0]['Proteinas'].sum()
+            g_tot = df_diario[df_diario['Calorias'] > 0]['Grasas'].sum()
+            cb_tot = df_diario[df_diario['Calorias'] > 0]['Carbohidratos'].sum()
+            f_tot = df_diario[df_diario['Calorias'] > 0]['Fibras'].sum()
+
+            texto += f"\n🔥 Consumidas: {c_cons:.1f} kcal\n"
+            texto += f"⚡ Quemadas: {c_quem:.1f} kcal\n"
+            texto += f"⚖️ Balance Neto: {b_neto:.1f} kcal\n\n"
+            texto += f"🥩 Prot: {p_tot:.1f}g | 🥑 Gras: {g_tot:.1f}g | 🍞 Carb: {cb_tot:.1f}g | 🌾 Fibr: {f_tot:.1f}g"
+
+            keyboard = [[InlineKeyboardButton("📄 Descargar PDF", callback_data=f"descargar_pdf_diario_{fecha_str}")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Envíos dinámicos según el origen de llamada originales
+        if hasattr(update_or_query, 'edit_message_text'):
+            try:
+                await update_or_query.edit_message_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+            except Exception as ex:
+                if "Message is not modified" not in str(ex):
+                    raise ex
+        elif hasattr(update_or_query, 'reply_text'):
+            await update_or_query.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+        elif hasattr(update_or_query, 'message') and update_or_query.message:
+            await update_or_query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            return
+            
+        msg_err = f"❌ Error al consultar el diario para la fecha `{fecha_str}`: {e}"
+        if hasattr(update_or_query, 'edit_message_text'):
+            try:
+                await update_or_query.edit_message_text(msg_err, parse_mode="Markdown")
+            except Exception:
+                pass
+        elif hasattr(update_or_query, 'reply_text'):
+            await update_or_query.reply_text(msg_err, parse_mode="Markdown")
+        elif hasattr(update_or_query, 'message') and update_or_query.message:
+            await update_or_query.message.reply_text(msg_err, parse_mode="Markdown")
+
+def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#1E293B'))
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
+
+    story = [
+        Paragraph(f"<b>Detalle Diario de Ingestas - {fecha_str}</b>", title_style),
+        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
+    ]
+
+    if df_diario.empty:
+        story.append(Paragraph("No hay registros para esta fecha.", body_style))
+    else:
+        table_data = [[
+            Paragraph("Momento", header_style),
+            Paragraph("Alimento / Detalle", header_style),
+            Paragraph("Peso", header_style),
+            Paragraph("Kcal", header_style),
+            Paragraph("Prot", header_style),
+            Paragraph("Gras", header_style),
+            Paragraph("Carb", header_style),
+            Paragraph("Fibr", header_style)
+        ]]
+
+        for _, r in df_diario.iterrows():
+            table_data.append([
+                Paragraph(str(r.get('Momento', '')), body_style),
+                Paragraph(str(r.get('Alimento', '')), body_style),
+                Paragraph(f"{r.get('Peso', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Calorias', 0):.1f}", body_style),
+                Paragraph(f"{r.get('Proteinas', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Grasas', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Carbohidratos', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Fibras', 0):.1f}g", body_style)
+            ])
+
+        t = Table(table_data, colWidths=[70, 160, 45, 45, 45, 45, 45, 45])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 10))
+
+        c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
+        c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
+        b_neto = c_cons - c_quem
+        story.append(Paragraph(f"• <b>Total Consumidas:</b> {c_cons:.1f} kcal", body_style))
+        story.append(Paragraph(f"• <b>Total Quemadas:</b> {c_quem:.1f} kcal", body_style))
+        story.append(Paragraph(f"• <b>Balance Neto:</b> {b_neto:.1f} kcal", body_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+#                    FUNCION ANTIGUA DEL EXEL
+#---------------------------------------------------------------------------------------------------
+async def mostrar_diario_fecha_reserva(update_or_query, user_id, fecha_str):
+    """
+    Función auxiliar para procesar y renderizar el reporte del diario agrupado por evento.
+    """
+    try:
+        df = obtener_datos_usuario(user_id)
+        df_diario = df[df['Fecha'] == fecha_str] if not df.empty else pd.DataFrame()
+
+        if df_diario.empty:
+            texto = f"⚠️ No se encontraron registros de ingestas para la fecha `{fecha_str}`."
+            reply_markup = None
+        else:
+            # 1. Encabezado
+            texto = f"📅 Registro del día {fecha_str}:\n\n"
+            
+            # 2. Agrupación por momento mantención del orden de aparición original
+            momentos_vistos = []
+            agrupado = {}
+            
+            for _, r in df_diario.iterrows():
+                momento = str(r.get('Momento', '')).strip()
+                alimento = str(r.get('Alimento', '')).strip()
+                
+                if momento not in agrupado:
+                    agrupado[momento] = []
+                    momentos_vistos.append(momento)
+                if alimento:
+                    agrupado[momento].append(alimento)
+
+            # Formateo agrupado tipo listado bullet
+            for m in momentos_vistos:
+                items_str = ", ".join(agrupado[m])
+                texto += f"• {m}: {items_str}\n"
+
+            # 3. Totales y métricas nutricionales
+            c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
+            c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
+            b_neto = c_cons - c_quem
+            
+            p_tot = df_diario[df_diario['Calorias'] > 0]['Proteinas'].sum()
+            g_tot = df_diario[df_diario['Calorias'] > 0]['Grasas'].sum()
+            cb_tot = df_diario[df_diario['Calorias'] > 0]['Carbohidratos'].sum()
+            f_tot = df_diario[df_diario['Calorias'] > 0]['Fibras'].sum()
+
+            texto += f"\n🔥 Consumidas: {c_cons:.1f} kcal\n"
+            texto += f"⚡ Quemadas: {c_quem:.1f} kcal\n"
+            texto += f"⚖️ Balance Neto: {b_neto:.1f} kcal\n\n"
+            texto += f"🥩 Prot: {p_tot:.1f}g | 🥑 Gras: {g_tot:.1f}g | 🍞 Carb: {cb_tot:.1f}g | 🌾 Fibr: {f_tot:.1f}g"
+
+            keyboard = [[InlineKeyboardButton("📄 Descargar PDF", callback_data=f"descargar_pdf_diario_{fecha_str}")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Envíos dinámicos según el origen de llamada originales
+        if hasattr(update_or_query, 'edit_message_text'):
+            try:
+                await update_or_query.edit_message_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+            except Exception as ex:
+                if "Message is not modified" not in str(ex):
+                    raise ex
+        elif hasattr(update_or_query, 'reply_text'):
+            await update_or_query.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+        elif hasattr(update_or_query, 'message') and update_or_query.message:
+            await update_or_query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            return
+            
+        msg_err = f"❌ Error al consultar el diario para la fecha `{fecha_str}`: {e}"
+        if hasattr(update_or_query, 'edit_message_text'):
+            try:
+                await update_or_query.edit_message_text(msg_err, parse_mode="Markdown")
+            except Exception:
+                pass
+        elif hasattr(update_or_query, 'reply_text'):
+            await update_or_query.reply_text(msg_err, parse_mode="Markdown")
+        elif hasattr(update_or_query, 'message') and update_or_query.message:
+            await update_or_query.message.reply_text(msg_err, parse_mode="Markdown")
+
+# =======================================================================================================================================
+#                   FINAL                                COMANDOS DIARIO                                     FINAL
+# =====================================================================================================================================
+
+
+# ======================================================================================================================================
 #                  INICIO                        INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO  DB OK
 # ======================================================================================================================================
 
