@@ -1188,14 +1188,18 @@ def obtener_datos_usuario_db(user_id):
         df = pd.read_sql(query, conn)
         conn.close()
 
+        # 🔍 CHIVATO EN CONSOLA: Muestra qué tabla buscó y cuántas filas trajo
+        print(f"DEBUG DB -> Tabla consultada: {tabla_nombre} | Filas encontradas: {len(df)}")
+        if not df.empty:
+            print(f"DEBUG DB -> Fechas crudas en DB: {df['fecha'].unique()[:5]}")
+
         if df.empty:
             return pd.DataFrame(columns=['Fecha', 'Momento', 'Alimento', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras'])
 
         # Asegurar nombres de columnas estandarizados
         df.columns = ['Fecha', 'Momento', 'Alimento', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']
         
-        # 🛠️ CORRECCIÓN DE FECHA: Forzamos a string, sacamos espacios y nos quedamos solo con los primeros 10 caracteres (YYYY-MM-DD) 
-        # por si la base devuelve formato timestamp con hora (ej: 2026-08-30 14:30:00)
+        # Limpieza de fechas
         df['Fecha'] = df['Fecha'].astype(str).str.strip().str.slice(0, 10)
 
         # Limpieza de tipos numéricos por seguridad
@@ -1205,8 +1209,9 @@ def obtener_datos_usuario_db(user_id):
         return df
     except Exception as e:
         logger.error(f"Error al consultar datos de Supabase para la tabla {tabla_nombre}: {e}")
-        return pd.DataFrame(columns=['Fecha', 'Momento', 'Alimento', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']) 
-
+        print(f"DEBUG DB ERROR -> {e}")
+        return pd.DataFrame(columns=['Fecha', 'Momento', 'Alimento', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras'])
+        
 def obtener_ultimo_peso(user_id: int) -> dict:
     """
     Busca el último registro de peso del usuario en la pestaña 'Usuarios' de Google Sheets.
