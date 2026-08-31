@@ -4336,13 +4336,10 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ahora = obtener_ahora_arg()
         meses_a_evaluar = []
         for i in range(6):
-            # Restar meses hacia atrás
-            mes_calculado = ahora - timedelta(days=i * 30) # Aproximación para meses
-            # Usar fecha formateada YYYY-MM
+            mes_calculado = ahora - timedelta(days=i * 30)
             m_str = mes_calculado.strftime("%Y-%m")
             if m_str not in meses_a_evaluar:
                 meses_a_evaluar.append(m_str)
-        # Ordenar cronológicamente ascendente
         meses_a_evaluar = sorted(list(set(meses_a_evaluar)))[-6:]
 
         texto_reporte = f"📋 **Listado de Pacientes Asignados**\n🩺 *Especialidad:* `{especialidad_prof}`\n\n"
@@ -4356,7 +4353,6 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             calorias_str = "S/D"
 
             try:
-                # Obtener último peso
                 ws_perfil = sh.worksheet(f"Perfil_{u_id}")
                 recs_perfil = ws_perfil.get_all_records()
                 if recs_perfil:
@@ -4368,7 +4364,6 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
             try:
-                # Obtener última presión
                 ws_presion = sh.worksheet(f"Presion_{u_id}")
                 recs_presion = ws_presion.get_all_records()
                 if recs_presion:
@@ -4381,7 +4376,6 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
             try:
-                # Obtener promedio de calorías del mes actual
                 ws_comidas = sh.worksheet(f"Comidas_{u_id}")
                 recs_comidas = ws_comidas.get_all_records()
                 calorias_mes = []
@@ -4404,35 +4398,60 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "--------------------------------------------------\n"
             )
 
-            # Recopilar métricas históricas de hasta 6 meses para el PDF
+            # Recopilar métricas históricas de hasta 6 meses con proteínas y presión mensual
             historial_6m = []
             perfil_dict = recs_perfil[-1] if 'recs_perfil' in locals() and recs_perfil else {}
             
+            # Cargar registros de presión completos para el histórico si existen
+            recs_presion_all = []
+            try:
+                ws_presion = sh.worksheet(f"Presion_{u_id}")
+                recs_presion_all = ws_presion.get_all_records()
+            except Exception:
+                pass
+
             for m_str in meses_a_evaluar:
-                # Filtrar comidas del mes m_str
                 df_u = obtener_datos_usuario(u_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+                prom_prot_m = 0
+                dias_m = 0
+                prom_cal_m = 0
+
                 if not df_u.empty and 'Fecha' in df_u.columns:
                     df_u['Mes_Filtro'] = df_u['Fecha'].str.slice(0, 7)
                     df_m = df_u[df_u['Mes_Filtro'] == m_str]
                     metricas_m = calcular_metricas_mensuales(df_m, perfil_dict)
-                    historial_6m.append({
-                        "mes": m_str,
-                        "prom_cal": metricas_m.get("prom_cal", 0),
-                        "dias": metricas_m.get("dias_registrados", 0)
-                    })
-                else:
-                    historial_6m.append({"mes": m_str, "prom_cal": 0, "dias": 0})
+                    prom_cal_m = metricas_m.get("prom_cal", 0)
+                    prom_prot_m = metricas_m.get("prom_prot", 0)
+                    dias_m = metricas_m.get("dias_registrados", 0)
+
+                # Buscar presión para este mes específico
+                presion_m_str = "S/D"
+                presiones_mes = []
+                for p in recs_presion_all:
+                    f_pres = str(p.get("Fecha", p.get("fecha", "")))
+                    if m_str in f_pres:
+                        s = p.get("Sistolica", p.get("sistolica", ""))
+                        d = p.get("Diastolica", p.get("diastolica", ""))
+                        if s and d:
+                            presiones_mes.append(f"{s}/{d}")
+                if presiones_mes:
+                    presion_m_str = presiones_mes[-1] # Última del mes
+
+                historial_6m.append({
+                    "mes": m_str,
+                    "prom_cal": prom_cal_m,
+                    "prom_prot": prom_prot_m,
+                    "presion": presion_m_str,
+                    "dias": dias_m
+                })
 
             datos_para_pdf.append({
                 "nombre": nombre,
                 "user_id": u_id,
-                "peso": peso_str,
-                "presion": presion_str,
-                "calorias": calorias_str,
                 "historial": historial_6m
             })
 
-        # 4. Generación de PDF avanzado con ReportLab
+        # 4. Generación de PDF avanzado sin la tabla superior y con proteínas/presión en el histórico
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
         styles = getSampleStyleSheet()
@@ -4442,47 +4461,35 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elements.append(Paragraph(f"Generado el: {ahora.strftime('%Y-%m-%d %H:%M')} | Período analizado: Últimos 6 meses", styles['Normal']))
         elements.append(Spacer(1, 15))
 
-        # Tabla Principal de Pacientes
-        tabla_data = [["Nombre", "ID", "Peso Actual", "Presión", "Prom. Calorías (Mes)"]]
-        for d in datos_para_pdf:
-            tabla_data.append([d["nombre"], str(d["user_id"]), d["peso"], d["presion"], d["calorias"]])
-
-        t = Table(tabla_data, colWidths=[120, 80, 80, 90, 130])
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2C3E50")),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#F8F9F9")),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#BDC3C7")),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')
-        ]))
-        elements.append(t)
-        elements.append(Spacer(1, 20))
-
-        # Detalle Histórico de los últimos meses por paciente
-        elements.append(Paragraph("<b>Evolución Calorica Mensual (Últimos Meses)</b>", styles['Heading2']))
+        elements.append(Paragraph("<b>Evolución Mensual por Paciente (Calorías, Proteínas y Presión)</b>", styles['Heading2']))
         elements.append(Spacer(1, 10))
 
         for d in datos_para_pdf:
             elements.append(Paragraph(f"<b>Paciente: {d['nombre']} (ID: {d['user_id']})</b>", styles['Normal']))
-            hist_data = [["Mes", "Promedio Calorías", "Días Registrados"]]
+            hist_data = [["Mes", "Prom. Calorías", "Prom. Proteínas", "Presión", "Días Reg."]]
             for h in d["historial"]:
-                hist_data.append([h["mes"], f"{h['prom_cal']} kcal/día", str(h["dias"])])
+                hist_data.append([
+                    h["mes"], 
+                    f"{h['prom_cal']} kcal", 
+                    f"{h['prom_prot']} g", 
+                    h["presion"], 
+                    str(h["dias"])
+                ])
             
-            t_hist = Table(hist_data, colWidths=[150, 150, 150])
+            t_hist = Table(hist_data, colWidths=[90, 110, 110, 100, 90])
             t_hist.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#5DADE2")),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2C3E50")),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                 ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#F8F9F9")),
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#BDC3C7")),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')
             ]))
             elements.append(t_hist)
-            elements.append(Spacer(1, 12))
+            elements.append(Spacer(1, 15))
 
         doc.build(elements)
         buffer.seek(0)
@@ -4492,7 +4499,7 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(
             document=buffer,
             filename=f"Reporte_Clinico_{especialidad_prof}_{ahora.strftime('%Y-%m')}.pdf",
-            caption="📄 **Reporte clínico consolidado con histórico de hasta 6 meses generado con éxito.**",
+            caption="📄 **Reporte clínico actualizado sin tabla resumen y con métricas ampliadas.**",
             parse_mode="Markdown"
         )
 
