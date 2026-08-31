@@ -857,19 +857,6 @@ def guardar_comida_precargada_db(user_id, fila):
     ws.append_row(nueva_fila)
     return codigo_unico
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 def obtener_datos_presion_db(user_id):
     try:
         gc = get_gspread_client()
@@ -1584,9 +1571,9 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
 
     return True
     
-# =============================================================================================================================================
+# =====================================================================================================================================
 #                FINAL                        FUNCIONES AUXILIARES Y FORMATO                                      FINAL
-# =============================================================================================================================================
+# ======================================================================================================================================
 
 # ======================================================================================================================================
 #                  INICIO                        INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO  DB OK
@@ -4305,18 +4292,32 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 # =============================================================================================================================================
 
 async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando para que el profesional vea el listado de sus pacientes y genere un reporte PDF."""
+    """Comando para que el profesional vea el listado de sus pacientes y genere un reporte PDF avanzado (hasta 6 meses)."""
     prof_id = str(update.effective_user.id).strip()
     
-    msg_espera = await update.message.reply_text("⏳ **Buscando pacientes asignados...**", parse_mode="Markdown")
+    msg_espera = await update.message.reply_text("⏳ **Buscando pacientes y procesando historial clínico (hasta 6 meses)...**", parse_mode="Markdown")
 
     try:
         gc = get_gspread_client()
         sh = gc.open(SPREADSHEET_NAME)
+        
+        # 1. Identificar especialidad del profesional en la hoja 'Profesionales'
+        especialidad_prof = "General"
+        try:
+            ws_prof = sh.worksheet("Profesionales")
+            recs_prof = ws_prof.get_all_records()
+            for rp in recs_prof:
+                id_p = str(rp.get("User ID", rp.get("user_id", ""))).split('.')[0].strip()
+                if id_p == prof_id:
+                    especialidad_prof = str(rp.get("Especialidad", rp.get("especialidad", "General"))).strip()
+                    break
+        except Exception:
+            pass
+
+        # 2. Filtrar pacientes del médico
         ws_usuarios = sh.worksheet("Usuarios")
         records_usuarios = ws_usuarios.get_all_records()
 
-        # Filtrar pacientes cuyo profesional coincida con el ID del médico actual
         pacientes_del_medico = []
         for r in records_usuarios:
             p_id = str(r.get("profesional", r.get("Profesional", ""))).split('.')[0].strip()
@@ -4331,10 +4332,21 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg_espera.edit_text("ℹ️ No tenés pacientes activos asignados en este momento.", parse_mode="Markdown")
             return
 
-        # Recopilar métricas de cada paciente
-        texto_reporte = "📋 **Listado de Pacientes Asignados**\n\n"
+        # 3. Determinar los últimos 6 meses dinámicamente
+        ahora = obtener_ahora_arg()
+        meses_a_evaluar = []
+        for i in range(6):
+            # Restar meses hacia atrás
+            mes_calculado = ahora - timedelta(days=i * 30) # Aproximación para meses
+            # Usar fecha formateada YYYY-MM
+            m_str = mes_calculado.strftime("%Y-%m")
+            if m_str not in meses_a_evaluar:
+                meses_a_evaluar.append(m_str)
+        # Ordenar cronológicamente ascendente
+        meses_a_evaluar = sorted(list(set(meses_a_evaluar)))[-6:]
+
+        texto_reporte = f"📋 **Listado de Pacientes Asignados**\n🩺 *Especialidad:* `{especialidad_prof}`\n\n"
         datos_para_pdf = []
-        mes_actual = datetime.now(ARG_TZ).strftime("%Y-%m")
 
         for pac in pacientes_del_medico:
             u_id = pac["user_id"]
@@ -4344,19 +4356,19 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             calorias_str = "S/D"
 
             try:
-                # 1. Obtener último peso de Perfil_<user_id>
+                # Obtener último peso
                 ws_perfil = sh.worksheet(f"Perfil_{u_id}")
                 recs_perfil = ws_perfil.get_all_records()
                 if recs_perfil:
                     ultimo_p = recs_perfil[-1]
-                    p_val = ultimo_p.get("PESO", ultimo_p.get("peso", 0))
-                    if p_val:
-                        peso_str = f"{float(p_val) / 1000:.1f} kg" if float(p_val) > 300 else f"{p_val} kg"
+                    p_val = parse_raw_val(ultimo_p.get("PESO", ultimo_p.get("peso", 0)))
+                    if p_val > 0:
+                        peso_str = f"{p_val / 1000:.1f} kg" if p_val > 300 else f"{p_val} kg"
             except Exception:
                 pass
 
             try:
-                # 2. Obtener última presión de Presion_<user_id>
+                # Obtener última presión
                 ws_presion = sh.worksheet(f"Presion_{u_id}")
                 recs_presion = ws_presion.get_all_records()
                 if recs_presion:
@@ -4369,18 +4381,16 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
             try:
-                # 3. Calcular promedio de calorías del mes en Comidas_<user_id>
+                # Obtener promedio de calorías del mes actual
                 ws_comidas = sh.worksheet(f"Comidas_{u_id}")
                 recs_comidas = ws_comidas.get_all_records()
                 calorias_mes = []
+                mes_actual_str = ahora.strftime("%Y-%m")
                 for c in recs_comidas:
                     fecha_comida = str(c.get("Fecha", c.get("fecha", "")))
-                    if mes_actual in fecha_comida:
-                        cal = c.get("Calorias", c.get("calorias", 0))
-                        try:
-                            if cal: calorias_mes.append(float(cal))
-                        except ValueError:
-                            pass
+                    if mes_actual_str in fecha_comida:
+                        cal = parse_raw_val(c.get("Calorias", c.get("calorias", 0)))
+                        if cal > 0: calorias_mes.append(cal)
                 if calorias_mes:
                     prom_cal = sum(calorias_mes) / len(calorias_mes)
                     calorias_str = f"{round(prom_cal)} kcal/día"
@@ -4390,42 +4400,90 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             texto_reporte += (
                 f"👤 **{nombre}** (ID: `{u_id}`)\n"
                 f"⚖️ Peso: `{peso_str}` | 🩸 Presión: `{presion_str}`\n"
-                f"🔥 Prom. Calorías ({mes_actual}): `{calorias_str}`\n"
+                f"🔥 Prom. Calorías: `{calorias_str}`\n"
                 "--------------------------------------------------\n"
             )
+
+            # Recopilar métricas históricas de hasta 6 meses para el PDF
+            historial_6m = []
+            perfil_dict = recs_perfil[-1] if 'recs_perfil' in locals() and recs_perfil else {}
+            
+            for m_str in meses_a_evaluar:
+                # Filtrar comidas del mes m_str
+                df_u = obtener_datos_usuario(u_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+                if not df_u.empty and 'Fecha' in df_u.columns:
+                    df_u['Mes_Filtro'] = df_u['Fecha'].str.slice(0, 7)
+                    df_m = df_u[df_u['Mes_Filtro'] == m_str]
+                    metricas_m = calcular_metricas_mensuales(df_m, perfil_dict)
+                    historial_6m.append({
+                        "mes": m_str,
+                        "prom_cal": metricas_m.get("prom_cal", 0),
+                        "dias": metricas_m.get("dias_registrados", 0)
+                    })
+                else:
+                    historial_6m.append({"mes": m_str, "prom_cal": 0, "dias": 0})
 
             datos_para_pdf.append({
                 "nombre": nombre,
                 "user_id": u_id,
                 "peso": peso_str,
                 "presion": presion_str,
-                "calorias": calorias_str
+                "calorias": calorias_str,
+                "historial": historial_6m
             })
 
-        # Generar PDF de resumen de pacientes usando ReportLab
+        # 4. Generación de PDF avanzado con ReportLab
         buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=letter)
+        doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
         styles = getSampleStyleSheet()
         elements = []
 
-        elements.append(Paragraph(f"<b>Reporte General de Pacientes - {mes_actual}</b>", styles['Heading1']))
-        elements.append(Spacer(1, 12))
+        elements.append(Paragraph(f"<b>Reporte Clínico Consolidado ({especialidad_prof})</b>", styles['Heading1']))
+        elements.append(Paragraph(f"Generado el: {ahora.strftime('%Y-%m-%d %H:%M')} | Período analizado: Últimos 6 meses", styles['Normal']))
+        elements.append(Spacer(1, 15))
 
-        tabla_data = [["Nombre", "ID", "Peso Actual", "Presión", "Prom. Calorías"]]
+        # Tabla Principal de Pacientes
+        tabla_data = [["Nombre", "ID", "Peso Actual", "Presión", "Prom. Calorías (Mes)"]]
         for d in datos_para_pdf:
             tabla_data.append([d["nombre"], str(d["user_id"]), d["peso"], d["presion"], d["calorias"]])
 
-        t = Table(tabla_data, colWidths=[120, 80, 80, 90, 110])
+        t = Table(tabla_data, colWidths=[120, 80, 80, 90, 130])
         t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#4A90E2")),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2C3E50")),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#F9F9F9")),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey)
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#F8F9F9")),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#BDC3C7")),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')
         ]))
         elements.append(t)
+        elements.append(Spacer(1, 20))
+
+        # Detalle Histórico de los últimos meses por paciente
+        elements.append(Paragraph("<b>Evolución Calorica Mensual (Últimos Meses)</b>", styles['Heading2']))
+        elements.append(Spacer(1, 10))
+
+        for d in datos_para_pdf:
+            elements.append(Paragraph(f"<b>Paciente: {d['nombre']} (ID: {d['user_id']})</b>", styles['Normal']))
+            hist_data = [["Mes", "Promedio Calorías", "Días Registrados"]]
+            for h in d["historial"]:
+                hist_data.append([h["mes"], f"{h['prom_cal']} kcal/día", str(h["dias"])])
+            
+            t_hist = Table(hist_data, colWidths=[150, 150, 150])
+            t_hist.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#5DADE2")),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#BDC3C7")),
+            ]))
+            elements.append(t_hist)
+            elements.append(Spacer(1, 12))
+
         doc.build(elements)
         buffer.seek(0)
 
@@ -4433,15 +4491,14 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(texto_reporte, parse_mode="Markdown")
         await update.message.reply_document(
             document=buffer,
-            filename=f"Reporte_Pacientes_{mes_actual}.pdf",
-            caption="📄 **Aquí tenés el reporte consolidado en PDF para descarga.**",
+            filename=f"Reporte_Clinico_{especialidad_prof}_{ahora.strftime('%Y-%m')}.pdf",
+            caption="📄 **Reporte clínico consolidado con histórico de hasta 6 meses generado con éxito.**",
             parse_mode="Markdown"
         )
 
     except Exception as e:
-        logger.error(f"Error al generar listado de pacientes para {prof_id}: {e}")
-        await msg_espera.edit_text(f"❌ Ocurrió un error al procesar el listado: {e}")
-
+        logger.error(f"Error al generar listado de pacientes para el profesional {prof_id}: {e}")
+        await msg_espera.edit_text(f"❌ Ocurrió un error al procesar el listado clínico: {e}")
 
 # =============================================================================================================================================
 #                    FINAL                                    COMANDO PACIENTES                                 FINAL
