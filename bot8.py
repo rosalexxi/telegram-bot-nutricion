@@ -1173,42 +1173,39 @@ async def registrar_log_en_sheet(sh, contexto: str, detalle: str):
 # 4. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
-def obtener_datos_usuario(user_id):
+def obtener_datos_usuario_db(user_id):
+    """
+    Consulta exclusivamente los registros de ingesta del usuario desde Supabase
+    y los devuelve en un DataFrame limpio, estandarizando el formato de fecha.
+    """
+    tabla_nombre = f"user_{user_id}"
     try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws = get_or_create_worksheet(sh, f"User_{user_id}")
-        records = ws.get_all_records()
-        if not records:
-            return pd.DataFrame()
-        
-        df = pd.DataFrame(records)
-        col_map = {}
-        for c in df.columns:
-            c_lower = str(c).lower()
-            if 'fecha' in c_lower: col_map[c] = 'Fecha'
-            elif 'momento' in c_lower or 'actividad' in c_lower: col_map[c] = 'Momento'
-            elif 'alimento' in c_lower or 'detalle' in c_lower: col_map[c] = 'Alimento'
-            elif 'peso' in c_lower: col_map[c] = 'Peso'
-            elif 'calor' in c_lower: col_map[c] = 'Calorias'
-            elif 'prote' in c_lower: col_map[c] = 'Proteinas'
-            elif 'grasa' in c_lower: col_map[c] = 'Grasas'
-            elif 'hidrat' in c_lower or 'carbo' in c_lower: col_map[c] = 'Carbohidratos'
-            elif 'fibra' in c_lower: col_map[c] = 'Fibras'
+        conn = _obtener_conexion_db()
+        query = f"""
+            SELECT fecha, momento, alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras
+            FROM {tabla_nombre}
+        """
+        df = pd.read_sql(query, conn)
+        conn.close()
 
-        df = df.rename(columns=col_map)
-        if "Fecha" in df.columns and not df.empty:
-            df['Fecha'] = df['Fecha'].astype(str).str.strip()
-            for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
-                if col in df.columns:
-                    df[col] = df[col].apply(parse_float_from_sheets)
-                else:
-                    df[col] = 0.0
+        if df.empty:
+            return pd.DataFrame(columns=['Fecha', 'Momento', 'Alimento', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras'])
+
+        # Asegurar nombres de columnas estandarizados
+        df.columns = ['Fecha', 'Momento', 'Alimento', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']
+        
+        # 🛠️ CORRECCIÓN DE FECHA: Forzamos a string, sacamos espacios y nos quedamos solo con los primeros 10 caracteres (YYYY-MM-DD) 
+        # por si la base devuelve formato timestamp con hora (ej: 2026-08-30 14:30:00)
+        df['Fecha'] = df['Fecha'].astype(str).str.strip().str.slice(0, 10)
+
+        # Limpieza de tipos numéricos por seguridad
+        for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
+
         return df
     except Exception as e:
-        print(f"Error al obtener datos del usuario {user_id}: {e}")
-        return pd.DataFrame()
- 
+        logger.error(f"Error al consultar datos de Supabase para la tabla {tabla_nombre}: {e}")
+        return pd.DataFrame(columns=['Fecha', 'Momento', 'Alimento', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']) 
 
 def obtener_ultimo_peso(user_id: int) -> dict:
     """
