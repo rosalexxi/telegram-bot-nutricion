@@ -14,7 +14,6 @@ import inspect
 import logging
 import unicodedata
 import asyncio
-import psycopg2
 
 from datetime import datetime, date, timedelta, time
 import pytz
@@ -548,35 +547,6 @@ def api_guardar_comida():
 #                    FINAL                                   PAGINA WEB                                     FINAL
 # =============================================================================================================================================
 
-# =====================================================================================================================================
-#                INICIO                             CONSULTAS A BASE DE DATOS                                INICIO  DB
-# =====================================================================================================================================
-
-def obtener_ultimo_peso_db(user_id: int) -> dict:
-    """
-    Busca el último registro de mes/peso del usuario desde la tabla de perfiles en Supabase.
-    """
-    tabla_nombre = f"perfil_{user_id}"
-    try:
-        conn = _obtener_conexion_db()
-        query = f"SELECT mes FROM {tabla_nombre} ORDER BY id DESC LIMIT 1"
-        cur = conn.cursor()
-        cur.execute(query)
-        res = cur.fetchone()
-        cur.close()
-        conn.close()
-
-        if res and res[0]:
-            return {"fecha": str(res[0]).strip()}
-        return None
-    except Exception as e:
-        logger.error(f"Error al obtener el último peso en Supabase para User {user_id}: {e}")
-        return None
-
-# =====================================================================================================================================
-#                FINAL                              CONSULTAS A BASE DE DATOS                                FINAL  DB
-# =====================================================================================================================================
-
 # ========================================================================================================================================
 #                 INICIO                           GOOGLE SHEETS OPERACIONES                                      INICIO
 # =============================================================================================================================================
@@ -584,11 +554,6 @@ def obtener_ultimo_peso_db(user_id: int) -> dict:
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 1. CLIENTES Y CONEXIÓN BASE (VAN PRIMERO)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
-def _obtener_conexion_db():
-    db_url = os.getenv("DATABASE_URL")
-    if not db_url:
-        raise Exception("DATABASE_URL no está configurada en las variables de entorno.")
-    return psycopg2.connect(db_url)
 
 def get_gspread_client():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -650,79 +615,6 @@ def get_user_worksheet(user_id):
         
     return ws
 
-
-def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
-    conn = _obtener_conexion_db()
-    cur = conn.cursor()
-    
-    if tipo_tabla == "comida":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                fecha TEXT,
-                "Momento/Actividad" TEXT,
-                "Alimento/Detalle" TEXT,
-                "Peso (g)" NUMERIC,
-                "Calorías (kcal)" NUMERIC,
-                "Proteínas (g)" NUMERIC,
-                "Grasas (g)" NUMERIC,
-                "Hidratos (g)" NUMERIC,
-                "Fibras (g)" NUMERIC
-            );
-        """
-    elif tipo_tabla == "comidas_precargadas":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                codigo TEXT,
-                descripcion TEXT,
-                peso NUMERIC,
-                calorias NUMERIC,
-                proteinas NUMERIC,
-                grasas NUMERIC,
-                carbohidratos NUMERIC,
-                fibras NUMERIC
-            );
-        """
-    elif tipo_tabla == "presion":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                fecha_hora TEXT,
-                fecha_dia TEXT,
-                alta NUMERIC,
-                baja NUMERIC,
-                pulsaciones NUMERIC,
-                nota TEXT
-            );
-        """
-    elif tipo_tabla == "perfil":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                mes TEXT,
-                edad NUMERIC,
-                peso NUMERIC,
-                altura NUMERIC,
-                genero TEXT,
-                ocupacion NUMERIC,
-                fecha_actualizacion TEXT
-            );
-        """
-    elif tipo_tabla == "logs":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                fecha_hora TEXT,
-                contexto TEXT,
-                detalle TEXT
-            );
-        """
-        
-    cur.execute(query_creacion)
-    conn.commit()
-    return conn, cur
-    
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 2. CONSULTAS Y DECORADORES DE USUARIO
 # ---------------------------------------------------------------------------------------------------------------------------------------------
@@ -862,9 +754,69 @@ def requiere_registro(func):
     return wrapper
     
 # ---------------------------------------------------------------------------------------------------------------------------------------------
-# 3. OPERACIONES DE PERSISTENCIA Y REGISTRO (ESCRITURA)
+# 3. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA Y ESCRITURA)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
+def obtener_datos_usuario(user_id):
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = get_or_create_worksheet(sh, f"User_{user_id}")
+        records = ws.get_all_records()
+        if not records:
+            return pd.DataFrame()
+        
+        df = pd.DataFrame(records)
+        col_map = {}
+        for c in df.columns:
+            c_lower = str(c).lower()
+            if 'fecha' in c_lower: col_map[c] = 'Fecha'
+            elif 'momento' in c_lower or 'actividad' in c_lower: col_map[c] = 'Momento'
+            elif 'alimento' in c_lower or 'detalle' in c_lower: col_map[c] = 'Alimento'
+            elif 'peso' in c_lower: col_map[c] = 'Peso'
+            elif 'calor' in c_lower: col_map[c] = 'Calorias'
+            elif 'prote' in c_lower: col_map[c] = 'Proteinas'
+            elif 'grasa' in c_lower: col_map[c] = 'Grasas'
+            elif 'hidrat' in c_lower or 'carbo' in c_lower: col_map[c] = 'Carbohidratos'
+            elif 'fibra' in c_lower: col_map[c] = 'Fibras'
+
+        df = df.rename(columns=col_map)
+        if "Fecha" in df.columns and not df.empty:
+            df['Fecha'] = df['Fecha'].astype(str).str.strip()
+            for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
+                if col in df.columns:
+                    df[col] = df[col].apply(parse_float_from_sheets)
+                else:
+                    df[col] = 0.0
+        return df
+    except Exception as e:
+        print(f"Error al obtener datos del usuario {user_id}: {e}")
+        return pd.DataFrame()
+ 
+
+def obtener_ultimo_peso(user_id: int) -> dict:
+    """
+    Busca el último registro de peso del usuario en la pestaña 'Usuarios' de Google Sheets.
+    Retorna un diccionario con la fecha o None si no lo encuentra.
+    """
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        sheet_usuarios = sh.worksheet("Usuarios")
+        registros = sheet_usuarios.get_all_records()
+
+        for u in registros:
+            raw_id = u.get("User ID")
+            if raw_id and str(raw_id).strip() == str(user_id).strip():
+                fecha_peso = u.get("Ultimo Mes Peso") or u.get("MES") or u.get("fecha")
+                if fecha_peso:
+                    return {"fecha": str(fecha_peso).strip()}
+                    
+        return None
+    except Exception as e:
+        logger.error(f"Error en obtener_ultimo_peso para User {user_id}: {e}")
+        return None
+        
 def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
     gc = get_gspread_client()
     sh = gc.open(SPREADSHEET_NAME)
@@ -886,34 +838,6 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
     if rows:
         ws.append_rows(rows)
 
-    try:
-        tabla_nombre = f"user_{user_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
-        
-        for item in items:
-            query = f"""
-                INSERT INTO {tabla_nombre} (fecha, "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)")
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-            valores = (
-                str(fecha), 
-                str(momento), 
-                item.get("alimento", "Desconocido"), 
-                float(item.get("peso", 0)), 
-                float(item.get("calorias", 0)), 
-                float(item.get("proteinas", 0)), 
-                float(item.get("grasas", 0)), 
-                float(item.get("carbohidratos", 0)), 
-                float(item.get("fibras", 0))
-            )
-            cur.execute(query, valores)
-            
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error interno al duplicar ingesta en Supabase (User_{user_id}): {e}")
-
 def guardar_comida_precargada_db(user_id, fila):
     ws = get_user_worksheet(user_id)
     codigo_original = fila.get('nombre', '')
@@ -931,33 +855,33 @@ def guardar_comida_precargada_db(user_id, fila):
     ]
     
     ws.append_row(nueva_fila)
-
-    try:
-        tabla_nombre = f"comidas_{user_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
-
-        query = f"""
-            INSERT INTO {tabla_nombre} (codigo, descripcion, peso, calorias, proteinas, grasas, carbohidratos, fibras)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        valores = (
-            str(codigo_unico), 
-            str(fila.get('descripcion', '')), 
-            float(fila.get('peso', 0)), 
-            float(fila.get('calorias', 0)), 
-            float(fila.get('proteinas', 0)), 
-            float(fila.get('grasas', 0)), 
-            float(fila.get('carbohidratos', 0)), 
-            float(fila.get('fibras', 0))
-        )
-        cur.execute(query, valores)
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error interno al grabar Comida Precargada en Supabase (Comidas_{user_id}): {e}")
-
     return codigo_unico
+
+def obtener_datos_presion_db(user_id):
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = get_or_create_worksheet(sh, f"Presion_{user_id}")
+        records = ws.get_all_records()
+        if not records:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(records)
+        for col in ['Alta', 'Baja', 'Pulsaciones']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                if (df[col] > 1000).any():
+                    df[col] = df[col] / 1000.0
+
+        if 'Fecha_Dia' in df.columns:
+            df['Fecha_Dia'] = df['Fecha_Dia'].astype(str).str.strip()
+
+        if 'Nota' not in df.columns:
+            df['Nota'] = ""
+
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
     gc = get_gspread_client()
@@ -976,29 +900,6 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
         str(nota).strip()
     ])
 
-    try:
-        tabla_nombre = f"presion_{user_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="presion")
-
-        query = f"""
-            INSERT INTO {tabla_nombre} (fecha_hora, fecha_dia, alta, baja, pulsaciones, nota)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """
-        valores = (
-            ahora.strftime("%Y-%m-%d %H:%M:%S"), 
-            ahora.strftime("%Y-%m-%d"), 
-            float(alta), 
-            float(baja), 
-            float(pulsaciones) if pulsaciones is not None else 0.0, 
-            str(nota).strip()
-        )
-        cur.execute(query, valores)
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error interno al grabar Presión en Supabase (Presion_{user_id}): {e}")
-        
 def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     gc = get_gspread_client()
     sh = gc.open(SPREADSHEET_NAME)
@@ -1027,6 +928,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         if genero is None:
             genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', ultimo_registro.get('Sexo', 'masculino'))))
         if ocupacion is None:
+            # Recupera la ocupación previa (que ya es un entero como 1500)
             ocupacion_final = ultimo_registro.get('OCUPACION', ultimo_registro.get('Ocupacion', 1375))
             
         peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
@@ -1043,7 +945,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         to_sheet_int(peso),
         str(altura_raw),
         str(genero_final),
-        to_sheet_int(ocupacion_final),
+        to_sheet_int(ocupacion_final),  # Garantiza que sea entero (*1000)
         str(mes),
         ahora.strftime("%Y-%m-%d %H:%M:%S"),
         str(peso_ideal_final),
@@ -1076,159 +978,11 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         if fila_usuario:
             from gspread.utils import rowcol_to_a1
             celda_a1 = rowcol_to_a1(fila_usuario, col_idx)
+            # Garantiza el formato YYYY-MM-01 exacto en la pestaña Usuarios
             fecha_usuarios_str = f"{str(mes)[:7]}-01"
             ws_usuarios.update(celda_a1, [[fecha_usuarios_str]])
     except Exception as e:
         print(f"❌ Error crítico al actualizar la pestaña 'usuarios': {e}")
-
-    try:
-        edad_val = edad_raw / 1000.0 if edad_raw > 1000 else edad_raw
-        altura_val = altura_raw / 1000.0 if altura_raw > 1000 else altura_raw
-        ocupacion_val = ocupacion_final / 1000.0 if ocupacion_final > 1000 else ocupacion_final
-
-        tabla_nombre = f"perfil_{user_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
-
-        query = f"""
-            INSERT INTO {tabla_nombre} (mes, edad, peso, altura, genero, ocupacion, fecha_actualizacion)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """
-        valores = (
-            str(mes), 
-            float(edad_val), 
-            float(peso), 
-            float(altura_val), 
-            str(genero_final), 
-            float(ocupacion_val), 
-            ahora.strftime("%Y-%m-%d %H:%M:%S")
-        )
-        cur.execute(query, valores)
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error interno al grabar Perfil en Supabase (Perfil_{user_id}): {e}")        
-
-async def registrar_log_en_sheet(sh, contexto: str, detalle: str):
-    try:
-        try:
-            sheet_logs = sh.worksheet("Logs")
-        except Exception:
-            sheet_logs = sh.add_worksheet(title="Logs", rows="1000", cols="3")
-            sheet_logs.append_row(["Fecha y Hora", "Contexto / Módulo", "Detalle del Error"])
-
-        ahora_str = obtener_ahora_arg().strftime("%Y-%m-%d %H:%M:%S")
-        sheet_logs.append_row([ahora_str, contexto, str(detalle)])
-    except Exception as e_log:
-        logger.error(f"Error secundario al intentar registrar en Logs: {e_log}")
-
-    try:
-        tabla_nombre = "logs_sistema"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="logs")
-        
-        query = f"""
-            INSERT INTO {tabla_nombre} (fecha_hora, contexto, detalle)
-            VALUES (%s, %s, %s)
-        """
-        valores = (ahora_str, str(contexto), str(detalle))
-        cur.execute(query, valores)
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e_supabase_log:
-        logger.error(f"Error interno al grabar Log en Supabase: {e_supabase_log}")
-        
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-# 4. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA)
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-
-def obtener_datos_usuario_db(user_id):
-    """
-    Consulta exclusivamente los registros de ingesta del usuario desde Supabase
-    y los devuelve en un DataFrame limpio, estandarizando el formato de fecha de forma robusta.
-    """
-    tabla_nombre = f"user_{user_id}"
-    try:
-        conn = _obtener_conexion_db()
-        query = f"""
-            SELECT "Fecha", "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)"
-            FROM {tabla_nombre}
-        """
-        df = pd.read_sql(query, conn)
-        conn.close()
-
-        # 🔍 Imprimimos en consola para auditar qué trajo exactamente de la DB
-        print(f"DEBUG DB -> Tabla: {tabla_nombre} | Filas: {len(df)}")
-        if not df.empty:
-            print(f"DEBUG DB -> Primeras fechas crudas en DB: {df['fecha'].head(3).tolist()}")
-
-        if df.empty:
-            return pd.DataFrame(columns=['Fecha', 'Momento', 'Alimento', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras'])
-
-        # Asegurar nombres de columnas estandarizados
-        df.columns = ['Fecha', 'Momento', 'Alimento', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']
-        
-        # 🛡️ LIMPIEZA BLINDADA DE FECHAS: Pasa a string, quita espacios y toma solo 'YYYY-MM-DD'
-        df['Fecha'] = df['Fecha'].astype(str).str.strip().str.replace('T', ' ').str.slice(0, 10)
-
-        # Limpieza de tipos numéricos por seguridad
-        for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
-
-        return df
-    except Exception as e:
-        logger.error(f"Error al consultar datos de Supabase para la tabla {tabla_nombre}: {e}")
-        print(f"DEBUG DB ERROR -> {e}")
-        return pd.DataFrame(columns=['Fecha', 'Momento', 'Alimento', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras'])
-                
-def obtener_ultimo_peso(user_id: int) -> dict:
-    """
-    Busca el último registro de peso del usuario en la pestaña 'Usuarios' de Google Sheets.
-    Retorna un diccionario con la fecha o None si no lo encuentra.
-    """
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        sheet_usuarios = sh.worksheet("Usuarios")
-        registros = sheet_usuarios.get_all_records()
-
-        for u in registros:
-            raw_id = u.get("User ID")
-            if raw_id and str(raw_id).strip() == str(user_id).strip():
-                fecha_peso = u.get("Ultimo Mes Peso") or u.get("MES") or u.get("fecha")
-                if fecha_peso:
-                    return {"fecha": str(fecha_peso).strip()}
-                    
-        return None
-    except Exception as e:
-        logger.error(f"Error en obtener_ultimo_peso para User {user_id}: {e}")
-        return None
-   
-def obtener_datos_presion_db(user_id):
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws = get_or_create_worksheet(sh, f"Presion_{user_id}")
-        records = ws.get_all_records()
-        if not records:
-            return pd.DataFrame()
-
-        df = pd.DataFrame(records)
-        for col in ['Alta', 'Baja', 'Pulsaciones']:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-                if (df[col] > 1000).any():
-                    df[col] = df[col] / 1000.0
-
-        if 'Fecha_Dia' in df.columns:
-            df['Fecha_Dia'] = df['Fecha_Dia'].astype(str).str.strip()
-
-        if 'Nota' not in df.columns:
-            df['Nota'] = ""
-
-        return df
-    except Exception:
-        return pd.DataFrame()
                 
 def obtener_comidas_usuario(user_id):
     try:
@@ -1263,13 +1017,22 @@ def extraer_val(texto: str) -> float:
             return 0.0
     return 0.0
 
+async def registrar_log_en_sheet(sh, contexto: str, detalle: str):
+    try:
+        try:
+            sheet_logs = sh.worksheet("Logs")
+        except Exception:
+            sheet_logs = sh.add_worksheet(title="Logs", rows="1000", cols="3")
+            sheet_logs.append_row(["Fecha y Hora", "Contexto / Módulo", "Detalle del Error"])
+
+        ahora_str = obtener_ahora_arg().strftime("%Y-%m-%d %H:%M:%S")
+        sheet_logs.append_row([ahora_str, contexto, str(detalle)])
+    except Exception as e_log:
+        logger.error(f"Error secundario al intentar registrar en Logs: {e_log}")
 
 # ======================================================================================================================================
 #                    FINAL                              GOOGLE SHEETS OPERACIONES                      FINAL
 # =======================================================================================================================================
-
-
-
 
 # =============================================================================================================================================
 #                       INICIO                     FUNCIONES AUXILIARES Y FORMATO                                   INICIO  
@@ -1813,262 +1576,6 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
 # ======================================================================================================================================
 
 # ======================================================================================================================================
-#                   INICIO                                    COMANDO DIARIO                                    INICIO  DB OK
-# =====================================================================================================================================
-
-@requiere_registro
-async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Manejador del comando /diario.
-    Muestra el menú de selección de fecha solo si el peso del mes en curso está al día.
-    """
-    # Usá exactamente la misma signatura de llamada que en cmd_mensaje
-    if not await _validar_peso_mes_actual(update=update, context=context):
-        return
-
-    # Despliegue del menú si el peso está al día
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅 Hoy", callback_data="diario_hoy"), InlineKeyboardButton("📆 Ayer", callback_data="diario_ayer")],
-        [InlineKeyboardButton("🗓️ Seleccionar Fecha", callback_data="diario_otro")]
-    ])
-    
-    await update.message.reply_text(
-        "📅 **Consulta de Diario:** Seleccioná qué día querés revisar:", 
-        reply_markup=keyboard, 
-        parse_mode="Markdown"
-    )
-
-async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
-    """
-    Función auxiliar para procesar y renderizar el reporte del diario agrupado por evento
-    consultando exclusivamente desde la base de datos (Supabase).
-    """
-    try:
-        # Consulta directo a Supabase con la nueva función
-        df = obtener_datos_usuario_db(user_id)
-        df_diario = df[df['Fecha'] == fecha_str] if not df.empty else pd.DataFrame()
-
-        if df_diario.empty:
-            texto = f"⚠️ No se encontraron registros de ingestas para la fecha `{fecha_str}`."
-            reply_markup = None
-        else:
-            # 1. Encabezado
-            texto = f"📅 Registro del día {fecha_str}:\n\n"
-            
-            # 2. Agrupación por momento manteniendo el orden de aparición original
-            momentos_vistos = []
-            agrupado = {}
-            
-            for _, r in df_diario.iterrows():
-                momento = str(r.get('Momento', '')).strip()
-                alimento = str(r.get('Alimento', '')).strip()
-                
-                if momento not in agrupado:
-                    agrupado[momento] = []
-                    momentos_vistos.append(momento)
-                if alimento:
-                    agrupado[momento].append(alimento)
-
-            # Formateo agrupado tipo listado bullet
-            for m in momentos_vistos:
-                items_str = ", ".join(agrupado[m])
-                texto += f"• {m}: {items_str}\n"
-
-            # 3. Totales y métricas nutricionales
-            c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
-            c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
-            b_neto = c_cons - c_quem
-            
-            p_tot = df_diario[df_diario['Calorias'] > 0]['Proteinas'].sum()
-            g_tot = df_diario[df_diario['Calorias'] > 0]['Grasas'].sum()
-            cb_tot = df_diario[df_diario['Calorias'] > 0]['Carbohidratos'].sum()
-            f_tot = df_diario[df_diario['Calorias'] > 0]['Fibras'].sum()
-
-            texto += f"\n🔥 Consumidas: {c_cons:.1f} kcal\n"
-            texto += f"⚡ Quemadas: {c_quem:.1f} kcal\n"
-            texto += f"⚖️ Balance Neto: {b_neto:.1f} kcal\n\n"
-            texto += f"🥩 Prot: {p_tot:.1f}g | 🥑 Gras: {g_tot:.1f}g | 🍞 Carb: {cb_tot:.1f}g | 🌾 Fibr: {f_tot:.1f}g"
-
-            keyboard = [[InlineKeyboardButton("📄 Descargar PDF", callback_data=f"descargar_pdf_diario_{fecha_str}")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-        # Envíos dinámicos según el origen de llamada originales
-        if hasattr(update_or_query, 'edit_message_text'):
-            try:
-                await update_or_query.edit_message_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
-            except Exception as ex:
-                if "Message is not modified" not in str(ex):
-                    raise ex
-        elif hasattr(update_or_query, 'reply_text'):
-            await update_or_query.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
-        elif hasattr(update_or_query, 'message') and update_or_query.message:
-            await update_or_query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
-
-    except Exception as e:
-        if "Message is not modified" in str(e):
-            return
-            
-        msg_err = f"❌ Error al consultar el diario para la fecha `{fecha_str}`: {e}"
-        if hasattr(update_or_query, 'edit_message_text'):
-            try:
-                await update_or_query.edit_message_text(msg_err, parse_mode="Markdown")
-            except Exception:
-                pass
-        elif hasattr(update_or_query, 'reply_text'):
-            await update_or_query.reply_text(msg_err, parse_mode="Markdown")
-        elif hasattr(update_or_query, 'message') and update_or_query.message:
-            await update_or_query.message.reply_text(msg_err, parse_mode="Markdown")
-
-def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
-    styles = getSampleStyleSheet()
-    
-    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#1E293B'))
-    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
-
-    story = [
-        Paragraph(f"<b>Detalle Diario de Ingestas - {fecha_str}</b>", title_style),
-        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
-        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
-    ]
-
-    if df_diario.empty:
-        story.append(Paragraph("No hay registros para esta fecha.", body_style))
-    else:
-        table_data = [[
-            Paragraph("Momento", header_style),
-            Paragraph("Alimento / Detalle", header_style),
-            Paragraph("Peso", header_style),
-            Paragraph("Kcal", header_style),
-            Paragraph("Prot", header_style),
-            Paragraph("Gras", header_style),
-            Paragraph("Carb", header_style),
-            Paragraph("Fibr", header_style)
-        ]]
-
-        for _, r in df_diario.iterrows():
-            table_data.append([
-                Paragraph(str(r.get('Momento', '')), body_style),
-                Paragraph(str(r.get('Alimento', '')), body_style),
-                Paragraph(f"{r.get('Peso', 0):.1f}g", body_style),
-                Paragraph(f"{r.get('Calorias', 0):.1f}", body_style),
-                Paragraph(f"{r.get('Proteinas', 0):.1f}g", body_style),
-                Paragraph(f"{r.get('Grasas', 0):.1f}g", body_style),
-                Paragraph(f"{r.get('Carbohidratos', 0):.1f}g", body_style),
-                Paragraph(f"{r.get('Fibras', 0):.1f}g", body_style)
-            ])
-
-        t = Table(table_data, colWidths=[70, 160, 45, 45, 45, 45, 45, 45])
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 10))
-
-        c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
-        c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
-        b_neto = c_cons - c_quem
-        story.append(Paragraph(f"• <b>Total Consumidas:</b> {c_cons:.1f} kcal", body_style))
-        story.append(Paragraph(f"• <b>Total Quemadas:</b> {c_quem:.1f} kcal", body_style))
-        story.append(Paragraph(f"• <b>Balance Neto:</b> {b_neto:.1f} kcal", body_style))
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
-
-#                    FUNCION ANTIGUA DEL EXEL
-#---------------------------------------------------------------------------------------------------
-async def mostrar_diario_fecha_reserva(update_or_query, user_id, fecha_str):
-    """
-    Función auxiliar para procesar y renderizar el reporte del diario agrupado por evento.
-    """
-    try:
-        df = obtener_datos_usuario(user_id)
-        df_diario = df[df['Fecha'] == fecha_str] if not df.empty else pd.DataFrame()
-
-        if df_diario.empty:
-            texto = f"⚠️ No se encontraron registros de ingestas para la fecha `{fecha_str}`."
-            reply_markup = None
-        else:
-            # 1. Encabezado
-            texto = f"📅 Registro del día {fecha_str}:\n\n"
-            
-            # 2. Agrupación por momento mantención del orden de aparición original
-            momentos_vistos = []
-            agrupado = {}
-            
-            for _, r in df_diario.iterrows():
-                momento = str(r.get('Momento', '')).strip()
-                alimento = str(r.get('Alimento', '')).strip()
-                
-                if momento not in agrupado:
-                    agrupado[momento] = []
-                    momentos_vistos.append(momento)
-                if alimento:
-                    agrupado[momento].append(alimento)
-
-            # Formateo agrupado tipo listado bullet
-            for m in momentos_vistos:
-                items_str = ", ".join(agrupado[m])
-                texto += f"• {m}: {items_str}\n"
-
-            # 3. Totales y métricas nutricionales
-            c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
-            c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
-            b_neto = c_cons - c_quem
-            
-            p_tot = df_diario[df_diario['Calorias'] > 0]['Proteinas'].sum()
-            g_tot = df_diario[df_diario['Calorias'] > 0]['Grasas'].sum()
-            cb_tot = df_diario[df_diario['Calorias'] > 0]['Carbohidratos'].sum()
-            f_tot = df_diario[df_diario['Calorias'] > 0]['Fibras'].sum()
-
-            texto += f"\n🔥 Consumidas: {c_cons:.1f} kcal\n"
-            texto += f"⚡ Quemadas: {c_quem:.1f} kcal\n"
-            texto += f"⚖️ Balance Neto: {b_neto:.1f} kcal\n\n"
-            texto += f"🥩 Prot: {p_tot:.1f}g | 🥑 Gras: {g_tot:.1f}g | 🍞 Carb: {cb_tot:.1f}g | 🌾 Fibr: {f_tot:.1f}g"
-
-            keyboard = [[InlineKeyboardButton("📄 Descargar PDF", callback_data=f"descargar_pdf_diario_{fecha_str}")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-        # Envíos dinámicos según el origen de llamada originales
-        if hasattr(update_or_query, 'edit_message_text'):
-            try:
-                await update_or_query.edit_message_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
-            except Exception as ex:
-                if "Message is not modified" not in str(ex):
-                    raise ex
-        elif hasattr(update_or_query, 'reply_text'):
-            await update_or_query.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
-        elif hasattr(update_or_query, 'message') and update_or_query.message:
-            await update_or_query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
-
-    except Exception as e:
-        if "Message is not modified" in str(e):
-            return
-            
-        msg_err = f"❌ Error al consultar el diario para la fecha `{fecha_str}`: {e}"
-        if hasattr(update_or_query, 'edit_message_text'):
-            try:
-                await update_or_query.edit_message_text(msg_err, parse_mode="Markdown")
-            except Exception:
-                pass
-        elif hasattr(update_or_query, 'reply_text'):
-            await update_or_query.reply_text(msg_err, parse_mode="Markdown")
-        elif hasattr(update_or_query, 'message') and update_or_query.message:
-            await update_or_query.message.reply_text(msg_err, parse_mode="Markdown")
-
-# =======================================================================================================================================
-#                   FINAL                                COMANDOS DIARIO                                     FINAL
-# =====================================================================================================================================
-
-
-# ======================================================================================================================================
 #                  INICIO                        INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO  DB OK
 # ======================================================================================================================================
 
@@ -2198,8 +1705,7 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         msg_espera = await update.message.reply_text("⏳ Analizando los días transcurridos con IA...")
 
-        # 🔄 CAMBIO CLAVE: Apuntamos directo a Supabase en lugar de Google Sheets
-        df_datos = obtener_datos_usuario_db(user_id) if 'obtener_datos_usuario_db' in globals() else pd.DataFrame()
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
 
         if df_datos.empty or 'Fecha' not in df_datos.columns:
             await msg_espera.edit_text("⚠️ No hay información de comidas registradas.")
@@ -2266,47 +1772,6 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error en cmd_mensaje: {e}")
         if 'msg_espera' in locals():
             await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
-
-# RESERVA: Lectura de datos de usuario desde Google Sheets (Antigua)
-# ====================================================================================================
-def obtener_datos_usuario_reserva(user_id):
-    """
-    Función de respaldo que consulta los datos del usuario desde Google Sheets.
-    """
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws = get_or_create_worksheet(sh, f"User_{user_id}")
-        records = ws.get_all_records()
-        if not records:
-            return pd.DataFrame()
-        
-        df = pd.DataFrame(records)
-        col_map = {}
-        for c in df.columns:
-            c_lower = str(c).lower()
-            if 'fecha' in c_lower: col_map[c] = 'Fecha'
-            elif 'momento' in c_lower or 'actividad' in c_lower: col_map[c] = 'Momento'
-            elif 'alimento' in c_lower or 'detalle' in c_lower: col_map[c] = 'Alimento'
-            elif 'peso' in c_lower: col_map[c] = 'Peso'
-            elif 'calor' in c_lower: col_map[c] = 'Calorias'
-            elif 'prote' in c_lower: col_map[c] = 'Proteinas'
-            elif 'grasa' in c_lower: col_map[c] = 'Grasas'
-            elif 'hidrat' in c_lower or 'carbo' in c_lower: col_map[c] = 'Carbohidratos'
-            elif 'fibra' in c_lower: col_map[c] = 'Fibras'
-
-        df = df.rename(columns=col_map)
-        if "Fecha" in df.columns and not df.empty:
-            df['Fecha'] = df['Fecha'].astype(str).str.strip()
-            for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
-                if col in df.columns:
-                    df[col] = df[col].apply(parse_float_from_sheets)
-                else:
-                    df[col] = 0.0
-        return df
-    except Exception as e:
-        print(f"Error al obtener datos del usuario {user_id} desde Sheets: {e}")
-        return pd.DataFrame()
 
 # ======================================================================================================================================
 #                      FINAL                        COMANDO SEMANA                                          FINAL
@@ -3764,6 +3229,176 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                  FINAL                                       COMANDO RECETA                                        FINAL
 # =========================================================================================================================================
 
+# ======================================================================================================================================
+#                   INICIO                                    COMANDO DIARIO                                    INICIO  DB OK
+# =====================================================================================================================================
+
+@requiere_registro
+async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Manejador del comando /diario.
+    Muestra el menú de selección de fecha solo si el peso del mes en curso está al día.
+    """
+    # Usá exactamente la misma signatura de llamada que en cmd_mensaje
+    if not await _validar_peso_mes_actual(update=update, context=context):
+        return
+
+    # Despliegue del menú si el peso está al día
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 Hoy", callback_data="diario_hoy"), InlineKeyboardButton("📆 Ayer", callback_data="diario_ayer")],
+        [InlineKeyboardButton("🗓️ Seleccionar Fecha", callback_data="diario_otro")]
+    ])
+    
+    await update.message.reply_text(
+        "📅 **Consulta de Diario:** Seleccioná qué día querés revisar:", 
+        reply_markup=keyboard, 
+        parse_mode="Markdown"
+    )
+async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
+    """
+    Función auxiliar para procesar y renderizar el reporte del diario agrupado por evento.
+    """
+    try:
+        df = obtener_datos_usuario(user_id)
+        df_diario = df[df['Fecha'] == fecha_str] if not df.empty else pd.DataFrame()
+
+        if df_diario.empty:
+            texto = f"⚠️ No se encontraron registros de ingestas para la fecha `{fecha_str}`."
+            reply_markup = None
+        else:
+            # 1. Encabezado
+            texto = f"📅 Registro del día {fecha_str}:\n\n"
+            
+            # 2. Agrupación por momento mantención del orden de aparición original
+            momentos_vistos = []
+            agrupado = {}
+            
+            for _, r in df_diario.iterrows():
+                momento = str(r.get('Momento', '')).strip()
+                alimento = str(r.get('Alimento', '')).strip()
+                
+                if momento not in agrupado:
+                    agrupado[momento] = []
+                    momentos_vistos.append(momento)
+                if alimento:
+                    agrupado[momento].append(alimento)
+
+            # Formateo agrupado tipo listado bullet
+            for m in momentos_vistos:
+                items_str = ", ".join(agrupado[m])
+                texto += f"• {m}: {items_str}\n"
+
+            # 3. Totales y métricas nutricionales
+            c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
+            c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
+            b_neto = c_cons - c_quem
+            
+            p_tot = df_diario[df_diario['Calorias'] > 0]['Proteinas'].sum()
+            g_tot = df_diario[df_diario['Calorias'] > 0]['Grasas'].sum()
+            cb_tot = df_diario[df_diario['Calorias'] > 0]['Carbohidratos'].sum()
+            f_tot = df_diario[df_diario['Calorias'] > 0]['Fibras'].sum()
+
+            texto += f"\n🔥 Consumidas: {c_cons:.1f} kcal\n"
+            texto += f"⚡ Quemadas: {c_quem:.1f} kcal\n"
+            texto += f"⚖️ Balance Neto: {b_neto:.1f} kcal\n\n"
+            texto += f"🥩 Prot: {p_tot:.1f}g | 🥑 Gras: {g_tot:.1f}g | 🍞 Carb: {cb_tot:.1f}g | 🌾 Fibr: {f_tot:.1f}g"
+
+            keyboard = [[InlineKeyboardButton("📄 Descargar PDF", callback_data=f"descargar_pdf_diario_{fecha_str}")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Envíos dinámicos según el origen de llamada originales
+        if hasattr(update_or_query, 'edit_message_text'):
+            try:
+                await update_or_query.edit_message_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+            except Exception as ex:
+                if "Message is not modified" not in str(ex):
+                    raise ex
+        elif hasattr(update_or_query, 'reply_text'):
+            await update_or_query.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+        elif hasattr(update_or_query, 'message') and update_or_query.message:
+            await update_or_query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            return
+            
+        msg_err = f"❌ Error al consultar el diario para la fecha `{fecha_str}`: {e}"
+        if hasattr(update_or_query, 'edit_message_text'):
+            try:
+                await update_or_query.edit_message_text(msg_err, parse_mode="Markdown")
+            except Exception:
+                pass
+        elif hasattr(update_or_query, 'reply_text'):
+            await update_or_query.reply_text(msg_err, parse_mode="Markdown")
+        elif hasattr(update_or_query, 'message') and update_or_query.message:
+            await update_or_query.message.reply_text(msg_err, parse_mode="Markdown")
+
+def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#1E293B'))
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
+
+    story = [
+        Paragraph(f"<b>Detalle Diario de Ingestas - {fecha_str}</b>", title_style),
+        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
+    ]
+
+    if df_diario.empty:
+        story.append(Paragraph("No hay registros para esta fecha.", body_style))
+    else:
+        table_data = [[
+            Paragraph("Momento", header_style),
+            Paragraph("Alimento / Detalle", header_style),
+            Paragraph("Peso", header_style),
+            Paragraph("Kcal", header_style),
+            Paragraph("Prot", header_style),
+            Paragraph("Gras", header_style),
+            Paragraph("Carb", header_style),
+            Paragraph("Fibr", header_style)
+        ]]
+
+        for _, r in df_diario.iterrows():
+            table_data.append([
+                Paragraph(str(r.get('Momento', '')), body_style),
+                Paragraph(str(r.get('Alimento', '')), body_style),
+                Paragraph(f"{r.get('Peso', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Calorias', 0):.1f}", body_style),
+                Paragraph(f"{r.get('Proteinas', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Grasas', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Carbohidratos', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Fibras', 0):.1f}g", body_style)
+            ])
+
+        t = Table(table_data, colWidths=[70, 160, 45, 45, 45, 45, 45, 45])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 10))
+
+        c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
+        c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
+        b_neto = c_cons - c_quem
+        story.append(Paragraph(f"• <b>Total Consumidas:</b> {c_cons:.1f} kcal", body_style))
+        story.append(Paragraph(f"• <b>Total Quemadas:</b> {c_quem:.1f} kcal", body_style))
+        story.append(Paragraph(f"• <b>Balance Neto:</b> {b_neto:.1f} kcal", body_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+# =======================================================================================================================================
+#                   FINAL                                COMANDOS DIARIO                                     FINAL
+# =====================================================================================================================================
 
 # =====================================================================================================================================
 #                   INICIO                               COMANDO PERFIL                                  INICIO  DB OK
