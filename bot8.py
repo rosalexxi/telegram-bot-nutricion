@@ -4148,14 +4148,14 @@ async def mostrar_registros_para_eliminar(query, user_id, context):
     fecha = context.user_data.get('del_filtro_fecha')
     momento = context.user_data.get('del_filtro_momento')
     
-    # Reutiliza la función auxiliar existente para consultar los datos del usuario
+    # Lectura directa desde Google Sheets
     df = obtener_datos_usuario(user_id)
     
     if df.empty:
         await query.edit_message_text("❌ No tenés registros cargados en tu planilla.")
         return
 
-    # Filtramos por Fecha y Momento exacto respetando las columnas de la hoja 'User_<user_id>'
+    # Filtramos por Fecha y Momento exacto
     df_filtrado = df[(df['Fecha'] == fecha) & (df['Momento'].str.strip().str.lower() == momento.lower())]
 
     if df_filtrado.empty:
@@ -4175,8 +4175,7 @@ async def mostrar_registros_para_eliminar(query, user_id, context):
         calorias = row.get('Calorias', 0)
         txt += f"• **{alimento}** ({calorias:.0f} kcal)\n"
         
-        # Como en gspread los índices de filas empiezan en 1 y la fila 1 son los encabezados,
-        # el índice real en la hoja es idx + 2 (asumiendo que el DataFrame mantiene alineación directa o indexación de Sheets)
+        # El índice real en la hoja de Google Sheets (fila 1 = encabezados, filas de datos empiezan en 2)
         keyboard_buttons.append([
             InlineKeyboardButton(f"❌ Borrar: {str(alimento)[:20]}...", callback_data=f"ejecutar_del_fila_{idx+2}")
         ])
@@ -4188,9 +4187,10 @@ async def mostrar_registros_para_eliminar(query, user_id, context):
         reply_markup=InlineKeyboardMarkup(keyboard_buttons), 
         parse_mode="Markdown"
     )
-    
-# --- BLOQUE DE ELIMINACIÓN DE REGISTROS PASADOS ---
-    elif data == "del_reg_hoy":
+
+async def manejar_callback_eliminacion(query, user_id, data, context):
+    """Manejador lógico para los callbacks del menú de eliminación."""
+    if data == "del_reg_hoy":
         context.user_data['del_filtro_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
         await actualizar_menu_filtro_eliminacion(query, context)
 
@@ -4212,7 +4212,7 @@ async def mostrar_registros_para_eliminar(query, user_id, context):
     elif data.startswith("ejecutar_del_fila_"):
         fila_idx = int(data.replace("ejecutar_del_fila_", ""))
         
-        # Conexión nativa con Google Sheets usando los métodos del bot
+        # Eliminación directa en la planilla de Google Sheets
         gc = get_gspread_client()
         sh = gc.open(SPREADSHEET_NAME)
         ws = sh.worksheet(f"User_{user_id}")
@@ -4256,11 +4256,9 @@ async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYP
         parse_mode="Markdown"
     )
 
-
 # =====================================================================================================================================
 #                FINAL                               COMANDO ELIMINAR                          FINAL
 # ======================================================================================================================================
-
 # =====================================================================================================================================
 #                INICIO                               MENSAJES PROGRAMADOS                          INICIO  DB OK
 # ======================================================================================================================================
