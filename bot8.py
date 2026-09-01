@@ -692,14 +692,14 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
             CREATE TABLE IF NOT EXISTS {tabla_nombre} (
                 id SERIAL PRIMARY KEY,
                 fecha TEXT,
-                momento TEXT,
-                alimento TEXT,
-                peso NUMERIC,
-                calorias NUMERIC,
-                proteinas NUMERIC,
-                grasas NUMERIC,
-                carbohidratos NUMERIC,
-                fibras NUMERIC
+                "Momento/Actividad" TEXT,
+                "Alimento/Detalle" TEXT,
+                "Peso (g)" NUMERIC,
+                "Calorías (kcal)" NUMERIC,
+                "Proteínas (g)" NUMERIC,
+                "Grasas (g)" NUMERIC,
+                "Hidratos (g)" NUMERIC,
+                "Fibras (g)" NUMERIC
             );
         """
     elif tipo_tabla == "comidas_precargadas":
@@ -754,7 +754,7 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
     cur.execute(query_creacion)
     conn.commit()
     return conn, cur
-
+    
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 2. CONSULTAS Y DECORADORES DE USUARIO
 # ---------------------------------------------------------------------------------------------------------------------------------------------
@@ -924,7 +924,7 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
         
         for item in items:
             query = f"""
-                INSERT INTO {tabla_nombre} (fecha, momento, alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras)
+                INSERT INTO {tabla_nombre} (fecha, "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)")
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             valores = (
@@ -1183,7 +1183,7 @@ def obtener_datos_usuario_db(user_id):
     try:
         conn = _obtener_conexion_db()
         query = f"""
-            SELECT fecha, momento, alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras
+            SELECT fecha, "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)"
             FROM {tabla_nombre}
         """
         df = pd.read_sql(query, conn)
