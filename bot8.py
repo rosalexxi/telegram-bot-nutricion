@@ -60,7 +60,7 @@ load_dotenv()
 AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT_ITEM = range(4)
 
 GROQ_TEXTO = "openai/gpt-oss-120b"
-GROQ_FOTO = "qwen/qwen3.6-27b"
+GROQ_FOTO = "qwen/qwen3.8-27b"
 GROQ_AUDIO = "whisper-large-v3"
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -96,6 +96,26 @@ def run_flask():
 
 app = Flask(__name__)
 
+def obtener_codigo_unico(ws, codigo_base):
+    """
+    Lee los códigos existentes en la Columna A de la hoja recibida por parámetro
+    y asigna un sufijo numérico incremental si el código ya existe.
+    Ejemplo: PIZZA -> PIZZA1 -> PIZZA2
+    """
+    codigos_existentes = set(ws.col_values(1))
+    codigo_limpio = str(codigo_base).strip().upper()
+    
+    if codigo_limpio not in codigos_existentes:
+        return codigo_limpio
+
+    i = 1
+    mientras_repetido = f"{codigo_limpio}{i}"
+    while mientras_repetido in codigos_existentes:
+        i += 1
+        mientras_repetido = f"{codigo_limpio}{i}"
+        
+    return mientras_repetido
+    
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="es">
