@@ -1183,7 +1183,7 @@ def obtener_datos_usuario_db(user_id):
     try:
         conn = _obtener_conexion_db()
         query = f"""
-            SELECT fecha, "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)"
+            SELECT "Fecha", "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)"
             FROM {tabla_nombre}
         """
         df = pd.read_sql(query, conn)
