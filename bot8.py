@@ -3577,14 +3577,18 @@ def analizar_con_groq(prompt_text):
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
     
-    system_prompt = """Sos un nutricionista experto. Analizá el texto ingresado.
-Devolvé EXCLUSIVAMENTE un JSON con este formato:
-{
-  "items": [
-    {"alimento": "nombre", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}
-  ],
-  "tipo": "Comida"
-}"""
+    system_prompt = (
+        "Sos un nutricionista experto. Analizá el texto ingresado. "
+        "Si el texto incluye varios alimentos o porciones, desglosalos individualmente. "
+        "Estimá de forma lógica los pesos en gramos y nutrientes si no están explícitos. "
+        "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
+        "{\n"
+        '  "items": [\n'
+        '    {"alimento": "nombre", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
+        "  ],\n"
+        '  "tipo": "Comida"\n'
+        "}"
+    )
 
     response = client_ai.chat.completions.create(
         model=GROQ_TEXTO,
@@ -3601,10 +3605,17 @@ def analizar_imagen_con_groq(base64_image, user_caption=""):
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
     
-    base_prompt = "Analizá esta imagen de comida/plato. Identificá los alimentos, estimá sus pesos en gramos y nutrientes. Respondé ÚNICAMENTE en formato JSON con la clave 'items' conteniendo alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras."
+    base_prompt = (
+        "Analizá esta imagen de comida/plato. "
+        "Identificá los alimentos, estimá sus pesos en gramos y nutrientes. "
+        "Si el usuario incluye una nota o aclaración, utilízala de manera estricta para definir "
+        "el tipo exacto de alimento y método de cocción. "
+        "Respondé ÚNICAMENTE en formato JSON con la clave 'items' conteniendo "
+        "alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras."
+    )
     
     if user_caption.strip():
-        prompt = f"{base_prompt}\n\nNota o aclaración enviada por el usuario sobre esta foto: '{user_caption.strip()}'"
+        prompt = f"{base_prompt}\n\nAclaración obligatoria del usuario sobre la foto: {user_caption.strip()}"
     else:
         prompt = base_prompt
 
@@ -4108,8 +4119,147 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await generar_y_enviar_pdf_presion(query, user_id, mes_str, context)
 
 #====================================================================================================================================
-#                FINAL                                     MANEJADORES HANDLE                                    FINAL
+#                FINAL                                 MANEJADORES HANDLE                       FINAL
 #===================================================================================================================================
+
+# =====================================================================================================================================
+#                INICIO                               COMANDO ELIMINAR                          INICIO  
+# ======================================================================================================================================
+
+async def actualizar_menu_filtro_eliminacion(query, context):
+    f = context.user_data.get('del_filtro_fecha')
+    m = context.user_data.get('del_filtro_momento')
+    keyboard = [
+        [InlineKeyboardButton("📅 Hoy", callback_data="del_reg_hoy"), InlineKeyboardButton("📅 Ayer", callback_data="del_reg_ayer"), InlineKeyboardButton("📅 Otro Día", callback_data="del_reg_otro")],
+        [InlineKeyboardButton("☕ Desayuno", callback_data="del_mom_Desayuno"), InlineKeyboardButton("🍽️ Almuerzo", callback_data="del_mom_Almuerzo")],
+        [InlineKeyboardButton("🫖 Merienda", callback_data="del_mom_Merienda"), InlineKeyboardButton("🌙 Cena", callback_data="del_mom_Cena")],
+        [InlineKeyboardButton("🔍 Ver Registros", callback_data="del_reg_mostrar")]
+    ]
+    await query.edit_message_text(
+        "🗑️ **Eliminar o Corregir Registro Pasado**\n\n"
+        f"• Fecha seleccionada: `{f}`\n"
+        f"• Momento seleccionado: `{m}`\n\n"
+        "Usá los botones para cambiar los filtros o tocá *Ver Registros*:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    
+async def mostrar_registros_para_eliminar(query, user_id, context):
+    fecha = context.user_data.get('del_filtro_fecha')
+    momento = context.user_data.get('del_filtro_momento')
+    
+    # Reutiliza la función auxiliar existente para consultar los datos del usuario
+    df = obtener_datos_usuario(user_id)
+    
+    if df.empty:
+        await query.edit_message_text("❌ No tenés registros cargados en tu planilla.")
+        return
+
+    # Filtramos por Fecha y Momento exacto respetando las columnas de la hoja 'User_<user_id>'
+    df_filtrado = df[(df['Fecha'] == fecha) & (df['Momento'].str.strip().str.lower() == momento.lower())]
+
+    if df_filtrado.empty:
+        keyboard = [[InlineKeyboardButton("🔙 Volver", callback_data="del_reg_volver")]]
+        await query.edit_message_text(
+            f"⚠️ No se encontraron registros para el **{fecha}** en **{momento}**.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+        return
+
+    txt = f"🗑️ **Registros encontrados ({fecha} - {momento}):**\n\n"
+    keyboard_buttons = []
+
+    for idx, row in df_filtrado.iterrows():
+        alimento = row.get('Alimento', 'Sin detalle')
+        calorias = row.get('Calorias', 0)
+        txt += f"• **{alimento}** ({calorias:.0f} kcal)\n"
+        
+        # Como en gspread los índices de filas empiezan en 1 y la fila 1 son los encabezados,
+        # el índice real en la hoja es idx + 2 (asumiendo que el DataFrame mantiene alineación directa o indexación de Sheets)
+        keyboard_buttons.append([
+            InlineKeyboardButton(f"❌ Borrar: {str(alimento)[:20]}...", callback_data=f"ejecutar_del_fila_{idx+2}")
+        ])
+
+    keyboard_buttons.append([InlineKeyboardButton("🔙 Volver", callback_data="del_reg_volver")])
+    
+    await query.edit_message_text(
+        txt, 
+        reply_markup=InlineKeyboardMarkup(keyboard_buttons), 
+        parse_mode="Markdown"
+    )
+    
+# --- BLOQUE DE ELIMINACIÓN DE REGISTROS PASADOS ---
+    elif data == "del_reg_hoy":
+        context.user_data['del_filtro_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+        await actualizar_menu_filtro_eliminacion(query, context)
+
+    elif data == "del_reg_ayer":
+        context.user_data['del_filtro_fecha'] = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
+        await actualizar_menu_filtro_eliminacion(query, context)
+
+    elif data == "del_reg_otro":
+        context.user_data['awaiting_del_custom_date'] = True
+        await query.message.reply_text("📅 Ingresá la fecha que querés revisar (Ej: `2026-08-25`):", parse_mode="Markdown")
+
+    elif data.startswith("del_mom_"):
+        context.user_data['del_filtro_momento'] = data.replace("del_mom_", "")
+        await actualizar_menu_filtro_eliminacion(query, context)
+
+    elif data == "del_reg_mostrar" or data == "del_reg_volver":
+        await mostrar_registros_para_eliminar(query, user_id, context)
+
+    elif data.startswith("ejecutar_del_fila_"):
+        fila_idx = int(data.replace("ejecutar_del_fila_", ""))
+        
+        # Conexión nativa con Google Sheets usando los métodos del bot
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = sh.worksheet(f"User_{user_id}")
+        ws.delete_rows(fila_idx)
+        
+        await query.answer("✅ Registro eliminado correctamente de la planilla.")
+        await mostrar_registros_para_eliminar(query, user_id, context)
+
+async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Paso 1: Solicita al usuario el día y momento del registro que desea eliminar."""
+    keyboard = [
+        [
+            InlineKeyboardButton("📅 Hoy", callback_data="del_reg_hoy"),
+            InlineKeyboardButton("📅 Ayer", callback_data="del_reg_ayer"),
+            InlineKeyboardButton("📅 Otro Día", callback_data="del_reg_otro")
+        ],
+        [
+            InlineKeyboardButton("☕ Desayuno", callback_data="del_mom_Desayuno"),
+            InlineKeyboardButton("🍽️ Almuerzo", callback_data="del_mom_Almuerzo")
+        ],
+        [
+            InlineKeyboardButton("🫖 Merienda", callback_data="del_mom_Merienda"),
+            InlineKeyboardButton("🌙 Cena", callback_data="del_mom_Cena")
+        ],
+        [
+            InlineKeyboardButton("🔍 Ver Registros", callback_data="del_reg_mostrar")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Inicializamos valores temporales en user_data
+    context.user_data['del_filtro_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+    context.user_data['del_filtro_momento'] = "Almuerzo"
+
+    await update.message.reply_text(
+        "🗑️ **Eliminar o Corregir Registro Pasado**\n\n"
+        f"• Fecha seleccionada: `{context.user_data['del_filtro_fecha']}`\n"
+        f"• Momento seleccionado: `{context.user_data['del_filtro_momento']}`\n\n"
+        "Usá los botones para cambiar los filtros o tocá *Ver Registros*:",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+
+# =====================================================================================================================================
+#                FINAL                               COMANDO ELIMINAR                          FINAL
+# ======================================================================================================================================
 
 # =====================================================================================================================================
 #                INICIO                               MENSAJES PROGRAMADOS                          INICIO  DB OK
@@ -4577,6 +4727,7 @@ def main():
     app_bot.add_handler(CommandHandler(["resumen", "mes", "mensual", "m"], cmd_resumen))
     app_bot.add_handler(CommandHandler(["mensaje", "semana", "semanal", "s"], cmd_mensaje))
     app_bot.add_handler(CommandHandler(["receta", "planilla"], cmd_cargar_receta))
+    app_bot.add_handler(CommandHandler("eliminar", cmd_eliminar_ingesta))
 
     # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
     app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
