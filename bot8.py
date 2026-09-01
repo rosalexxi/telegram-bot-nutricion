@@ -1177,7 +1177,7 @@ async def registrar_log_en_sheet(sh, contexto: str, detalle: str):
 def obtener_datos_usuario_db(user_id):
     """
     Consulta exclusivamente los registros de ingesta del usuario desde Supabase
-    y los devuelve en un DataFrame limpio, estandarizando el formato de fecha.
+    y los devuelve en un DataFrame limpio, estandarizando el formato de fecha de forma robusta.
     """
     tabla_nombre = f"user_{user_id}"
     try:
@@ -1189,10 +1189,10 @@ def obtener_datos_usuario_db(user_id):
         df = pd.read_sql(query, conn)
         conn.close()
 
-        # 🔍 CHIVATO EN CONSOLA: Muestra qué tabla buscó y cuántas filas trajo
-        print(f"DEBUG DB -> Tabla consultada: {tabla_nombre} | Filas encontradas: {len(df)}")
+        # 🔍 Imprimimos en consola para auditar qué trajo exactamente de la DB
+        print(f"DEBUG DB -> Tabla: {tabla_nombre} | Filas: {len(df)}")
         if not df.empty:
-            print(f"DEBUG DB -> Fechas crudas en DB: {df['fecha'].unique()[:5]}")
+            print(f"DEBUG DB -> Primeras fechas crudas en DB: {df['fecha'].head(3).tolist()}")
 
         if df.empty:
             return pd.DataFrame(columns=['Fecha', 'Momento', 'Alimento', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras'])
@@ -1200,8 +1200,8 @@ def obtener_datos_usuario_db(user_id):
         # Asegurar nombres de columnas estandarizados
         df.columns = ['Fecha', 'Momento', 'Alimento', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']
         
-        # Limpieza de fechas
-        df['Fecha'] = df['Fecha'].astype(str).str.strip().str.slice(0, 10)
+        # 🛡️ LIMPIEZA BLINDADA DE FECHAS: Pasa a string, quita espacios y toma solo 'YYYY-MM-DD'
+        df['Fecha'] = df['Fecha'].astype(str).str.strip().str.replace('T', ' ').str.slice(0, 10)
 
         # Limpieza de tipos numéricos por seguridad
         for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
@@ -1212,7 +1212,7 @@ def obtener_datos_usuario_db(user_id):
         logger.error(f"Error al consultar datos de Supabase para la tabla {tabla_nombre}: {e}")
         print(f"DEBUG DB ERROR -> {e}")
         return pd.DataFrame(columns=['Fecha', 'Momento', 'Alimento', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras'])
-        
+                
 def obtener_ultimo_peso(user_id: int) -> dict:
     """
     Busca el último registro de peso del usuario en la pestaña 'Usuarios' de Google Sheets.
