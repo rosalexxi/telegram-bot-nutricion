@@ -552,38 +552,6 @@ def api_guardar_comida():
 #                INICIO                             CONSULTAS A BASE DE DATOS                                INICIO  DB
 # =====================================================================================================================================
 
-def obtener_datos_usuario_db(user_id):
-    """
-    Consulta exclusivamente los registros de ingesta del usuario desde Supabase
-    y los devuelve en un DataFrame limpio, idéntico al que se usaba con Google Sheets.
-    """
-    tabla_nombre = f"user_{user_id}"
-    try:
-        conn = _obtener_conexion_db()
-        query = f"""
-            SELECT fecha, momento, alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras
-            FROM {tabla_nombre}
-        """
-        df = pd.read_sql(query, conn)
-        conn.close()
-
-        if df.empty:
-            return pd.DataFrame(columns=['Fecha', 'Momento', 'Alimento', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras'])
-
-        # Asegurar nombres de columnas estandarizados
-        df.columns = ['Fecha', 'Momento', 'Alimento', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']
-        
-        # Limpieza de tipos numéricos por seguridad
-        df['Fecha'] = df['Fecha'].astype(str).str.strip()
-        for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
-
-        return df
-    except Exception as e:
-        logger.error(f"Error al consultar datos de Supabase para la tabla {tabla_nombre}: {e}")
-        return pd.DataFrame(columns=['Fecha', 'Momento', 'Alimento', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras'])
-
-
 def obtener_ultimo_peso_db(user_id: int) -> dict:
     """
     Busca el último registro de mes/peso del usuario desde la tabla de perfiles en Supabase.
