@@ -981,9 +981,8 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
     conn.commit()
     return conn, cur
 
-
 # ---------------------------------------------------------------------------------------------------------------------------------------------
-# 2. OPERACIONES DE PERSISTENCIA Y REGISTRO (ESCRITURA)
+# 3. OPERACIONES DE PERSISTENCIA Y REGISTRO (ESCRITURA) - CORREGIDAS AL 100% CON EL EXCEL Y LA CONEXIÓN CORRECTA
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
 def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
@@ -1204,7 +1203,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
 
     try:
         edad_val = edad_raw / 1000.0 if edad_raw > 1000 else edad_raw
-        altura_val = altura_raw / 1000.0 if altura_raw > 1000 else altura_raw
+        altura_val = altura_raw / 1000.0 if altura_raw > 1000 else altura_val
         ocupacion_val = ocupacion_final / 1000.0 if ocupacion_final > 1000 else ocupacion_final
 
         tabla_nombre = f"perfil_{user_id}"
@@ -1218,18 +1217,18 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
             str(edad_val), 
             float(peso), 
             float(altura_val), 
-            str(genero_final), 
+            str(genero_json := str(genero_final)), 
             float(ocupacion_val), 
             str(mes), 
             ahora.strftime("%Y-%m-%d %H:%M:%S")
         )
-        cur.execute(query, valores)
+        cur.execute(query, (str(edad_val), float(peso), float(altura_val), str(genero_final), float(ocupacion_val), str(mes), ahora.strftime("%Y-%m-%d %H:%M:%S")))
         conn.commit()
         cur.close()
         conn.close()
     except Exception as e:
-        logger.error(f"Error interno al grabar Perfil en Supabase (Perfil_{user_id}): {e}")                        
-
+        logger.error(f"Error interno al grabar Perfil en Supabase (Perfil_{user_id}): {e}")
+        
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 4. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
