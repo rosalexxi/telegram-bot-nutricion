@@ -916,7 +916,74 @@ def requiere_registro(func):
     return wrapper
     
 # ---------------------------------------------------------------------------------------------------------------------------------------------
-# 3. OPERACIONES DE PERSISTENCIA Y REGISTRO (ESCRITURA)
+# 1. FUNCIÓN DE CONEXIÓN Y CREACIÓN DE TABLAS (CON LOS NOMBRES EXACTOS DEL EXCEL)
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+
+def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
+    conn = obtener_conexion_supabase()
+    cur = conn.cursor()
+
+    if tipo_tabla == "comida":
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                "Fecha" TEXT,
+                "Momento/Actividad" TEXT,
+                "Alimento/Detalle" TEXT,
+                "Peso (g)" DOUBLE PRECISION,
+                "Calorías (kcal)" DOUBLE PRECISION,
+                "Proteínas (g)" DOUBLE PRECISION,
+                "Grasas (g)" DOUBLE PRECISION,
+                "Hidratos (g)" DOUBLE PRECISION,
+                "Fibras (g)" DOUBLE PRECISION
+            );
+        """)
+    elif tipo_tabla == "comidas_precargadas":
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                "Nombre" TEXT,
+                "Descripcion" TEXT,
+                "Peso" DOUBLE PRECISION,
+                "Calorias" DOUBLE PRECISION,
+                "Proteinas" DOUBLE PRECISION,
+                "Grasas" DOUBLE PRECISION,
+                "Carbohidratos" DOUBLE PRECISION,
+                "Fibras" DOUBLE PRECISION
+            );
+        """)
+    elif tipo_tabla == "presion":
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                "Fecha_Hora" TEXT,
+                "Fecha_Dia" TEXT,
+                "Alta" DOUBLE PRECISION,
+                "Baja" DOUBLE PRECISION,
+                "Pulsaciones" DOUBLE PRECISION,
+                "Nota" TEXT
+            );
+        """)
+    elif tipo_tabla == "perfil":
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                "EDAD" TEXT,
+                "PESO" DOUBLE PRECISION,
+                "ALTURA" DOUBLE PRECISION,
+                "GENERO" TEXT,
+                "OCUPACION" DOUBLE PRECISION,
+                "MES" TEXT,
+                "Fecha_Actualizacion" TEXT
+            );
+        """)
+
+    conn.commit()
+    return conn, cur
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+# 2. OPERACIONES DE PERSISTENCIA Y REGISTRO (ESCRITURA)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
 def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
@@ -926,8 +993,6 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
 
     rows = []
     for item in items:
-        # Claves alineadas exactamente a los encabezados de la solapa User_<id>: 
-        # ['Fecha', 'Momento/Actividad', 'Alimento/Detalle', 'Peso (g)', 'Calorías (kcal)', 'Proteínas (g)', 'Grasas (g)', 'Hidratos (g)', 'Fibras (g)']
         rows.append([
             str(fecha),
             str(momento),
@@ -947,7 +1012,6 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
         
         for item in items:
-            # Columnas exactas en la BD e inserción reflejando el Excel:
             query = f"""
                 INSERT INTO {tabla_nombre} ("Fecha", "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)")
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -976,7 +1040,6 @@ def guardar_comida_precargada_db(user_id, fila):
     codigo_original = fila.get('Nombre', fila.get('nombre', ''))
     codigo_unico = obtener_codigo_unico(ws, codigo_original)
 
-    # Cabeceras exactas del Excel para Comidas precargadas: ['Nombre', 'Descripcion', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']
     nueva_fila = [
         codigo_unico,
         fila.get('Descripcion', fila.get('descripcion', '')),
@@ -1025,7 +1088,6 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
     
     val_pul = int(pulsaciones * 1000) if pulsaciones is not None else 0
 
-    # Cabeceras exactas de Presión: ['Fecha_Hora', 'Fecha_Dia', 'Alta', 'Baja', 'Pulsaciones', 'Nota']
     ws.append_row([
         ahora.strftime("%Y-%m-%d %H:%M:%S"), 
         ahora.strftime("%Y-%m-%d"), 
@@ -1097,7 +1159,6 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                 fila_a_actualizar = idx
                 break
 
-    # Cabeceras exactas de Perfil: ['EDAD', 'PESO', 'ALTURA', 'GENERO', 'OCUPACION', 'MES', 'Fecha_Actualizacion', 'Peso_ideal', 'Cumple']
     nueva_fila = [
         str(edad_raw),
         to_sheet_int(peso),
@@ -1167,8 +1228,8 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         cur.close()
         conn.close()
     except Exception as e:
-        logger.error(f"Error interno al grabar Perfil en Supabase (Perfil_{user_id}): {e}")
-                        
+        logger.error(f"Error interno al grabar Perfil en Supabase (Perfil_{user_id}): {e}")                        
+
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 4. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
