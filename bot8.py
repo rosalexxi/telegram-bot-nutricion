@@ -926,16 +926,18 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
 
     rows = []
     for item in items:
+        # Claves alineadas exactamente a los encabezados de la solapa User_<id>: 
+        # ['Fecha', 'Momento/Actividad', 'Alimento/Detalle', 'Peso (g)', 'Calorías (kcal)', 'Proteínas (g)', 'Grasas (g)', 'Hidratos (g)', 'Fibras (g)']
         rows.append([
             str(fecha),
             str(momento),
-            item.get("alimento", "Desconocido"),
-            to_sheet_int(item.get("peso", 0)),
-            to_sheet_int(item.get("calorias", 0)),
-            to_sheet_int(item.get("proteinas", 0)),
-            to_sheet_int(item.get("grasas", 0)),
-            to_sheet_int(item.get("carbohidratos", 0)),
-            to_sheet_int(item.get("fibras", 0))
+            item.get("alimento", item.get("Alimento/Detalle", "Desconocido")),
+            to_sheet_int(item.get("peso", item.get("Peso (g)", 0))),
+            to_sheet_int(item.get("calorias", item.get("Calorías (kcal)", 0))),
+            to_sheet_int(item.get("proteinas", item.get("Proteínas (g)", 0))),
+            to_sheet_int(item.get("grasas", item.get("Grasas (g)", 0))),
+            to_sheet_int(item.get("carbohidratos", item.get("hidratos", item.get("Hidratos (g)", 0)))),
+            to_sheet_int(item.get("fibras", item.get("Fibras (g)", 0)))
         ])
     if rows:
         ws.append_rows(rows)
@@ -945,21 +947,21 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
         
         for item in items:
-            # Cabeceras exactas en base de datos ajustadas a: fecha, momento_actividad, alimento_detalle, peso_g, calorias_kcal, proteinas_g, grasas_g, hidratos_g, fibras_g
+            # Columnas exactas en la BD e inserción reflejando el Excel:
             query = f"""
-                INSERT INTO {tabla_nombre} (fecha, momento_actividad, alimento_detalle, peso_g, "Calorías (kcal)", proteinas_g, grasas_g, hidratos_g, fibras_g)
+                INSERT INTO {tabla_nombre} ("Fecha", "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)")
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             valores = (
                 str(fecha), 
                 str(momento), 
-                item.get("alimento", "Desconocido"), 
-                float(item.get("peso", 0)), 
-                float(item.get("calorias", 0)), 
-                float(item.get("proteinas", 0)), 
-                float(item.get("grasas", 0)), 
-                float(item.get("carbohidratos", 0)), 
-                float(item.get("fibras", 0))
+                str(item.get("alimento", item.get("Alimento/Detalle", "Desconocido"))), 
+                float(item.get("peso", item.get("Peso (g)", 0))), 
+                float(item.get("calorias", item.get("Calorías (kcal)", 0))), 
+                float(item.get("proteinas", item.get("Proteínas (g)", 0))), 
+                float(item.get("grasas", item.get("Grasas (g)", 0))), 
+                float(item.get("carbohidratos", item.get("hidratos", item.get("Hidratos (g)", 0)))), 
+                float(item.get("fibras", item.get("Fibras (g)", 0)))
             )
             cur.execute(query, valores)
             
@@ -974,6 +976,7 @@ def guardar_comida_precargada_db(user_id, fila):
     codigo_original = fila.get('Nombre', fila.get('nombre', ''))
     codigo_unico = obtener_codigo_unico(ws, codigo_original)
 
+    # Cabeceras exactas del Excel para Comidas precargadas: ['Nombre', 'Descripcion', 'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']
     nueva_fila = [
         codigo_unico,
         fila.get('Descripcion', fila.get('descripcion', '')),
@@ -981,7 +984,7 @@ def guardar_comida_precargada_db(user_id, fila):
         fila.get('Calorias', fila.get('calorias', 0)),
         fila.get('Proteinas', fila.get('proteinas', 0)),
         fila.get('Grasas', fila.get('grasas', 0)),
-        fila.get('Carbohidratos', fila.get('carbohidratos', 0)),
+        fila.get('Carbohidratos', fila.get('carbohidratos', fila.get('Hidratos', 0))),
         fila.get('Fibras', fila.get('fibras', 0))
     ]
     
@@ -991,7 +994,6 @@ def guardar_comida_precargada_db(user_id, fila):
         tabla_nombre = f"comidas_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
 
-        # Columnas exactas: Nombre, Descripcion, Peso, Calorias, Proteinas, Grasas, Carbohidratos, Fibras
         query = f"""
             INSERT INTO {tabla_nombre} ("Nombre", "Descripcion", "Peso", "Calorias", "Proteinas", "Grasas", "Carbohidratos", "Fibras")
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -1003,7 +1005,7 @@ def guardar_comida_precargada_db(user_id, fila):
             float(fila.get('Calorias', fila.get('calorias', 0))), 
             float(fila.get('Proteinas', fila.get('proteinas', 0))), 
             float(fila.get('Grasas', fila.get('grasas', 0))), 
-            float(fila.get('Carbohidratos', fila.get('carbohidratos', 0))), 
+            float(fila.get('Carbohidratos', fila.get('carbohidratos', fila.get('Hidratos', 0)))), 
             float(fila.get('Fibras', fila.get('fibras', 0)))
         )
         cur.execute(query, valores)
@@ -1023,11 +1025,12 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
     
     val_pul = int(pulsaciones * 1000) if pulsaciones is not None else 0
 
+    # Cabeceras exactas de Presión: ['Fecha_Hora', 'Fecha_Dia', 'Alta', 'Baja', 'Pulsaciones', 'Nota']
     ws.append_row([
         ahora.strftime("%Y-%m-%d %H:%M:%S"), 
         ahora.strftime("%Y-%m-%d"), 
-        int(alta * 1000), 
-        int(baja * 1000), 
+        int(alta * 1000) if alta < 100 else int(alta), 
+        int(baja * 1000) if baja < 100 else int(baja), 
         val_pul,
         str(nota).strip()
     ])
@@ -1036,7 +1039,6 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
         tabla_nombre = f"presion_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="presion")
 
-        # Columnas exactas: Fecha_Hora, Fecha_Dia, Alta, Baja, Pulsaciones, Nota
         query = f"""
             INSERT INTO {tabla_nombre} ("Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota")
             VALUES (%s, %s, %s, %s, %s, %s)
@@ -1095,6 +1097,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                 fila_a_actualizar = idx
                 break
 
+    # Cabeceras exactas de Perfil: ['EDAD', 'PESO', 'ALTURA', 'GENERO', 'OCUPACION', 'MES', 'Fecha_Actualizacion', 'Peso_ideal', 'Cumple']
     nueva_fila = [
         str(edad_raw),
         to_sheet_int(peso),
@@ -1146,18 +1149,17 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         tabla_nombre = f"perfil_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
 
-        # Columnas exactas: EDAD, PESO, ALTURA, GENERO, OCUPACION, MES, Fecha_Actualizacion
         query = f"""
-            INSERT INTO {tabla_nombre} ("MES", "EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "Fecha_Actualizacion")
+            INSERT INTO {tabla_nombre} ("EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "MES", "Fecha_Actualizacion")
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """
         valores = (
-            str(mes), 
-            float(edad_val), 
+            str(edad_val), 
             float(peso), 
             float(altura_val), 
             str(genero_final), 
             float(ocupacion_val), 
+            str(mes), 
             ahora.strftime("%Y-%m-%d %H:%M:%S")
         )
         cur.execute(query, valores)
@@ -1165,37 +1167,8 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         cur.close()
         conn.close()
     except Exception as e:
-        logger.error(f"Error interno al grabar Perfil en Supabase (Perfil_{user_id}): {e}")        
-
-async def registrar_log_en_sheet(sh, contexto: str, detalle: str):
-    try:
-        try:
-            sheet_logs = sh.worksheet("Logs")
-        except Exception:
-            sheet_logs = sh.add_worksheet(title="Logs", rows="1000", cols="3")
-            sheet_logs.append_row(["Fecha y Hora", "Contexto / Módulo", "Detalle del Error"])
-
-        ahora_str = obtener_ahora_arg().strftime("%Y-%m-%d %H:%M:%S")
-        sheet_logs.append_row([ahora_str, contexto, str(detalle)])
-    except Exception as e_log:
-        logger.error(f"Error secundario al intentar registrar en Logs: {e_log}")
-
-    try:
-        tabla_nombre = "logs_sistema"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="logs")
-        
-        query = f"""
-            INSERT INTO {tabla_nombre} (fecha_hora, contexto, detalle)
-            VALUES (%s, %s, %s)
-        """
-        valores = (ahora_str, str(contexto), str(detalle))
-        cur.execute(query, valores)
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e_supabase_log:
-        logger.error(f"Error interno al grabar Log en Supabase: {e_supabase_log}")
-                
+        logger.error(f"Error interno al grabar Perfil en Supabase (Perfil_{user_id}): {e}")
+                        
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 4. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
