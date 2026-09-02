@@ -1056,6 +1056,13 @@ def guardar_comida_precargada_db(user_id, fila):
         tabla_nombre = f"comidas_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
 
+        p_val = float(fila.get('Peso', fila.get('peso', 0)))
+        c_val = float(fila.get('Calorias', fila.get('calorias', 0)))
+        pr_val = float(fila.get('Proteinas', fila.get('proteinas', 0)))
+        g_val = float(fila.get('Grasas', fila.get('grasas', 0)))
+        h_val = float(fila.get('Carbohidratos', fila.get('carbohidratos', fila.get('Hidratos', 0))))
+        f_val = float(fila.get('Fibras', fila.get('fibras', 0)))
+
         query = f"""
             INSERT INTO {tabla_nombre} ("Nombre", "Descripcion", "Peso", "Calorias", "Proteinas", "Grasas", "Carbohidratos", "Fibras")
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -1063,12 +1070,12 @@ def guardar_comida_precargada_db(user_id, fila):
         valores = (
             str(codigo_unico), 
             str(fila.get('Descripcion', fila.get('descripcion', ''))), 
-            float(fila.get('Peso', fila.get('peso', 0))), 
-            float(fila.get('Calorias', fila.get('calorias', 0))), 
-            float(fila.get('Proteinas', fila.get('proteinas', 0))), 
-            float(fila.get('Grasas', fila.get('grasas', 0))), 
-            float(fila.get('Carbohidratos', fila.get('carbohidratos', fila.get('Hidratos', 0)))), 
-            float(fila.get('Fibras', fila.get('fibras', 0)))
+            p_val / 1000.0 if p_val > 1000 else p_val, 
+            c_val / 1000.0 if c_val > 1000 else c_val, 
+            pr_val / 1000.0 if pr_val > 1000 else pr_val, 
+            g_val / 1000.0 if g_val > 1000 else g_val, 
+            h_val / 1000.0 if h_val > 1000 else h_val, 
+            f_val / 1000.0 if f_val > 1000 else f_val
         )
         cur.execute(query, valores)
         conn.commit()
@@ -1076,7 +1083,6 @@ def guardar_comida_precargada_db(user_id, fila):
         conn.close()
     except Exception as e:
         logger.error(f"Error interno al grabar Comida Precargada en Supabase (Comidas_{user_id}): {e}")
-
     return codigo_unico
 
 def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
