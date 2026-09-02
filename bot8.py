@@ -920,7 +920,7 @@ def requiere_registro(func):
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
 def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
-    conn = obtener_conexion_supabase()
+    conn = _obtener_conexion_db()
     cur = conn.cursor()
 
     if tipo_tabla == "comida":
