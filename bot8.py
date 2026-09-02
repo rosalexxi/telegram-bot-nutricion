@@ -945,8 +945,9 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
         
         for item in items:
+            # Cabeceras exactas en base de datos ajustadas a: fecha, momento_actividad, alimento_detalle, peso_g, calorias_kcal, proteinas_g, grasas_g, hidratos_g, fibras_g
             query = f"""
-                INSERT INTO {tabla_nombre} (fecha, momento, alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras)
+                INSERT INTO {tabla_nombre} (fecha, momento_actividad, alimento_detalle, peso_g, "Calorías (kcal)", proteinas_g, grasas_g, hidratos_g, fibras_g)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             valores = (
@@ -970,18 +971,18 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
 
 def guardar_comida_precargada_db(user_id, fila):
     ws = get_user_worksheet(user_id)
-    codigo_original = fila.get('nombre', '')
+    codigo_original = fila.get('Nombre', fila.get('nombre', ''))
     codigo_unico = obtener_codigo_unico(ws, codigo_original)
 
     nueva_fila = [
         codigo_unico,
-        fila.get('descripcion', ''),
-        fila.get('peso', 0),
-        fila.get('calorias', 0),
-        fila.get('proteinas', 0),
-        fila.get('grasas', 0),
-        fila.get('carbohidratos', 0),
-        fila.get('fibras', 0)
+        fila.get('Descripcion', fila.get('descripcion', '')),
+        fila.get('Peso', fila.get('peso', 0)),
+        fila.get('Calorias', fila.get('calorias', 0)),
+        fila.get('Proteinas', fila.get('proteinas', 0)),
+        fila.get('Grasas', fila.get('grasas', 0)),
+        fila.get('Carbohidratos', fila.get('carbohidratos', 0)),
+        fila.get('Fibras', fila.get('fibras', 0))
     ]
     
     ws.append_row(nueva_fila)
@@ -990,19 +991,20 @@ def guardar_comida_precargada_db(user_id, fila):
         tabla_nombre = f"comidas_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
 
+        # Columnas exactas: Nombre, Descripcion, Peso, Calorias, Proteinas, Grasas, Carbohidratos, Fibras
         query = f"""
-            INSERT INTO {tabla_nombre} (codigo, descripcion, peso, calorias, proteinas, grasas, carbohidratos, fibras)
+            INSERT INTO {tabla_nombre} ("Nombre", "Descripcion", "Peso", "Calorias", "Proteinas", "Grasas", "Carbohidratos", "Fibras")
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """
         valores = (
             str(codigo_unico), 
-            str(fila.get('descripcion', '')), 
-            float(fila.get('peso', 0)), 
-            float(fila.get('calorias', 0)), 
-            float(fila.get('proteinas', 0)), 
-            float(fila.get('grasas', 0)), 
-            float(fila.get('carbohidratos', 0)), 
-            float(fila.get('fibras', 0))
+            str(fila.get('Descripcion', fila.get('descripcion', ''))), 
+            float(fila.get('Peso', fila.get('peso', 0))), 
+            float(fila.get('Calorias', fila.get('calorias', 0))), 
+            float(fila.get('Proteinas', fila.get('proteinas', 0))), 
+            float(fila.get('Grasas', fila.get('grasas', 0))), 
+            float(fila.get('Carbohidratos', fila.get('carbohidratos', 0))), 
+            float(fila.get('Fibras', fila.get('fibras', 0)))
         )
         cur.execute(query, valores)
         conn.commit()
@@ -1034,8 +1036,9 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
         tabla_nombre = f"presion_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="presion")
 
+        # Columnas exactas: Fecha_Hora, Fecha_Dia, Alta, Baja, Pulsaciones, Nota
         query = f"""
-            INSERT INTO {tabla_nombre} (fecha_hora, fecha_dia, alta, baja, pulsaciones, nota)
+            INSERT INTO {tabla_nombre} ("Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota")
             VALUES (%s, %s, %s, %s, %s, %s)
         """
         valores = (
@@ -1143,8 +1146,9 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         tabla_nombre = f"perfil_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
 
+        # Columnas exactas: EDAD, PESO, ALTURA, GENERO, OCUPACION, MES, Fecha_Actualizacion
         query = f"""
-            INSERT INTO {tabla_nombre} (mes, edad, peso, altura, genero, ocupacion, fecha_actualizacion)
+            INSERT INTO {tabla_nombre} ("MES", "EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "Fecha_Actualizacion")
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """
         valores = (
@@ -1191,7 +1195,7 @@ async def registrar_log_en_sheet(sh, contexto: str, detalle: str):
         conn.close()
     except Exception as e_supabase_log:
         logger.error(f"Error interno al grabar Log en Supabase: {e_supabase_log}")
-        
+                
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 4. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
