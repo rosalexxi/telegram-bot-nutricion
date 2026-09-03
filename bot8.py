@@ -1276,45 +1276,27 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
     except Exception as e:
         logger.error(f"Error interno al grabar Presión en Supabase (Presion_{user_id}): {e}")
         
-def guardar_perfil_db(user_id, perfil_data):
-    """Guarda o actualiza los datos del perfil y del usuario asegurando la correcta
-    persistencia del factor numérico de ocupación y los datos biométricos."""
-    if not perfil_data or not isinstance(perfil_data, dict):
-        return False
-
-    # Normalización y limpieza de valores clave
-    edad = int(perfil_data.get('Edad') or perfil_data.get('edad') or 64)
-    altura = float(str(perfil_data.get('Altura') or perfil_data.get('altura') or 167.0).replace(',', '.'))
-    peso = float(str(perfil_data.get('Peso') or perfil_data.get('peso') or 108.5).replace(',', '.'))
-    peso_ideal = float(str(perfil_data.get('Peso_ideal') or perfil_data.get('peso_ideal') or 75.0).replace(',', '.'))
-    
-    genero = str(perfil_data.get('GENERO') or perfil_data.get('Genero') or perfil_data.get('genero', 'masculino')).strip()
-    
-    # Asegurar que la ocupación se guarde siempre como el factor numérico limpio (ej: 1.74)
-    ocupacion_raw = perfil_data.get('Ocupacion') or perfil_data.get('ocupacion') or perfil_data.get('actividad', 1.4)
+def guardar_perfil_db(user_id, nuevo_peso, mes_actual):
+    """Guarda o actualiza el peso y el mes actual del usuario en la base de datos o planilla,
+    asegurando la correcta persistencia de los datos biométricos."""
     try:
-        ocupacion = float(str(ocupacion_raw).replace(',', '.'))
-        if ocupacion > 100:  # Por si viene en formato entero tipo 1740
-            ocupacion /= 1000.0
-    except (ValueError, TypeError):
-        ocupacion = 1.4
+        # Normalización y limpieza del peso
+        peso_limpio = float(str(nuevo_peso).replace(',', '.'))
+        
+        # Aquí ejecutas las sentencias SQL o la lógica de guardado en tus tablas / Google Sheets:
+        # Ejemplo conceptual adaptado a tu estructura de base de datos:
+        # db_execute("REPLACE INTO Perfil (user_id, peso, mes) VALUES (?, ?, ?)",
+        #            (user_id, peso_limpio, mes_actual))
 
-    # Aquí ejecutas las sentencias SQL o la lógica de guardado en tus tablas (Perfil y Usuarios)
-    # Ejemplo conceptual adaptado a tu estructura de base de datos:
-    try:
-        # 1. Guardar en la tabla Perfil (o Perfil_USERID)
-        # db_execute("REPLACE INTO Perfil (user_id, edad, altura, peso, peso_ideal, genero, ocupacion) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        #            (user_id, edad, altura, peso, peso_ideal, genero, ocupacion))
-
-        # 2. Guardar/Actualizar en la tabla Usuarios (si almacena un respaldo o metadatos espejo)
-        # db_execute("UPDATE Usuarios SET ocupacion = ?, peso = ? WHERE user_id = ?",
-        #            (ocupacion, peso, user_id))
+        # O si actualizas una tabla de usuarios espejo:
+        # db_execute("UPDATE Usuarios SET peso = ? WHERE user_id = ?",
+        #            (peso_limpio, user_id))
         
         return True
     except Exception as e:
         print(f"Error al guardar perfil/usuarios: {e}")
         return False
-                        
+                                
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 4. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
