@@ -827,6 +827,9 @@ def _calcular_y_actualizar_factor_mes_anterior(sheet_perfil, registros_perfil, m
         logger.error(f"Error en _calcular_y_actualizar_factor_mes_anterior para User {user_id}: {e}")
         return None
 
+
+
+
 def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
     """
     Verifica y asegura la fila del mes actual, calcula el mes anterior y actualiza 
@@ -960,12 +963,11 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
         except Exception as db_err:
             logger.error(f"Error al replicar fila mensual en Supabase ({tabla_nombre}): {db_err}")
 
-# 4. Actualizar la hoja global de "Usuarios"
+        # 4. Actualizar la hoja global de "Usuarios"
         try:
             ws_usuarios = sh.worksheet("Usuarios")
             headers_u = ws_usuarios.row_values(1)
             
-            # Buscar índices de columnas de forma robusta
             col_ocupacion_u_idx = None
             col_ultimo_mes_idx = None
             
@@ -976,7 +978,6 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
                 elif h_str in ["ultimo mes peso", "último mes peso", "ultimo_mes_peso"]:
                     col_ultimo_mes_idx = idx
 
-            # Buscar la fila del usuario
             registros_usuarios = ws_usuarios.get_all_records()
             fila_usuario = None
             for i, reg in enumerate(registros_usuarios, start=2):
@@ -1000,7 +1001,11 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
 
         except Exception as e_usr:
             logger.error(f"Error actualizando la hoja 'Usuarios' para el usuario {user_id}: {e_usr}")
-            
+
+    except Exception as e_principal:
+        logger.error(f"Error general en _garantizar_fila_mes_actual para User {user_id}: {e_principal}")
+        
+        
 def obtener_perfil_usuario(user_id, mes_target=None):
     """
     Recupera de forma unificada el perfil del usuario desde la base de datos (Supabase/SQLite),
