@@ -2,9 +2,6 @@
 
 # =============================================================================================================================================
 #                                 INICIO                                   CABECERA                                     INICIO
-#                                  https://github.com/rosalexxi/telegram-bot-nutricion
-#                                  https://dashboard.render.com/web/srv-d9lcifijnfac73a8q1eg/events
-#                                  https://supabase.com/dashboard/project/xsheilmjewqcvhmyqlnx/editor/17944?schema=public
 # ==============================================================================================================================================
 
 import os
@@ -17,7 +14,6 @@ import inspect
 import logging
 import unicodedata
 import asyncio
-import psycopg2
 
 from datetime import datetime, date, timedelta, time
 import pytz
@@ -63,7 +59,7 @@ load_dotenv()
 AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT_ITEM = range(4)
 
 GROQ_TEXTO = "openai/gpt-oss-120b"
-GROQ_FOTO = "qwen/qwen3.8-27b"
+GROQ_FOTO = "qwen/qwen3.6-27b"
 GROQ_AUDIO = "whisper-large-v3"
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -99,26 +95,6 @@ def run_flask():
 
 app = Flask(__name__)
 
-def obtener_codigo_unico(ws, codigo_base):
-    """
-    Lee los códigos existentes en la Columna A de la hoja recibida por parámetro
-    y asigna un sufijo numérico incremental si el código ya existe.
-    Ejemplo: PIZZA -> PIZZA1 -> PIZZA2
-    """
-    codigos_existentes = set(ws.col_values(1))
-    codigo_limpio = str(codigo_base).strip().upper()
-    
-    if codigo_limpio not in codigos_existentes:
-        return codigo_limpio
-
-    i = 1
-    mientras_repetido = f"{codigo_limpio}{i}"
-    while mientras_repetido in codigos_existentes:
-        i += 1
-        mientras_repetido = f"{codigo_limpio}{i}"
-        
-    return mientras_repetido
-    
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="es">
@@ -578,83 +554,6 @@ def api_guardar_comida():
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 1. CLIENTES Y CONEXIÓN BASE (VAN PRIMERO)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
-def _obtener_conexion_db():
-    db_url = os.getenv("DATABASE_URL")
-    if not db_url:
-        raise Exception("DATABASE_URL no está configurada en las variables de entorno.")
-    return psycopg2.connect(db_url)
-
-def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
-    conn = _obtener_conexion_db()
-    cur = conn.cursor()
-    
-    if tipo_tabla == "comida":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                "Fecha" TEXT,
-                "Momento/Actividad" TEXT,
-                "Alimento/Detalle" TEXT,
-                "Peso (g)" DOUBLE PRECISION,
-                "Calorías (kcal)" DOUBLE PRECISION,
-                "Proteínas (g)" DOUBLE PRECISION,
-                "Grasas (g)" DOUBLE PRECISION,
-                "Hidratos (g)" DOUBLE PRECISION,
-                "Fibras (g)" DOUBLE PRECISION
-            );
-        """
-    elif tipo_tabla == "comidas_precargadas":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                "Nombre" TEXT,
-                "Descripcion" TEXT,
-                "Peso" DOUBLE PRECISION,
-                "Calorias" DOUBLE PRECISION,
-                "Proteinas" DOUBLE PRECISION,
-                "Grasas" DOUBLE PRECISION,
-                "Carbohidratos" DOUBLE PRECISION,
-                "Fibras" DOUBLE PRECISION
-            );
-        """
-    elif tipo_tabla == "presion":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                "Fecha_Hora" TEXT,
-                "Fecha_Dia" TEXT,
-                "Alta" DOUBLE PRECISION,
-                "Baja" DOUBLE PRECISION,
-                "Pulsaciones" DOUBLE PRECISION,
-                "Nota" TEXT
-            );
-        """
-    elif tipo_tabla == "perfil":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                "EDAD" TEXT,
-                "PESO" DOUBLE PRECISION,
-                "ALTURA" DOUBLE PRECISION,
-                "GENERO" TEXT,
-                ocupacion DOUBLE PRECISION,
-                "MES" TEXT,
-                "Fecha_Actualizacion" TEXT
-            );
-        """
-    elif tipo_tabla == "logs":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                fecha_hora TEXT,
-                contexto TEXT,
-                detalle TEXT
-            );
-        """
-        
-    cur.execute(query_creacion)
-    conn.commit()
-    return conn, cur   
 
 def get_gspread_client():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -682,8 +581,8 @@ def get_or_create_worksheet(spreadsheet, title):
             ws.append_row(["Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota"])
             return ws
         elif title.startswith("Perfil_"):
-            ws = spreadsheet.add_worksheet(title=title, rows="100", cols="9")
-            ws.append_row(["EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple"])
+            ws = spreadsheet.add_worksheet(title=title, rows="100", cols="7")
+            ws.append_row(["EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "MES", "Fecha_Actualizacion"])
             return ws
         elif title == "Plantillas_Comidas":
             ws = spreadsheet.add_worksheet(title=title, rows="100", cols="8")
@@ -691,6 +590,7 @@ def get_or_create_worksheet(spreadsheet, title):
             return ws
         else:
             return spreadsheet.add_worksheet(title=title, rows="200", cols="10")
+
 def get_user_worksheet(user_id):
     """
     Obtiene o crea una pestaña dinámica 'Comidas_<user_id>' dentro de la planilla.
@@ -715,325 +615,88 @@ def get_user_worksheet(user_id):
         
     return ws
 
-
-
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 2. CONSULTAS Y DECORADORES DE USUARIO
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
-def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anterior_str, registros_perfil=None):
-    """
-    Calcula el factor del mes anterior extrayendo los promedios reales de ingesta 
-    y ejercicio de las planillas diarias, aplicando la fórmula termodinámica 
-    y actualizando el resultado directamente en la celda de la hoja Perfil.
-    """
-    try:
-        # 1. Obtener los datos diarios del usuario
-        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
-        if df_datos.empty or 'Fecha' not in df_datos.columns:
-            return None
-
-        # Filtrar estrictamente por el mes anterior (ej: "2026-08")
-        df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_anterior_str)].copy()
-        if df_mes.empty:
-            return None
-
-        dias_registrados = df_mes['Fecha'].nunique()
-        if dias_registrados == 0:
-            dias_registrados = 1
-
-        # 2. Extraer los totales reales usando la misma lógica del resumen mensual
-        tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
-        tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in df_mes.columns else 0.0
-
-        ingesta_diaria = tot_cons_mes / dias_registrados
-        ejercicio_diario = tot_quem_mes / dias_registrados
-
-        # 3. Obtener el perfil y la TMB base del usuario
-        perfil = obtener_perfil_usuario_db(user_id, mes_target=mes_anterior_str) if 'obtener_perfil_usuario_db' in globals() else {}
-        
-        peso_actual = float(perfil.get('Peso', perfil.get('peso', 108400)))
-        if peso_actual > 1000: peso_actual /= 1000.0
-        
-        altura = float(perfil.get('Altura', perfil.get('altura', 167000)))
-        if altura > 1000: altura /= 1000.0
-        
-        edad = int(perfil.get('Edad', perfil.get('edad', 64)))
-        genero = str(perfil.get('GENERO', perfil.get('genero', 'M'))).strip()
-
-        tmb_pura, _ = calcular_tmb_y_get(
-            peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=1.0
-        )
-        if tmb_pura <= 0:
-            tmb_pura = 1813.0
-
-        # 4. Obtener el delta de peso real del mes
-        delta_peso = -3.7  # O calculado dinámicamente comparando pesos iniciales/finales del mes
-
-        # 5. Aplicación de la fórmula termodinámica limpia
-        gasto_diario_total = ingesta_diaria - ((delta_peso * 7700.0) / dias_registrados)
-        factor_limpio = (gasto_diario_total - ejercicio_diario) / tmb_pura
-        
-        # Aplicar límites de seguridad (clamp entre 1.20 y 1.85)
-        factor_limpio = max(1.20, min(1.85, factor_limpio))
-        
-        # Convertir a formato entero para la planilla (ej: 1680)
-        ocupacion_sheet = int(round(factor_limpio * 1000))
-
-        # 6. Actualizar la celda correspondiente en Google Sheets
-        try:
-            # Si sheet_perfil es el objeto worksheet de gspread, lo usamos directamente; 
-            # de lo contrario, puedes adaptarlo a tu cliente activo de sheets.
-            if sheet_perfil is not None:
-                cell = sheet_perfil.find(str(mes_anterior_str))
-                if cell:
-                    fila_encontrada = cell.row
-                    # Columna E corresponde a la ocupación (columna 5 según tu hoja)
-                    sheet_perfil.update_cell(fila_encontrada, 5, ocupacion_sheet)
-                    logger.info(f"Ocupación del mes {mes_anterior_str} actualizada exitosamente a {ocupacion_sheet} en la fila {fila_encontrada}")
-        except Exception as sheet_err:
-            logger.error(f"No se pudo escribir el factor en la hoja de Google Sheets: {sheet_err}")
-
-        return factor_limpio
-
-    except Exception as e:
-        logger.error(f"Error al calcular factor limpio del mes anterior para User {user_id}: {e}")
-        return None
-
-def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
-    """
-    Verifica y asegura la fila del mes actual, calcula el mes anterior y actualiza 
-    tanto Google Sheets como Supabase y la hoja global de Usuarios.
-    """
-    mes_actual_str = ahora_dt.strftime("%Y-%m")
-    
-    from datetime import timedelta
-    primer_dia_mes_actual = ahora_dt.replace(day=1)
-    mes_anterior_dt = primer_dia_mes_actual - timedelta(days=1)
-    mes_anterior_str = mes_anterior_dt.strftime("%Y-%m")
-
-    nombre_hoja_perfil = f"Perfil_{user_id}"
-
+def obtener_perfil_usuario(user_id, mes_target=None):
     try:
         gc = get_gspread_client()
         sh = gc.open(SPREADSHEET_NAME)
+        ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
+        records = ws.get_all_records()
+        if not records:
+            return None
         
-        try:
-            sheet_perfil = sh.worksheet(nombre_hoja_perfil)
-        except Exception:
-            logger.warning(f"No existe la hoja {nombre_hoja_perfil} para inicializar mes.")
-            return
+        perfil_raw = None
 
-        registros = sheet_perfil.get_all_records()
-        
-        fila_mes_actual_idx = None
-        for idx, r in enumerate(registros, start=2):
-            m_val = str(r.get("MES", r.get("Mes", r.get("mes", "")))).strip()
-            if m_val == mes_actual_str:
-                fila_mes_actual_idx = idx
-                break
-
-        logger.info(f"Procesando fila mensual ({mes_actual_str}) para User {user_id}...")
-
-        # 1. Calcular y actualizar el factor real termodinámico del mes anterior
-        factor_mes_anterior = _calcular_y_actualizar_factor_mes_anterior(sheet_perfil, registros, mes_anterior_str, user_id)
-
-        # Releer registros actualizados después del cálculo del mes anterior
-        registros = sheet_perfil.get_all_records()
-
-        # 2. Promedio de los últimos 2 meses para el mes actual
-        factores_ultimos = []
-        for r in reversed(registros):
-            m_val = str(r.get("MES", r.get("Mes", r.get("mes", "")))).strip()
-            if m_val == mes_actual_str:
-                continue 
-            f_val = r.get("ocupacion", r.get("OCUPACION", ""))
-            if f_val:
-                try:
-                    val_f = float(str(f_val).replace(',', '.'))
-                    if val_f > 100:
-                        val_f /= 1000.0
-                    factores_ultimos.append(val_f)
-                except:
-                    pass
-            if len(factores_ultimos) >= 2:
-                break
-
-        if factores_ultimos:
-            nuevo_factor_inicial = sum(factores_ultimos) / len(factores_ultimos)
-        else:
-            nuevo_factor_inicial = factor_mes_anterior if factor_mes_anterior else 1.4
-
-        nuevo_factor_inicial = max(1.20, min(1.85, nuevo_factor_inicial))
-
-        # Buscar datos base del último registro anterior
-        ultimo_registro = {}
-        for r in reversed(registros):
-            if str(r.get("MES", r.get("Mes", ""))).strip() != mes_actual_str:
-                ultimo_registro = r
-                break
-        if not ultimo_registro and registros:
-            ultimo_registro = registros[-1]
-        
-        edad_base = ultimo_registro.get("EDAD", ultimo_registro.get("edad", 64000))
-        peso_base = ultimo_registro.get("PESO", ultimo_registro.get("peso", ""))
-        altura_base = ultimo_registro.get("ALTURA", ultimo_registro.get("altura", 172000))
-        genero_base = ultimo_registro.get("GENERO", ultimo_registro.get("genero", "masculino"))
-        peso_ideal_base = ultimo_registro.get("Peso_ideal", ultimo_registro.get("peso_ideal", ""))
-        cumple_base = ultimo_registro.get("Cumple", ultimo_registro.get("cumple", ""))
-
-        ocupacion_sheet = int(round(nuevo_factor_inicial * 1000))
-
-        from gspread.utils import rowcol_to_a1
-        if fila_mes_actual_idx:
-            # Actualizar la fila existente del mes actual con el nuevo cálculo
-            sheet_perfil.update(rowcol_to_a1(fila_mes_actual_idx, 5), [[ocupacion_sheet]])
-        else:
-            # Crear nueva fila si no existía
-            nueva_fila = [
-                str(edad_base),
-                str(peso_base),
-                str(altura_base),
-                str(genero_base),
-                ocupacion_sheet,
-                str(mes_actual_str),
-                ahora_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                str(peso_ideal_base),
-                str(cumple_base)
-            ]
-            sheet_perfil.append_row(nueva_fila, value_input_option="USER_ENTERED")
-
-        # 3. Replicar en Supabase
-        try:
-            tabla_nombre = f"perfil_{user_id}"
-            conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
-            
-            edad_db = float(edad_base) / 1000.0 if float(edad_base or 0) > 1000 else float(edad_base or 0)
-            peso_db = float(peso_base) / 1000.0 if float(peso_base or 0) > 1000 else float(peso_base or 0)
-            altura_db = float(altura_base) / 1000.0 if float(altura_base or 0) > 1000 else float(altura_base or 0)
-
-            query = f"""
-                INSERT INTO {tabla_nombre} ("EDAD", "PESO", "ALTURA", "GENERO", ocupacion, "MES", "Fecha_Actualizacion")
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT ("MES") DO UPDATE SET ocupacion = EXCLUDED.ocupacion, "Fecha_Actualizacion" = EXCLUDED."Fecha_Actualizacion"
-            """
-            valores = (
-                str(edad_db),
-                peso_db,
-                altura_db,
-                str(genero_base),
-                float(nuevo_factor_inicial),
-                str(mes_actual_str),
-                ahora_dt.strftime("%Y-%m-%d %H:%M:%S")
-            )
-            cur.execute(query, valores)
-            conn.commit()
-            cur.close()
-            conn.close()
-        except Exception as db_err:
-            logger.error(f"Error al replicar fila mensual en Supabase ({tabla_nombre}): {db_err}")
-
-        # 4. Actualizar la hoja global de "Usuarios"
-        try:
-            ws_usuarios = sh.worksheet("Usuarios")
-            headers_u = ws_usuarios.row_values(1)
-            
-            col_ocupacion_u_idx = None
-            col_ultimo_mes_idx = None
-            
-            for idx, h in enumerate(headers_u, start=1):
-                h_str = str(h).strip().lower()
-                if h_str in ["ocupacion", "ocupación"]:
-                    col_ocupacion_u_idx = idx
-                elif h_str in ["ultimo mes peso", "último mes peso", "ultimo_mes_peso"]:
-                    col_ultimo_mes_idx = idx
-
-            registros_usuarios = ws_usuarios.get_all_records()
-            fila_usuario = None
-            for i, reg in enumerate(registros_usuarios, start=2):
-                id_reg = reg.get('User ID') or reg.get('ID') or reg.get('user_id') or list(reg.values())[0]
-                if str(id_reg).strip() == str(user_id).strip():
-                    fila_usuario = i
+        # Si viene un mes (ej: "2026-05"), buscamos la fila que coincida en la columna MES
+        if mes_target:
+            target_clean = str(mes_target).strip()
+            for r in records:
+                m_val = str(r.get('MES', r.get('Mes', r.get('mes', '')))).strip()
+                # Corta a 7 caracteres por si Google Sheets devuelve fecha completa YYYY-MM-DD
+                if m_val.startswith(target_clean):
+                    perfil_raw = r
                     break
-
-            if fila_usuario:
-                if col_ocupacion_u_idx:
-                    celda_oc_a1 = rowcol_to_a1(fila_usuario, col_ocupacion_u_idx)
-                    ws_usuarios.update_acell(celda_oc_a1, int(ocupacion_sheet))
-                    logger.info(f"Hoja 'Usuarios' actualizada: Ocupación {ocupacion_sheet} para User {user_id}")
-                
-                if col_ultimo_mes_idx:
-                    celda_mes_a1 = rowcol_to_a1(fila_usuario, col_ultimo_mes_idx)
-                    ws_usuarios.update_acell(celda_mes_a1, f"{mes_actual_str}-01")
-                    logger.info(f"Hoja 'Usuarios' actualizada: Último Mes {mes_actual_str} para User {user_id}")
-            else:
-                logger.warning(f"No se encontró la fila del usuario {user_id} en la hoja 'Usuarios'")
-
-        except Exception as e_usr:
-            logger.error(f"Error actualizando la hoja 'Usuarios' para el usuario {user_id}: {e_usr}")
-
-    except Exception as e_principal:
-        logger.error(f"Error general en _garantizar_fila_mes_actual para User {user_id}: {e_principal}")
         
-def obtener_perfil_usuario(user_id, mes_target=None):
-    """
-    Recupera el perfil del usuario desde la hoja 'Perfil', buscando 
-    específicamente la fila correspondiente al mes solicitado (mes_target).
-    """
-    try:
-        df_perfil = obtener_tabla_perfil_usuario(user_id)
+        # Si no se especificó mes o no se encontró esa fila, toma la última por defecto
+        if not perfil_raw:
+            perfil_raw = records[-1]
         
-        perfil_dict = {}
-        
-        if df_perfil is not None and not df_perfil.empty:
-            # Normalizar nombres de columnas a mayúsculas para evitar errores por 'MES' vs 'mes'
-            df_perfil.columns = [str(c).strip().upper() for c in df_perfil.columns]
+        perfil = {}
+        peso_hallado = None
+
+        for k, v in perfil_raw.items():
+            k_upper = str(k).strip().upper()
             
-            if 'MES' in df_perfil.columns:
-                df_perfil['MES'] = df_perfil['MES'].astype(str).str.strip()
+            if k_upper == 'EDAD':
+                val = parse_float_from_sheets(v)
+                val_norm = val / 1000.0 if val > 1000 else val
+                perfil['Edad'] = val_norm
+                perfil['edad'] = val_norm
+            elif k_upper == 'PESO':
+                val = parse_float_from_sheets(v)
+                val_norm = val / 1000.0 if val > 1000 else val
+                peso_hallado = val_norm
+                # Guardamos todas las variantes de nombre de clave posible
+                perfil['Peso'] = val_norm
+                perfil['peso'] = val_norm
+                perfil['peso_actual'] = val_norm
+            elif k_upper == 'ALTURA':
+                val = parse_float_from_sheets(v)
+                val_norm = val / 1000.0 if val > 1000 else val
+                perfil['Altura'] = val_norm
+                perfil['altura'] = val_norm
+            elif k_upper in ['PESO_IDEAL', 'PESO IDEAL']:
+                val = parse_float_from_sheets(v)
+                val_norm = val / 1000.0 if val > 1000 else val
+                perfil['Peso_ideal'] = val_norm
+                perfil['peso_ideal'] = val_norm
+            elif k_upper in ['GENERO', 'SEXO']:
+                perfil['Sexo'] = str(v).strip()
+                perfil['genero'] = str(v).strip()
+            elif k_upper == 'OCUPACION':
+                # Procesa el número (ej: 1400 -> 1.4)
+                val = parse_float_from_sheets(v)
+                val_norm = (val / 1000.0) if val > 1000 else val
+                # Si por alguna razón vino en 0 o vacío, asigna por defecto 1.375
+                factor_final = val_norm if val_norm > 0 else 1.375
                 
-                if mes_target:
-                    match = df_perfil[df_perfil['MES'] == str(mes_target).strip()]
-                    if not match.empty:
-                        perfil_dict = match.iloc[-1].to_dict()
-                
-                # Si no encontró el mes específico, tomamos el último mes registrado
-                if not perfil_dict:
-                    perfil_dict = df_perfil.iloc[-1].to_dict()
+                perfil['Ocupacion'] = factor_final
+                perfil['ocupacion'] = factor_final
+                perfil['factor_actividad'] = factor_final
+            elif k_upper == 'MES':
+                perfil['Mes'] = str(v).strip()
+                perfil['mes'] = str(v).strip()
 
-        # Fallback de seguridad si vino totalmente vacío
-        if not perfil_dict:
-            perfil_dict = {
-                'EDAD': 64,
-                'PESO': 108500,
-                'ALTURA': 167000,
-                'GENERO': 'M',
-                'OCUPACION': 1684,
-                'PESO_IDEAL': 69000
-            }
+        # Marca si el peso de ese mes aún no se ingresó (está pendiente)
+        perfil['peso_pendiente'] = (peso_hallado is None or peso_hallado <= 0)
 
-        return perfil_dict
-
+        return perfil
     except Exception as e:
-        logger.error(f"Error al obtener perfil de usuario para el mes {mes_target}: {e}")
-        return {
-            'EDAD': 64,
-            'PESO': 108500,
-            'ALTURA': 167000,
-            'GENERO': 'M',
-            'OCUPACION': 1684,
-            'PESO_IDEAL': 69000
-        }
-    except Exception as e:
-        logger.error(f"Error al obtener perfil de usuario para el mes {mes_target}: {e}")
-        return {
-            'Edad': 64,
-            'Peso': 108500,
-            'Altura': 167000,
-            'GENERO': 'M',
-            'ocupacion': 1684,
-            'Peso_ideal': 69000
-        }        
+        print(f"Error obteniendo perfil del usuario {user_id}: {e}")
+        return None
         
 def requiere_registro(func):
     """Decorador que valida que el user_id de Telegram exista y esté activo en la hoja 'Usuarios'."""
@@ -1091,328 +754,7 @@ def requiere_registro(func):
     return wrapper
     
 # ---------------------------------------------------------------------------------------------------------------------------------------------
-# 1. FUNCIÓN DE CONEXIÓN Y CREACIÓN DE TABLAS (CON LOS NOMBRES EXACTOS DEL EXCEL)
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-
-def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
-    conn = _obtener_conexion_db()
-    cur = conn.cursor()
-
-    if tipo_tabla == "comida":
-        cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                "Fecha" TEXT,
-                "Momento/Actividad" TEXT,
-                "Alimento/Detalle" TEXT,
-                "Peso (g)" DOUBLE PRECISION,
-                "Calorías (kcal)" DOUBLE PRECISION,
-                "Proteínas (g)" DOUBLE PRECISION,
-                "Grasas (g)" DOUBLE PRECISION,
-                "Hidratos (g)" DOUBLE PRECISION,
-                "Fibras (g)" DOUBLE PRECISION
-            );
-        """)
-    elif tipo_tabla == "comidas_precargadas":
-        cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                "Nombre" TEXT,
-                "Descripcion" TEXT,
-                "Peso" DOUBLE PRECISION,
-                "Calorias" DOUBLE PRECISION,
-                "Proteinas" DOUBLE PRECISION,
-                "Grasas" DOUBLE PRECISION,
-                "Carbohidratos" DOUBLE PRECISION,
-                "Fibras" DOUBLE PRECISION
-            );
-        """)
-    elif tipo_tabla == "presion":
-        cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                "Fecha_Hora" TEXT,
-                "Fecha_Dia" TEXT,
-                "Alta" DOUBLE PRECISION,
-                "Baja" DOUBLE PRECISION,
-                "Pulsaciones" DOUBLE PRECISION,
-                "Nota" TEXT
-            );
-        """)
-    elif tipo_tabla == "perfil":
-        cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                "EDAD" TEXT,
-                "PESO" DOUBLE PRECISION,
-                "ALTURA" DOUBLE PRECISION,
-                "GENERO" TEXT,
-                "OCUPACION" DOUBLE PRECISION,
-                "MES" TEXT,
-                "Fecha_Actualizacion" TEXT
-            );
-        """)
-
-    conn.commit()
-    return conn, cur
-
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-# 3. OPERACIONES DE PERSISTENCIA Y REGISTRO (ESCRITURA) - CORREGIDAS AL 100% CON EL EXCEL Y LA CONEXIÓN CORRECTA
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-
-def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    ws = get_or_create_worksheet(sh, f"User_{user_id}")
-
-    rows = []
-    for item in items:
-        rows.append([
-            str(fecha),
-            str(momento),
-            item.get("alimento", item.get("Alimento/Detalle", "Desconocido")),
-            to_sheet_int(item.get("peso", item.get("Peso (g)", 0))),
-            to_sheet_int(item.get("calorias", item.get("Calorías (kcal)", 0))),
-            to_sheet_int(item.get("proteinas", item.get("Proteínas (g)", 0))),
-            to_sheet_int(item.get("grasas", item.get("Grasas (g)", 0))),
-            to_sheet_int(item.get("carbohidratos", item.get("hidratos", item.get("Hidratos (g)", 0)))),
-            to_sheet_int(item.get("fibras", item.get("Fibras (g)", 0)))
-        ])
-    if rows:
-        ws.append_rows(rows)
-
-    try:
-        tabla_nombre = f"user_{user_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
-        
-        for item in items:
-            query = f"""
-                INSERT INTO {tabla_nombre} ("Fecha", "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)")
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-            valores = (
-                str(fecha), 
-                str(momento), 
-                str(item.get("alimento", item.get("Alimento/Detalle", "Desconocido"))), 
-                float(item.get("peso", item.get("Peso (g)", 0))), 
-                float(item.get("calorias", item.get("Calorías (kcal)", 0))), 
-                float(item.get("proteinas", item.get("Proteínas (g)", 0))), 
-                float(item.get("grasas", item.get("Grasas (g)", 0))), 
-                float(item.get("carbohidratos", item.get("hidratos", item.get("Hidratos (g)", 0)))), 
-                float(item.get("fibras", item.get("Fibras (g)", 0)))
-            )
-            cur.execute(query, valores)
-            
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error interno al duplicar ingesta en Supabase (User_{user_id}): {e}")
-        
-def guardar_comida_precargada_db(user_id, fila):
-    ws = get_user_worksheet(user_id)
-    codigo_original = fila.get('Nombre', fila.get('nombre', ''))
-    codigo_unico = obtener_codigo_unico(ws, codigo_original)
-
-    nueva_fila = [
-        codigo_unico,
-        fila.get('Descripcion', fila.get('descripcion', '')),
-        fila.get('Peso', fila.get('peso', 0)),
-        fila.get('Calorias', fila.get('calorias', 0)),
-        fila.get('Proteinas', fila.get('proteinas', 0)),
-        fila.get('Grasas', fila.get('grasas', 0)),
-        fila.get('Carbohidratos', fila.get('carbohidratos', fila.get('Hidratos', 0))),
-        fila.get('Fibras', fila.get('fibras', 0))
-    ]
-    
-    ws.append_row(nueva_fila)
-
-    try:
-        tabla_nombre = f"comidas_{user_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
-
-        p_val = float(fila.get('Peso', fila.get('peso', 0)))
-        c_val = float(fila.get('Calorias', fila.get('calorias', 0)))
-        pr_val = float(fila.get('Proteinas', fila.get('proteinas', 0)))
-        g_val = float(fila.get('Grasas', fila.get('grasas', 0)))
-        h_val = float(fila.get('Carbohidratos', fila.get('carbohidratos', fila.get('Hidratos', 0))))
-        f_val = float(fila.get('Fibras', fila.get('fibras', 0)))
-
-        query = f"""
-            INSERT INTO {tabla_nombre} ("Nombre", "Descripcion", "Peso", "Calorias", "Proteinas", "Grasas", "Carbohidratos", "Fibras")
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        valores = (
-            str(codigo_unico), 
-            str(fila.get('Descripcion', fila.get('descripcion', ''))), 
-            p_val / 1000.0 if p_val > 1000 else p_val, 
-            c_val / 1000.0 if c_val > 1000 else c_val, 
-            pr_val / 1000.0 if pr_val > 1000 else pr_val, 
-            g_val / 1000.0 if g_val > 1000 else g_val, 
-            h_val / 1000.0 if h_val > 1000 else h_val, 
-            f_val / 1000.0 if f_val > 1000 else f_val
-        )
-        cur.execute(query, valores)
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error interno al grabar Comida Precargada en Supabase (Comidas_{user_id}): {e}")
-    return codigo_unico
-
-def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    ws = get_or_create_worksheet(sh, f"Presion_{user_id}")
-    ahora = obtener_ahora_arg()
-    
-    val_pul = int(pulsaciones * 1000) if pulsaciones is not None else 0
-
-    ws.append_row([
-        ahora.strftime("%Y-%m-%d %H:%M:%S"), 
-        ahora.strftime("%Y-%m-%d"), 
-        int(alta * 1000) if alta < 100 else int(alta), 
-        int(baja * 1000) if baja < 100 else int(baja), 
-        val_pul,
-        str(nota).strip()
-    ])
-
-    try:
-        tabla_nombre = f"presion_{user_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="presion")
-
-        query = f"""
-            INSERT INTO {tabla_nombre} ("Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota")
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """
-        valores = (
-            ahora.strftime("%Y-%m-%d %H:%M:%S"), 
-            ahora.strftime("%Y-%m-%d"), 
-            float(alta), 
-            float(baja), 
-            float(pulsaciones) if pulsaciones is not None else 0.0, 
-            str(nota).strip()
-        )
-        cur.execute(query, valores)
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error interno al grabar Presión en Supabase (Presion_{user_id}): {e}")
-        
-def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
-    ahora = obtener_ahora_arg()
-    
-    if not mes:
-        mes = ahora.strftime("%Y-%m")
-    
-    records = ws.get_all_records()
-    fila_a_actualizar = None
-
-    if records:
-        for idx, row in enumerate(records, start=2):
-            mes_en_fila = str(row.get('MES', row.get('Mes', ''))).strip()
-            if mes_en_fila == str(mes):
-                fila_a_actualizar = idx
-                break
-
-    peso_sheet = to_sheet_int(peso)
-    fecha_actualizacion_str = ahora.strftime("%Y-%m-%d %H:%M:%S")
-
-    # CASO A: EL MES YA EXISTE -> Solo actualiza el peso y la fecha de actualización, nada más.
-    if fila_a_actualizar:
-        try:
-            # Asumiendo estructura estándar: Columna B es PESO (2) y Columna G es Fecha_Actualizacion (7)
-            from gspread.utils import rowcol_to_a1
-            ws.update(rowcol_to_a1(fila_a_actualizar, 2), [[peso_sheet]])
-            ws.update(rowcol_to_a1(fila_a_actualizar, 7), [[fecha_actualizacion_str]])
-            
-            # Sincronizar actualización de peso en Supabase si aplica
-            try:
-                tabla_nombre = f"perfil_{user_id}"
-                conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
-                query = f'UPDATE {tabla_nombre} SET "PESO" = %s, "Fecha_Actualizacion" = %s WHERE "MES" = %s'
-                cur.execute(query, (float(peso), fecha_actualizacion_str, str(mes)))
-                conn.commit()
-                cur.close()
-                conn.close()
-            except Exception as db_err:
-                print(f"⚠️ Error al actualizar peso en Supabase para el mes {mes}: {db_err}")
-
-        except Exception as e:
-            print(f"❌ Error al actualizar únicamente el peso en la fila existente: {e}")
-        return
-
-    # CASO B: EL MES NO EXISTE -> (Esto actúa como respaldo por si _garantizar_fila_mes_actual no corrió antes)
-    edad_raw = edad if edad is not None else 64000
-    altura_raw = altura if altura is not None else 172000
-    genero_final = genero if genero is not None else "masculino"
-    ocupacion_final = ocupacion if ocupacion is not None else 1375
-    peso_ideal_final = ""
-    fecha_cumple_str = ""
-
-    if records:
-        ultimo_registro = records[-1]
-        if edad is None:
-            edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
-        if altura is None:
-            altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
-        if genero is None:
-            genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', ultimo_registro.get('Sexo', 'masculino'))))
-        if ocupacion is None:
-            ocupacion_final = ultimo_registro.get('OCUPACION', ultimo_registro.get('Ocupacion', 1375))
-            
-        peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
-        fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
-
-    nueva_fila = [
-        str(edad_raw),
-        peso_sheet,
-        str(altura_raw),
-        str(genero_final),
-        to_sheet_int(ocupacion_final),
-        str(mes),
-        fecha_actualizacion_str,
-        str(peso_ideal_final),
-        str(fecha_cumple_str)
-    ]
-
-    ws.append_row(nueva_fila, value_input_option="USER_ENTERED")
-
-    # Actualizar la pestaña global de Usuarios con el último mes de peso registrado
-    try:
-        ws_usuarios = sh.worksheet("Usuarios")
-        registros_usuarios = ws_usuarios.get_all_records()
-        headers = ws_usuarios.row_values(1)
-        
-        col_idx = 4
-        for idx, h in enumerate(headers, start=1):
-            if str(h).strip().lower() in ["ultimo mes peso", "ultimo_mes_peso", "ultimomespeso"]:
-                col_idx = idx
-                break
-
-        fila_usuario = None
-        for i, reg in enumerate(registros_usuarios, start=2):
-            id_reg = reg.get('ID') or reg.get('user_id') or reg.get('User ID') or list(reg.values())[0]
-            if str(id_reg).strip() == str(user_id).strip():
-                fila_usuario = i
-                break
-
-        if fila_usuario:
-            from gspread.utils import rowcol_to_a1
-            celda_a1 = rowcol_to_a1(fila_usuario, col_idx)
-            fecha_usuarios_str = f"{str(mes)[:7]}-01"
-            ws_usuarios.update(celda_a1, [[fecha_usuarios_str]])
-    except Exception as e:
-        print(f"❌ Error crítico al actualizar la pestaña 'usuarios': {e}")
-        
-        
-                                
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-# 4. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA)
+# 3. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA Y ESCRITURA)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
 def obtener_datos_usuario(user_id):
@@ -1474,7 +816,47 @@ def obtener_ultimo_peso(user_id: int) -> dict:
     except Exception as e:
         logger.error(f"Error en obtener_ultimo_peso para User {user_id}: {e}")
         return None
-   
+        
+def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
+    gc = get_gspread_client()
+    sh = gc.open(SPREADSHEET_NAME)
+    ws = get_or_create_worksheet(sh, f"User_{user_id}")
+
+    rows = []
+    for item in items:
+        rows.append([
+            str(fecha),
+            str(momento),
+            item.get("alimento", "Desconocido"),
+            to_sheet_int(item.get("peso", 0)),
+            to_sheet_int(item.get("calorias", 0)),
+            to_sheet_int(item.get("proteinas", 0)),
+            to_sheet_int(item.get("grasas", 0)),
+            to_sheet_int(item.get("carbohidratos", 0)),
+            to_sheet_int(item.get("fibras", 0))
+        ])
+    if rows:
+        ws.append_rows(rows)
+
+def guardar_comida_precargada_db(user_id, fila):
+    ws = get_user_worksheet(user_id)
+    codigo_original = fila.get('nombre', '')
+    codigo_unico = obtener_codigo_unico(ws, codigo_original)
+
+    nueva_fila = [
+        codigo_unico,
+        fila.get('descripcion', ''),
+        fila.get('peso', 0),
+        fila.get('calorias', 0),
+        fila.get('proteinas', 0),
+        fila.get('grasas', 0),
+        fila.get('carbohidratos', 0),
+        fila.get('fibras', 0)
+    ]
+    
+    ws.append_row(nueva_fila)
+    return codigo_unico
+
 def obtener_datos_presion_db(user_id):
     try:
         gc = get_gspread_client()
@@ -1500,6 +882,107 @@ def obtener_datos_presion_db(user_id):
         return df
     except Exception:
         return pd.DataFrame()
+
+def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
+    gc = get_gspread_client()
+    sh = gc.open(SPREADSHEET_NAME)
+    ws = get_or_create_worksheet(sh, f"Presion_{user_id}")
+    ahora = obtener_ahora_arg()
+    
+    val_pul = int(pulsaciones * 1000) if pulsaciones is not None else 0
+
+    ws.append_row([
+        ahora.strftime("%Y-%m-%d %H:%M:%S"), 
+        ahora.strftime("%Y-%m-%d"), 
+        int(alta * 1000), 
+        int(baja * 1000), 
+        val_pul,
+        str(nota).strip()
+    ])
+
+def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
+    gc = get_gspread_client()
+    sh = gc.open(SPREADSHEET_NAME)
+    ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
+    ahora = obtener_ahora_arg()
+    
+    if not mes:
+        mes = ahora.strftime("%Y-%m")
+    
+    records = ws.get_all_records()
+    
+    edad_raw = edad if edad is not None else 64000
+    altura_raw = altura if altura is not None else 172000
+    genero_final = genero if genero is not None else "masculino"
+    ocupacion_final = ocupacion if ocupacion is not None else 1375
+    peso_ideal_final = ""
+    fecha_cumple_str = ""
+    fila_a_actualizar = None
+
+    if records:
+        ultimo_registro = records[-1]
+        if edad is None:
+            edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
+        if altura is None:
+            altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
+        if genero is None:
+            genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', ultimo_registro.get('Sexo', 'masculino'))))
+        if ocupacion is None:
+            # Recupera la ocupación previa (que ya es un entero como 1500)
+            ocupacion_final = ultimo_registro.get('OCUPACION', ultimo_registro.get('Ocupacion', 1375))
+            
+        peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
+        fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
+
+        for idx, row in enumerate(records, start=2):
+            mes_en_fila = str(row.get('MES', row.get('Mes', ''))).strip()
+            if mes_en_fila == str(mes):
+                fila_a_actualizar = idx
+                break
+
+    nueva_fila = [
+        str(edad_raw),
+        to_sheet_int(peso),
+        str(altura_raw),
+        str(genero_final),
+        to_sheet_int(ocupacion_final),  # Garantiza que sea entero (*1000)
+        str(mes),
+        ahora.strftime("%Y-%m-%d %H:%M:%S"),
+        str(peso_ideal_final),
+        str(fecha_cumple_str)
+    ]
+
+    if fila_a_actualizar:
+        ws.update(f"A{fila_a_actualizar}:I{fila_a_actualizar}", [nueva_fila])
+    else:
+        ws.append_row(nueva_fila)
+
+    try:
+        ws_usuarios = sh.worksheet("Usuarios")
+        registros_usuarios = ws_usuarios.get_all_records()
+        headers = ws_usuarios.row_values(1)
+        
+        col_idx = 4
+        for idx, h in enumerate(headers, start=1):
+            if str(h).strip().lower() in ["ultimo mes peso", "ultimo_mes_peso", "ultimomespeso"]:
+                col_idx = idx
+                break
+
+        fila_usuario = None
+        for i, reg in enumerate(registros_usuarios, start=2):
+            id_reg = reg.get('ID') or reg.get('user_id') or reg.get('User ID') or list(reg.values())[0]
+            if str(id_reg).strip() == str(user_id).strip():
+                fila_usuario = i
+                break
+
+        if fila_usuario:
+            from gspread.utils import rowcol_to_a1
+            celda_a1 = rowcol_to_a1(fila_usuario, col_idx)
+            # Garantiza el formato YYYY-MM-01 exacto en la pestaña Usuarios
+            fecha_usuarios_str = f"{str(mes)[:7]}-01"
+            ws_usuarios.update(celda_a1, [[fecha_usuarios_str]])
+    except Exception as e:
+        print(f"❌ Error crítico al actualizar la pestaña 'usuarios': {e}")
                 
 def obtener_comidas_usuario(user_id):
     try:
@@ -1534,6 +1017,18 @@ def extraer_val(texto: str) -> float:
             return 0.0
     return 0.0
 
+async def registrar_log_en_sheet(sh, contexto: str, detalle: str):
+    try:
+        try:
+            sheet_logs = sh.worksheet("Logs")
+        except Exception:
+            sheet_logs = sh.add_worksheet(title="Logs", rows="1000", cols="3")
+            sheet_logs.append_row(["Fecha y Hora", "Contexto / Módulo", "Detalle del Error"])
+
+        ahora_str = obtener_ahora_arg().strftime("%Y-%m-%d %H:%M:%S")
+        sheet_logs.append_row([ahora_str, contexto, str(detalle)])
+    except Exception as e_log:
+        logger.error(f"Error secundario al intentar registrar en Logs: {e_log}")
 
 # ======================================================================================================================================
 #                    FINAL                              GOOGLE SHEETS OPERACIONES                      FINAL
@@ -1647,8 +1142,7 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero: str = "masculino", 
     return round(tmb, 2), round(get, 2)
         
 def calcular_metricas_mensuales(df_mes, perfil_dict):
-    """Calcula exclusivamente el balance calórico y la variación de peso mensual,
-    sin modificar ni recalcular macronutrientes."""
+    """Procesa todos los cálculos mensuales garantizando consistencia y exactitud metabólica."""
     dias_registrados = df_mes['Fecha'].nunique() if (df_mes is not None and not df_mes.empty) else 1
     if dias_registrados == 0:
         dias_registrados = 1
@@ -1657,11 +1151,12 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
     tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
 
-    # 2. Promedios diarios exclusivos de calorías
+    # 2. Promedios diarios
     prom_cons = tot_cons_mes / dias_registrados
     prom_quem = tot_quem_mes / dias_registrados
+    prom_bal_neto = prom_cons - prom_quem
 
-    # Macronutrientes y valores previos intocables (se leen tal cual vienen de los registros)
+    # 3. Macronutrientes totales
     tot_prot = float(df_mes['Proteinas'].sum()) if df_mes is not None and 'Proteinas' in df_mes.columns else 0.0
     tot_gras = float(df_mes['Grasas'].sum()) if df_mes is not None and 'Grasas' in df_mes.columns else 0.0
     tot_carb = float(df_mes['Carbohidratos'].sum()) if df_mes is not None and 'Carbohidratos' in df_mes.columns else 0.0
@@ -1683,45 +1178,49 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
                     return val
         return default
 
-    # 3. Extracción de datos biométricos básicos
+    # 4. Extracción de datos biométricos
     edad = int(get_perfil_num(['Edad', 'edad'], 64))
     altura = get_perfil_num(['Altura', 'altura'], 167.0)
     peso_actual = get_perfil_num(['Peso', 'peso'], 108.5)
     peso_ideal = get_perfil_num(['Peso_ideal', 'peso_ideal', 'Peso Ideal'], 75.0)
+    
     genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
+    ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
 
+    # Peso de referencia (solo usado para definir las metas ideales de macros)
     peso_referencia = (peso_actual * 0.75) + (peso_ideal * 0.25)
 
-    # TMB base pura (factor 1.0)
-    tmb_pura, _ = calcular_tmb_y_get(
-        peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=1.0, peso_ideal=peso_ideal
+    # 5. GASTO BASE REAL: Se calcula sobre el PESO ACTUAL REAL del organismo
+    _, get_real = calcular_tmb_y_get(
+        peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
     )
-    if tmb_pura <= 0:
-        tmb_pura = 2000.0
 
-    # --- CÁLCULO CALÓRICO Y TERMODINÁMICO PURAMENTE ---
-    # Delta real de peso estimado del mes (puedes ajustarlo si tienes el peso inicial/final exacto guardado)
-    cambio_peso_real_estimado = -3.8 
-    deficit_total_requerido = abs(cambio_peso_real_estimado) * 7700.0
-    
-    gasto_diario_total = prom_cons + (deficit_total_requerido / dias_registrados)
-    get_real = max(tmb_pura, gasto_diario_total - prom_quem)
-    
-    ocupacion = round(get_real / tmb_pura, 2)
-
-    balance_diario = prom_cons - gasto_diario_total
-    deficit_diario_real = -balance_diario
-    cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
-    # ------------------------------------------------
-
+    # 6. GASTO META: Se calcula sobre el peso ponderado para fijar los objetivos de consumo
     _, get_meta = calcular_tmb_y_get(
         peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
     )
 
-    # Metas de macros intactas según tu lógica original
+    # --- CÁLCULO CORREGIDO DE DÉFICIT Y CAMBIO DE PESO ---
+    # Gasto Total = GET Real (peso actual) + Ejercicio registrado
+    gasto_diario_total = get_real + prom_quem
+
+    # Balance diario: Consumidas menos Gastadas
+    # Ej: Si consume 2282 y gasta 2683, balance_diario = -401 kcal (Déficit de 401)
+    balance_diario = prom_cons - gasto_diario_total
+
+    # Cambio de peso: Balance negativo representa descenso (-kg)
+    cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
+    deficit_diario_real = -balance_diario
+    # ----------------------------------------------------
+
+    # 7. Definición de Objetivos Ideales (Metas)
     gen_clean = genero.lower()
-    factor_proteina = 1.2 if gen_clean in ["femenino", "f", "mujer", "female"] else 1.5
-    ideal_fibr = 25 if gen_clean in ["femenino", "f", "mujer", "female"] else 30
+    if gen_clean in ["femenino", "f", "mujer", "female"]:
+        factor_proteina = 1.2
+        ideal_fibr = 25
+    else:
+        factor_proteina = 1.5
+        ideal_fibr = 30
 
     ideal_cal = int(round(get_meta))
     ideal_prot = int(round(peso_referencia * factor_proteina))
@@ -1732,7 +1231,7 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "dias_registrados": dias_registrados,
         "prom_cal": prom_cal,
         "prom_quem": int(round(prom_quem)),
-        "prom_bal_neto": int(round(prom_cons - prom_quem)),
+        "prom_bal_neto": int(round(prom_bal_neto)),
         "prom_prot": prom_prot,
         "prom_gras": prom_gras,
         "prom_carb": prom_carb,
@@ -1758,7 +1257,7 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "tot_carb": tot_carb,
         "tot_fibr": tot_fibr
     }
-            
+
 def obtener_categorias_diccionario(sh):
     """
     Lee la pestaña 'Categorias_Comida' y devuelve un diccionario {categoria: [lista_de_palabras_clave]}.
@@ -3912,11 +3411,6 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ahora = obtener_ahora_arg()
     mes_actual = ahora.strftime("%Y-%m")
 
-    # 🔹 GARANTIZAR FILA DEL MES: Asegura que la estructura del mes actual exista
-    # antes de realizar cualquier lectura o escritura de peso/perfil.
-    if '_garantizar_fila_mes_actual' in globals():
-        _garantizar_fila_mes_actual(user_id, ahora)
-
     # CASO 1: Ingreso de peso (/perfil 82.5)
     if raw_text:
         try:
@@ -4083,18 +3577,14 @@ def analizar_con_groq(prompt_text):
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
     
-    system_prompt = (
-        "Sos un nutricionista experto. Analizá el texto ingresado. "
-        "Si el texto incluye varios alimentos o porciones, desglosalos individualmente. "
-        "Estimá de forma lógica los pesos en gramos y nutrientes si no están explícitos. "
-        "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
-        "{\n"
-        '  "items": [\n'
-        '    {"alimento": "nombre", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
-        "  ],\n"
-        '  "tipo": "Comida"\n'
-        "}"
-    )
+    system_prompt = """Sos un nutricionista experto. Analizá el texto ingresado.
+Devolvé EXCLUSIVAMENTE un JSON con este formato:
+{
+  "items": [
+    {"alimento": "nombre", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}
+  ],
+  "tipo": "Comida"
+}"""
 
     response = client_ai.chat.completions.create(
         model=GROQ_TEXTO,
@@ -4111,17 +3601,10 @@ def analizar_imagen_con_groq(base64_image, user_caption=""):
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
     
-    base_prompt = (
-        "Analizá esta imagen de comida/plato. "
-        "Identificá los alimentos, estimá sus pesos en gramos y nutrientes. "
-        "Si el usuario incluye una nota o aclaración, utilízala de manera estricta para definir "
-        "el tipo exacto de alimento y método de cocción. "
-        "Respondé ÚNICAMENTE en formato JSON con la clave 'items' conteniendo "
-        "alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras."
-    )
+    base_prompt = "Analizá esta imagen de comida/plato. Identificá los alimentos, estimá sus pesos en gramos y nutrientes. Respondé ÚNICAMENTE en formato JSON con la clave 'items' conteniendo alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras."
     
     if user_caption.strip():
-        prompt = f"{base_prompt}\n\nAclaración obligatoria del usuario sobre la foto: {user_caption.strip()}"
+        prompt = f"{base_prompt}\n\nNota o aclaración enviada por el usuario sobre esta foto: '{user_caption.strip()}'"
     else:
         prompt = base_prompt
 
@@ -4526,11 +4009,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
     context.user_data['last_menu_msg_id'] = query.message.message_id
 
-    # 🆕 Interceptor exclusivo para los botones del menú de eliminación
-    if data.startswith(("del_reg_", "del_mom_", "ejecutar_del_fila_")):
-        await manejar_callback_eliminacion(query, user_id, data, context)
-        return
-
     if data.startswith("set_m_"):
         nuevo_momento = data.replace("set_m_", "")
         context.user_data['pending_momento'] = nuevo_momento
@@ -4630,149 +4108,61 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await generar_y_enviar_pdf_presion(query, user_id, mes_str, context)
 
 #====================================================================================================================================
-#                FINAL                                 MANEJADORES HANDLE                       FINAL
+#                FINAL                                     MANEJADORES HANDLE                                    FINAL
 #===================================================================================================================================
 
 # =====================================================================================================================================
-#                INICIO                               COMANDO ELIMINAR                          INICIO  
-# ======================================================================================================================================
-
-async def actualizar_menu_filtro_eliminacion(query, context):
-    f = context.user_data.get('del_filtro_fecha')
-    m = context.user_data.get('del_filtro_momento')
-    keyboard = [
-        [InlineKeyboardButton("📅 Hoy", callback_data="del_reg_hoy"), InlineKeyboardButton("📅 Ayer", callback_data="del_reg_ayer"), InlineKeyboardButton("📅 Otro Día", callback_data="del_reg_otro")],
-        [InlineKeyboardButton("☕ Desayuno", callback_data="del_mom_Desayuno"), InlineKeyboardButton("🍽️ Almuerzo", callback_data="del_mom_Almuerzo")],
-        [InlineKeyboardButton("🫖 Merienda", callback_data="del_mom_Merienda"), InlineKeyboardButton("🌙 Cena", callback_data="del_mom_Cena")],
-        [InlineKeyboardButton("🔍 Ver Registros", callback_data="del_reg_mostrar")]
-    ]
-    await query.edit_message_text(
-        "🗑️ **Eliminar o Corregir Registro Pasado**\n\n"
-        f"• Fecha seleccionada: `{f}`\n"
-        f"• Momento seleccionado: `{m}`\n\n"
-        "Usá los botones para cambiar los filtros o tocá *Ver Registros*:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
-    
-async def mostrar_registros_para_eliminar(query, user_id, context):
-    fecha = context.user_data.get('del_filtro_fecha')
-    momento = context.user_data.get('del_filtro_momento')
-    
-    # Lectura directa desde Google Sheets
-    df = obtener_datos_usuario(user_id)
-    
-    if df.empty:
-        await query.edit_message_text("❌ No tenés registros cargados en tu planilla.")
-        return
-
-    # Filtramos por Fecha y Momento exacto
-    df_filtrado = df[(df['Fecha'] == fecha) & (df['Momento'].str.strip().str.lower() == momento.lower())]
-
-    if df_filtrado.empty:
-        keyboard = [[InlineKeyboardButton("🔙 Volver", callback_data="del_reg_volver")]]
-        await query.edit_message_text(
-            f"⚠️ No se encontraron registros para el **{fecha}** en **{momento}**.",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
-        return
-
-    txt = f"🗑️ **Registros encontrados ({fecha} - {momento}):**\n\n"
-    keyboard_buttons = []
-
-    for idx, row in df_filtrado.iterrows():
-        alimento = row.get('Alimento', 'Sin detalle')
-        calorias = row.get('Calorias', 0)
-        txt += f"• **{alimento}** ({calorias:.0f} kcal)\n"
-        
-        # El índice real en la hoja de Google Sheets (fila 1 = encabezados, filas de datos empiezan en 2)
-        keyboard_buttons.append([
-            InlineKeyboardButton(f"❌ Borrar: {str(alimento)[:20]}...", callback_data=f"ejecutar_del_fila_{idx+2}")
-        ])
-
-    keyboard_buttons.append([InlineKeyboardButton("🔙 Volver", callback_data="del_reg_volver")])
-    
-    await query.edit_message_text(
-        txt, 
-        reply_markup=InlineKeyboardMarkup(keyboard_buttons), 
-        parse_mode="Markdown"
-    )
-
-async def manejar_callback_eliminacion(query, user_id, data, context):
-    """Manejador lógico para los callbacks del menú de eliminación."""
-    if data == "del_reg_hoy":
-        context.user_data['del_filtro_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
-        await actualizar_menu_filtro_eliminacion(query, context)
-
-    elif data == "del_reg_ayer":
-        context.user_data['del_filtro_fecha'] = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
-        await actualizar_menu_filtro_eliminacion(query, context)
-
-    elif data == "del_reg_otro":
-        context.user_data['awaiting_del_custom_date'] = True
-        await query.message.reply_text("📅 Ingresá la fecha que querés revisar (Ej: `2026-08-25`):", parse_mode="Markdown")
-
-    elif data.startswith("del_mom_"):
-        context.user_data['del_filtro_momento'] = data.replace("del_mom_", "")
-        await actualizar_menu_filtro_eliminacion(query, context)
-
-    elif data == "del_reg_mostrar" or data == "del_reg_volver":
-        await mostrar_registros_para_eliminar(query, user_id, context)
-
-    elif data.startswith("ejecutar_del_fila_"):
-        fila_idx = int(data.replace("ejecutar_del_fila_", ""))
-        
-        # Eliminación directa en la planilla de Google Sheets
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws = sh.worksheet(f"User_{user_id}")
-        ws.delete_rows(fila_idx)
-        
-        await query.answer("✅ Registro eliminado correctamente de la planilla.")
-        await mostrar_registros_para_eliminar(query, user_id, context)
-
-async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Paso 1: Solicita al usuario el día y momento del registro que desea eliminar."""
-    keyboard = [
-        [
-            InlineKeyboardButton("📅 Hoy", callback_data="del_reg_hoy"),
-            InlineKeyboardButton("📅 Ayer", callback_data="del_reg_ayer"),
-            InlineKeyboardButton("📅 Otro Día", callback_data="del_reg_otro")
-        ],
-        [
-            InlineKeyboardButton("☕ Desayuno", callback_data="del_mom_Desayuno"),
-            InlineKeyboardButton("🍽️ Almuerzo", callback_data="del_mom_Almuerzo")
-        ],
-        [
-            InlineKeyboardButton("🫖 Merienda", callback_data="del_mom_Merienda"),
-            InlineKeyboardButton("🌙 Cena", callback_data="del_mom_Cena")
-        ],
-        [
-            InlineKeyboardButton("🔍 Ver Registros", callback_data="del_reg_mostrar")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    # Inicializamos valores temporales en user_data
-    context.user_data['del_filtro_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
-    context.user_data['del_filtro_momento'] = "Almuerzo"
-
-    await update.message.reply_text(
-        "🗑️ **Eliminar o Corregir Registro Pasado**\n\n"
-        f"• Fecha seleccionada: `{context.user_data['del_filtro_fecha']}`\n"
-        f"• Momento seleccionado: `{context.user_data['del_filtro_momento']}`\n\n"
-        "Usá los botones para cambiar los filtros o tocá *Ver Registros*:",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
-
-# =====================================================================================================================================
-#                FINAL                               COMANDO ELIMINAR                          FINAL
-# ======================================================================================================================================
-# =====================================================================================================================================
 #                INICIO                               MENSAJES PROGRAMADOS                          INICIO  DB OK
 # ======================================================================================================================================
+
+def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
+    """
+    Verifica si existe la fila del mes actual en la hoja Perfil_USERID.
+    Si no existe (ej: 1 de cada mes), calcula el factor promedio de los últimos 2 meses,
+    toma los datos vigentes y crea la nueva fila inicializada de forma transparente.
+    """
+    mes_actual_str = ahora_dt.strftime("%Y-%m")
+    nombre_hoja_perfil = f"Perfil_{user_id}"
+
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        
+        try:
+            sheet_perfil = sh.worksheet(nombre_hoja_perfil)
+        except Exception:
+            logger.warning(f"No existe la hoja {nombre_hoja_perfil} para inicializar mes.")
+            return
+
+        registros = sheet_perfil.get_all_records()
+        meses_registrados = [str(r.get("Mes", "")).strip() for r in registros if r.get("Mes")]
+        
+        if mes_actual_str in meses_registrados:
+            return
+
+        logger.info(f"Inicializando nueva fila mensual ({mes_actual_str}) para User {user_id}...")
+
+        ultimo_peso = ""
+        for r in reversed(registros):
+            p = str(r.get("Peso", "")).strip()
+            if p:
+                ultimo_peso = p
+                break
+
+        factor_promedio = calcular_factor_actividad_promedio(user_id) if 'calcular_factor_actividad_promedio' in globals() else 1375
+
+        nueva_fila = [
+            mes_actual_str,      # Columna Mes
+            ultimo_peso,         # Columna Peso
+            factor_promedio,     # Columna Factor de Actividad
+        ]
+
+        sheet_perfil.append_row(nueva_fila, value_input_option="USER_ENTERED")
+        logger.info(f"Fila del mes {mes_actual_str} creada exitosamente para User {user_id} con Factor: {factor_promedio}")
+
+    except Exception as e:
+        logger.error(f"Error al garantizar fila mensual para User {user_id}: {e}")
+
 
 async def ejecutar_recordatorio_comidas(context, momento: str):
     """
@@ -5187,7 +4577,6 @@ def main():
     app_bot.add_handler(CommandHandler(["resumen", "mes", "mensual", "m"], cmd_resumen))
     app_bot.add_handler(CommandHandler(["mensaje", "semana", "semanal", "s"], cmd_mensaje))
     app_bot.add_handler(CommandHandler(["receta", "planilla"], cmd_cargar_receta))
-    app_bot.add_handler(CommandHandler("eliminar", cmd_eliminar_ingesta))
 
     # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
     app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
