@@ -1434,7 +1434,6 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     records = ws.get_all_records()
     
     fila_a_actualizar = None
-    row_existente = None
 
     # Buscar si ya existe una fila para este mes
     if records:
@@ -1442,66 +1441,42 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
             mes_en_fila = str(row.get('MES', row.get('Mes', ''))).strip()
             if mes_en_fila == str(mes):
                 fila_a_actualizar = idx
-                row_existente = row
                 break
 
-    # 🛑 CONTROL INTELIGENTE QUE PROPUSISTE: Si la fila ya existe y el peso es el mismo, NO HACEMOS NADA.
-    if row_existente:
-        peso_sheet_raw = str(row_existente.get('PESO', row_existente.get('Peso', ''))).strip()
+    # 🛑 SI LA FILA YA EXISTE: Actualizamos SOLAMENTE el peso y la fecha, sin tocar la ocupación ni el resto.
+    if fila_a_actualizar:
+        peso_sheet_raw = str(ws.cell(fila_a_actualizar, 2).value).strip() # Columna B es Peso
         peso_nuevo_sheet = str(to_sheet_int(peso)).strip()
         
-        # Si el peso almacenado es idéntico al que se quiere guardar, salimos de la función sin tocar nada
+        # Si el peso es exactamente el mismo, ni nos gastamos en escribir
         if peso_sheet_raw == peso_nuevo_sheet:
             return
 
-        # Si el peso cambió, heredamos los datos actuales de la fila para mantenerlos intactos
-        edad_raw = edad if edad is not None else row_existente.get('EDAD', row_existente.get('Edad', 64000))
-        altura_raw = altura if altura is not None else row_existente.get('ALTURA', row_existente.get('Altura', 172000))
-        genero_final = genero if genero is not None else str(row_existente.get('GENERO', row_existente.get('Genero', 'masculino')))
-        
-        ocup_actual_fila = row_existente.get('OCUPACION', row_existente.get('Ocupacion', ''))
-        if ocupacion is not None:
-            ocupacion_final = ocupacion
-        elif str(ocup_actual_fila).strip() != '':
-            ocupacion_final = ocup_actual_fila
-        else:
-            ocupacion_final = records[-2].get('OCUPACION', records[-2].get('Ocupacion', 1684)) if len(records) > 1 else 1684
+        # Actualizamos únicamente la celda del peso (B) y la fecha de actualización (G)
+        ws.update(f"B{fila_a_actualizar}", [[to_sheet_int(peso)]])
+        ws.update(f"G{fila_a_actualizar}", [[ahora.strftime("%Y-%m-%d %H:%M:%S")]])
 
-        peso_ideal_final = row_existente.get('Peso_ideal', row_existente.get('peso_ideal', ''))
-        fecha_cumple_str = str(row_existente.get('Cumple', row_existente.get('cumple', ''))).strip()
-
-    elif records:
-        # Si la fila NO existe todavía (mes nuevo), tomamos de referencia el último registro anterior
-        ultimo_registro = records[-1]
-        edad_raw = edad if edad is not None else ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
-        altura_raw = altura if altura is not None else ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
-        genero_final = genero if genero is not None else str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', 'masculino')))
+    else:
+        # Si la fila NO existe (caso excepcional de mes nuevo), la creamos tomando los datos del último registro
+        ultimo_registro = records[-1] if records else {}
+        edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
+        altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
+        genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', 'masculino')))
         ocupacion_final = ocupacion if ocupacion is not None else ultimo_registro.get('OCUPACION', ultimo_registro.get('Ocupacion', 1684))
         peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
         fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
-    else:
-        edad_raw = 64000
-        altura_raw = 172000
-        genero_final = "masculino"
-        ocupacion_final = 1684
-        peso_ideal_final = ""
-        fecha_cumple_str = ""
 
-    nueva_fila = [
-        str(edad_raw),
-        to_sheet_int(peso),
-        str(altura_raw),
-        str(genero_final),
-        str(ocupacion_final),  
-        str(mes),
-        ahora.strftime("%Y-%m-%d %H:%M:%S"),
-        str(peso_ideal_final),
-        str(fecha_cumple_str)
-    ]
-
-    if fila_a_actualizar:
-        ws.update(f"A{fila_a_actualizar}:I{fila_a_actualizar}", [nueva_fila])
-    else:
+        nueva_fila = [
+            str(edad_raw),
+            to_sheet_int(peso),
+            str(altura_raw),
+            str(genero_final),
+            str(ocupacion_final),  
+            str(mes),
+            ahora.strftime("%Y-%m-%d %H:%M:%S"),
+            str(peso_ideal_final),
+            str(fecha_cumple_str)
+        ]
         ws.append_row(nueva_fila)
 
     try:
