@@ -1280,7 +1280,7 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
     except Exception as e:
         logger.error(f"Error interno al grabar Presión en Supabase (Presion_{user_id}): {e}")
         
-def guardar_perfil_usuario_db(user_id, perfil_data):
+def guardar_perfil_db(user_id, perfil_data):
     """Guarda o actualiza los datos del perfil y del usuario asegurando la correcta
     persistencia del factor numérico de ocupación y los datos biométricos."""
     if not perfil_data or not isinstance(perfil_data, dict):
