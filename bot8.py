@@ -557,6 +557,74 @@ def api_guardar_comida():
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 1. CLIENTES Y CONEXIÓN BASE (VAN PRIMERO)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
+def _obtener_conexion_db():
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        raise Exception("DATABASE_URL no está configurada en las variables de entorno.")
+    return psycopg2.connect(db_url)
+
+def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
+    conn = _obtener_conexion_db()
+    cur = conn.cursor()
+    
+    if tipo_tabla == "comida":
+        query_creacion = f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                fecha TEXT,
+                momento TEXT,
+                alimento TEXT,
+                peso NUMERIC,
+                calorias NUMERIC,
+                proteinas NUMERIC,
+                grasas NUMERIC,
+                carbohidratos NUMERIC,
+                fibras NUMERIC
+            );
+        """
+    elif tipo_tabla == "comidas_precargadas":
+        query_creacion = f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                codigo TEXT,
+                descripcion TEXT,
+                peso NUMERIC,
+                calorias NUMERIC,
+                proteinas NUMERIC,
+                grasas NUMERIC,
+                carbohidratos NUMERIC,
+                fibras NUMERIC
+            );
+        """
+    elif tipo_tabla == "presion":
+        query_creacion = f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                fecha_hora TEXT,
+                fecha_dia TEXT,
+                alta NUMERIC,
+                baja NUMERIC,
+                pulsaciones NUMERIC,
+                nota TEXT
+            );
+        """
+    elif tipo_tabla == "perfil":
+        query_creacion = f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                mes TEXT,
+                edad NUMERIC,
+                peso NUMERIC,
+                altura NUMERIC,
+                genero TEXT,
+                ocupacion NUMERIC,
+                fecha_actualizacion TEXT
+            );
+        """
+        
+    cur.execute(query_creacion)
+    conn.commit()
+    return conn, cur
 
 def get_gspread_client():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -618,10 +686,81 @@ def get_user_worksheet(user_id):
         
     return ws
 
+def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
+    conn = _obtener_conexion_db()
+    cur = conn.cursor()
+    
+    if tipo_tabla == "comida":
+        query_creacion = f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                fecha TEXT,
+                momento TEXT,
+                alimento TEXT,
+                peso NUMERIC,
+                calorias NUMERIC,
+                proteinas NUMERIC,
+                grasas NUMERIC,
+                carbohidratos NUMERIC,
+                fibras NUMERIC
+            );
+        """
+    elif tipo_tabla == "comidas_precargadas":
+        query_creacion = f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                codigo TEXT,
+                descripcion TEXT,
+                peso NUMERIC,
+                calorias NUMERIC,
+                proteinas NUMERIC,
+                grasas NUMERIC,
+                carbohidratos NUMERIC,
+                fibras NUMERIC
+            );
+        """
+    elif tipo_tabla == "presion":
+        query_creacion = f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                fecha_hora TEXT,
+                fecha_dia TEXT,
+                alta NUMERIC,
+                baja NUMERIC,
+                pulsaciones NUMERIC,
+                nota TEXT
+            );
+        """
+    elif tipo_tabla == "perfil":
+        query_creacion = f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                mes TEXT,
+                edad NUMERIC,
+                peso NUMERIC,
+                altura NUMERIC,
+                genero TEXT,
+                ocupacion NUMERIC,
+                fecha_actualizacion TEXT
+            );
+        """
+    elif tipo_tabla == "logs":
+        query_creacion = f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                fecha_hora TEXT,
+                contexto TEXT,
+                detalle TEXT
+            );
+        """
+        
+    cur.execute(query_creacion)
+    conn.commit()
+    return conn, cur
+
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 2. CONSULTAS Y DECORADORES DE USUARIO
 # ---------------------------------------------------------------------------------------------------------------------------------------------
-
 
 def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
     """
@@ -962,184 +1101,6 @@ def _calcular_y_actualizar_factor_mes_anterior_RESERVA(user_id, sheet_perfil, me
         logger.error(f"Error al calcular factor limpio del mes anterior para User {user_id}: {e}")
         return None
 
-def _garantizar_fila_mes_actual_RESERVA(user_id: int, ahora_dt) -> None:
-    """
-    Verifica y asegura la fila del mes actual, calcula el mes anterior y actualiza 
-    tanto Google Sheets como Supabase y la hoja global de Usuarios con un factor unificado.
-    """
-    mes_actual_str = ahora_dt.strftime("%Y-%m")
-    
-    from datetime import timedelta
-    primer_dia_mes_actual = ahora_dt.replace(day=1)
-    mes_anterior_dt = primer_dia_mes_actual - timedelta(days=1)
-    mes_anterior_str = mes_anterior_dt.strftime("%Y-%m")
-
-    nombre_hoja_perfil = f"Perfil_{user_id}"
-
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        
-        try:
-            sheet_perfil = sh.worksheet(nombre_hoja_perfil)
-        except Exception:
-            logger.warning(f"No existe la hoja {nombre_hoja_perfil} para inicializar mes.")
-            return
-
-        registros = sheet_perfil.get_all_records()
-        
-        fila_mes_actual_idx = None
-        for idx, r in enumerate(registros, start=2):
-            m_val = str(r.get("MES", r.get("Mes", r.get("mes", "")))).strip()
-            if m_val == mes_actual_str:
-                fila_mes_actual_idx = idx
-                break
-
-        logger.info(f"Procesando fila mensual ({mes_actual_str}) para User {user_id}...")
-
-        # 1. Calcular y actualizar el factor real termodinámico del mes anterior
-        factor_mes_anterior = _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anterior_str, registros)
-
-        # Releer registros actualizados después del cálculo del mes anterior
-        registros = sheet_perfil.get_all_records()
-
-        # 2. Promedio robusto de los últimos meses para el mes actual
-        factores_ultimos = []
-        for r in reversed(registros):
-            m_val = str(r.get("MES", r.get("Mes", r.get("mes", "")))).strip()
-            if m_val == mes_actual_str:
-                continue 
-            f_val = r.get("ocupacion", r.get("OCUPACION", ""))
-            if f_val is not None and str(f_val).strip() != "":
-                try:
-                    val_f = float(str(f_val).replace(',', '.'))
-                    # Normalizar si viene en formato entero grande o desfasado
-                    while val_f > 10:
-                        val_f /= 1000.0
-                    # Filtrar estrictamente dentro del rango termodinámico lógico
-                    if 1.20 <= val_f <= 1.85:
-                        factores_ultimos.append(val_f)
-                except Exception:
-                    pass
-            if len(factores_ultimos) >= 2:
-                break
-
-        if factores_ultimos:
-            nuevo_factor_inicial = sum(factores_ultimos) / len(factores_ultimos)
-        else:
-            nuevo_factor_inicial = factor_mes_anterior if factor_mes_anterior else 1.4
-
-        nuevo_factor_inicial = max(1.20, min(1.85, nuevo_factor_inicial))
-
-        # Buscar datos base del último registro anterior
-        ultimo_registro = {}
-        for r in reversed(registros):
-            if str(r.get("MES", r.get("Mes", ""))).strip() != mes_actual_str:
-                ultimo_registro = r
-                break
-        if not ultimo_registro and registros:
-            ultimo_registro = registros[-1]
-        
-        edad_base = ultimo_registro.get("EDAD", ultimo_registro.get("edad", 64000))
-        peso_base = ultimo_registro.get("PESO", ultimo_registro.get("peso", ""))
-        altura_base = ultimo_registro.get("ALTURA", ultimo_registro.get("altura", 172000))
-        genero_base = ultimo_registro.get("GENERO", ultimo_registro.get("genero", "masculino"))
-        peso_ideal_base = ultimo_registro.get("Peso_ideal", ultimo_registro.get("peso_ideal", ""))
-        cumple_base = ultimo_registro.get("Cumple", ultimo_registro.get("cumple", ""))
-
-        # Factor unificado entero (ej: 1567)
-        ocupacion_sheet = int(round(nuevo_factor_inicial * 1000))
-
-        from gspread.utils import rowcol_to_a1
-        if fila_mes_actual_idx:
-            # Actualizar la fila existente del mes actual con el factor unificado
-            sheet_perfil.update(rowcol_to_a1(fila_mes_actual_idx, 5), [[ocupacion_sheet]])
-        else:
-            # Crear nueva fila si no existía con el factor unificado
-            nueva_fila = [
-                str(edad_base),
-                str(peso_base),
-                str(altura_base),
-                str(genero_base),
-                ocupacion_sheet,
-                str(mes_actual_str),
-                ahora_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                str(peso_ideal_base),
-                str(cumple_base)
-            ]
-            sheet_perfil.append_row(nueva_fila, value_input_option="USER_ENTERED")
-
-        # 3. Replicar en Supabase
-        try:
-            tabla_nombre = f"perfil_{user_id}"
-            conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
-            
-            edad_db = float(edad_base) / 1000.0 if float(edad_base or 0) > 1000 else float(edad_base or 0)
-            peso_db = float(peso_base) / 1000.0 if float(peso_base or 0) > 1000 else float(peso_base or 0)
-            altura_db = float(altura_base) / 1000.0 if float(altura_base or 0) > 1000 else float(altura_base or 0)
-
-            query = f"""
-                INSERT INTO {tabla_nombre} ("EDAD", "PESO", "ALTURA", "GENERO", ocupacion, "MES", "Fecha_Actualizacion")
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT ("MES") DO UPDATE SET ocupacion = EXCLUDED.ocupacion, "Fecha_Actualizacion" = EXCLUDED."Fecha_Actualizacion"
-            """
-            valores = (
-                str(edad_db),
-                peso_db,
-                altura_db,
-                str(genero_base),
-                float(nuevo_factor_inicial),
-                str(mes_actual_str),
-                ahora_dt.strftime("%Y-%m-%d %H:%M:%S")
-            )
-            cur.execute(query, valores)
-            conn.commit()
-            cur.close()
-            conn.close()
-        except Exception as db_err:
-            logger.error(f"Error al replicar fila mensual en Supabase ({tabla_nombre}): {db_err}")
-
-        # 4. Actualizar la hoja global de "Usuarios" con exactamente el mismo valor
-        try:
-            ws_usuarios = sh.worksheet("Usuarios")
-            headers_u = ws_usuarios.row_values(1)
-            
-            col_ocupacion_u_idx = None
-            col_ultimo_mes_idx = None
-            
-            for idx, h in enumerate(headers_u, start=1):
-                h_str = str(h).strip().lower()
-                if h_str in ["ocupacion", "ocupación"]:
-                    col_ocupacion_u_idx = idx
-                elif h_str in ["ultimo mes peso", "último mes peso", "ultimo_mes_peso"]:
-                    col_ultimo_mes_idx = idx
-
-            registros_usuarios = ws_usuarios.get_all_records()
-            fila_usuario = None
-            for i, reg in enumerate(registros_usuarios, start=2):
-                id_reg = reg.get('User ID') or reg.get('ID') or reg.get('user_id') or list(reg.values())[0]
-                if str(id_reg).strip() == str(user_id).strip():
-                    fila_usuario = i
-                    break
-
-            if fila_usuario:
-                if col_ocupacion_u_idx:
-                    celda_oc_a1 = rowcol_to_a1(fila_usuario, col_ocupacion_u_idx)
-                    ws_usuarios.update_acell(celda_oc_a1, int(ocupacion_sheet))
-                    logger.info(f"Hoja 'Usuarios' actualizada: Ocupación {ocupacion_sheet} para User {user_id}")
-                
-                if col_ultimo_mes_idx:
-                    celda_mes_a1 = rowcol_to_a1(fila_usuario, col_ultimo_mes_idx)
-                    ws_usuarios.update_acell(celda_mes_a1, f"{mes_actual_str}-01")
-                    logger.info(f"Hoja 'Usuarios' actualizada: Último Mes {mes_actual_str} para User {user_id}")
-            else:
-                logger.warning(f"No se encontró la fila del usuario {user_id} en la hoja 'Usuarios'")
-
-        except Exception as e_usr:
-            logger.error(f"Error actualizando la hoja 'Usuarios' para el usuario {user_id}: {e_usr}")
-
-    except Exception as e_principal:
-        logger.error(f"Error general en _garantizar_fila_mes_actual para User {user_id}: {e_principal}")
         
 def obtener_perfil_usuario(user_id, mes_target=None):
     try:
@@ -1276,7 +1237,327 @@ def requiere_registro(func):
     return wrapper
     
 # ---------------------------------------------------------------------------------------------------------------------------------------------
-# 3. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA Y ESCRITURA)
+# 1. FUNCIÓN DE CONEXIÓN Y CREACIÓN DE TABLAS (CON LOS NOMBRES EXACTOS DEL EXCEL)
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+
+def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
+    conn = _obtener_conexion_db()
+    cur = conn.cursor()
+
+    if tipo_tabla == "comida":
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                "Fecha" TEXT,
+                "Momento/Actividad" TEXT,
+                "Alimento/Detalle" TEXT,
+                "Peso (g)" DOUBLE PRECISION,
+                "Calorías (kcal)" DOUBLE PRECISION,
+                "Proteínas (g)" DOUBLE PRECISION,
+                "Grasas (g)" DOUBLE PRECISION,
+                "Hidratos (g)" DOUBLE PRECISION,
+                "Fibras (g)" DOUBLE PRECISION
+            );
+        """)
+    elif tipo_tabla == "comidas_precargadas":
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                "Nombre" TEXT,
+                "Descripcion" TEXT,
+                "Peso" DOUBLE PRECISION,
+                "Calorias" DOUBLE PRECISION,
+                "Proteinas" DOUBLE PRECISION,
+                "Grasas" DOUBLE PRECISION,
+                "Carbohidratos" DOUBLE PRECISION,
+                "Fibras" DOUBLE PRECISION
+            );
+        """)
+    elif tipo_tabla == "presion":
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                "Fecha_Hora" TEXT,
+                "Fecha_Dia" TEXT,
+                "Alta" DOUBLE PRECISION,
+                "Baja" DOUBLE PRECISION,
+                "Pulsaciones" DOUBLE PRECISION,
+                "Nota" TEXT
+            );
+        """)
+    elif tipo_tabla == "perfil":
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                "EDAD" TEXT,
+                "PESO" DOUBLE PRECISION,
+                "ALTURA" DOUBLE PRECISION,
+                "GENERO" TEXT,
+                "OCUPACION" DOUBLE PRECISION,
+                "MES" TEXT,
+                "Fecha_Actualizacion" TEXT
+            );
+        """)
+
+    conn.commit()
+    return conn, cur
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+# 3. OPERACIONES DE PERSISTENCIA Y REGISTRO (ESCRITURA) - CORREGIDAS AL 100% CON EL EXCEL Y LA CONEXIÓN CORRECTA
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+
+def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
+    gc = get_gspread_client()
+    sh = gc.open(SPREADSHEET_NAME)
+    ws = get_or_create_worksheet(sh, f"User_{user_id}")
+
+    rows = []
+    for item in items:
+        rows.append([
+            str(fecha),
+            str(momento),
+            item.get("alimento", item.get("Alimento/Detalle", "Desconocido")),
+            to_sheet_int(item.get("peso", item.get("Peso (g)", 0))),
+            to_sheet_int(item.get("calorias", item.get("Calorías (kcal)", 0))),
+            to_sheet_int(item.get("proteinas", item.get("Proteínas (g)", 0))),
+            to_sheet_int(item.get("grasas", item.get("Grasas (g)", 0))),
+            to_sheet_int(item.get("carbohidratos", item.get("hidratos", item.get("Hidratos (g)", 0)))),
+            to_sheet_int(item.get("fibras", item.get("Fibras (g)", 0)))
+        ])
+    if rows:
+        ws.append_rows(rows)
+
+    try:
+        tabla_nombre = f"user_{user_id}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
+        
+        for item in items:
+            query = f"""
+                INSERT INTO {tabla_nombre} ("Fecha", "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)")
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            valores = (
+                str(fecha), 
+                str(momento), 
+                str(item.get("alimento", item.get("Alimento/Detalle", "Desconocido"))), 
+                float(item.get("peso", item.get("Peso (g)", 0))), 
+                float(item.get("calorias", item.get("Calorías (kcal)", 0))), 
+                float(item.get("proteinas", item.get("Proteínas (g)", 0))), 
+                float(item.get("grasas", item.get("Grasas (g)", 0))), 
+                float(item.get("carbohidratos", item.get("hidratos", item.get("Hidratos (g)", 0)))), 
+                float(item.get("fibras", item.get("Fibras (g)", 0)))
+            )
+            cur.execute(query, valores)
+            
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error interno al duplicar ingesta en Supabase (User_{user_id}): {e}")
+
+def guardar_comida_precargada_db(user_id, fila):
+    ws = get_user_worksheet(user_id)
+    codigo_original = fila.get('Nombre', fila.get('nombre', ''))
+    codigo_unico = obtener_codigo_unico(ws, codigo_original)
+
+    nueva_fila = [
+        codigo_unico,
+        fila.get('Descripcion', fila.get('descripcion', '')),
+        fila.get('Peso', fila.get('peso', 0)),
+        fila.get('Calorias', fila.get('calorias', 0)),
+        fila.get('Proteinas', fila.get('proteinas', 0)),
+        fila.get('Grasas', fila.get('grasas', 0)),
+        fila.get('Carbohidratos', fila.get('carbohidratos', fila.get('Hidratos', 0))),
+        fila.get('Fibras', fila.get('fibras', 0))
+    ]
+    
+    ws.append_row(nueva_fila)
+
+    try:
+        tabla_nombre = f"comidas_{user_id}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
+
+        p_val = float(fila.get('Peso', fila.get('peso', 0)))
+        c_val = float(fila.get('Calorias', fila.get('calorias', 0)))
+        pr_val = float(fila.get('Proteinas', fila.get('proteinas', 0)))
+        g_val = float(fila.get('Grasas', fila.get('grasas', 0)))
+        h_val = float(fila.get('Carbohidratos', fila.get('carbohidratos', fila.get('Hidratos', 0))))
+        f_val = float(fila.get('Fibras', fila.get('fibras', 0)))
+
+        query = f"""
+            INSERT INTO {tabla_nombre} ("Nombre", "Descripcion", "Peso", "Calorias", "Proteinas", "Grasas", "Carbohidratos", "Fibras")
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        valores = (
+            str(codigo_unico), 
+            str(fila.get('Descripcion', fila.get('descripcion', ''))), 
+            p_val / 1000.0 if p_val > 1000 else p_val, 
+            c_val / 1000.0 if c_val > 1000 else c_val, 
+            pr_val / 1000.0 if pr_val > 1000 else pr_val, 
+            g_val / 1000.0 if g_val > 1000 else g_val, 
+            h_val / 1000.0 if h_val > 1000 else h_val, 
+            f_val / 1000.0 if f_val > 1000 else f_val
+        )
+        cur.execute(query, valores)
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error interno al grabar Comida Precargada en Supabase (Comidas_{user_id}): {e}")
+    return codigo_unico
+
+def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
+    gc = get_gspread_client()
+    sh = gc.open(SPREADSHEET_NAME)
+    ws = get_or_create_worksheet(sh, f"Presion_{user_id}")
+    ahora = obtener_ahora_arg()
+    
+    val_pul = int(pulsaciones * 1000) if pulsaciones is not None else 0
+
+    ws.append_row([
+        ahora.strftime("%Y-%m-%d %H:%M:%S"), 
+        ahora.strftime("%Y-%m-%d"), 
+        int(alta * 1000) if alta < 100 else int(alta), 
+        int(baja * 1000) if baja < 100 else int(baja), 
+        val_pul,
+        str(nota).strip()
+    ])
+
+    try:
+        tabla_nombre = f"presion_{user_id}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="presion")
+
+        query = f"""
+            INSERT INTO {tabla_nombre} ("Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota")
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        valores = (
+            ahora.strftime("%Y-%m-%d %H:%M:%S"), 
+            ahora.strftime("%Y-%m-%d"), 
+            float(alta), 
+            float(baja), 
+            float(pulsaciones) if pulsaciones is not None else 0.0, 
+            str(nota).strip()
+        )
+        cur.execute(query, valores)
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error interno al grabar Presión en Supabase (Presion_{user_id}): {e}")
+        
+def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
+    gc = get_gspread_client()
+    sh = gc.open(SPREADSHEET_NAME)
+    ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
+    ahora = obtener_ahora_arg()
+    
+    if not mes:
+        mes = ahora.strftime("%Y-%m")
+    
+    records = ws.get_all_records()
+    
+    edad_raw = edad if edad is not None else 64000
+    altura_raw = altura if altura is not None else 172000
+    genero_final = genero if genero is not None else "masculino"
+    ocupacion_final = ocupacion if ocupacion is not None else 1375
+    peso_ideal_final = ""
+    fecha_cumple_str = ""
+    fila_a_actualizar = None
+
+    if records:
+        ultimo_registro = records[-1]
+        if edad is None:
+            edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
+        if altura is None:
+            altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
+        if genero is None:
+            genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', ultimo_registro.get('Sexo', 'masculino'))))
+        if ocupacion is None:
+            ocupacion_final = ultimo_registro.get('OCUPACION', ultimo_registro.get('Ocupacion', 1375))
+            
+        peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
+        fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
+
+        for idx, row in enumerate(records, start=2):
+            mes_en_fila = str(row.get('MES', row.get('Mes', ''))).strip()
+            if mes_en_fila == str(mes):
+                fila_a_actualizar = idx
+                break
+
+    nueva_fila = [
+        str(edad_raw),
+        to_sheet_int(peso),
+        str(altura_raw),
+        str(genero_final),
+        to_sheet_int(ocupacion_final),
+        str(mes),
+        ahora.strftime("%Y-%m-%d %H:%M:%S"),
+        str(peso_ideal_final),
+        str(fecha_cumple_str)
+    ]
+
+    if fila_a_actualizar:
+        ws.update(f"A{fila_a_actualizar}:I{fila_a_actualizar}", [nueva_fila])
+    else:
+        ws.append_row(nueva_fila)
+
+    try:
+        ws_usuarios = sh.worksheet("Usuarios")
+        registros_usuarios = ws_usuarios.get_all_records()
+        headers = ws_usuarios.row_values(1)
+        
+        col_idx = 4
+        for idx, h in enumerate(headers, start=1):
+            if str(h).strip().lower() in ["ultimo mes peso", "ultimo_mes_peso", "ultimomespeso"]:
+                col_idx = idx
+                break
+
+        fila_usuario = None
+        for i, reg in enumerate(registros_usuarios, start=2):
+            id_reg = reg.get('ID') or reg.get('user_id') or reg.get('User ID') or list(reg.values())[0]
+            if str(id_reg).strip() == str(user_id).strip():
+                fila_usuario = i
+                break
+
+        if fila_usuario:
+            from gspread.utils import rowcol_to_a1
+            celda_a1 = rowcol_to_a1(fila_usuario, col_idx)
+            fecha_usuarios_str = f"{str(mes)[:7]}-01"
+            ws_usuarios.update(celda_a1, [[fecha_usuarios_str]])
+    except Exception as e:
+        print(f"❌ Error crítico al actualizar la pestaña 'usuarios': {e}")
+
+    try:
+        edad_val = edad_raw / 1000.0 if edad_raw > 1000 else edad_raw
+        altura_val = altura_raw / 1000.0 if altura_raw > 1000 else altura_val
+        ocupacion_val = ocupacion_final / 1000.0 if ocupacion_final > 1000 else ocupacion_final
+
+        tabla_nombre = f"perfil_{user_id}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+
+        query = f"""
+            INSERT INTO {tabla_nombre} ("EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "MES", "Fecha_Actualizacion")
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """
+        valores = (
+            str(edad_val), 
+            float(peso), 
+            float(altura_val), 
+            str(genero_json := str(genero_final)), 
+            float(ocupacion_val), 
+            str(mes), 
+            ahora.strftime("%Y-%m-%d %H:%M:%S")
+        )
+        cur.execute(query, (str(edad_val), float(peso), float(altura_val), str(genero_final), float(ocupacion_val), str(mes), ahora.strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error interno al grabar Perfil en Supabase (Perfil_{user_id}): {e}")
+        
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+# 4. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
 def obtener_datos_usuario(user_id):
@@ -1338,47 +1619,7 @@ def obtener_ultimo_peso(user_id: int) -> dict:
     except Exception as e:
         logger.error(f"Error en obtener_ultimo_peso para User {user_id}: {e}")
         return None
-        
-def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    ws = get_or_create_worksheet(sh, f"User_{user_id}")
-
-    rows = []
-    for item in items:
-        rows.append([
-            str(fecha),
-            str(momento),
-            item.get("alimento", "Desconocido"),
-            to_sheet_int(item.get("peso", 0)),
-            to_sheet_int(item.get("calorias", 0)),
-            to_sheet_int(item.get("proteinas", 0)),
-            to_sheet_int(item.get("grasas", 0)),
-            to_sheet_int(item.get("carbohidratos", 0)),
-            to_sheet_int(item.get("fibras", 0))
-        ])
-    if rows:
-        ws.append_rows(rows)
-
-def guardar_comida_precargada_db(user_id, fila):
-    ws = get_user_worksheet(user_id)
-    codigo_original = fila.get('nombre', '')
-    codigo_unico = obtener_codigo_unico(ws, codigo_original)
-
-    nueva_fila = [
-        codigo_unico,
-        fila.get('descripcion', ''),
-        fila.get('peso', 0),
-        fila.get('calorias', 0),
-        fila.get('proteinas', 0),
-        fila.get('grasas', 0),
-        fila.get('carbohidratos', 0),
-        fila.get('fibras', 0)
-    ]
-    
-    ws.append_row(nueva_fila)
-    return codigo_unico
-
+   
 def obtener_datos_presion_db(user_id):
     try:
         gc = get_gspread_client()
@@ -1404,194 +1645,6 @@ def obtener_datos_presion_db(user_id):
         return df
     except Exception:
         return pd.DataFrame()
-
-def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    ws = get_or_create_worksheet(sh, f"Presion_{user_id}")
-    ahora = obtener_ahora_arg()
-    
-    val_pul = int(pulsaciones * 1000) if pulsaciones is not None else 0
-
-    ws.append_row([
-        ahora.strftime("%Y-%m-%d %H:%M:%S"), 
-        ahora.strftime("%Y-%m-%d"), 
-        int(alta * 1000), 
-        int(baja * 1000), 
-        val_pul,
-        str(nota).strip()
-    ])
-
-def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
-    ahora = obtener_ahora_arg()
-    
-    if not mes:
-        mes = ahora.strftime("%Y-%m")
-    
-    # Traemos la lista completa de registros
-    records = ws.get_all_records()
-    fila_a_actualizar = None
-
-    # Buscamos si el mes ya tiene fila asignada
-    if records:
-        for idx, row in enumerate(records, start=2):
-            mes_en_fila = str(row.get('MES', row.get('Mes', ''))).strip()
-            if mes_en_fila == str(mes):
-                fila_a_actualizar = idx
-                break
-
-    peso_nuevo_sheet = to_sheet_int(peso)
-
-    if fila_a_actualizar:
-        # LEEMOS DIRECTAMENTE DE LA CELDA REAL (Columna B) para evitar desincronizaciones de caché
-        peso_actual_en_celda = str(ws.cell(fila_a_actualizar, 2).value).strip()
-        
-        # SI EL PESO YA ES EL MISMO EN LA CELDA, SALIMOS INMEDIATAMENTE Y NO TOCAMOS NADA
-        if peso_actual_en_celda == str(peso_nuevo_sheet):
-            print(f"📌 El peso {peso} ya estaba registrado para el mes {mes}. No se reescribe nada.")
-            return
-
-        # Si el peso cambió, actualizamos EXCLUSIVAMENTE la columna B (Peso) y G (Fecha), 
-        # sin tocar la Columna E (Ocupación) para que el promedio quede intacto.
-        ws.update(f"B{fila_a_actualizar}", [[peso_nuevo_sheet]])
-        ws.update(f"G{fila_a_actualizar}", [[ahora.strftime("%Y-%m-%d %H:%M:%S")]])
-
-    else:
-        # Si por algún motivo la fila no existiera, la creamos tomando de referencia el último registro
-        ultimo_registro = records[-1] if records else {}
-        edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
-        altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
-        genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', 'masculino')))
-        ocupacion_final = ocupacion if ocupacion is not None else ultimo_registro.get('OCUPACION', ultimo_registro.get('Ocupacion', 1684))
-        peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
-        fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
-
-        nueva_fila = [
-            str(edad_raw),
-            peso_nuevo_sheet,
-            str(altura_raw),
-            str(genero_final),
-            str(ocupacion_final),  
-            str(mes),
-            ahora.strftime("%Y-%m-%d %H:%M:%S"),
-            str(peso_ideal_final),
-            str(fecha_cumple_str)
-        ]
-        ws.append_row(nueva_fila)
-
-    # Actualización de la pestaña Usuarios (se mantiene igual)
-    try:
-        ws_usuarios = sh.worksheet("Usuarios")
-        registros_usuarios = ws_usuarios.get_all_records()
-        headers = ws_usuarios.row_values(1)
-        
-        col_idx = 4
-        for idx, h in enumerate(headers, start=1):
-            if str(h).strip().lower() in ["ultimo mes peso", "ultimo_mes_peso", "ultimomespeso"]:
-                col_idx = idx
-                break
-
-        fila_usuario = None
-        for i, reg in enumerate(registros_usuarios, start=2):
-            id_reg = reg.get('ID') or reg.get('user_id') or reg.get('User ID') or list(reg.values())[0]
-            if str(id_reg).strip() == str(user_id).strip():
-                fila_usuario = i
-                break
-
-        if fila_usuario:
-            from gspread.utils import rowcol_to_a1
-            celda_a1 = rowcol_to_a1(fila_usuario, col_idx)
-            fecha_usuarios_str = f"{str(mes)[:7]}-01"
-            ws_usuarios.update(celda_a1, [[fecha_usuarios_str]])
-    except Exception as e:
-        print(f"❌ Error crítico al actualizar la pestaña 'usuarios': {e}")
-        
-def guardar_perfil_db_RESERVA(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
-    ahora = obtener_ahora_arg()
-    
-    if not mes:
-        mes = ahora.strftime("%Y-%m")
-    
-    records = ws.get_all_records()
-    
-    edad_raw = edad if edad is not None else 64000
-    altura_raw = altura if altura is not None else 172000
-    genero_final = genero if genero is not None else "masculino"
-    ocupacion_final = ocupacion if ocupacion is not None else 1375
-    peso_ideal_final = ""
-    fecha_cumple_str = ""
-    fila_a_actualizar = None
-
-    if records:
-        ultimo_registro = records[-1]
-        if edad is None:
-            edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
-        if altura is None:
-            altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
-        if genero is None:
-            genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', ultimo_registro.get('Sexo', 'masculino'))))
-        if ocupacion is None:
-            # Recupera la ocupación previa (que ya es un entero como 1500)
-            ocupacion_final = ultimo_registro.get('OCUPACION', ultimo_registro.get('Ocupacion', 1375))
-            
-        peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
-        fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
-
-        for idx, row in enumerate(records, start=2):
-            mes_en_fila = str(row.get('MES', row.get('Mes', ''))).strip()
-            if mes_en_fila == str(mes):
-                fila_a_actualizar = idx
-                break
-
-    nueva_fila = [
-        str(edad_raw),
-        to_sheet_int(peso),
-        str(altura_raw),
-        str(genero_final),
-        to_sheet_int(ocupacion_final),  # Garantiza que sea entero (*1000)
-        str(mes),
-        ahora.strftime("%Y-%m-%d %H:%M:%S"),
-        str(peso_ideal_final),
-        str(fecha_cumple_str)
-    ]
-
-    if fila_a_actualizar:
-        ws.update(f"A{fila_a_actualizar}:I{fila_a_actualizar}", [nueva_fila])
-    else:
-        ws.append_row(nueva_fila)
-
-    try:
-        ws_usuarios = sh.worksheet("Usuarios")
-        registros_usuarios = ws_usuarios.get_all_records()
-        headers = ws_usuarios.row_values(1)
-        
-        col_idx = 4
-        for idx, h in enumerate(headers, start=1):
-            if str(h).strip().lower() in ["ultimo mes peso", "ultimo_mes_peso", "ultimomespeso"]:
-                col_idx = idx
-                break
-
-        fila_usuario = None
-        for i, reg in enumerate(registros_usuarios, start=2):
-            id_reg = reg.get('ID') or reg.get('user_id') or reg.get('User ID') or list(reg.values())[0]
-            if str(id_reg).strip() == str(user_id).strip():
-                fila_usuario = i
-                break
-
-        if fila_usuario:
-            from gspread.utils import rowcol_to_a1
-            celda_a1 = rowcol_to_a1(fila_usuario, col_idx)
-            # Garantiza el formato YYYY-MM-01 exacto en la pestaña Usuarios
-            fecha_usuarios_str = f"{str(mes)[:7]}-01"
-            ws_usuarios.update(celda_a1, [[fecha_usuarios_str]])
-    except Exception as e:
-        print(f"❌ Error crítico al actualizar la pestaña 'usuarios': {e}")
                 
 def obtener_comidas_usuario(user_id):
     try:
@@ -1625,19 +1678,6 @@ def extraer_val(texto: str) -> float:
         except ValueError:
             return 0.0
     return 0.0
-
-async def registrar_log_en_sheet(sh, contexto: str, detalle: str):
-    try:
-        try:
-            sheet_logs = sh.worksheet("Logs")
-        except Exception:
-            sheet_logs = sh.add_worksheet(title="Logs", rows="1000", cols="3")
-            sheet_logs.append_row(["Fecha y Hora", "Contexto / Módulo", "Detalle del Error"])
-
-        ahora_str = obtener_ahora_arg().strftime("%Y-%m-%d %H:%M:%S")
-        sheet_logs.append_row([ahora_str, contexto, str(detalle)])
-    except Exception as e_log:
-        logger.error(f"Error secundario al intentar registrar en Logs: {e_log}")
 
 # ======================================================================================================================================
 #                    FINAL                              GOOGLE SHEETS OPERACIONES                      FINAL
