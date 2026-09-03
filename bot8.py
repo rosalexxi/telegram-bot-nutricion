@@ -736,7 +736,7 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
         logger.info(f"Procesando fila mensual ({mes_actual_str}) para User {user_id}...")
 
         # 1. Calcular y actualizar el factor real termodinámico del mes anterior
-        factor_mes_anterior = _calcular_y_actualizar_factor_mes_anterior(sheet_perfil, registros, mes_anterior_str, user_id)
+        factor_mes_anterior = _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anterior_str, registros)
 
         # Releer registros actualizados después del cálculo del mes anterior
         registros = sheet_perfil.get_all_records()
@@ -875,8 +875,6 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
     except Exception as e_principal:
         logger.error(f"Error general en _garantizar_fila_mes_actual para User {user_id}: {e_principal}")
         
-
-
 def obtener_perfil_usuario(user_id, mes_target=None):
     try:
         gc = get_gspread_client()
