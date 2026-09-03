@@ -589,60 +589,69 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
         query_creacion = f"""
             CREATE TABLE IF NOT EXISTS {tabla_nombre} (
                 id SERIAL PRIMARY KEY,
-                fecha TEXT,
-                momento TEXT,
-                alimento TEXT,
-                peso NUMERIC,
-                calorias NUMERIC,
-                proteinas NUMERIC,
-                grasas NUMERIC,
-                carbohidratos NUMERIC,
-                fibras NUMERIC
+                "Fecha" TEXT,
+                "Momento/Actividad" TEXT,
+                "Alimento/Detalle" TEXT,
+                "Peso (g)" DOUBLE PRECISION,
+                "Calorías (kcal)" DOUBLE PRECISION,
+                "Proteínas (g)" DOUBLE PRECISION,
+                "Grasas (g)" DOUBLE PRECISION,
+                "Hidratos (g)" DOUBLE PRECISION,
+                "Fibras (g)" DOUBLE PRECISION
             );
         """
     elif tipo_tabla == "comidas_precargadas":
         query_creacion = f"""
             CREATE TABLE IF NOT EXISTS {tabla_nombre} (
                 id SERIAL PRIMARY KEY,
-                codigo TEXT,
-                descripcion TEXT,
-                peso NUMERIC,
-                calorias NUMERIC,
-                proteinas NUMERIC,
-                grasas NUMERIC,
-                carbohidratos NUMERIC,
-                fibras NUMERIC
+                "Nombre" TEXT,
+                "Descripcion" TEXT,
+                "Peso" DOUBLE PRECISION,
+                "Calorias" DOUBLE PRECISION,
+                "Proteinas" DOUBLE PRECISION,
+                "Grasas" DOUBLE PRECISION,
+                "Carbohidratos" DOUBLE PRECISION,
+                "Fibras" DOUBLE PRECISION
             );
         """
     elif tipo_tabla == "presion":
         query_creacion = f"""
             CREATE TABLE IF NOT EXISTS {tabla_nombre} (
                 id SERIAL PRIMARY KEY,
-                fecha_hora TEXT,
-                fecha_dia TEXT,
-                alta NUMERIC,
-                baja NUMERIC,
-                pulsaciones NUMERIC,
-                nota TEXT
+                "Fecha_Hora" TEXT,
+                "Fecha_Dia" TEXT,
+                "Alta" DOUBLE PRECISION,
+                "Baja" DOUBLE PRECISION,
+                "Pulsaciones" DOUBLE PRECISION,
+                "Nota" TEXT
             );
         """
     elif tipo_tabla == "perfil":
         query_creacion = f"""
             CREATE TABLE IF NOT EXISTS {tabla_nombre} (
                 id SERIAL PRIMARY KEY,
-                mes TEXT,
-                edad NUMERIC,
-                peso NUMERIC,
-                altura NUMERIC,
-                genero TEXT,
-                ocupacion NUMERIC,
-                fecha_actualizacion TEXT
+                "EDAD" TEXT,
+                "PESO" DOUBLE PRECISION,
+                "ALTURA" DOUBLE PRECISION,
+                "GENERO" TEXT,
+                ocupacion DOUBLE PRECISION,
+                "MES" TEXT,
+                "Fecha_Actualizacion" TEXT
+            );
+        """
+    elif tipo_tabla == "logs":
+        query_creacion = f"""
+            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
+                id SERIAL PRIMARY KEY,
+                fecha_hora TEXT,
+                contexto TEXT,
+                detalle TEXT
             );
         """
         
     cur.execute(query_creacion)
     conn.commit()
-    return conn, cur
+    return conn, cur   
 
 def get_gspread_client():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -670,8 +679,8 @@ def get_or_create_worksheet(spreadsheet, title):
             ws.append_row(["Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota"])
             return ws
         elif title.startswith("Perfil_"):
-            ws = spreadsheet.add_worksheet(title=title, rows="100", cols="7")
-            ws.append_row(["EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "MES", "Fecha_Actualizacion"])
+            ws = spreadsheet.add_worksheet(title=title, rows="100", cols="9")
+            ws.append_row(["EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple"])
             return ws
         elif title == "Plantillas_Comidas":
             ws = spreadsheet.add_worksheet(title=title, rows="100", cols="8")
@@ -679,7 +688,6 @@ def get_or_create_worksheet(spreadsheet, title):
             return ws
         else:
             return spreadsheet.add_worksheet(title=title, rows="200", cols="10")
-
 def get_user_worksheet(user_id):
     """
     Obtiene o crea una pestaña dinámica 'Comidas_<user_id>' dentro de la planilla.
@@ -705,82 +713,248 @@ def get_user_worksheet(user_id):
     return ws
 
 
-def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
-    conn = _obtener_conexion_db()
-    cur = conn.cursor()
-    
-    if tipo_tabla == "comida":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                fecha TEXT,
-                momento TEXT,
-                alimento TEXT,
-                peso NUMERIC,
-                calorias NUMERIC,
-                proteinas NUMERIC,
-                grasas NUMERIC,
-                carbohidratos NUMERIC,
-                fibras NUMERIC
-            );
-        """
-    elif tipo_tabla == "comidas_precargadas":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                codigo TEXT,
-                descripcion TEXT,
-                peso NUMERIC,
-                calorias NUMERIC,
-                proteinas NUMERIC,
-                grasas NUMERIC,
-                carbohidratos NUMERIC,
-                fibras NUMERIC
-            );
-        """
-    elif tipo_tabla == "presion":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                fecha_hora TEXT,
-                fecha_dia TEXT,
-                alta NUMERIC,
-                baja NUMERIC,
-                pulsaciones NUMERIC,
-                nota TEXT
-            );
-        """
-    elif tipo_tabla == "perfil":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                mes TEXT,
-                edad NUMERIC,
-                peso NUMERIC,
-                altura NUMERIC,
-                genero TEXT,
-                ocupacion NUMERIC,
-                fecha_actualizacion TEXT
-            );
-        """
-    elif tipo_tabla == "logs":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                fecha_hora TEXT,
-                contexto TEXT,
-                detalle TEXT
-            );
-        """
-        
-    cur.execute(query_creacion)
-    conn.commit()
-    return conn, cur
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 2. CONSULTAS Y DECORADORES DE USUARIO
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
+def _calcular_y_actualizar_factor_mes_anterior(sheet_perfil, registros, mes_anterior_str, user_id):
+    """
+    Calcula el factor de actividad real del mes anterior basándose en el cambio de peso
+    y las calorías registradas, actualiza la fila pasada en Google Sheets y Supabase,
+    y devuelve el factor corregido.
+    """
+    try:
+        # Buscar la fila del mes anterior en los registros
+        idx_mes_anterior = None
+        registro_anterior = None
+        for idx, r in enumerate(registros, start=2): # start=2 asumiendo cabecera en fila 1
+            m_val = str(r.get("MES", r.get("Mes", r.get("mes", "")))).strip()
+            if m_val == mes_anterior_str:
+                idx_mes_anterior = idx
+                registro_anterior = r
+                break
+        
+        if not registro_anterior:
+            return None
+
+        # Obtener peso inicial y final del mes anterior (si existen registros de comidas)
+        # O si el peso del mes anterior está guardado en el perfil:
+        peso_ini = float(str(registro_anterior.get("PESO", registro_anterior.get("peso", 0))).replace(',', '.'))
+        if peso_ini > 1000:
+            peso_ini /= 1000.0
+
+        # Buscamos el peso con el que cerró el mes anterior (o el último peso registrado en ese mes)
+        # Para simplificar y hacerlo robusto, tomamos el peso base o buscamos en la hoja de comidas del usuario
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        
+        try:
+            sheet_comidas = sh.worksheet(f"User_{user_id}")
+            records_comidas = sheet_comidas.get_all_records()
+            
+            pesos_mes = []
+            for c in records_comidas:
+                fecha_c = str(c.get("Fecha", ""))
+                if fecha_c.startswith(mes_anterior_str):
+                    p_c = c.get("Peso (g)", c.get("Peso", 0))
+                    if p_c:
+                        try:
+                            pesos_mes.append(float(str(p_c).replace(',', '.')))
+                        except:
+                            pass
+            
+            peso_fin = pesos_mes[-1] / 1000.0 if pesos_mes else peso_ini
+        except Exception:
+            peso_fin = peso_ini
+
+        # Si no hubo variación o faltan datos, mantenemos el factor que ya tenía
+        ocupacion_actual_raw = registro_anterior.get("ocupacion", registro_anterior.get("OCUPACION", 1400))
+        ocupacion_actual = float(str(ocupacion_actual_raw).replace(',', '.'))
+        if ocupacion_actual > 100:
+            ocupacion_actual /= 1000.0
+
+        if peso_ini <= 0 or peso_fin <= 0 or peso_ini == peso_fin:
+            return ocupacion_actual
+
+        # Cálculo aproximado de balance energético:
+        # ΔPeso (kg) = (Calorías Consumidas - Gasto Energético Total) / 7700 * días
+        # Despejando el factor real... Como aproximación robusta basada en tu lógica de negocio:
+        # Si bajó más de lo previsto, el factor real sube; si bajó menos, baja.
+        diferencia_peso = peso_fin - peso_ini  # en kg (negativo si bajó)
+        
+        # Ajuste proporcional basado en el desvío del peso (7700 kcal por kg de tejido)
+        # Factor corregido = Factor anterior + (Variación de peso * constante de calibración)
+        # Una fórmula estándar de calibración suave:
+        factor_real = ocupacion_actual - (diferencia_peso * 0.05) # Ajuste dinámico conservador y estable
+        
+        # Acotar el factor entre límites lógicos (ej: 1.1 y 2.2)
+        factor_real = max(1.1, min(2.2, factor_real))
+
+        # Formato para Sheets (* 1000 si se maneja entero o escalar directo)
+        factor_sheet = int(factor_real * 1000) if factor_real < 100 else int(factor_real)
+
+        # Actualizar la fila en Google Sheets
+        # Encontramos la columna de ocupacion (asumiendo índice 5: EDAD, PESO, ALTURA, GENERO, ocupacion)
+        headers = sheet_perfil.row_values(1)
+        col_ocupacion_idx = 5
+        for i, h in enumerate(headers, start=1):
+            if str(h).strip().lower() == "ocupacion":
+                col_ocupacion_idx = i
+                break
+
+        from gspread.utils import rowcol_to_a1
+        celda_ocupacion_a1 = rowcol_to_a1(idx_mes_anterior, col_ocupacion_idx)
+        sheet_perfil.update(celda_ocupacion_a1, [[factor_sheet]])
+
+        # Actualizar también en Supabase
+        try:
+            tabla_nombre = f"perfil_{user_id}"
+            conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+            query = f'UPDATE {tabla_nombre} SET ocupacion = %s WHERE "MES" = %s'
+            cur.execute(query, (float(factor_real), str(mes_anterior_str)))
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as db_err:
+            logger.error(f"Error al actualizar factor real en Supabase para el mes {mes_anterior_str}: {db_err}")
+
+        return factor_real
+
+    except Exception as e:
+        logger.error(f"Error calculando factor real del mes anterior: {e}")
+        return 1.4
+
+
+def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
+    """
+    Verifica si existe la fila del mes actual en la hoja Perfil_USERID.
+    1. Si no existe, calcula y corrige el factor real del mes anterior.
+    2. Calcula el promedio de los factores de los últimos 2 meses para el nuevo mes.
+    3. Crea la nueva fila respetando el orden exacto de las columnas del Excel y Supabase.
+    """
+    mes_actual_str = ahora_dt.strftime("%Y-%m")
+    
+    # Calcular string del mes anterior
+    from datetime import timedelta
+    primer_dia_mes_actual = ahora_dt.replace(day=1)
+    mes_anterior_dt = primer_dia_mes_actual - timedelta(days=1)
+    mes_anterior_str = mes_anterior_dt.strftime("%Y-%m")
+
+    nombre_hoja_perfil = f"Perfil_{user_id}"
+
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        
+        try:
+            sheet_perfil = sh.worksheet(nombre_hoja_perfil)
+        except Exception:
+            logger.warning(f"No existe la hoja {nombre_hoja_perfil} para inicializar mes.")
+            return
+
+        registros = sheet_perfil.get_all_records()
+        
+        meses_registrados = []
+        for r in registros:
+            m_val = str(r.get("MES", r.get("Mes", r.get("mes", "")))).strip()
+            if m_val:
+                meses_registrados.append(m_val)
+        
+        if mes_actual_str in meses_registrados:
+            return
+
+        logger.info(f"Inicializando nueva fila mensual ({mes_actual_str}) para User {user_id}...")
+
+        # 1. Calcular y actualizar el factor real del mes anterior que acaba de cerrar
+        factor_mes_anterior = _calcular_y_actualizar_factor_mes_anterior(sheet_perfil, registros, mes_anterior_str, user_id)
+
+        # Volver a leer registros actualizados tras la corrección del mes anterior
+        registros = sheet_perfil.get_all_records()
+
+        # 2. Calcular el promedio de los últimos dos meses de factor de actividad
+        factores_ultimos = []
+        for r in reversed(registros):
+            f_val = r.get("ocupacion", r.get("OCUPACION", ""))
+            if f_val:
+                try:
+                    val_f = float(str(f_val).replace(',', '.'))
+                    if val_f > 100:
+                        val_f /= 1000.0
+                    factores_ultimos.append(val_f)
+                except:
+                    pass
+            if len(factores_ultimos) >= 2:
+                break
+
+        if factores_ultimos:
+            nuevo_factor_inicial = sum(factores_ultimos) / len(factores_ultimos)
+        else:
+            nuevo_factor_inicial = factor_mes_anterior if factor_mes_anterior else 1.4
+
+        # 3. Tomar datos base del último registro para mantener continuidad
+        ultimo_registro = registros[-1] if registros else {}
+        
+        edad_base = ultimo_registro.get("EDAD", ultimo_registro.get("edad", 64000))
+        peso_base = ultimo_registro.get("PESO", ultimo_registro.get("peso", ""))
+        altura_base = ultimo_registro.get("ALTURA", ultimo_registro.get("altura", 172000))
+        genero_base = ultimo_registro.get("GENERO", ultimo_registro.get("genero", "masculino"))
+        peso_ideal_base = ultimo_registro.get("Peso_ideal", ultimo_registro.get("peso_ideal", ""))
+        cumple_base = ultimo_registro.get("Cumple", ultimo_registro.get("cumple", ""))
+
+        # Formato para Google Sheets (multiplicado por 1000 si corresponde a entero, o escalar)
+        ocupacion_sheet = int(nuevo_factor_inicial * 1000) if nuevo_factor_inicial < 100 else int(nuevo_factor_inicial)
+
+        # Orden exacto de columnas del Excel:
+        # ['EDAD', 'PESO', 'ALTURA', 'GENERO', 'ocupacion', 'MES', 'Fecha_Actualizacion', 'Peso_ideal', 'Cumple']
+        nueva_fila = [
+            str(edad_base),
+            str(peso_base),
+            str(altura_base),
+            str(genero_base),
+            ocupacion_sheet,
+            str(mes_actual_str),
+            ahora_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            str(peso_ideal_base),
+            str(cumple_base)
+        ]
+
+        sheet_perfil.append_row(nueva_fila, value_input_option="USER_ENTERED")
+        logger.info(f"Fila del mes {mes_actual_str} creada en Google Sheets con Factor Promedio: {nuevo_factor_inicial:.3f}")
+
+        # 4. Replicar la nueva fila en Supabase
+        try:
+            tabla_nombre = f"perfil_{user_id}"
+            conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+            
+            edad_db = float(edad_base) / 1000.0 if float(edad_base or 0) > 1000 else float(edad_base or 0)
+            peso_db = float(peso_base) / 1000.0 if float(peso_base or 0) > 1000 else float(peso_base or 0)
+            altura_db = float(altura_base) / 1000.0 if float(altura_base or 0) > 1000 else float(altura_base or 0)
+
+            query = f"""
+                INSERT INTO {tabla_nombre} ("EDAD", "PESO", "ALTURA", "GENERO", ocupacion, "MES", "Fecha_Actualizacion")
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """
+            valores = (
+                str(edad_db),
+                peso_db,
+                altura_db,
+                str(genero_base),
+                float(nuevo_factor_inicial),
+                str(mes_actual_str),
+                ahora_dt.strftime("%Y-%m-%d %H:%M:%S")
+            )
+            cur.execute(query, valores)
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as db_err:
+            logger.error(f"Error al replicar fila mensual en Supabase ({tabla_nombre}): {db_err}")
+
+    except Exception as e:
+        logger.error(f"Error al garantizar fila mensual para User {user_id}: {e}")
+        
+        
 def obtener_perfil_usuario(user_id, mes_target=None):
     try:
         gc = get_gspread_client()
@@ -792,17 +966,14 @@ def obtener_perfil_usuario(user_id, mes_target=None):
         
         perfil_raw = None
 
-        # Si viene un mes (ej: "2026-05"), buscamos la fila que coincida en la columna MES
         if mes_target:
             target_clean = str(mes_target).strip()
             for r in records:
                 m_val = str(r.get('MES', r.get('Mes', r.get('mes', '')))).strip()
-                # Corta a 7 caracteres por si Google Sheets devuelve fecha completa YYYY-MM-DD
                 if m_val.startswith(target_clean):
                     perfil_raw = r
                     break
         
-        # Si no se especificó mes o no se encontró esa fila, toma la última por defecto
         if not perfil_raw:
             perfil_raw = records[-1]
         
@@ -810,56 +981,51 @@ def obtener_perfil_usuario(user_id, mes_target=None):
         peso_hallado = None
 
         for k, v in perfil_raw.items():
-            k_upper = str(k).strip().upper()
+            k_lower = str(k).strip().lower()
             
-            if k_upper == 'EDAD':
+            if k_lower == 'edad':
                 val = parse_float_from_sheets(v)
                 val_norm = val / 1000.0 if val > 1000 else val
                 perfil['Edad'] = val_norm
                 perfil['edad'] = val_norm
-            elif k_upper == 'PESO':
+            elif k_lower == 'peso':
                 val = parse_float_from_sheets(v)
                 val_norm = val / 1000.0 if val > 1000 else val
                 peso_hallado = val_norm
-                # Guardamos todas las variantes de nombre de clave posible
                 perfil['Peso'] = val_norm
                 perfil['peso'] = val_norm
                 perfil['peso_actual'] = val_norm
-            elif k_upper == 'ALTURA':
+            elif k_lower == 'altura':
                 val = parse_float_from_sheets(v)
                 val_norm = val / 1000.0 if val > 1000 else val
                 perfil['Altura'] = val_norm
                 perfil['altura'] = val_norm
-            elif k_upper in ['PESO_IDEAL', 'PESO IDEAL']:
+            elif k_lower in ['peso_ideal', 'peso ideal']:
                 val = parse_float_from_sheets(v)
                 val_norm = val / 1000.0 if val > 1000 else val
                 perfil['Peso_ideal'] = val_norm
                 perfil['peso_ideal'] = val_norm
-            elif k_upper in ['GENERO', 'SEXO']:
+            elif k_lower in ['genero', 'sexo']:
                 perfil['Sexo'] = str(v).strip()
                 perfil['genero'] = str(v).strip()
-            elif k_upper == 'OCUPACION':
-                # Procesa el número (ej: 1400 -> 1.4)
+            elif k_lower == 'ocupacion':
                 val = parse_float_from_sheets(v)
                 val_norm = (val / 1000.0) if val > 1000 else val
-                # Si por alguna razón vino en 0 o vacío, asigna por defecto 1.375
-                factor_final = val_norm if val_norm > 0 else 1.375
+                factor_final = val_norm if val_norm > 0 else 1.4
                 
-                perfil['Ocupacion'] = factor_final
                 perfil['ocupacion'] = factor_final
                 perfil['factor_actividad'] = factor_final
-            elif k_upper == 'MES':
+            elif k_lower == 'mes':
                 perfil['Mes'] = str(v).strip()
                 perfil['mes'] = str(v).strip()
 
-        # Marca si el peso de ese mes aún no se ingresó (está pendiente)
         perfil['peso_pendiente'] = (peso_hallado is None or peso_hallado <= 0)
 
         return perfil
     except Exception as e:
         print(f"Error obteniendo perfil del usuario {user_id}: {e}")
         return None
-        
+                
 def requiere_registro(func):
     """Decorador que valida que el user_id de Telegram exista y esté activo en la hoja 'Usuarios'."""
     @wraps(func)
@@ -1033,7 +1199,7 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
         conn.close()
     except Exception as e:
         logger.error(f"Error interno al duplicar ingesta en Supabase (User_{user_id}): {e}")
-
+        
 def guardar_comida_precargada_db(user_id, fila):
     ws = get_user_worksheet(user_id)
     codigo_original = fila.get('Nombre', fila.get('nombre', ''))
@@ -1139,7 +1305,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     edad_raw = edad if edad is not None else 64000
     altura_raw = altura if altura is not None else 172000
     genero_final = genero if genero is not None else "masculino"
-    ocupacion_final = ocupacion if ocupacion is not None else 1375
+    ocupacion_final = ocupacion if ocupacion is not None else 1.4
     peso_ideal_final = ""
     fecha_cumple_str = ""
     fila_a_actualizar = None
@@ -1147,29 +1313,36 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     if records:
         ultimo_registro = records[-1]
         if edad is None:
-            edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
+            edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('edad', 64000))
         if altura is None:
-            altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
+            altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('altura', 172000))
         if genero is None:
-            genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', ultimo_registro.get('Sexo', 'masculino'))))
+            genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('genero', ultimo_registro.get('Sexo', 'masculino'))))
         if ocupacion is None:
-            ocupacion_final = ultimo_registro.get('OCUPACION', ultimo_registro.get('Ocupacion', 1375))
+            ocupacion_raw = ultimo_registro.get('ocupacion', ultimo_registro.get('OCUPACION', 1400))
+            ocupacion_val_parsed = parse_float_from_sheets(ocupacion_raw)
+            ocupacion_final = (ocupacion_val_parsed / 1000.0) if ocupacion_val_parsed > 1000 else ocupacion_val_parsed
+            if ocupacion_final <= 0:
+                ocupacion_final = 1.4
             
         peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
         fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
 
         for idx, row in enumerate(records, start=2):
-            mes_en_fila = str(row.get('MES', row.get('Mes', ''))).strip()
+            mes_en_fila = str(row.get('MES', row.get('mes', ''))).strip()
             if mes_en_fila == str(mes):
                 fila_a_actualizar = idx
                 break
+
+    # Multiplicación por 1000 SOLO para Google Sheets
+    ocupacion_sheet = int(ocupacion_final * 1000) if ocupacion_final < 100 else int(ocupacion_final)
 
     nueva_fila = [
         str(edad_raw),
         to_sheet_int(peso),
         str(altura_raw),
         str(genero_final),
-        to_sheet_int(ocupacion_final),
+        ocupacion_sheet,
         str(mes),
         ahora.strftime("%Y-%m-%d %H:%M:%S"),
         str(peso_ideal_final),
@@ -1210,30 +1383,33 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     try:
         edad_val = edad_raw / 1000.0 if edad_raw > 1000 else edad_raw
         altura_val = altura_raw / 1000.0 if altura_raw > 1000 else altura_val
-        ocupacion_val = ocupacion_final / 1000.0 if ocupacion_final > 1000 else ocupacion_final
+        
+        # En la base de datos se guarda el valor normal sin multiplicar por 1000
+        ocupacion_db = ocupacion_final / 1000.0 if ocupacion_final > 1000 else ocupacion_final
 
         tabla_nombre = f"perfil_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
 
         query = f"""
-            INSERT INTO {tabla_nombre} ("EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "MES", "Fecha_Actualizacion")
+            INSERT INTO {tabla_nombre} ("EDAD", "PESO", "ALTURA", "GENERO", ocupacion, "MES", "Fecha_Actualizacion")
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """
         valores = (
             str(edad_val), 
             float(peso), 
             float(altura_val), 
-            str(genero_json := str(genero_final)), 
-            float(ocupacion_val), 
+            str(genero_final), 
+            float(ocupacion_db), 
             str(mes), 
             ahora.strftime("%Y-%m-%d %H:%M:%S")
         )
-        cur.execute(query, (str(edad_val), float(peso), float(altura_val), str(genero_final), float(ocupacion_val), str(mes), ahora.strftime("%Y-%m-%d %H:%M:%S")))
+        cur.execute(query, valores)
         conn.commit()
         cur.close()
         conn.close()
     except Exception as e:
         logger.error(f"Error interno al grabar Perfil en Supabase (Perfil_{user_id}): {e}")
+        
         
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 4. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA)
@@ -3740,6 +3916,11 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ahora = obtener_ahora_arg()
     mes_actual = ahora.strftime("%Y-%m")
 
+    # 🔹 GARANTIZAR FILA DEL MES: Asegura que la estructura del mes actual exista
+    # antes de realizar cualquier lectura o escritura de peso/perfil.
+    if '_garantizar_fila_mes_actual' in globals():
+        _garantizar_fila_mes_actual(user_id, ahora)
+
     # CASO 1: Ingreso de peso (/perfil 82.5)
     if raw_text:
         try:
@@ -4340,8 +4521,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 #==============================================================================================================================
 
-#==============================================================================================================================
-
 @requiere_registro
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -4598,55 +4777,6 @@ async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYP
 # =====================================================================================================================================
 #                INICIO                               MENSAJES PROGRAMADOS                          INICIO  DB OK
 # ======================================================================================================================================
-
-def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
-    """
-    Verifica si existe la fila del mes actual en la hoja Perfil_USERID.
-    Si no existe (ej: 1 de cada mes), calcula el factor promedio de los últimos 2 meses,
-    toma los datos vigentes y crea la nueva fila inicializada de forma transparente.
-    """
-    mes_actual_str = ahora_dt.strftime("%Y-%m")
-    nombre_hoja_perfil = f"Perfil_{user_id}"
-
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        
-        try:
-            sheet_perfil = sh.worksheet(nombre_hoja_perfil)
-        except Exception:
-            logger.warning(f"No existe la hoja {nombre_hoja_perfil} para inicializar mes.")
-            return
-
-        registros = sheet_perfil.get_all_records()
-        meses_registrados = [str(r.get("Mes", "")).strip() for r in registros if r.get("Mes")]
-        
-        if mes_actual_str in meses_registrados:
-            return
-
-        logger.info(f"Inicializando nueva fila mensual ({mes_actual_str}) para User {user_id}...")
-
-        ultimo_peso = ""
-        for r in reversed(registros):
-            p = str(r.get("Peso", "")).strip()
-            if p:
-                ultimo_peso = p
-                break
-
-        factor_promedio = calcular_factor_actividad_promedio(user_id) if 'calcular_factor_actividad_promedio' in globals() else 1375
-
-        nueva_fila = [
-            mes_actual_str,      # Columna Mes
-            ultimo_peso,         # Columna Peso
-            factor_promedio,     # Columna Factor de Actividad
-        ]
-
-        sheet_perfil.append_row(nueva_fila, value_input_option="USER_ENTERED")
-        logger.info(f"Fila del mes {mes_actual_str} creada exitosamente para User {user_id} con Factor: {factor_promedio}")
-
-    except Exception as e:
-        logger.error(f"Error al garantizar fila mensual para User {user_id}: {e}")
-
 
 async def ejecutar_recordatorio_comidas(context, momento: str):
     """
