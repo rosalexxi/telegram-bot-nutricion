@@ -970,60 +970,57 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
     except Exception as e_principal:
         logger.error(f"Error general en _garantizar_fila_mes_actual para User {user_id}: {e_principal}")
         
-        
 def obtener_perfil_usuario(user_id, mes_target=None):
     """
-    Recupera de forma unificada el perfil del usuario desde la base de datos (Supabase/SQLite),
-    asegurando que tanto la pantalla como el PDF utilicen exactamente los mismos datos
-    biométricos y el factor numérico de ocupación para el mes correspondiente.
+    Recupera el perfil del usuario desde la hoja 'Perfil', buscando 
+    específicamente la fila correspondiente al mes solicitado (mes_target).
     """
     try:
-        # Aquí realizas la consulta a tu base de datos para buscar el perfil del usuario.
-        # Si manejas perfiles histórico-mensuales por mes_target, puedes filtrarlo aquí.
-        # Ejemplo conceptual:
-        # query = "SELECT * FROM Perfil WHERE user_id = ?"
-        # params = [user_id]
-        # if mes_target:
-        #     query += " AND mes = ?"
-        #     params.append(mes_target)
-        # 
-        # resultado = db_fetch_one(query, params)
-
-        # Si no lo encuentras específico del mes, traes el último registrado o activo:
-        perfil_dict = {} # <-- Acá cargás el diccionario resultante de la DB
+        # 1. Traer todos los registros de la hoja Perfil de la base de datos o Google Sheets
+        # (Dependiendo de cómo conectes tu hoja, por ejemplo usando pandas o gspread)
+        df_perfil = obtener_tabla_perfil_usuario(user_id) # O tu función equivalente que lee la hoja de la foto
         
-        if not perfil_dict:
-            # Fallback por defecto con valores seguros si la DB devuelve vacío
-            perfil_dict = {
-                'edad': 64,
-                'altura': 167.0,
-                'peso': 108.5,
-                'peso_ideal': 75.0,
-                'genero': 'masculino',
-                'ocupacion': 1.74  # El factor real calculado
-            }
+        perfil_dict = {}
+        
+        if df_perfil is not None and not df_perfil.empty:
+            # Asegurarse de que la columna MES exista y esté en formato texto
+            if 'MES' in df_perfil.columns:
+                df_perfil['MES'] = df_perfil['MES'].astype(str).str.strip()
+                
+                # Si se especifica un mes_target (ej: "2026-07"), filtramos esa fila exacta
+                if mes_target:
+                    match = df_perfil[df_perfil['MES'] == str(mes_target)]
+                    if not match.empty:
+                        perfil_dict = match.iloc[-1].to_dict()
+                
+                # Si no encontró el mes específico o no se pasó mes_target, tomamos el último mes registrado
+                if not perfil_dict:
+                    perfil_dict = df_perfil.iloc[-1].to_dict()
 
-        # Normalizamos siempre la ocupación a float para evitar errores de tipo
-        if 'ocupacion' in perfil_dict:
-            try:
-                perfil_dict['ocupacion'] = float(str(perfil_dict['ocupacion']).replace(',', '.'))
-            except (ValueError, TypeError):
-                perfil_dict['ocupacion'] = 1.4
+        # Si por alguna razón la tabla vino vacía, usamos el fallback de seguridad
+        if not perfil_dict:
+            perfil_dict = {
+                'Edad': 64,
+                'Peso': 108500,  # O el formato numérico que maneje tu base
+                'Altura': 167000,
+                'GENERO': 'M',
+                'ocupacion': 1684,
+                'Peso_ideal': 69000
+            }
 
         return perfil_dict
 
     except Exception as e:
-        print(f"Error al obtener perfil de usuario: {e}")
-        # Retorno de emergencia para que el bot no se rompa
+        logger.error(f"Error al obtener perfil de usuario para el mes {mes_target}: {e}")
         return {
-            'edad': 64,
-            'altura': 167.0,
-            'peso': 108.5,
-            'peso_ideal': 75.0,
-            'genero': 'masculino',
-            'ocupacion': 1.74
-        }   
-                      
+            'Edad': 64,
+            'Peso': 108500,
+            'Altura': 167000,
+            'GENERO': 'M',
+            'ocupacion': 1684,
+            'Peso_ideal': 69000
+        }        
+        
 def requiere_registro(func):
     """Decorador que valida que el user_id de Telegram exista y esté activo en la hoja 'Usuarios'."""
     @wraps(func)
