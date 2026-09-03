@@ -1433,46 +1433,60 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     
     records = ws.get_all_records()
     
-    edad_raw = edad if edad is not None else 64000
-    altura_raw = altura if altura is not None else 172000
-    genero_final = genero if genero is not None else "masculino"
-    ocupacion_final = ocupacion if ocupacion is not None else 1375
-    peso_ideal_final = ""
-    fecha_cumple_str = ""
     fila_a_actualizar = None
+    row_existente = None
 
+    # Buscar si ya existe una fila para este mes
     if records:
-        ultimo_registro = records[-1]
-        if edad is None:
-            edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
-        if altura is None:
-            altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
-        if genero is None:
-            genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', ultimo_registro.get('Sexo', 'masculino'))))
-        if ocupacion is None:
-            # Recupera la ocupación previa de forma segura
-            val_previo = ultimo_registro.get('OCUPACION', ultimo_registro.get('Ocupacion', 1375))
-            try:
-                val_num = float(str(val_previo).replace(',', '.'))
-                # Si por alguna razón quedó como factor decimal (ej: 1.568), lo pasamos a entero por mil. 
-                # Si ya está guardado como entero (ej: 1568 o 1375), lo dejamos exactamente igual.
-                if val_num < 10:
-                    ocupacion_final = int(round(val_num * 1000))
-                else:
-                    ocupacion_final = int(val_num)
-            except:
-                ocupacion_final = 1375
-            
-        peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
-        fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
-
         for idx, row in enumerate(records, start=2):
             mes_en_fila = str(row.get('MES', row.get('Mes', ''))).strip()
             if mes_en_fila == str(mes):
                 fila_a_actualizar = idx
+                row_existente = row
                 break
 
-    # Se usa str(ocupacion_final) para evitar que to_sheet_int vuelva a multiplicarlo por 1000
+    # 🛑 CONTROL INTELIGENTE QUE PROPUSISTE: Si la fila ya existe y el peso es el mismo, NO HACEMOS NADA.
+    if row_existente:
+        peso_sheet_raw = str(row_existente.get('PESO', row_existente.get('Peso', ''))).strip()
+        peso_nuevo_sheet = str(to_sheet_int(peso)).strip()
+        
+        # Si el peso almacenado es idéntico al que se quiere guardar, salimos de la función sin tocar nada
+        if peso_sheet_raw == peso_nuevo_sheet:
+            return
+
+        # Si el peso cambió, heredamos los datos actuales de la fila para mantenerlos intactos
+        edad_raw = edad if edad is not None else row_existente.get('EDAD', row_existente.get('Edad', 64000))
+        altura_raw = altura if altura is not None else row_existente.get('ALTURA', row_existente.get('Altura', 172000))
+        genero_final = genero if genero is not None else str(row_existente.get('GENERO', row_existente.get('Genero', 'masculino')))
+        
+        ocup_actual_fila = row_existente.get('OCUPACION', row_existente.get('Ocupacion', ''))
+        if ocupacion is not None:
+            ocupacion_final = ocupacion
+        elif str(ocup_actual_fila).strip() != '':
+            ocupacion_final = ocup_actual_fila
+        else:
+            ocupacion_final = records[-2].get('OCUPACION', records[-2].get('Ocupacion', 1684)) if len(records) > 1 else 1684
+
+        peso_ideal_final = row_existente.get('Peso_ideal', row_existente.get('peso_ideal', ''))
+        fecha_cumple_str = str(row_existente.get('Cumple', row_existente.get('cumple', ''))).strip()
+
+    elif records:
+        # Si la fila NO existe todavía (mes nuevo), tomamos de referencia el último registro anterior
+        ultimo_registro = records[-1]
+        edad_raw = edad if edad is not None else ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
+        altura_raw = altura if altura is not None else ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
+        genero_final = genero if genero is not None else str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', 'masculino')))
+        ocupacion_final = ocupacion if ocupacion is not None else ultimo_registro.get('OCUPACION', ultimo_registro.get('Ocupacion', 1684))
+        peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
+        fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
+    else:
+        edad_raw = 64000
+        altura_raw = 172000
+        genero_final = "masculino"
+        ocupacion_final = 1684
+        peso_ideal_final = ""
+        fecha_cumple_str = ""
+
     nueva_fila = [
         str(edad_raw),
         to_sheet_int(peso),
@@ -1511,12 +1525,11 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         if fila_usuario:
             from gspread.utils import rowcol_to_a1
             celda_a1 = rowcol_to_a1(fila_usuario, col_idx)
-            # Garantiza el formato YYYY-MM-01 exacto en la pestaña Usuarios
             fecha_usuarios_str = f"{str(mes)[:7]}-01"
             ws_usuarios.update(celda_a1, [[fecha_usuarios_str]])
     except Exception as e:
         print(f"❌ Error crítico al actualizar la pestaña 'usuarios': {e}")
-
+        
 def guardar_perfil_db_RESERVA(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     gc = get_gspread_client()
     sh = gc.open(SPREADSHEET_NAME)
