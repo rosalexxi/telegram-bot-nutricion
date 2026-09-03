@@ -976,40 +976,49 @@ def obtener_perfil_usuario(user_id, mes_target=None):
     específicamente la fila correspondiente al mes solicitado (mes_target).
     """
     try:
-        # 1. Traer todos los registros de la hoja Perfil de la base de datos o Google Sheets
-        # (Dependiendo de cómo conectes tu hoja, por ejemplo usando pandas o gspread)
-        df_perfil = obtener_tabla_perfil_usuario(user_id) # O tu función equivalente que lee la hoja de la foto
+        df_perfil = obtener_tabla_perfil_usuario(user_id)
         
         perfil_dict = {}
         
         if df_perfil is not None and not df_perfil.empty:
-            # Asegurarse de que la columna MES exista y esté en formato texto
+            # Normalizar nombres de columnas a mayúsculas para evitar errores por 'MES' vs 'mes'
+            df_perfil.columns = [str(c).strip().upper() for c in df_perfil.columns]
+            
             if 'MES' in df_perfil.columns:
                 df_perfil['MES'] = df_perfil['MES'].astype(str).str.strip()
                 
-                # Si se especifica un mes_target (ej: "2026-07"), filtramos esa fila exacta
                 if mes_target:
-                    match = df_perfil[df_perfil['MES'] == str(mes_target)]
+                    match = df_perfil[df_perfil['MES'] == str(mes_target).strip()]
                     if not match.empty:
                         perfil_dict = match.iloc[-1].to_dict()
                 
-                # Si no encontró el mes específico o no se pasó mes_target, tomamos el último mes registrado
+                # Si no encontró el mes específico, tomamos el último mes registrado
                 if not perfil_dict:
                     perfil_dict = df_perfil.iloc[-1].to_dict()
 
-        # Si por alguna razón la tabla vino vacía, usamos el fallback de seguridad
+        # Fallback de seguridad si vino totalmente vacío
         if not perfil_dict:
             perfil_dict = {
-                'Edad': 64,
-                'Peso': 108500,  # O el formato numérico que maneje tu base
-                'Altura': 167000,
+                'EDAD': 64,
+                'PESO': 108500,
+                'ALTURA': 167000,
                 'GENERO': 'M',
-                'ocupacion': 1684,
-                'Peso_ideal': 69000
+                'OCUPACION': 1684,
+                'PESO_IDEAL': 69000
             }
 
         return perfil_dict
 
+    except Exception as e:
+        logger.error(f"Error al obtener perfil de usuario para el mes {mes_target}: {e}")
+        return {
+            'EDAD': 64,
+            'PESO': 108500,
+            'ALTURA': 167000,
+            'GENERO': 'M',
+            'OCUPACION': 1684,
+            'PESO_IDEAL': 69000
+        }
     except Exception as e:
         logger.error(f"Error al obtener perfil de usuario para el mes {mes_target}: {e}")
         return {
