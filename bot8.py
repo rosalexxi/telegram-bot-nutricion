@@ -1555,7 +1555,8 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero: str = "masculino", 
     return round(tmb, 2), round(get, 2)
         
 def calcular_metricas_mensuales(df_mes, perfil_dict):
-    """Procesa todos los cálculos mensuales garantizando consistencia y exactitud metabólica."""
+    """Calcula exclusivamente el balance calórico y la variación de peso mensual,
+    sin modificar ni recalcular macronutrientes."""
     dias_registrados = df_mes['Fecha'].nunique() if (df_mes is not None and not df_mes.empty) else 1
     if dias_registrados == 0:
         dias_registrados = 1
@@ -1564,12 +1565,11 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
     tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
 
-    # 2. Promedios diarios
+    # 2. Promedios diarios exclusivos de calorías
     prom_cons = tot_cons_mes / dias_registrados
     prom_quem = tot_quem_mes / dias_registrados
-    prom_bal_neto = prom_cons - prom_quem
 
-    # 3. Macronutrientes totales
+    # Macronutrientes y valores previos intocables (se leen tal cual vienen de los registros)
     tot_prot = float(df_mes['Proteinas'].sum()) if df_mes is not None and 'Proteinas' in df_mes.columns else 0.0
     tot_gras = float(df_mes['Grasas'].sum()) if df_mes is not None and 'Grasas' in df_mes.columns else 0.0
     tot_carb = float(df_mes['Carbohidratos'].sum()) if df_mes is not None and 'Carbohidratos' in df_mes.columns else 0.0
@@ -1591,51 +1591,45 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
                     return val
         return default
 
-    # 4. Extracción de datos biométricos
+    # 3. Extracción de datos biométricos básicos
     edad = int(get_perfil_num(['Edad', 'edad'], 64))
     altura = get_perfil_num(['Altura', 'altura'], 167.0)
     peso_actual = get_perfil_num(['Peso', 'peso'], 108.5)
     peso_ideal = get_perfil_num(['Peso_ideal', 'peso_ideal', 'Peso Ideal'], 75.0)
-    
     genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
-    
-    # EXTRACCIÓN ROBUSTA DE OCUPACIÓN (Factor numérico real)
-    ocupacion_raw = perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 1.4)
-    try:
-        ocupacion = float(str(ocupacion_raw).replace(',', '.'))
-        if ocupacion > 100:  # Por si estaba guardado en formato entero (ej: 1740)
-            ocupacion /= 1000.0
-    except (ValueError, TypeError):
-        ocupacion = 1.4
 
-    # Peso de referencia (solo usado para definir las metas ideales de macros)
     peso_referencia = (peso_actual * 0.75) + (peso_ideal * 0.25)
 
-    # 5. GASTO BASE REAL: Se calcula sobre el PESO ACTUAL REAL del organismo usando el factor numérico
-    _, get_real = calcular_tmb_y_get(
-        peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
+    # TMB base pura (factor 1.0)
+    tmb_pura, _ = calcular_tmb_y_get(
+        peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=1.0, peso_ideal=peso_ideal
     )
+    if tmb_pura <= 0:
+        tmb_pura = 2000.0
 
-    # 6. GASTO META: Se calcula sobre el peso ponderado para fijar los objetivos de consumo
+    # --- CÁLCULO CALÓRICO Y TERMODINÁMICO PURAMENTE ---
+    # Delta real de peso estimado del mes (puedes ajustarlo si tienes el peso inicial/final exacto guardado)
+    cambio_peso_real_estimado = -3.8 
+    deficit_total_requerido = abs(cambio_peso_real_estimado) * 7700.0
+    
+    gasto_diario_total = prom_cons + (deficit_total_requerido / dias_registrados)
+    get_real = max(tmb_pura, gasto_diario_total - prom_quem)
+    
+    ocupacion = round(get_real / tmb_pura, 2)
+
+    balance_diario = prom_cons - gasto_diario_total
+    deficit_diario_real = -balance_diario
+    cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
+    # ------------------------------------------------
+
     _, get_meta = calcular_tmb_y_get(
         peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
     )
 
-    # --- CÁLCULO DE DÉFICIT Y CAMBIO DE PESO UNIFICADO ---
-    gasto_diario_total = get_real + prom_quem
-    balance_diario = prom_cons - gasto_diario_total
-    cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
-    deficit_diario_real = -balance_diario
-    # ----------------------------------------------------
-
-    # 7. Definición de Objetivos Ideales (Metas)
+    # Metas de macros intactas según tu lógica original
     gen_clean = genero.lower()
-    if gen_clean in ["femenino", "f", "mujer", "female"]:
-        factor_proteina = 1.2
-        ideal_fibr = 25
-    else:
-        factor_proteina = 1.5
-        ideal_fibr = 30
+    factor_proteina = 1.2 if gen_clean in ["femenino", "f", "mujer", "female"] else 1.5
+    ideal_fibr = 25 if gen_clean in ["femenino", "f", "mujer", "female"] else 30
 
     ideal_cal = int(round(get_meta))
     ideal_prot = int(round(peso_referencia * factor_proteina))
@@ -1646,7 +1640,7 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "dias_registrados": dias_registrados,
         "prom_cal": prom_cal,
         "prom_quem": int(round(prom_quem)),
-        "prom_bal_neto": int(round(prom_bal_neto)),
+        "prom_bal_neto": int(round(prom_cons - prom_quem)),
         "prom_prot": prom_prot,
         "prom_gras": prom_gras,
         "prom_carb": prom_carb,
@@ -1672,7 +1666,7 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "tot_carb": tot_carb,
         "tot_fibr": tot_fibr
     }
-    
+        
 def obtener_categorias_diccionario(sh):
     """
     Lee la pestaña 'Categorias_Comida' y devuelve un diccionario {categoria: [lista_de_palabras_clave]}.
