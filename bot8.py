@@ -621,7 +621,189 @@ def get_user_worksheet(user_id):
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 2. CONSULTAS Y DECORADORES DE USUARIO
 # ---------------------------------------------------------------------------------------------------------------------------------------------
-def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anterior_str, registros_perfil=None):
+
+def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
+    """
+    Verifica y asegura la fila del mes actual, calcula el mes anterior y actualiza 
+    tanto Google Sheets como Supabase y la hoja global de Usuarios con un factor unificado
+    basado en el promedio de hasta los últimos 3 meses.
+    """
+    mes_actual_str = ahora_dt.strftime("%Y-%m")
+    
+    from datetime import timedelta
+    primer_dia_mes_actual = ahora_dt.replace(day=1)
+    mes_anterior_dt = primer_dia_mes_actual - timedelta(days=1)
+    mes_anterior_str = mes_anterior_dt.strftime("%Y-%m")
+
+    nombre_hoja_perfil = f"Perfil_{user_id}"
+
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        
+        try:
+            sheet_perfil = sh.worksheet(nombre_hoja_perfil)
+        except Exception:
+            logger.warning(f"No existe la hoja {nombre_hoja_perfil} para inicializar mes.")
+            return
+
+        registros = sheet_perfil.get_all_records()
+        
+        fila_mes_actual_idx = None
+        for idx, r in enumerate(registros, start=2):
+            m_val = str(r.get("MES", r.get("Mes", r.get("mes", "")))).strip()
+            if m_val == mes_actual_str:
+                fila_mes_actual_idx = idx
+                break
+
+        logger.info(f"Procesando fila mensual ({mes_actual_str}) para User {user_id}...")
+
+        # 1. Calcular y actualizar el factor real termodinámico del mes anterior
+        factor_mes_anterior = _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anterior_str, registros)
+
+        # Releer registros actualizados después del cálculo del mes anterior
+        registros = sheet_perfil.get_all_records()
+
+        # 2. Promedio robusto de hasta los últimos 3 meses para el mes actual
+        factores_ultimos = []
+        for r in reversed(registros):
+            m_val = str(r.get("MES", r.get("Mes", r.get("mes", "")))).strip()
+            if m_val == mes_actual_str:
+                continue 
+            f_val = r.get("ocupacion", r.get("OCUPACION", ""))
+            if f_val is not None and str(f_val).strip() != "":
+                try:
+                    val_f = float(str(f_val).replace(',', '.'))
+                    # Normalizar si viene en formato entero grande o desfasado
+                    while val_f > 10:
+                        val_f /= 1000.0
+                    # Filtrar estrictamente dentro del rango termodinámico lógico
+                    if 1.20 <= val_f <= 1.85:
+                        factores_ultimos.append(val_f)
+                except Exception:
+                    pass
+            # Límite ampliado a 3 meses para el promedio móvil
+            if len(factores_ultimos) >= 3:
+                break
+
+        if factores_ultimos:
+            nuevo_factor_inicial = sum(factores_ultimos) / len(factores_ultimos)
+        else:
+            nuevo_factor_inicial = factor_mes_anterior if factor_mes_anterior else 1.4
+
+        nuevo_factor_inicial = max(1.20, min(1.85, nuevo_factor_inicial))
+
+        # Buscar datos base del último registro anterior
+        ultimo_registro = {}
+        for r in reversed(registros):
+            if str(r.get("MES", r.get("Mes", ""))).strip() != mes_actual_str:
+                ultimo_registro = r
+                break
+        if not ultimo_registro and registros:
+            ultimo_registro = registros[-1]
+        
+        edad_base = ultimo_registro.get("EDAD", ultimo_registro.get("edad", 64000))
+        peso_base = ultimo_registro.get("PESO", ultimo_registro.get("peso", ""))
+        altura_base = ultimo_registro.get("ALTURA", ultimo_registro.get("altura", 172000))
+        genero_base = ultimo_registro.get("GENERO", ultimo_registro.get("genero", "masculino"))
+        peso_ideal_base = ultimo_registro.get("Peso_ideal", ultimo_registro.get("peso_ideal", ""))
+        cumple_base = ultimo_registro.get("Cumple", ultimo_registro.get("cumple", ""))
+
+        # Factor unificado entero (ej: 1567)
+        ocupacion_sheet = int(round(nuevo_factor_inicial * 1000))
+
+        from gspread.utils import rowcol_to_a1
+        if fila_mes_actual_idx:
+            # Actualizar la fila existente del mes actual con el factor unificado
+            sheet_perfil.update(rowcol_to_a1(fila_mes_actual_idx, 5), [[ocupacion_sheet]])
+        else:
+            # Crear nueva fila si no existía con el factor unificado
+            nueva_fila = [
+                str(edad_base),
+                str(peso_base),
+                str(altura_base),
+                str(genero_base),
+                ocupacion_sheet,
+                str(mes_actual_str),
+                ahora_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                str(peso_ideal_base),
+                str(cumple_base)
+            ]
+            sheet_perfil.append_row(nueva_fila, value_input_option="USER_ENTERED")
+
+        # 3. Replicar en Supabase
+        try:
+            tabla_nombre = f"perfil_{user_id}"
+            conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+            
+            edad_db = float(edad_base) / 1000.0 if float(edad_base or 0) > 1000 else float(edad_base or 0)
+            peso_db = float(peso_base) / 1000.0 if float(peso_base or 0) > 1000 else float(peso_base or 0)
+            altura_db = float(altura_base) / 1000.0 if float(altura_base or 0) > 1000 else float(altura_base or 0)
+
+            query = f"""
+                INSERT INTO {tabla_nombre} ("EDAD", "PESO", "ALTURA", "GENERO", ocupacion, "MES", "Fecha_Actualizacion")
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT ("MES") DO UPDATE SET ocupacion = EXCLUDED.ocupacion, "Fecha_Actualizacion" = EXCLUDED."Fecha_Actualizacion"
+            """
+            valores = (
+                str(edad_db),
+                peso_db,
+                altura_db,
+                str(genero_base),
+                float(nuevo_factor_inicial),
+                str(mes_actual_str),
+                ahora_dt.strftime("%Y-%m-%d %H:%M:%S")
+            )
+            cur.execute(query, valores)
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as db_err:
+            logger.error(f"Error al replicar fila mensual en Supabase ({tabla_nombre}): {db_err}")
+
+        # 4. Actualizar la hoja global de "Usuarios" con exactamente el mismo valor
+        try:
+            ws_usuarios = sh.worksheet("Usuarios")
+            headers_u = ws_usuarios.row_values(1)
+            
+            col_ocupacion_u_idx = None
+            col_ultimo_mes_idx = None
+            
+            for idx, h in enumerate(headers_u, start=1):
+                h_str = str(h).strip().lower()
+                if h_str in ["ocupacion", "ocupación"]:
+                    col_ocupacion_u_idx = idx
+                elif h_str in ["ultimo mes peso", "último mes peso", "ultimo_mes_peso"]:
+                    col_ultimo_mes_idx = idx
+
+            registros_usuarios = ws_usuarios.get_all_records()
+            fila_usuario = None
+            for i, reg in enumerate(registros_usuarios, start=2):
+                id_reg = reg.get('User ID') or reg.get('ID') or reg.get('user_id') or list(reg.values())[0]
+                if str(id_reg).strip() == str(user_id).strip():
+                    fila_usuario = i
+                    break
+
+            if fila_usuario:
+                if col_ocupacion_u_idx:
+                    celda_oc_a1 = rowcol_to_a1(fila_usuario, col_ocupacion_u_idx)
+                    ws_usuarios.update_acell(celda_oc_a1, int(ocupacion_sheet))
+                    logger.info(f"Hoja 'Usuarios' actualizada: Ocupación {ocupacion_sheet} para User {user_id}")
+                
+                if col_ultimo_mes_idx:
+                    celda_mes_a1 = rowcol_to_a1(fila_usuario, col_ultimo_mes_idx)
+                    ws_usuarios.update_acell(celda_mes_a1, f"{mes_actual_str}-01")
+                    logger.info(f"Hoja 'Usuarios' actualizada: Último Mes {mes_actual_str} para User {user_id}")
+            else:
+                logger.warning(f"No se encontró la fila del usuario {user_id} en la hoja 'Usuarios'")
+
+        except Exception as e_usr:
+            logger.error(f"Error actualizando la hoja 'Usuarios' para el usuario {user_id}: {e_usr}")
+
+    except Exception as e_principal:
+        logger.error(f"Error general en _garantizar_fila_mes_actual para User {user_id}: {e_principal}")
+
+def _calcular_y_actualizar_factor_mes_anterior_RESERVA(user_id, sheet_perfil, mes_anterior_str, registros_perfil=None):
     """
     Calcula el factor del mes anterior extrayendo los promedios reales de ingesta 
     y ejercicio de las planillas diarias, aplicando la fórmula termodinámica 
