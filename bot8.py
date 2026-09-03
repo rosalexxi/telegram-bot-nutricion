@@ -4893,6 +4893,144 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 #                    FINAL                                    MENSAJES PROGRAMADOS                                        FINAL
 # =============================================================================================================================================
 
+# =====================================================================================================================================
+#                INICIO                               COMANDO ELIMINAR                          INICIO  
+# ======================================================================================================================================
+
+async def actualizar_menu_filtro_eliminacion(query, context):
+    f = context.user_data.get('del_filtro_fecha')
+    m = context.user_data.get('del_filtro_momento')
+    keyboard = [
+        [InlineKeyboardButton("📅 Hoy", callback_data="del_reg_hoy"), InlineKeyboardButton("📅 Ayer", callback_data="del_reg_ayer"), InlineKeyboardButton("📅 Otro Día", callback_data="del_reg_otro")],
+        [InlineKeyboardButton("☕ Desayuno", callback_data="del_mom_Desayuno"), InlineKeyboardButton("🍽️ Almuerzo", callback_data="del_mom_Almuerzo")],
+        [InlineKeyboardButton("🫖 Merienda", callback_data="del_mom_Merienda"), InlineKeyboardButton("🌙 Cena", callback_data="del_mom_Cena")],
+        [InlineKeyboardButton("🔍 Ver Registros", callback_data="del_reg_mostrar")]
+    ]
+    await query.edit_message_text(
+        "🗑️ **Eliminar o Corregir Registro Pasado**\n\n"
+        f"• Fecha seleccionada: `{f}`\n"
+        f"• Momento seleccionado: `{m}`\n\n"
+        "Usá los botones para cambiar los filtros o tocá *Ver Registros*:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    
+async def mostrar_registros_para_eliminar(query, user_id, context):
+    fecha = context.user_data.get('del_filtro_fecha')
+    momento = context.user_data.get('del_filtro_momento')
+    
+    # Lectura directa desde Google Sheets
+    df = obtener_datos_usuario(user_id)
+    
+    if df.empty:
+        await query.edit_message_text("❌ No tenés registros cargados en tu planilla.")
+        return
+
+    # Filtramos por Fecha y Momento exacto
+    df_filtrado = df[(df['Fecha'] == fecha) & (df['Momento'].str.strip().str.lower() == momento.lower())]
+
+    if df_filtrado.empty:
+        keyboard = [[InlineKeyboardButton("🔙 Volver", callback_data="del_reg_volver")]]
+        await query.edit_message_text(
+            f"⚠️ No se encontraron registros para el **{fecha}** en **{momento}**.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+        return
+
+    txt = f"🗑️ **Registros encontrados ({fecha} - {momento}):**\n\n"
+    keyboard_buttons = []
+
+    for idx, row in df_filtrado.iterrows():
+        alimento = row.get('Alimento', 'Sin detalle')
+        calorias = row.get('Calorias', 0)
+        txt += f"• **{alimento}** ({calorias:.0f} kcal)\n"
+        
+        # El índice real en la hoja de Google Sheets (fila 1 = encabezados, filas de datos empiezan en 2)
+        keyboard_buttons.append([
+            InlineKeyboardButton(f"❌ Borrar: {str(alimento)[:20]}...", callback_data=f"ejecutar_del_fila_{idx+2}")
+        ])
+
+    keyboard_buttons.append([InlineKeyboardButton("🔙 Volver", callback_data="del_reg_volver")])
+    
+    await query.edit_message_text(
+        txt, 
+        reply_markup=InlineKeyboardMarkup(keyboard_buttons), 
+        parse_mode="Markdown"
+    )
+
+async def manejar_callback_eliminacion(query, user_id, data, context):
+    """Manejador lógico para los callbacks del menú de eliminación."""
+    if data == "del_reg_hoy":
+        context.user_data['del_filtro_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+        await actualizar_menu_filtro_eliminacion(query, context)
+
+    elif data == "del_reg_ayer":
+        context.user_data['del_filtro_fecha'] = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
+        await actualizar_menu_filtro_eliminacion(query, context)
+
+    elif data == "del_reg_otro":
+        context.user_data['awaiting_del_custom_date'] = True
+        await query.message.reply_text("📅 Ingresá la fecha que querés revisar (Ej: `2026-08-25`):", parse_mode="Markdown")
+
+    elif data.startswith("del_mom_"):
+        context.user_data['del_filtro_momento'] = data.replace("del_mom_", "")
+        await actualizar_menu_filtro_eliminacion(query, context)
+
+    elif data == "del_reg_mostrar" or data == "del_reg_volver":
+        await mostrar_registros_para_eliminar(query, user_id, context)
+
+    elif data.startswith("ejecutar_del_fila_"):
+        fila_idx = int(data.replace("ejecutar_del_fila_", ""))
+        
+        # Eliminación directa en la planilla de Google Sheets
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = sh.worksheet(f"User_{user_id}")
+        ws.delete_rows(fila_idx)
+        
+        await query.answer("✅ Registro eliminado correctamente de la planilla.")
+        await mostrar_registros_para_eliminar(query, user_id, context)
+
+async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Paso 1: Solicita al usuario el día y momento del registro que desea eliminar."""
+    keyboard = [
+        [
+            InlineKeyboardButton("📅 Hoy", callback_data="del_reg_hoy"),
+            InlineKeyboardButton("📅 Ayer", callback_data="del_reg_ayer"),
+            InlineKeyboardButton("📅 Otro Día", callback_data="del_reg_otro")
+        ],
+        [
+            InlineKeyboardButton("☕ Desayuno", callback_data="del_mom_Desayuno"),
+            InlineKeyboardButton("🍽️ Almuerzo", callback_data="del_mom_Almuerzo")
+        ],
+        [
+            InlineKeyboardButton("🫖 Merienda", callback_data="del_mom_Merienda"),
+            InlineKeyboardButton("🌙 Cena", callback_data="del_mom_Cena")
+        ],
+        [
+            InlineKeyboardButton("🔍 Ver Registros", callback_data="del_reg_mostrar")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Inicializamos valores temporales en user_data
+    context.user_data['del_filtro_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+    context.user_data['del_filtro_momento'] = "Almuerzo"
+
+    await update.message.reply_text(
+        "🗑️ **Eliminar o Corregir Registro Pasado**\n\n"
+        f"• Fecha seleccionada: `{context.user_data['del_filtro_fecha']}`\n"
+        f"• Momento seleccionado: `{context.user_data['del_filtro_momento']}`\n\n"
+        "Usá los botones para cambiar los filtros o tocá *Ver Registros*:",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+# =====================================================================================================================================
+#                FINAL                               COMANDO ELIMINAR                          FINAL
+# ======================================================================================================================================
+
 # =============================================================================================================================================
 #                    INICIO                                    COMANDO PACIENTES                                       INICIO
 # =============================================================================================================================================
@@ -5183,6 +5321,7 @@ def main():
     app_bot.add_handler(CommandHandler(["resumen", "mes", "mensual", "m"], cmd_resumen))
     app_bot.add_handler(CommandHandler(["mensaje", "semana", "semanal", "s"], cmd_mensaje))
     app_bot.add_handler(CommandHandler(["receta", "planilla"], cmd_cargar_receta))
+    app_bot.add_handler(CommandHandler("eliminar", cmd_eliminar_ingesta))
 
     # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
     app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
