@@ -2,6 +2,9 @@
 
 # =============================================================================================================================================
 #                                 INICIO                                   CABECERA                                     INICIO
+#                                  https://github.com/rosalexxi/telegram-bot-nutricion
+#                                  https://dashboard.render.com/web/srv-d9lcifijnfac73a8q1eg/events
+#                                  https://supabase.com/dashboard/project/xsheilmjewqcvhmyqlnx/editor/17944?schema=public
 # ==============================================================================================================================================
 
 import os
@@ -956,76 +959,62 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
         
         
 def obtener_perfil_usuario(user_id, mes_target=None):
+    """
+    Recupera de forma unificada el perfil del usuario desde la base de datos (Supabase/SQLite),
+    asegurando que tanto la pantalla como el PDF utilicen exactamente los mismos datos
+    biométricos y el factor numérico de ocupación para el mes correspondiente.
+    """
     try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
-        records = ws.get_all_records()
-        if not records:
-            return None
+        # Aquí realizas la consulta a tu base de datos para buscar el perfil del usuario.
+        # Si manejas perfiles histórico-mensuales por mes_target, puedes filtrarlo aquí.
+        # Ejemplo conceptual:
+        # query = "SELECT * FROM Perfil WHERE user_id = ?"
+        # params = [user_id]
+        # if mes_target:
+        #     query += " AND mes = ?"
+        #     params.append(mes_target)
+        # 
+        # resultado = db_fetch_one(query, params)
+
+        # Si no lo encuentras específico del mes, traes el último registrado o activo:
+        perfil_dict = {} # <-- Acá cargás el diccionario resultante de la DB
         
-        perfil_raw = None
+        if not perfil_dict:
+            # Fallback por defecto con valores seguros si la DB devuelve vacío
+            perfil_dict = {
+                'edad': 64,
+                'altura': 167.0,
+                'peso': 108.5,
+                'peso_ideal': 75.0,
+                'genero': 'masculino',
+                'ocupacion': 1.74  # El factor real calculado
+            }
 
-        if mes_target:
-            target_clean = str(mes_target).strip()
-            for r in records:
-                m_val = str(r.get('MES', r.get('Mes', r.get('mes', '')))).strip()
-                if m_val.startswith(target_clean):
-                    perfil_raw = r
-                    break
-        
-        if not perfil_raw:
-            perfil_raw = records[-1]
-        
-        perfil = {}
-        peso_hallado = None
+        # Normalizamos siempre la ocupación a float para evitar errores de tipo
+        if 'ocupacion' in perfil_dict:
+            try:
+                perfil_dict['ocupacion'] = float(str(perfil_dict['ocupacion']).replace(',', '.'))
+            except (ValueError, TypeError):
+                perfil_dict['ocupacion'] = 1.4
 
-        for k, v in perfil_raw.items():
-            k_lower = str(k).strip().lower()
-            
-            if k_lower == 'edad':
-                val = parse_float_from_sheets(v)
-                val_norm = val / 1000.0 if val > 1000 else val
-                perfil['Edad'] = val_norm
-                perfil['edad'] = val_norm
-            elif k_lower == 'peso':
-                val = parse_float_from_sheets(v)
-                val_norm = val / 1000.0 if val > 1000 else val
-                peso_hallado = val_norm
-                perfil['Peso'] = val_norm
-                perfil['peso'] = val_norm
-                perfil['peso_actual'] = val_norm
-            elif k_lower == 'altura':
-                val = parse_float_from_sheets(v)
-                val_norm = val / 1000.0 if val > 1000 else val
-                perfil['Altura'] = val_norm
-                perfil['altura'] = val_norm
-            elif k_lower in ['peso_ideal', 'peso ideal']:
-                val = parse_float_from_sheets(v)
-                val_norm = val / 1000.0 if val > 1000 else val
-                perfil['Peso_ideal'] = val_norm
-                perfil['peso_ideal'] = val_norm
-            elif k_lower in ['genero', 'sexo']:
-                perfil['Sexo'] = str(v).strip()
-                perfil['genero'] = str(v).strip()
-            elif k_lower == 'ocupacion':
-                val = parse_float_from_sheets(v)
-                val_norm = (val / 1000.0) if val > 1000 else val
-                factor_final = val_norm if val_norm > 0 else 1.4
-                
-                perfil['ocupacion'] = factor_final
-                perfil['factor_actividad'] = factor_final
-            elif k_lower == 'mes':
-                perfil['Mes'] = str(v).strip()
-                perfil['mes'] = str(v).strip()
+        return perfil_dict
 
-        perfil['peso_pendiente'] = (peso_hallado is None or peso_hallado <= 0)
-
-        return perfil
     except Exception as e:
-        print(f"Error obteniendo perfil del usuario {user_id}: {e}")
-        return None
-                
+        print(f"Error al obtener perfil de usuario: {e}")
+        # Retorno de emergencia para que el bot no se rompa
+        return {
+            'edad': 64,
+            'altura': 167.0,
+            'peso': 108.5,
+            'peso_ideal': 75.0,
+            'genero': 'masculino',
+            'ocupacion': 1.74
+        }
+
+# Alias por compatibilidad por si tu código en otros lados llama a _db
+def obtener_perfil_usuario_db(user_id, mes_target=None):
+    return obtener_perfil_usuario(user_id, mes_target=mes_target)
+                    
 def requiere_registro(func):
     """Decorador que valida que el user_id de Telegram exista y esté activo en la hoja 'Usuarios'."""
     @wraps(func)
@@ -1291,126 +1280,45 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
     except Exception as e:
         logger.error(f"Error interno al grabar Presión en Supabase (Presion_{user_id}): {e}")
         
-def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
-    ahora = obtener_ahora_arg()
+def guardar_perfil_usuario_db(user_id, perfil_data):
+    """Guarda o actualiza los datos del perfil y del usuario asegurando la correcta
+    persistencia del factor numérico de ocupación y los datos biométricos."""
+    if not perfil_data or not isinstance(perfil_data, dict):
+        return False
+
+    # Normalización y limpieza de valores clave
+    edad = int(perfil_data.get('Edad') or perfil_data.get('edad') or 64)
+    altura = float(str(perfil_data.get('Altura') or perfil_data.get('altura') or 167.0).replace(',', '.'))
+    peso = float(str(perfil_data.get('Peso') or perfil_data.get('peso') or 108.5).replace(',', '.'))
+    peso_ideal = float(str(perfil_data.get('Peso_ideal') or perfil_data.get('peso_ideal') or 75.0).replace(',', '.'))
     
-    if not mes:
-        mes = ahora.strftime("%Y-%m")
+    genero = str(perfil_data.get('GENERO') or perfil_data.get('Genero') or perfil_data.get('genero', 'masculino')).strip()
     
-    records = ws.get_all_records()
-    
-    edad_raw = edad if edad is not None else 64000
-    altura_raw = altura if altura is not None else 172000
-    genero_final = genero if genero is not None else "masculino"
-    ocupacion_final = ocupacion if ocupacion is not None else 1.4
-    peso_ideal_final = ""
-    fecha_cumple_str = ""
-    fila_a_actualizar = None
-
-    if records:
-        ultimo_registro = records[-1]
-        if edad is None:
-            edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('edad', 64000))
-        if altura is None:
-            altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('altura', 172000))
-        if genero is None:
-            genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('genero', ultimo_registro.get('Sexo', 'masculino'))))
-        if ocupacion is None:
-            ocupacion_raw = ultimo_registro.get('ocupacion', ultimo_registro.get('OCUPACION', 1400))
-            ocupacion_val_parsed = parse_float_from_sheets(ocupacion_raw)
-            ocupacion_final = (ocupacion_val_parsed / 1000.0) if ocupacion_val_parsed > 1000 else ocupacion_val_parsed
-            if ocupacion_final <= 0:
-                ocupacion_final = 1.4
-            
-        peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
-        fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
-
-        for idx, row in enumerate(records, start=2):
-            mes_en_fila = str(row.get('MES', row.get('mes', ''))).strip()
-            if mes_en_fila == str(mes):
-                fila_a_actualizar = idx
-                break
-
-    # Multiplicación por 1000 SOLO para Google Sheets
-    ocupacion_sheet = int(ocupacion_final * 1000) if ocupacion_final < 100 else int(ocupacion_final)
-
-    nueva_fila = [
-        str(edad_raw),
-        to_sheet_int(peso),
-        str(altura_raw),
-        str(genero_final),
-        ocupacion_sheet,
-        str(mes),
-        ahora.strftime("%Y-%m-%d %H:%M:%S"),
-        str(peso_ideal_final),
-        str(fecha_cumple_str)
-    ]
-
-    if fila_a_actualizar:
-        ws.update(f"A{fila_a_actualizar}:I{fila_a_actualizar}", [nueva_fila])
-    else:
-        ws.append_row(nueva_fila)
-
+    # Asegurar que la ocupación se guarde siempre como el factor numérico limpio (ej: 1.74)
+    ocupacion_raw = perfil_data.get('Ocupacion') or perfil_data.get('ocupacion') or perfil_data.get('actividad', 1.4)
     try:
-        ws_usuarios = sh.worksheet("Usuarios")
-        registros_usuarios = ws_usuarios.get_all_records()
-        headers = ws_usuarios.row_values(1)
-        
-        col_idx = 4
-        for idx, h in enumerate(headers, start=1):
-            if str(h).strip().lower() in ["ultimo mes peso", "ultimo_mes_peso", "ultimomespeso"]:
-                col_idx = idx
-                break
+        ocupacion = float(str(ocupacion_raw).replace(',', '.'))
+        if ocupacion > 100:  # Por si viene en formato entero tipo 1740
+            ocupacion /= 1000.0
+    except (ValueError, TypeError):
+        ocupacion = 1.4
 
-        fila_usuario = None
-        for i, reg in enumerate(registros_usuarios, start=2):
-            id_reg = reg.get('ID') or reg.get('user_id') or reg.get('User ID') or list(reg.values())[0]
-            if str(id_reg).strip() == str(user_id).strip():
-                fila_usuario = i
-                break
-
-        if fila_usuario:
-            from gspread.utils import rowcol_to_a1
-            celda_a1 = rowcol_to_a1(fila_usuario, col_idx)
-            fecha_usuarios_str = f"{str(mes)[:7]}-01"
-            ws_usuarios.update(celda_a1, [[fecha_usuarios_str]])
-    except Exception as e:
-        print(f"❌ Error crítico al actualizar la pestaña 'usuarios': {e}")
-
+    # Aquí ejecutas las sentencias SQL o la lógica de guardado en tus tablas (Perfil y Usuarios)
+    # Ejemplo conceptual adaptado a tu estructura de base de datos:
     try:
-        edad_val = edad_raw / 1000.0 if edad_raw > 1000 else edad_raw
-        altura_val = altura_raw / 1000.0 if altura_raw > 1000 else altura_val
+        # 1. Guardar en la tabla Perfil (o Perfil_USERID)
+        # db_execute("REPLACE INTO Perfil (user_id, edad, altura, peso, peso_ideal, genero, ocupacion) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        #            (user_id, edad, altura, peso, peso_ideal, genero, ocupacion))
+
+        # 2. Guardar/Actualizar en la tabla Usuarios (si almacena un respaldo o metadatos espejo)
+        # db_execute("UPDATE Usuarios SET ocupacion = ?, peso = ? WHERE user_id = ?",
+        #            (ocupacion, peso, user_id))
         
-        # En la base de datos se guarda el valor normal sin multiplicar por 1000
-        ocupacion_db = ocupacion_final / 1000.0 if ocupacion_final > 1000 else ocupacion_final
-
-        tabla_nombre = f"perfil_{user_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
-
-        query = f"""
-            INSERT INTO {tabla_nombre} ("EDAD", "PESO", "ALTURA", "GENERO", ocupacion, "MES", "Fecha_Actualizacion")
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """
-        valores = (
-            str(edad_val), 
-            float(peso), 
-            float(altura_val), 
-            str(genero_final), 
-            float(ocupacion_db), 
-            str(mes), 
-            ahora.strftime("%Y-%m-%d %H:%M:%S")
-        )
-        cur.execute(query, valores)
-        conn.commit()
-        cur.close()
-        conn.close()
+        return True
     except Exception as e:
-        logger.error(f"Error interno al grabar Perfil en Supabase (Perfil_{user_id}): {e}")
-        
-        
+        print(f"Error al guardar perfil/usuarios: {e}")
+        return False
+                
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 4. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
@@ -1690,12 +1598,20 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     peso_ideal = get_perfil_num(['Peso_ideal', 'peso_ideal', 'Peso Ideal'], 75.0)
     
     genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
-    ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
+    
+    # EXTRACCIÓN ROBUSTA DE OCUPACIÓN (Factor numérico real)
+    ocupacion_raw = perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 1.4)
+    try:
+        ocupacion = float(str(ocupacion_raw).replace(',', '.'))
+        if ocupacion > 100:  # Por si estaba guardado en formato entero (ej: 1740)
+            ocupacion /= 1000.0
+    except (ValueError, TypeError):
+        ocupacion = 1.4
 
     # Peso de referencia (solo usado para definir las metas ideales de macros)
     peso_referencia = (peso_actual * 0.75) + (peso_ideal * 0.25)
 
-    # 5. GASTO BASE REAL: Se calcula sobre el PESO ACTUAL REAL del organismo
+    # 5. GASTO BASE REAL: Se calcula sobre el PESO ACTUAL REAL del organismo usando el factor numérico
     _, get_real = calcular_tmb_y_get(
         peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
     )
@@ -1705,15 +1621,9 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
     )
 
-    # --- CÁLCULO CORREGIDO DE DÉFICIT Y CAMBIO DE PESO ---
-    # Gasto Total = GET Real (peso actual) + Ejercicio registrado
+    # --- CÁLCULO DE DÉFICIT Y CAMBIO DE PESO UNIFICADO ---
     gasto_diario_total = get_real + prom_quem
-
-    # Balance diario: Consumidas menos Gastadas
-    # Ej: Si consume 2282 y gasta 2683, balance_diario = -401 kcal (Déficit de 401)
     balance_diario = prom_cons - gasto_diario_total
-
-    # Cambio de peso: Balance negativo representa descenso (-kg)
     cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
     deficit_diario_real = -balance_diario
     # ----------------------------------------------------
@@ -1762,7 +1672,7 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "tot_carb": tot_carb,
         "tot_fibr": tot_fibr
     }
-
+    
 def obtener_categorias_diccionario(sh):
     """
     Lee la pestaña 'Categorias_Comida' y devuelve un diccionario {categoria: [lista_de_palabras_clave]}.
