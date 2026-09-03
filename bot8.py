@@ -4655,6 +4655,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 #==============================================================================================================================
 
+#==============================================================================================================================
+
 @requiere_registro
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -4663,6 +4665,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = query.from_user.id
 
     context.user_data['last_menu_msg_id'] = query.message.message_id
+
+    # 🆕 Interceptor exclusivo para los botones del menú de eliminación
+    if data.startswith(("del_reg_", "del_mom_", "ejecutar_del_fila_")):
+        await manejar_callback_eliminacion(query, user_id, data, context)
+        return
 
     if data.startswith("set_m_"):
         nuevo_momento = data.replace("set_m_", "")
@@ -4763,7 +4770,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await generar_y_enviar_pdf_presion(query, user_id, mes_str, context)
 
 #====================================================================================================================================
-#                FINAL                                     MANEJADORES HANDLE                                    FINAL
+#                FINAL                                 MANEJADORES HANDLE                       FINAL
 #===================================================================================================================================
 
 # =====================================================================================================================================
