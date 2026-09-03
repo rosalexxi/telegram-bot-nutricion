@@ -703,7 +703,7 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anteri
 def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
     """
     Verifica y asegura la fila del mes actual, calcula el mes anterior y actualiza 
-    tanto Google Sheets como Supabase y la hoja global de Usuarios.
+    tanto Google Sheets como Supabase y la hoja global de Usuarios con un factor unificado.
     """
     mes_actual_str = ahora_dt.strftime("%Y-%m")
     
@@ -741,20 +741,23 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
         # Releer registros actualizados después del cálculo del mes anterior
         registros = sheet_perfil.get_all_records()
 
-        # 2. Promedio de los últimos 2 meses para el mes actual
+        # 2. Promedio robusto de los últimos meses para el mes actual
         factores_ultimos = []
         for r in reversed(registros):
             m_val = str(r.get("MES", r.get("Mes", r.get("mes", "")))).strip()
             if m_val == mes_actual_str:
                 continue 
             f_val = r.get("ocupacion", r.get("OCUPACION", ""))
-            if f_val:
+            if f_val is not None and str(f_val).strip() != "":
                 try:
                     val_f = float(str(f_val).replace(',', '.'))
-                    if val_f > 100:
+                    # Normalizar si viene en formato entero grande o desfasado
+                    while val_f > 10:
                         val_f /= 1000.0
-                    factores_ultimos.append(val_f)
-                except:
+                    # Filtrar estrictamente dentro del rango termodinámico lógico
+                    if 1.20 <= val_f <= 1.85:
+                        factores_ultimos.append(val_f)
+                except Exception:
                     pass
             if len(factores_ultimos) >= 2:
                 break
@@ -782,14 +785,15 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
         peso_ideal_base = ultimo_registro.get("Peso_ideal", ultimo_registro.get("peso_ideal", ""))
         cumple_base = ultimo_registro.get("Cumple", ultimo_registro.get("cumple", ""))
 
+        # Factor unificado entero (ej: 1567)
         ocupacion_sheet = int(round(nuevo_factor_inicial * 1000))
 
         from gspread.utils import rowcol_to_a1
         if fila_mes_actual_idx:
-            # Actualizar la fila existente del mes actual con el nuevo cálculo
+            # Actualizar la fila existente del mes actual con el factor unificado
             sheet_perfil.update(rowcol_to_a1(fila_mes_actual_idx, 5), [[ocupacion_sheet]])
         else:
-            # Crear nueva fila si no existía
+            # Crear nueva fila si no existía con el factor unificado
             nueva_fila = [
                 str(edad_base),
                 str(peso_base),
@@ -833,7 +837,7 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
         except Exception as db_err:
             logger.error(f"Error al replicar fila mensual en Supabase ({tabla_nombre}): {db_err}")
 
-        # 4. Actualizar la hoja global de "Usuarios"
+        # 4. Actualizar la hoja global de "Usuarios" con exactamente el mismo valor
         try:
             ws_usuarios = sh.worksheet("Usuarios")
             headers_u = ws_usuarios.row_values(1)
