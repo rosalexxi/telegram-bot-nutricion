@@ -721,8 +721,6 @@ def get_user_worksheet(user_id):
 # 2. CONSULTAS Y DECORADORES DE USUARIO
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
-
-
 def _calcular_y_actualizar_factor_mes_anterior(sheet_perfil, registros_perfil, mes_anterior_str, user_id):
     """
     Calcula el factor termodinámico real del mes anterior basándose en el peso inicial, 
@@ -744,7 +742,6 @@ def _calcular_y_actualizar_factor_mes_anterior(sheet_perfil, registros_perfil, m
             return None
 
         # Obtener peso del mes previo al anterior para calcular el delta
-        # (o buscar el registro anterior cronológicamente)
         pesos_ordenados = []
         for r in registros_perfil:
             m_val = str(r.get("MES", r.get("Mes", r.get("mes", "")))).strip()
@@ -794,7 +791,6 @@ def _calcular_y_actualizar_factor_mes_anterior(sheet_perfil, registros_perfil, m
                     if cal_c:
                         try:
                             val_cal = float(str(cal_c).replace(',', '.'))
-                            # CORRECCIÓN: Dividir por 1000 ya que las calorías se guardan multiplicadas por 1000
                             total_calorias_mes += val_cal / 1000.0
                         except:
                             pass
@@ -804,9 +800,10 @@ def _calcular_y_actualizar_factor_mes_anterior(sheet_perfil, registros_perfil, m
         # Si no hay registros de comidas, estimar un valor base razonable
         dias_en_mes = 30
         if total_calorias_mes <= 0:
-            gasto_real_total = (1600 * dias_en_mes) + kcal_tejido
+            gasto_real_total = (1600 * dias_en_mes) - kcal_tejido
         else:
-            gasto_real_total = total_calorias_mes + kcal_tejido
+            # CORRECCIÓN: Se resta kcal_tejido para que el déficit (negativo) sume gasto energético total
+            gasto_real_total = total_calorias_mes - kcal_tejido
 
         tmb_base = 1600
         factor_real = gasto_real_total / (tmb_base * dias_en_mes)
@@ -829,7 +826,6 @@ def _calcular_y_actualizar_factor_mes_anterior(sheet_perfil, registros_perfil, m
     except Exception as e:
         logger.error(f"Error en _calcular_y_actualizar_factor_mes_anterior para User {user_id}: {e}")
         return None
-
 
 def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
     """
@@ -964,41 +960,47 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
         except Exception as db_err:
             logger.error(f"Error al replicar fila mensual en Supabase ({tabla_nombre}): {db_err}")
 
-        # 4. Actualizar la hoja global de "Usuarios"
+# 4. Actualizar la hoja global de "Usuarios"
         try:
             ws_usuarios = sh.worksheet("Usuarios")
-            registros_usuarios = ws_usuarios.get_all_records()
             headers_u = ws_usuarios.row_values(1)
             
+            # Buscar índices de columnas de forma robusta
             col_ocupacion_u_idx = None
+            col_ultimo_mes_idx = None
+            
             for idx, h in enumerate(headers_u, start=1):
-                if str(h).strip().lower() in ["ocupacion", "ocupación"]:
+                h_str = str(h).strip().lower()
+                if h_str in ["ocupacion", "ocupación"]:
                     col_ocupacion_u_idx = idx
-                    break
+                elif h_str in ["ultimo mes peso", "último mes peso", "ultimo_mes_peso"]:
+                    col_ultimo_mes_idx = idx
 
+            # Buscar la fila del usuario
+            registros_usuarios = ws_usuarios.get_all_records()
             fila_usuario = None
             for i, reg in enumerate(registros_usuarios, start=2):
-                id_reg = reg.get('ID') or reg.get('user_id') or reg.get('User ID') or list(reg.values())[0]
+                id_reg = reg.get('User ID') or reg.get('ID') or reg.get('user_id') or list(reg.values())[0]
                 if str(id_reg).strip() == str(user_id).strip():
                     fila_usuario = i
                     break
 
-            if fila_usuario and col_ocupacion_u_idx:
-                celda_u_a1 = rowcol_to_a1(fila_usuario, col_ocupacion_u_idx)
-                ws_usuarios.update(celda_u_a1, [[ocupacion_sheet]])
-                logger.info(f"Hoja 'Usuarios' actualizada con la nueva ocupación para User {user_id}")
+            if fila_usuario:
+                if col_ocupacion_u_idx:
+                    celda_oc_a1 = rowcol_to_a1(fila_usuario, col_ocupacion_u_idx)
+                    ws_usuarios.update_acell(celda_oc_a1, int(ocupacion_sheet))
+                    logger.info(f"Hoja 'Usuarios' actualizada: Ocupación {ocupacion_sheet} para User {user_id}")
+                
+                if col_ultimo_mes_idx:
+                    celda_mes_a1 = rowcol_to_a1(fila_usuario, col_ultimo_mes_idx)
+                    ws_usuarios.update_acell(celda_mes_a1, f"{mes_actual_str}-01")
+                    logger.info(f"Hoja 'Usuarios' actualizada: Último Mes {mes_actual_str} para User {user_id}")
+            else:
+                logger.warning(f"No se encontró la fila del usuario {user_id} en la hoja 'Usuarios'")
+
         except Exception as e_usr:
             logger.error(f"Error actualizando la hoja 'Usuarios' para el usuario {user_id}: {e_usr}")
-
-    except Exception as e:
-        logger.error(f"Error al garantizar fila mensual para User {user_id}: {e}")
-
-
-
-
-
-        
-        
+            
 def obtener_perfil_usuario(user_id, mes_target=None):
     """
     Recupera de forma unificada el perfil del usuario desde la base de datos (Supabase/SQLite),
