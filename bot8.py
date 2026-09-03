@@ -686,78 +686,6 @@ def get_user_worksheet(user_id):
         
     return ws
 
-def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
-    conn = _obtener_conexion_db()
-    cur = conn.cursor()
-    
-    if tipo_tabla == "comida":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                fecha TEXT,
-                momento TEXT,
-                alimento TEXT,
-                peso NUMERIC,
-                calorias NUMERIC,
-                proteinas NUMERIC,
-                grasas NUMERIC,
-                carbohidratos NUMERIC,
-                fibras NUMERIC
-            );
-        """
-    elif tipo_tabla == "comidas_precargadas":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                codigo TEXT,
-                descripcion TEXT,
-                peso NUMERIC,
-                calorias NUMERIC,
-                proteinas NUMERIC,
-                grasas NUMERIC,
-                carbohidratos NUMERIC,
-                fibras NUMERIC
-            );
-        """
-    elif tipo_tabla == "presion":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                fecha_hora TEXT,
-                fecha_dia TEXT,
-                alta NUMERIC,
-                baja NUMERIC,
-                pulsaciones NUMERIC,
-                nota TEXT
-            );
-        """
-    elif tipo_tabla == "perfil":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                mes TEXT,
-                edad NUMERIC,
-                peso NUMERIC,
-                altura NUMERIC,
-                genero TEXT,
-                ocupacion NUMERIC,
-                fecha_actualizacion TEXT
-            );
-        """
-    elif tipo_tabla == "logs":
-        query_creacion = f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                fecha_hora TEXT,
-                contexto TEXT,
-                detalle TEXT
-            );
-        """
-        
-    cur.execute(query_creacion)
-    conn.commit()
-    return conn, cur
-
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 2. CONSULTAS Y DECORADORES DE USUARIO
 # ---------------------------------------------------------------------------------------------------------------------------------------------
@@ -1022,85 +950,6 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anteri
         logger.error(f"Error al calcular factor limpio del mes anterior para User {user_id}: {e}")
         return None
 
-def _calcular_y_actualizar_factor_mes_anterior_RESERVA(user_id, sheet_perfil, mes_anterior_str, registros_perfil=None):
-    """
-    Calcula el factor del mes anterior extrayendo los promedios reales de ingesta 
-    y ejercicio de las planillas diarias, aplicando la fórmula termodinámica 
-    y actualizando el resultado directamente en la celda de la hoja Perfil.
-    """
-    try:
-        # 1. Obtener los datos diarios del usuario
-        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
-        if df_datos.empty or 'Fecha' not in df_datos.columns:
-            return None
-
-        # Filtrar estrictamente por el mes anterior (ej: "2026-08")
-        df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_anterior_str)].copy()
-        if df_mes.empty:
-            return None
-
-        dias_registrados = df_mes['Fecha'].nunique()
-        if dias_registrados == 0:
-            dias_registrados = 1
-
-        # 2. Extraer los totales reales usando la misma lógica del resumen mensual
-        tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
-        tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in df_mes.columns else 0.0
-
-        ingesta_diaria = tot_cons_mes / dias_registrados
-        ejercicio_diario = tot_quem_mes / dias_registrados
-
-        # 3. Obtener el perfil y la TMB base del usuario
-        perfil = obtener_perfil_usuario_db(user_id, mes_target=mes_anterior_str) if 'obtener_perfil_usuario_db' in globals() else {}
-        
-        peso_actual = float(perfil.get('Peso', perfil.get('peso', 108400)))
-        if peso_actual > 1000: peso_actual /= 1000.0
-        
-        altura = float(perfil.get('Altura', perfil.get('altura', 167000)))
-        if altura > 1000: altura /= 1000.0
-        
-        edad = int(perfil.get('Edad', perfil.get('edad', 64)))
-        genero = str(perfil.get('GENERO', perfil.get('genero', 'M'))).strip()
-
-        tmb_pura, _ = calcular_tmb_y_get(
-            peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=1.0
-        )
-        if tmb_pura <= 0:
-            tmb_pura = 1813.0
-
-        # 4. Obtener el delta de peso real del mes
-        delta_peso = -3.7  # O calculado dinámicamente comparando pesos iniciales/finales del mes
-
-        # 5. Aplicación de la fórmula termodinámica limpia
-        gasto_diario_total = ingesta_diaria - ((delta_peso * 7700.0) / dias_registrados)
-        factor_limpio = (gasto_diario_total - ejercicio_diario) / tmb_pura
-        
-        # Aplicar límites de seguridad (clamp entre 1.20 y 1.85)
-        factor_limpio = max(1.20, min(1.85, factor_limpio))
-        
-        # Convertir a formato entero para la planilla (ej: 1680)
-        ocupacion_sheet = int(round(factor_limpio * 1000))
-
-        # 6. Actualizar la celda correspondiente en Google Sheets
-        try:
-            # Si sheet_perfil es el objeto worksheet de gspread, lo usamos directamente; 
-            # de lo contrario, puedes adaptarlo a tu cliente activo de sheets.
-            if sheet_perfil is not None:
-                cell = sheet_perfil.find(str(mes_anterior_str))
-                if cell:
-                    fila_encontrada = cell.row
-                    # Columna E corresponde a la ocupación (columna 5 según tu hoja)
-                    sheet_perfil.update_cell(fila_encontrada, 5, ocupacion_sheet)
-                    logger.info(f"Ocupación del mes {mes_anterior_str} actualizada exitosamente a {ocupacion_sheet} en la fila {fila_encontrada}")
-        except Exception as sheet_err:
-            logger.error(f"No se pudo escribir el factor en la hoja de Google Sheets: {sheet_err}")
-
-        return factor_limpio
-
-    except Exception as e:
-        logger.error(f"Error al calcular factor limpio del mes anterior para User {user_id}: {e}")
-        return None
-
         
 def obtener_perfil_usuario(user_id, mes_target=None):
     try:
@@ -1179,6 +1028,102 @@ def obtener_perfil_usuario(user_id, mes_target=None):
         return perfil
     except Exception as e:
         print(f"Error obteniendo perfil del usuario {user_id}: {e}")
+        return None
+
+def obtener_perfil_usuario_supa(user_id, mes_target=None):
+    """
+    Versión para Supabase de obtener_perfil_usuario.
+    Lee directamente de la tabla 'perfil_{user_id}' en PostgreSQL y devuelve un diccionario
+    con los datos antropométricos del usuario para el mes especificado (o el último disponible).
+    """
+    try:
+        tabla_nombre = f"perfil_{user_id}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+        
+        query = f"""
+            SELECT "EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "MES", "Fecha_Actualizacion"
+            FROM {tabla_nombre}
+            ORDER BY id ASC
+        """
+        
+        cur.execute(query)
+        filas = cur.fetchall()
+        
+        if not filas:
+            cur.close()
+            conn.close()
+            return None
+            
+        records = []
+        for fila in filas:
+            records.append({
+                'EDAD': fila[0],
+                'PESO': fila[1],
+                'ALTURA': fila[2],
+                'GENERO': fila[3],
+                'OCUPACION': fila[4],
+                'MES': fila[5],
+                'Fecha_Actualizacion': fila[6]
+            })
+            
+        cur.close()
+        conn.close()
+        
+        perfil_raw = None
+
+        if mes_target:
+            target_clean = str(mes_target).strip()
+            for r in records:
+                m_val = str(r.get('MES', '')).strip()
+                if m_val.startswith(target_clean):
+                    perfil_raw = r
+                    break
+        
+        if not perfil_raw:
+            perfil_raw = records[-1]
+        
+        perfil = {}
+        peso_hallado = None
+
+        for k, v in perfil_raw.items():
+            k_upper = str(k).strip().upper()
+            
+            if k_upper == 'EDAD':
+                val = float(v or 0)
+                perfil['Edad'] = val
+                perfil['edad'] = val
+            elif k_upper == 'PESO':
+                val = float(v or 0)
+                peso_hallado = val if val > 0 else None
+                perfil['Peso'] = val
+                perfil['peso'] = val
+                perfil['peso_actual'] = val
+            elif k_upper == 'ALTURA':
+                val = float(v or 0)
+                perfil['Altura'] = val
+                perfil['altura'] = val
+            elif k_upper in ['PESO_IDEAL', 'PESO IDEAL']:
+                val = float(v or 0)
+                perfil['Peso_ideal'] = val
+                perfil['peso_ideal'] = val
+            elif k_upper in ['GENERO', 'SEXO']:
+                perfil['Sexo'] = str(v).strip()
+                perfil['genero'] = str(v).strip()
+            elif k_upper == 'OCUPACION':
+                val = float(v or 0)
+                factor_final = val if val > 0 else 1.375
+                perfil['Ocupacion'] = factor_final
+                perfil['ocupacion'] = factor_final
+                perfil['factor_actividad'] = factor_final
+            elif k_upper == 'MES':
+                perfil['Mes'] = str(v).strip()
+                perfil['mes'] = str(v).strip()
+
+        perfil['peso_pendiente'] = (peso_hallado is None or peso_hallado <= 0)
+
+        return perfil
+    except Exception as e:
+        print(f"Error obteniendo perfil de Supabase para el usuario {user_id}: {e}")
         return None
         
 def requiere_registro(func):
@@ -1303,7 +1248,7 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
     return conn, cur
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------
-# 3. OPERACIONES DE PERSISTENCIA Y REGISTRO (ESCRITURA) - CORREGIDAS AL 100% CON EL EXCEL Y LA CONEXIÓN CORRECTA
+# 3. OPERACIONES DE PERSISTENCIA Y REGISTRO (ESCRITURA) - CORREGIDAS AL 100% CON EL EXCEL Y LA CONEXIÓN CORRECTA A SUPABASE
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
 def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
@@ -1327,6 +1272,7 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
     if rows:
         ws.append_rows(rows)
 
+    # Espejo simultáneo en Supabase
     try:
         tabla_nombre = f"user_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
@@ -1354,6 +1300,7 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
         conn.close()
     except Exception as e:
         logger.error(f"Error interno al duplicar ingesta en Supabase (User_{user_id}): {e}")
+
 
 def guardar_comida_precargada_db(user_id, fila):
     ws = get_user_worksheet(user_id)
@@ -1595,8 +1542,63 @@ def obtener_datos_usuario(user_id):
     except Exception as e:
         print(f"Error al obtener datos del usuario {user_id}: {e}")
         return pd.DataFrame()
- 
 
+def obtener_datos_usuario_supa(user_id):
+    """
+    Versión para Supabase de obtener_datos_usuario.
+    Lee directamente de la tabla 'user_{user_id}' en PostgreSQL y devuelve un DataFrame
+    con los mismos nombres de columnas estandarizados ('Fecha', 'Momento', 'Alimento', 
+    'Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras').
+    """
+    try:
+        tabla_nombre = f"user_{user_id}"
+        # Aseguramos que la tabla exista y conectamos
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
+        
+        query = f"""
+            SELECT "Fecha", "Momento/Actividad", "Alimento/Detalle", 
+                   "Peso (g)", "Calorías (kcal)", "Proteínas (g)", 
+                   "Grasas (g)", "Hidratos (g)", "Fibras (g)"
+            FROM {tabla_nombre}
+        """
+        
+        # Leemos directo a un DataFrame de pandas usando la conexión activa
+        df = pd.read_sql(query, conn)
+        
+        cur.close()
+        conn.close()
+        
+        if df.empty:
+            return pd.DataFrame()
+        
+        # Mapeo de columnas idéntico al que hace la función original de Sheets
+        col_map = {
+            'Fecha': 'Fecha',
+            'Momento/Actividad': 'Momento',
+            'Alimento/Detalle': 'Alimento',
+            'Peso (g)': 'Peso',
+            'Calorías (kcal)': 'Calorias',
+            'Proteínas (g)': 'Proteinas',
+            'Grasas (g)': 'Grasas',
+            'Hidratos (g)': 'Carbohidratos',
+            'Fibras (g)': 'Fibras'
+        }
+        
+        df = df.rename(columns=col_map)
+        
+        if "Fecha" in df.columns and not df.empty:
+            df['Fecha'] = df['Fecha'].astype(str).str.strip()
+            for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
+                else:
+                    df[col] = 0.0
+                    
+        return df
+    except Exception as e:
+        print(f"Error al obtener datos de Supabase para el usuario {user_id}: {e}")
+        return pd.DataFrame()
+        
 def obtener_ultimo_peso(user_id: int) -> dict:
     """
     Busca el último registro de peso del usuario en la pestaña 'Usuarios' de Google Sheets.
@@ -1645,7 +1647,46 @@ def obtener_datos_presion_db(user_id):
         return df
     except Exception:
         return pd.DataFrame()
-                
+
+def obtener_datos_presion_db_supa(user_id):
+    """
+    Versión para Supabase de obtener_datos_presion_db.
+    Lee directamente de la tabla 'presion_{user_id}' en PostgreSQL y devuelve un DataFrame
+    con los registros de presión arterial del usuario.
+    """
+    try:
+        tabla_nombre = f"presion_{user_id}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="presion")
+        
+        query = f"""
+            SELECT "Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota"
+            FROM {tabla_nombre}
+        """
+        
+        df = pd.read_sql(query, conn)
+        
+        cur.close()
+        conn.close()
+        
+        if df.empty:
+            return pd.DataFrame()
+
+        for col in ['Alta', 'Baja', 'Pulsaciones']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                # En Supabase los valores se guardan limpios, por lo que no es necesario dividir por 1000.
+
+        if 'Fecha_Dia' in df.columns:
+            df['Fecha_Dia'] = df['Fecha_Dia'].astype(str).str.strip()
+
+        if 'Nota' not in df.columns:
+            df['Nota'] = ""
+
+        return df
+    except Exception as e:
+        logger.error(f"Error al obtener datos de presión de Supabase (presion_{user_id}): {e}")
+        return pd.DataFrame()
+        
 def obtener_comidas_usuario(user_id):
     try:
         gc = get_gspread_client()
@@ -1668,6 +1709,50 @@ def obtener_comidas_usuario(user_id):
         logger.error(f"Error al obtener comidas de Comidas_{user_id}: {e}")
         return []
 
+
+def obtener_comidas_usuario_supa(user_id):
+    """
+    Versión para Supabase de obtener_comidas_usuario.
+    Lee directamente de la tabla 'comidas_{user_id}' en PostgreSQL y devuelve una lista de diccionarios
+    con las comidas precargadas del usuario.
+    """
+    try:
+        tabla_nombre = f"comidas_{user_id}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
+        
+        query = f"""
+            SELECT "Nombre", "Descripcion", "Peso", "Calorias", "Proteinas", "Grasas", "Carbohidratos", "Fibras"
+            FROM {tabla_nombre}
+        """
+        
+        cur.execute(query)
+        filas = cur.fetchall()
+        
+        records = []
+        for fila in filas:
+            records.append({
+                'Nombre': fila[0],
+                'Descripcion': fila[1],
+                'Peso': float(fila[2] or 0),
+                'Calorias': float(fila[3] or 0),
+                'Proteinas': float(fila[4] or 0),
+                'Grasas': float(fila[5] or 0),
+                'Carbohidratos': float(fila[6] or 0),
+                'Fibras': float(fila[7] or 0)
+            })
+            
+        cur.close()
+        conn.close()
+        
+        for p in records:
+            p['Nombre'] = p.get('Nombre', '')
+            p['Descripcion'] = p.get('Descripcion', '')
+            
+        return records
+    except Exception as e:
+        logger.error(f"Error al obtener comidas de Supabase (comidas_{user_id}): {e}")
+        return []
+        
 def extraer_val(texto: str) -> float:
     if not texto:
         return 0.0
@@ -1690,6 +1775,26 @@ def extraer_val(texto: str) -> float:
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 1. PARSEO DE DATOS Y FECHAS (VAN PRIMERO POR SER UTILIZADOS EN OTRAS FUNCIONES)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
+
+def obtener_codigo_unico(ws, codigo_base):
+    """
+    Lee los códigos existentes en la Columna A de la hoja recibida por parámetro
+    y asigna un sufijo numérico incremental si el código ya existe.
+    Ejemplo: PIZZA -> PIZZA1 -> PIZZA2
+    """
+    codigos_existentes = set(ws.col_values(1))
+    codigo_limpio = str(codigo_base).strip().upper()
+    
+    if codigo_limpio not in codigos_existentes:
+        return codigo_limpio
+
+    i = 1
+    mientras_repetido = f"{codigo_limpio}{i}"
+    while mientras_repetido in codigos_existentes:
+        i += 1
+        mientras_repetido = f"{codigo_limpio}{i}"
+        
+    return mientras_repetido
 
 def parse_raw_val(val):
     if val is None or val == "":
