@@ -561,6 +561,12 @@ def _obtener_conexion_db():
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
         raise Exception("DATABASE_URL no está configurada en las variables de entorno.")
+    # Se agrega sslmode='require' para que Supabase acepte la conexión de seguridad
+    if "?" in db_url:
+        if "sslmode" not in db_url:
+            db_url += "&sslmode=require"
+    else:
+        db_url += "?sslmode=require"
     return psycopg2.connect(db_url)
 
 def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
@@ -616,14 +622,17 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
                 "PESO" DOUBLE PRECISION,
                 "ALTURA" DOUBLE PRECISION,
                 "GENERO" TEXT,
-                "OCUPACION" DOUBLE PRECISION,
-                "MES" TEXT UNIQUE,
-                "Fecha_Actualizacion" TEXT
+                ocupacion DOUBLE PRECISION,
+                mes TEXT UNIQUE,
+                fecha_actualizacion TEXT,
+                "Peso_ideal" DOUBLE PRECISION,
+                "Cumple" TEXT
             );
         """)
 
     conn.commit()
     return conn, cur
+        
 def get_gspread_client():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     if os.path.exists(GOOGLE_SHEETS_KEY_PATH):
