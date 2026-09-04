@@ -1329,6 +1329,120 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
             if val_ocu:
                 try:
                     num_val = float(str(val_ocu).replace(',', '.'))
+                    if num_val > 100:
+                        num_val = num_val / 1000.0
+                    valores_ocupacion.append(num_val)
+                except ValueError:
+                    pass
+        
+        if valores_ocupacion:
+            ultimos_tres = valores_ocupacion[-3:]
+            promedio_ocupacion = sum(ultimos_tres) / len(ultimos_tres)
+            ocupacion_calculada = int(round(promedio_ocupacion * 1000)) if promedio_ocupacion < 10 else int(round(promedio_ocupacion))
+        else:
+            ocupacion_calculada = ocupacion if ocupacion is not None else 1684
+
+        # Tomar datos de referencia del último registro para la nueva fila
+        ultimo_registro = records_actualizados[-1] if records_actualizados else {}
+        edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
+        altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
+        genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', 'M')))
+        peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
+        fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
+
+        nueva_fila = [
+            str(edad_raw),
+            peso_nuevo_sheet,
+            str(altura_raw),
+            str(genero_final),
+            str(ocupacion_calculada),
+            str(mes),
+            ahora.strftime("%Y-%m-%d %H:%M:%S"),
+            str(peso_ideal_final),
+            str(fecha_cumple_str)
+        ]
+        ws.append_row(nueva_fila)
+        ocupacion_final_para_usuarios = ocupacion_calculada
+
+    # 4. Actualización de la pestaña general 'Usuarios'
+    try:
+        ws_usuarios = sh.worksheet("Usuarios")
+        registros_usuarios = ws_usuarios.get_all_records()
+        headers = ws_usuarios.row_values(1)
+        
+        col_idx_mes = 4
+        col_idx_ocu = 10 
+
+        for idx, h in enumerate(headers, start=1):
+            h_lower = str(h).strip().lower()
+            if h_lower in ["ultimo mes peso", "ultimo_mes_peso", "ultimomespeso"]:
+                col_idx_mes = idx
+            elif h_lower in ["ocupacion", "ocupación"]:
+                col_idx_ocu = idx
+
+        fila_usuario = None
+        for i, reg in enumerate(registros_usuarios, start=2):
+            id_reg = reg.get('ID') or reg.get('user_id') or reg.get('User ID') or list(reg.values())[0]
+            if str(id_reg).strip() == str(user_id).strip():
+                fila_usuario = i
+                break
+
+        if fila_usuario:
+            from gspread.utils import rowcol_to_a1
+            celda_mes_a1 = rowcol_to_a1(fila_usuario, col_idx_mes)
+            fecha_usuarios_str = f"{str(mes)[:7]}-01"
+            ws_usuarios.update(celda_mes_a1, [[fecha_usuarios_str]])
+
+            celda_ocu_a1 = rowcol_to_a1(fila_usuario, col_idx_ocu)
+            ws_usuarios.update(celda_ocu_a1, [[ocupacion_final_para_usuarios]])
+            
+    except Exception as e:
+        print(f"❌ Error crítico al actualizar la pestaña 'Usuarios': {e}")
+
+def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
+    gc = get_gspread_client()
+    sh = gc.open(SPREADSHEET_NAME)
+    ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
+    ahora = obtener_ahora_arg()
+    
+    if not mes:
+        mes = ahora.strftime("%Y-%m")
+    
+    records = ws.get_all_records()
+    fila_a_actualizar = None
+
+    # 1. Buscar si el mes actual ya tiene fila asignada
+    if records:
+        for idx, row in enumerate(records, start=2):
+            mes_en_fila = str(row.get('MES', row.get('Mes', ''))).strip()
+            if mes_en_fila == str(mes):
+                fila_a_actualizar = idx
+                break
+
+    peso_nuevo_sheet = to_sheet_int(peso)
+
+    if fila_a_actualizar:
+        # CASO A: Actualización dentro del mismo mes
+        peso_actual_en_celda = str(ws.cell(fila_a_actualizar, 2).value).strip()
+        if peso_actual_en_celda == str(peso_nuevo_sheet):
+            print(f"📌 El peso {peso} ya estaba registrado para el mes {mes}. No se reescribe nada.")
+            return
+
+        ws.update(f"B{fila_a_actualizar}", [[peso_nuevo_sheet]])
+        ws.update(f"G{fila_a_actualizar}", [[ahora.strftime("%Y-%m-%d %H:%M:%S")]])
+        ocupacion_final_para_usuarios = ws.cell(fila_a_actualizar, 5).value
+
+    else:
+        # CASO B: Apertura de nuevo mes
+        records_actualizados = ws.get_all_records()
+        
+        # Calcular el promedio de ocupación de los últimos meses (hasta 3)
+        valores_ocupacion = []
+        for row in records_actualizados:
+            val_ocu = row.get('ocupacion') or row.get('Ocupacion') or row.get('OCUPACION')
+            if val_ocu:
+                try:
+                    num_val = float(str(val_ocu).replace(',', '.'))
                     # Si por alguna razón el valor histórico quedó multiplicado por 1000 (> 100), 
                     # lo normalizamos para el promedio, o lo manejamos según corresponda.
                     if num_val > 100:
