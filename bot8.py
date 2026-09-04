@@ -1256,8 +1256,8 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
     ws.append_row([
         ahora.strftime("%Y-%m-%d %H:%M:%S"), 
         ahora.strftime("%Y-%m-%d"), 
-        int(alta * 1000) if alta < 100 else int(alta), 
-        int(baja * 1000) if baja < 100 else int(baja), 
+        int(alta * 1000) if alta < 250 else int(alta), 
+        int(baja * 1000) if baja < 150 else int(baja), 
         val_pul,
         str(nota).strip()
     ])
