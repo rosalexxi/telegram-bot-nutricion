@@ -1294,6 +1294,95 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     if not mes:
         mes = ahora.strftime("%Y-%m")
     
+    # Traemos la lista completa de registros
+    records = ws.get_all_records()
+    fila_a_actualizar = None
+
+    # Buscamos si el mes ya tiene fila asignada
+    if records:
+        for idx, row in enumerate(records, start=2):
+            mes_en_fila = str(row.get('MES', row.get('Mes', ''))).strip()
+            if mes_en_fila == str(mes):
+                fila_a_actualizar = idx
+                break
+
+    peso_nuevo_sheet = to_sheet_int(peso)
+
+    if fila_a_actualizar:
+        # LEEMOS DIRECTAMENTE DE LA CELDA REAL (Columna B) para evitar desincronizaciones de caché
+        peso_actual_en_celda = str(ws.cell(fila_a_actualizar, 2).value).strip()
+        
+        # SI EL PESO YA ES EL MISMO EN LA CELDA, SALIMOS INMEDIATAMENTE Y NO TOCAMOS NADA
+        if peso_actual_en_celda == str(peso_nuevo_sheet):
+            print(f"📌 El peso {peso} ya estaba registrado para el mes {mes}. No se reescribe nada.")
+            return
+
+        # Si el peso cambió, actualizamos EXCLUSIVAMENTE la columna B (Peso) y G (Fecha), 
+        # sin tocar la Columna E (Ocupación) para que el promedio quede intacto.
+        ws.update(f"B{fila_a_actualizar}", [[peso_nuevo_sheet]])
+        ws.update(f"G{fila_a_actualizar}", [[ahora.strftime("%Y-%m-%d %H:%M:%S")]])
+
+    else:
+        # Si por algún motivo la fila no existiera, la creamos tomando de referencia el último registro
+        ultimo_registro = records[-1] if records else {}
+        edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
+        altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
+        genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', 'masculino')))
+        ocupacion_final = ocupacion if ocupacion is not None else ultimo_registro.get('OCUPACION', ultimo_registro.get('Ocupacion', 1684))
+        peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
+        fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
+
+        nueva_fila = [
+            str(edad_raw),
+            peso_nuevo_sheet,
+            str(altura_raw),
+            str(genero_final),
+            str(ocupacion_final),  
+            str(mes),
+            ahora.strftime("%Y-%m-%d %H:%M:%S"),
+            str(peso_ideal_final),
+            str(fecha_cumple_str)
+        ]
+        ws.append_row(nueva_fila)
+
+    # Actualización de la pestaña Usuarios (se mantiene igual)
+    try:
+        ws_usuarios = sh.worksheet("Usuarios")
+        registros_usuarios = ws_usuarios.get_all_records()
+        headers = ws_usuarios.row_values(1)
+        
+        col_idx = 4
+        for idx, h in enumerate(headers, start=1):
+            if str(h).strip().lower() in ["ultimo mes peso", "ultimo_mes_peso", "ultimomespeso"]:
+                col_idx = idx
+                break
+
+        fila_usuario = None
+        for i, reg in enumerate(registros_usuarios, start=2):
+            id_reg = reg.get('ID') or reg.get('user_id') or reg.get('User ID') or list(reg.values())[0]
+            if str(id_reg).strip() == str(user_id).strip():
+                fila_usuario = i
+                break
+
+        if fila_usuario:
+            from gspread.utils import rowcol_to_a1
+            celda_a1 = rowcol_to_a1(fila_usuario, col_idx)
+            fecha_usuarios_str = f"{str(mes)[:7]}-01"
+            ws_usuarios.update(celda_a1, [[fecha_usuarios_str]])
+    except Exception as e:
+        print(f"❌ Error crítico al actualizar la pestaña 'usuarios': {e}")
+        
+        
+        
+def guardar_perfil_dbRESERVA(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
+    gc = get_gspread_client()
+    sh = gc.open(SPREADSHEET_NAME)
+    ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
+    ahora = obtener_ahora_arg()
+    
+    if not mes:
+        mes = ahora.strftime("%Y-%m")
+    
     records = ws.get_all_records()
     
     edad_raw = edad if edad is not None else 64000
