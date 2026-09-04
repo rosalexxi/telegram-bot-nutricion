@@ -1319,30 +1319,33 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         ocupacion_final_para_usuarios = ws.cell(fila_a_actualizar, 5).value
 
     else:
-        # CASO B: Apertura de nuevo mes (Ej: Ingresa septiembre, cerramos/recalculamos agosto primero)
-        
-        # Paso 1: Si hay registros previos, nos aseguramos de que el mes inmediato anterior 
-        # tenga su coeficiente/ocupación real ya recalculado y guardado antes de promediar.
+        # CASO B: Apertura de nuevo mes
         records_actualizados = ws.get_all_records()
         
-        # Paso 2: Calcular el promedio de ocupación de los últimos meses (hasta 3)
+        # Calcular el promedio de ocupación de los últimos meses (hasta 3)
         valores_ocupacion = []
         for row in records_actualizados:
             val_ocu = row.get('ocupacion') or row.get('Ocupacion') or row.get('OCUPACION')
             if val_ocu:
                 try:
-                    valores_ocupacion.append(float(str(val_ocu).replace(',', '.')))
+                    num_val = float(str(val_ocu).replace(',', '.'))
+                    # Si por alguna razón el valor histórico quedó multiplicado por 1000 (> 100), 
+                    # lo normalizamos para el promedio, o lo manejamos según corresponda.
+                    if num_val > 100:
+                        num_val = num_val / 1000.0
+                    valores_ocupacion.append(num_val)
                 except ValueError:
                     pass
         
         if valores_ocupacion:
             ultimos_tres = valores_ocupacion[-3:]  # Últimos hasta 3 meses
             promedio_ocupacion = sum(ultimos_tres) / len(ultimos_tres)
-            ocupacion_calculada = to_sheet_int(promedio_ocupacion)
+            # Aseguramos que sea entero puro sin multiplicar por 1000
+            ocupacion_calculada = int(round(promedio_ocupacion * 1000)) if promedio_ocupacion < 10 else int(round(promedio_ocupacion))
         else:
             ocupacion_calculada = ocupacion if ocupacion is not None else 1684
 
-        # Paso 3: Tomar datos de referencia del último registro para la nueva fila
+        # Tomar datos de referencia del último registro para la nueva fila
         ultimo_registro = records_actualizados[-1] if records_actualizados else {}
         edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
         altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
@@ -1355,7 +1358,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
             peso_nuevo_sheet,
             str(altura_raw),
             str(genero_final),
-            str(ocupacion_calculada),  # Promedio correcto de los últimos meses
+            str(ocupacion_calculada),  # Valor entero corregido sin el factor 1000 desproporcionado
             str(mes),
             ahora.strftime("%Y-%m-%d %H:%M:%S"),
             str(peso_ideal_final),
@@ -1364,15 +1367,13 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         ws.append_row(nueva_fila)
         ocupacion_final_para_usuarios = ocupacion_calculada
 
-    # 4. Actualización de la pestaña general 'Usuarios' (Peso y Ocupación)
+    # 4. Actualización de la pestaña general 'Usuarios'
     try:
         ws_usuarios = sh.worksheet("Usuarios")
         registros_usuarios = ws_usuarios.get_all_records()
         headers = ws_usuarios.row_values(1)
         
-        # Buscar índice de columna para último mes peso
         col_idx_mes = 4
-        # Buscar índice de columna para ocupación (Columna J en tu imagen)
         col_idx_ocu = 10 
 
         for idx, h in enumerate(headers, start=1):
@@ -1391,18 +1392,16 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
 
         if fila_usuario:
             from gspread.utils import rowcol_to_a1
-            # Actualizar fecha de último mes peso
             celda_mes_a1 = rowcol_to_a1(fila_usuario, col_idx_mes)
             fecha_usuarios_str = f"{str(mes)[:7]}-01"
             ws_usuarios.update(celda_mes_a1, [[fecha_usuarios_str]])
 
-            # Actualizar el valor de ocupación en la hoja Usuarios
             celda_ocu_a1 = rowcol_to_a1(fila_usuario, col_idx_ocu)
             ws_usuarios.update(celda_ocu_a1, [[ocupacion_final_para_usuarios]])
             
     except Exception as e:
         print(f"❌ Error crítico al actualizar la pestaña 'Usuarios': {e}")
-               
+                       
 def guardar_perfil_dbRESERVA0904(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     gc = get_gspread_client()
     sh = gc.open(SPREADSHEET_NAME)
@@ -3982,10 +3981,10 @@ async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Muestra el menú de selección de fecha solo si el peso del mes en curso está al día.
     """
     # Usá exactamente la misma signatura de llamada que en cmd_mensaje
-    if not await _validar_peso_mes_actual(update=update, context=context):
-        return
-
+    #if not await _validar_peso_mes_actual(update=update, context=context):
+    #    return
     # Despliegue del menú si el peso está al día
+
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📅 Hoy", callback_data="diario_hoy"), InlineKeyboardButton("📆 Ayer", callback_data="diario_ayer")],
         [InlineKeyboardButton("🗓️ Seleccionar Fecha", callback_data="diario_otro")]
@@ -4148,6 +4147,98 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
 
 @requiere_registro
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    # 🔹 Limpieza dinámica: Soporta tanto /perfil como /peso de forma indistinta
+    texto_mensaje = update.message.text.strip()
+    raw_text = texto_mensaje
+    for cmd in ['/perfil', '/peso']:
+        if texto_mensaje.lower().startswith(cmd):
+            raw_text = texto_mensaje[len(cmd):].strip()
+            break
+
+    ahora = obtener_ahora_arg()
+    mes_actual = ahora.strftime("%Y-%m")
+
+    # 🔹 GARANTIZAR FILA DEL MES: Asegura que la estructura del mes actual exista
+    # antes de realizar cualquier lectura o escritura de peso/perfil.
+    if '_garantizar_fila_mes_actual' in globals():
+        _garantizar_fila_mes_actual(user_id, ahora)
+
+    # CASO 1: Ingreso de peso (/perfil 82.5 o /peso 82.5)
+    if raw_text:
+        try:
+            texto_limpio = raw_text.split()[0].replace(',', '.')
+            nuevo_peso = float(texto_limpio)
+            
+            # Se guardan el peso y el mes en la capa de datos
+            guardar_perfil_db(user_id, nuevo_peso, mes_actual)
+            
+            # Recargar el perfil actualizado desde la capa de datos
+            perfil_actualizado = obtener_perfil_usuario(user_id, mes_target=mes_actual)
+            
+            if perfil_actualizado:
+                edad = parse_raw_val(perfil_actualizado.get('EDAD', perfil_actualizado.get('Edad', 64)))
+                altura = parse_raw_val(perfil_actualizado.get('ALTURA', perfil_actualizado.get('Altura', 170)))
+                genero = str(perfil_actualizado.get('GENERO', perfil_actualizado.get('Genero', 'masculino')))
+                ocupacion = str(perfil_actualizado.get('OCUPACION', perfil_actualizado.get('Ocupacion', 'Jubilado')))
+            else:
+                edad, altura, genero, ocupacion = 200.0, 200.0, "masculino", "Jubilado"
+
+            tmb, get_val = calcular_tmb_y_get(nuevo_peso, altura, edad, genero, ocupacion)
+            
+            await update.message.reply_text(
+                f"✅ **Peso actualizado correctamente para el mes `{mes_actual}`:**\n\n"
+                f"• Nuevo Peso: `{nuevo_peso:.1f}` kg\n"
+                f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
+                f"• **GET Estimado:** `{get_val:.0f} kcal/día`",
+                parse_mode="Markdown"
+            )
+            return
+
+        except ValueError:
+            await update.message.reply_text("❌ Por favor, ingresá un número válido para el peso. Ejemplo: `/peso 82.5` o `/perfil 82.5`", parse_mode="Markdown")
+            return
+        except Exception as e:
+            print(f"Error al procesar /perfil o /peso en Sheets: {e}")
+            await update.message.reply_text(f"⚠️ Ocurrió un error al intentar guardar en la planilla: {e}", parse_mode="Markdown")
+            return
+
+    # CASO 2: Consulta (/perfil solo o /peso solo)
+    try:
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
+
+        if perfil:
+            peso = parse_raw_val(perfil.get('PESO', perfil.get('Peso')))
+            altura = parse_raw_val(perfil.get('ALTURA', perfil.get('Altura')))
+            edad = parse_raw_val(perfil.get('EDAD', perfil.get('Edad')))
+            genero = str(perfil.get('GENERO', perfil.get('Genero', 'masculino')))
+            ocupacion = str(perfil.get('OCUPACION', perfil.get('Ocupacion', 'Jubilado')))
+
+            tmb, get_val = calcular_tmb_y_get(peso, altura, edad, genero, ocupacion)
+            
+            txt = (
+                f"👤 **Perfil Biométrico Actual ({mes_actual}):**\n\n"
+                f"• Edad: `{edad:.0f}` años\n"
+                f"• Peso: `{peso:.1f}` kg\n"
+                f"• Altura: `{altura:.1f}` cm\n"
+                f"• Género: `{genero}`\n"
+                f"• Ocupación: `{ocupacion}`\n"
+                f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
+                f"• **GET Estimado:** `{get_val:.0f} kcal/día`\n\n"
+                f"📌 **Para actualizar tu peso mensual:**\n"
+                f"`/peso 82.5` o `/perfil 82.5`"
+            )
+        else:
+            txt = f"👤 **Perfil no registrado para este mes.** Podés cargar tu peso ejecutando:\n`/peso 82.5`"
+
+        await update.message.reply_text(txt, parse_mode="Markdown")
+    except Exception as e:
+        print(f"Error al consultar perfil: {e}")
+        await update.message.reply_text(f"⚠️ Ocurrió un error al leer tu perfil: {e}", parse_mode="Markdown")
+
+@requiere_registro
+async def cmd_perfilRESERVA0903(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_text = update.message.text.replace('/perfil', '').strip()
     ahora = obtener_ahora_arg()
