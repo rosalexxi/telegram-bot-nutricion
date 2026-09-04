@@ -1294,11 +1294,10 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     if not mes:
         mes = ahora.strftime("%Y-%m")
     
-    # Traemos la lista completa de registros
     records = ws.get_all_records()
     fila_a_actualizar = None
 
-    # Buscamos si el mes ya tiene fila asignada
+    # 1. Buscar si el mes actual ya tiene fila asignada
     if records:
         for idx, row in enumerate(records, start=2):
             mes_en_fila = str(row.get('MES', row.get('Mes', ''))).strip()
@@ -1309,69 +1308,45 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     peso_nuevo_sheet = to_sheet_int(peso)
 
     if fila_a_actualizar:
-        # LEEMOS DIRECTAMENTE DE LA CELDA REAL (Columna B) para evitar desincronizaciones de caché
+        # CASO A: Actualización dentro del mismo mes
         peso_actual_en_celda = str(ws.cell(fila_a_actualizar, 2).value).strip()
-        
-        # SI EL PESO YA ES EL MISMO EN LA CELDA, SALIMOS INMEDIATAMENTE Y NO TOCAMOS NADA
         if peso_actual_en_celda == str(peso_nuevo_sheet):
             print(f"📌 El peso {peso} ya estaba registrado para el mes {mes}. No se reescribe nada.")
             return
 
-        # Si el peso cambió, actualizamos EXCLUSIVAMENTE la columna B (Peso) y G (Fecha)
         ws.update(f"B{fila_a_actualizar}", [[peso_nuevo_sheet]])
         ws.update(f"G{fila_a_actualizar}", [[ahora.strftime("%Y-%m-%d %H:%M:%S")]])
+        ocupacion_final_para_usuarios = ws.cell(fila_a_actualizar, 5).value
 
     else:
-        # 🔹 NUEVO MES DETECTADO: Realizar cierre y transición inteligente
+        # CASO B: Apertura de nuevo mes (Ej: Ingresa septiembre, cerramos/recalculamos agosto primero)
         
-        # 1. Identificar el mes anterior (ej. si mes es "2026-09", el anterior es "2026-08")
-        try:
-            from datetime import datetime
-            fecha_actual_dt = datetime.strptime(mes, "%Y-%m")
-            # Truco para restar un mes de forma segura
-            mes_anterior_dt = (fecha_actual_dt.replace(day=1) - pd.Timedelta(days=1))
-            mes_anterior_str = mes_anterior_dt.strftime("%Y-%m")
-        except Exception:
-            mes_anterior_str = None
-
-        # 2. Si existe el mes anterior en los registros, recalcular su coeficiente real y actualizarlo en su celda
-        if mes_anterior_str and records:
-            meses_registrados = [str(r.get('MES', r.get('Mes', ''))).strip() for r in records]
-            if mes_anterior_str in meses_registrados:
-                print(f"🔄 Detectado mes anterior ({mes_anterior_str}). Recalculando coeficiente real...")
+        # Paso 1: Si hay registros previos, nos aseguramos de que el mes inmediato anterior 
+        # tenga su coeficiente/ocupación real ya recalculado y guardado antes de promediar.
+        records_actualizados = ws.get_all_records()
+        
+        # Paso 2: Calcular el promedio de ocupación de los últimos meses (hasta 3)
+        valores_ocupacion = []
+        for row in records_actualizados:
+            val_ocu = row.get('ocupacion') or row.get('Ocupacion') or row.get('OCUPACION')
+            if val_ocu:
                 try:
-                    _calcular_y_actualizar_factor_mes_anterior(user_id, ws, mes_anterior_str, records)
-                    # Recargamos records por si acaso se modificó la hoja
-                    records = ws.get_all_records()
-                except Exception as e:
-                    print(f"⚠️ Error al actualizar el mes anterior {mes_anterior_str}: {e}")
-
-        # 3. Calcular el promedio de ocupación de los últimos hasta 3 meses registrados
-        ocupaciones_previas = []
-        if records:
-            # Tomamos las últimas filas (hasta 3)
-            ultimos_registros = records[-3:]
-            for r in ultimos_registros:
-                val_ocup = r.get('OCUPACION', r.get('Ocupacion', None))
-                if val_ocup is not None:
-                    try:
-                        ocupaciones_previas.append(float(str(val_ocup).replace(',', '.')))
-                    except ValueError:
-                        pass
-
-        if ocupaciones_previas:
-            promedio_ocupacion = sum(ocupaciones_previas) / len(ocupaciones_previas)
-            ocupacion_calculada = int(round(promedio_ocupacion))
+                    valores_ocupacion.append(float(str(val_ocu).replace(',', '.')))
+                except ValueError:
+                    pass
+        
+        if valores_ocupacion:
+            ultimos_tres = valores_ocupacion[-3:]  # Últimos hasta 3 meses
+            promedio_ocupacion = sum(ultimos_tres) / len(ultimos_tres)
+            ocupacion_calculada = to_sheet_int(promedio_ocupacion)
         else:
-            # Si no hay registros previos, usamos un valor por defecto o el del último
-            ultimo_registro = records[-1] if records else {}
-            ocupacion_calculada = ocupacion if ocupacion is not None else int(parse_raw_val(ultimo_registro.get('OCUPACION', ultimo_registro.get('Ocupacion', 1684))))
+            ocupacion_calculada = ocupacion if ocupacion is not None else 1684
 
-        # 4. Crear la nueva fila para el mes actual clonando datos del último y aplicando el promedio de ocupación
-        ultimo_registro = records[-1] if records else {}
+        # Paso 3: Tomar datos de referencia del último registro para la nueva fila
+        ultimo_registro = records_actualizados[-1] if records_actualizados else {}
         edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
         altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
-        genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', 'masculino')))
+        genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', 'M')))
         peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
         fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
 
@@ -1380,26 +1355,32 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
             peso_nuevo_sheet,
             str(altura_raw),
             str(genero_final),
-            str(ocupacion_calculada),  # 👈 Aquí va el promedio de los últimos meses
+            str(ocupacion_calculada),  # Promedio correcto de los últimos meses
             str(mes),
             ahora.strftime("%Y-%m-%d %H:%M:%S"),
             str(peso_ideal_final),
             str(fecha_cumple_str)
         ]
         ws.append_row(nueva_fila)
-        print(f"✅ Creada nueva fila para el mes {mes} con ocupación promedio: {ocupacion_calculada}")
+        ocupacion_final_para_usuarios = ocupacion_calculada
 
-    # Actualización de la pestaña Usuarios (se mantiene igual y sincronizada con el valor final)
+    # 4. Actualización de la pestaña general 'Usuarios' (Peso y Ocupación)
     try:
         ws_usuarios = sh.worksheet("Usuarios")
         registros_usuarios = ws_usuarios.get_all_records()
         headers = ws_usuarios.row_values(1)
         
-        col_idx = 4
+        # Buscar índice de columna para último mes peso
+        col_idx_mes = 4
+        # Buscar índice de columna para ocupación (Columna J en tu imagen)
+        col_idx_ocu = 10 
+
         for idx, h in enumerate(headers, start=1):
-            if str(h).strip().lower() in ["ultimo mes peso", "ultimo_mes_peso", "ultimomespeso"]:
-                col_idx = idx
-                break
+            h_lower = str(h).strip().lower()
+            if h_lower in ["ultimo mes peso", "ultimo_mes_peso", "ultimomespeso"]:
+                col_idx_mes = idx
+            elif h_lower in ["ocupacion", "ocupación"]:
+                col_idx_ocu = idx
 
         fila_usuario = None
         for i, reg in enumerate(registros_usuarios, start=2):
@@ -1410,16 +1391,18 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
 
         if fila_usuario:
             from gspread.utils import rowcol_to_a1
-            celda_a1 = rowcol_to_a1(fila_usuario, col_idx)
+            # Actualizar fecha de último mes peso
+            celda_mes_a1 = rowcol_to_a1(fila_usuario, col_idx_mes)
             fecha_usuarios_str = f"{str(mes)[:7]}-01"
-            ws_usuarios.update(celda_a1, [[fecha_usuarios_str]])
-            
-            # Opcional si querés actualizar también la columna de ocupación en la pestaña Usuarios:
-            # (Si tenés identificada la columna de ocupación en Usuarios, se puede actualizar acá mismo).
+            ws_usuarios.update(celda_mes_a1, [[fecha_usuarios_str]])
+
+            # Actualizar el valor de ocupación en la hoja Usuarios
+            celda_ocu_a1 = rowcol_to_a1(fila_usuario, col_idx_ocu)
+            ws_usuarios.update(celda_ocu_a1, [[ocupacion_final_para_usuarios]])
             
     except Exception as e:
-        print(f"❌ Error crítico al actualizar la pestaña 'usuarios': {e}")
-        
+        print(f"❌ Error crítico al actualizar la pestaña 'Usuarios': {e}")
+               
 def guardar_perfil_dbRESERVA0904(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     gc = get_gspread_client()
     sh = gc.open(SPREADSHEET_NAME)
@@ -1507,117 +1490,6 @@ def guardar_perfil_dbRESERVA0904(user_id, peso, mes=None, edad=None, altura=None
     except Exception as e:
         print(f"❌ Error crítico al actualizar la pestaña 'usuarios': {e}")
         
-        
-        
-def guardar_perfil_dbRESERVA(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
-    ahora = obtener_ahora_arg()
-    
-    if not mes:
-        mes = ahora.strftime("%Y-%m")
-    
-    records = ws.get_all_records()
-    
-    edad_raw = edad if edad is not None else 64000
-    altura_raw = altura if altura is not None else 172000
-    genero_final = genero if genero is not None else "masculino"
-    ocupacion_final = ocupacion if ocupacion is not None else 1375
-    peso_ideal_final = ""
-    fecha_cumple_str = ""
-    fila_a_actualizar = None
-
-    if records:
-        ultimo_registro = records[-1]
-        if edad is None:
-            edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
-        if altura is None:
-            altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
-        if genero is None:
-            genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', ultimo_registro.get('Sexo', 'masculino'))))
-        if ocupacion is None:
-            ocupacion_final = ultimo_registro.get('OCUPACION', ultimo_registro.get('Ocupacion', 1375))
-            
-        peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
-        fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
-
-        for idx, row in enumerate(records, start=2):
-            mes_en_fila = str(row.get('MES', row.get('Mes', ''))).strip()
-            if mes_en_fila == str(mes):
-                fila_a_actualizar = idx
-                break
-
-    nueva_fila = [
-        str(edad_raw),
-        to_sheet_int(peso),
-        str(altura_raw),
-        str(genero_final),
-        to_sheet_int(ocupacion_final),
-        str(mes),
-        ahora.strftime("%Y-%m-%d %H:%M:%S"),
-        str(peso_ideal_final),
-        str(fecha_cumple_str)
-    ]
-
-    if fila_a_actualizar:
-        ws.update(f"A{fila_a_actualizar}:I{fila_a_actualizar}", [nueva_fila])
-    else:
-        ws.append_row(nueva_fila)
-
-    try:
-        ws_usuarios = sh.worksheet("Usuarios")
-        registros_usuarios = ws_usuarios.get_all_records()
-        headers = ws_usuarios.row_values(1)
-        
-        col_idx = 4
-        for idx, h in enumerate(headers, start=1):
-            if str(h).strip().lower() in ["ultimo mes peso", "ultimo_mes_peso", "ultimomespeso"]:
-                col_idx = idx
-                break
-
-        fila_usuario = None
-        for i, reg in enumerate(registros_usuarios, start=2):
-            id_reg = reg.get('ID') or reg.get('user_id') or reg.get('User ID') or list(reg.values())[0]
-            if str(id_reg).strip() == str(user_id).strip():
-                fila_usuario = i
-                break
-
-        if fila_usuario:
-            from gspread.utils import rowcol_to_a1
-            celda_a1 = rowcol_to_a1(fila_usuario, col_idx)
-            fecha_usuarios_str = f"{str(mes)[:7]}-01"
-            ws_usuarios.update(celda_a1, [[fecha_usuarios_str]])
-    except Exception as e:
-        print(f"❌ Error crítico al actualizar la pestaña 'usuarios': {e}")
-
-    try:
-        edad_val = edad_raw / 1000.0 if edad_raw > 1000 else edad_raw
-        altura_val = altura_raw / 1000.0 if altura_raw > 1000 else altura_val
-        ocupacion_val = ocupacion_final / 1000.0 if ocupacion_final > 1000 else ocupacion_final
-
-        tabla_nombre = f"perfil_{user_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
-
-        query = f"""
-            INSERT INTO {tabla_nombre} ("EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "MES", "Fecha_Actualizacion")
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """
-        valores = (
-            str(edad_val), 
-            float(peso), 
-            float(altura_val), 
-            str(genero_json := str(genero_final)), 
-            float(ocupacion_val), 
-            str(mes), 
-            ahora.strftime("%Y-%m-%d %H:%M:%S")
-        )
-        cur.execute(query, (str(edad_val), float(peso), float(altura_val), str(genero_final), float(ocupacion_val), str(mes), ahora.strftime("%Y-%m-%d %H:%M:%S")))
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error interno al grabar Perfil en Supabase (Perfil_{user_id}): {e}")
         
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 4. OPERACIONES DE PERSISTENCIA Y REGISTRO (LECTURA)
