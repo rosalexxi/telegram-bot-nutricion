@@ -768,7 +768,7 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anteri
     """
     Calcula el factor del mes anterior extrayendo los promedios reales de ingesta 
     y ejercicio, calculando el delta de peso real durante el mes y actualizando 
-    el resultado en la hoja Perfil[cite: 2].
+    el resultado en la hoja Perfil de Google Sheets.
     """
     try:
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
@@ -789,7 +789,8 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anteri
         ingesta_diaria = tot_cons_mes / dias_registrados
         ejercicio_diario = tot_quem_mes / dias_registrados
 
-        perfil = obtener_perfil_usuario_supa(user_id, mes_target=mes_anterior_str) if 'obtener_perfil_usuario_supa' in globals() else {}
+        # Obtención segura del perfil desde Google Sheets
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_anterior_str) if 'obtener_perfil_usuario' in globals() else {}
         
         peso_actual = float(perfil.get('Peso', perfil.get('peso', 108400)))
         if peso_actual > 1000: peso_actual /= 1000.0
@@ -826,8 +827,6 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anteri
                 if mes_anterior_str in meses_ordenados:
                     peso_inicio_mes = pesos_por_mes[mes_anterior_str]
                     
-                    # CORRECCIÓN: Si se pasa el peso nuevo del mes actual como override, 
-                    # se toma como el cierre exacto del mes anterior.
                     if peso_fin_mes_override is not None:
                         peso_fin_mes = float(peso_fin_mes_override)
                         if peso_fin_mes > 1000: peso_fin_mes /= 1000.0
@@ -852,11 +851,14 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anteri
 
         try:
             if sheet_perfil is not None:
-                cell = sheet_perfil.find(str(mes_anterior_str))
+                # BÚSQUEDA SEGURA: Se busca estrictamente en la columna F (MES)
+                cell = sheet_perfil.find(str(mes_anterior_str), in_column=6)
                 if cell:
                     fila_encontrada = cell.row
-                    sheet_perfil.update_cell(fila_encontrada, 5, ocupacion_sheet)
+                    sheet_perfil.update_cell(fila_encontrada, 5, ocupacion_sheet) # Columna E es ocupación (5)
                     logger.info(f"Ocupación del mes {mes_anterior_str} recalculada y actualizada a {ocupacion_sheet} en la fila {fila_encontrada}")
+                else:
+                    logger.warning(f"No se encontró el mes {mes_anterior_str} en la columna F de la hoja Perfil.")
         except Exception as sheet_err:
             logger.error(f"No se pudo escribir el factor en la hoja de Google Sheets: {sheet_err}")
 
@@ -865,7 +867,7 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anteri
     except Exception as e:
         logger.error(f"Error al calcular factor limpio del mes anterior para User {user_id}: {e}")
         return None
-                
+                        
 def _calcular_y_actualizar_factor_mes_anteriorRESERVA0903(user_id, sheet_perfil, mes_anterior_str, registros_perfil=None):
     """
     Calcula el factor del mes anterior extrayendo los promedios reales de ingesta 
