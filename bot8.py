@@ -2976,7 +2976,7 @@ async def cmd_mensajeRESERVA0903(update: Update, context: ContextTypes.DEFAULT_T
 #                       INICIO                  COMANDO INGRESO (ALTA DE USUARIO)                               INICIO
 # ======================================================================================================================================
 
-def crear_nueva_cuenta_usuario_db(datos_usuario):
+def nueva_cuenta(datos_usuario):
     """
     Crea la hoja de perfil, presión y comidas del usuario, 
     e inserta su registro en la hoja 'Usuarios' con todos los datos correspondientes.
@@ -3316,7 +3316,7 @@ async def ing_recibir_cumple(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     try:
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, crear_nueva_cuenta_usuario_db, datos_usuario)
+        await loop.run_in_executor(None, nueva_cuenta, datos_usuario)
 
         resumen = (
             "✅ **¡Ficha y planillas creadas exitosamente!**\n\n"
@@ -3371,15 +3371,19 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 **¡Bienvenido a tu Bot Nutricional Personalizado!**\n\n"
         "Guía rápida de comandos e ingestas disponibles:\n\n"
         "📌 **Comandos Principales:**\n"
-        "• `/start`: Inicia el bot, apertura/reinicio de cuenta y reenvío de este manual.\n"
-        "• `/comidas`: Visualiza listado de comidas predeterminadas y descarga su plantilla PDF.\n"
+        "• `/inicio`: Inicia el bot, apertura/reinicio de cuenta y reenvío de este manual.\n"
         "• `/presi`: Registro y consulta de presión arterial.\n"
         "  `  /presi 120,80,70,nota` (Completo) | `/presi 120,80,70` (Sin nota) | `1/presi 20,80` (Solo presión)\n"
+        "  `  /presi 120,80,70` (Sin nota)\n"
+        "  `  /presi 120,80` (Solo presión)\n"
         "  `  /presi AAAA-MM` Consulta promedio mensual y descarga reporte PDF.\n"
         "• `/diario`: Ingestas del día con desglose nutricional por comida y PDF.\n"
-        "• `/semanal`: Estadística de la semana pasada (calorías, proteínas, actividad física y consejo IA).\n"
-        "• `/mensual`: Reporte mensual con estimación de peso, macronutrientes, IA y PDF.\n"
-        "• `/perfil`: Consulta de datos biométricos | `/perfil 90` Actualiza el peso del mes.\n"
+        "• `/semanal`: Estadística de la semana pasada (calorías, proteínas, actividad física).\n"
+        "• `/mensual`: Reporte mensual con estimación de peso, macronutrientes y descarga reporte PDF.\n"
+        "• `/perfil`: Consulta de datos biométricos.\n"
+        "• `/peso`: /peso 90` Actualiza el peso del mes.\n"
+        "• `/eliminar`: Borra ingestas o actividades seleccionando el dia.\n"
+        "• `/comidas`: Visualiza listado de comidas predeterminadas y descarga su plantilla PDF.\n"
         "• `/receta`: Acceso a la Calculadora Web para registrar platos y recetas complejas.\n\n"
         "📌 **Métodos de Registro:**\n"
         "• **Con IA:** Texto libre, Notas de voz 🎤 o Fotos de platos 📸.\n"
@@ -5858,7 +5862,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
     
     es_lunes_manana = (hoy.weekday() == 0 and momento == 'manana')
     es_martes_manana = (hoy.weekday() == 1 and momento == 'manana')
-    es_dia_15_tarde = (hoy.day == 15 and momento == 'tarde')
+    es_dia_15_tarde = (hoy.day == 18 and momento == 'tarde')
     
     # 📌 Condición para el envío automático del resumen mensual el día 15 a la mañana
     es_dia_15_manana = (hoy.day == 15 and momento == 'manana')
@@ -5974,7 +5978,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                                 )
 
                                 await context.bot.send_message(chat_id=int(user_id), text=txt_mensual, parse_mode="HTML")
-                                logger.info(f"Informe mensual automático del día 15 enviado exitosamente a {user_id}")
+                                logger.info(f"Informe mensual automático enviado exitosamente a {user_id}")
 
                                 if index < len(usuarios_validos) - 1:
                                     await asyncio.sleep(60)
@@ -6938,6 +6942,8 @@ def main():
     app_bot.add_handler(CommandHandler(["receta", "planilla"], cmd_cargar_receta))
     app_bot.add_handler(CommandHandler("eliminar", cmd_eliminar_ingesta))
     app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
+    app_bot.add_handler(CommandHandler(["ingreso", "nuevo"], cmd_nueva_cuenta))
+    
 
     # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
     app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
