@@ -763,7 +763,7 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
     conn.commit()
     return conn, cur
     
-    def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anterior_str, registros_perfil=None):
+def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anterior_str, registros_perfil=None):
     """
     Calcula el factor del mes anterior extrayendo los promedios reales de ingesta 
     y ejercicio, calculando el delta de peso real durante el mes (comparando con el mes siguiente)
