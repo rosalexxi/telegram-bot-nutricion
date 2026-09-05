@@ -93,64 +93,10 @@ def run_flask():
 # =====================================================================================================================================
 
 # =====================================================================================================================================
-#              INICIO                                  PAGINA WEB                            INICIO  DB OK
+#              INICIO                                  PAGINA WEB (CALCULADORA UNICA)                        INICIO  DB OK
 # ======================================================================================================================================
 
 app = Flask(__name__)
-
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bot Nutricional - Interfaz Web</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; color: #1e293b; margin: 0; padding: 40px; }
-        .container { max-width: 650px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
-        h1 { color: #2563eb; font-size: 24px; margin-bottom: 8px; }
-        p.subtitle { color: #64748b; margin-top: 0; margin-bottom: 24px; font-size: 14px; }
-        .status-badge { display: inline-block; background: #dcfce7; color: #166534; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-bottom: 20px; }
-        textarea { width: 100%; height: 100px; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; resize: vertical; box-sizing: border-box; }
-        textarea:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
-        button { background: #2563eb; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 12px; transition: background 0.2s; }
-        button:hover { background: #1d4ed8; }
-        .result-box { margin-top: 24px; background: #f1f5f9; padding: 16px; border-radius: 8px; border-left: 4px solid #2563eb; white-space: pre-wrap; font-size: 14px; }
-        .error-box { background: #fee2e2; border-left-color: #dc2626; color: #991b1b; }
-        .nav-link { display: inline-block; margin-top: 15px; color: #2563eb; font-size: 14px; text-decoration: none; font-weight: 600; }
-        .nav-link:hover { text-decoration: underline; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Bot Nutricional - Consultas AI</h1>
-        <p class="subtitle">Desglose instantáneo de nutrientes mediante Inteligencia Artificial.</p>
-        <div class="status-badge">● Bot Nutricional activo y funcionando</div>
-        
-        <form method="POST">
-            <label for="comida" style="display:block; font-weight:600; margin-bottom:8px; font-size:14px;">Describí tu comida libre:</label>
-            <textarea name="comida" id="comida" placeholder="Ej: BigMac con fritas, coca regular, ensalada césar y helado...">{{ query_text or '' }}</textarea>
-            <br>
-            <button type="submit">Consultar Nutrientes con IA</button>
-        </form>
-
-        {% if resultado %}
-            <div class="result-box">
-                <strong>Desglose nutricional estimado:</strong><br><br>
-                {{ resultado }}
-            </div>
-        {% elif error %}
-            <div class="result-box error-box">
-                <strong>Error:</strong> {{ error }}
-            </div>
-        {% endif %}
-
-        <br>
-        <a href="/calculadora{% if user_id %}?user_id={{ user_id }}{% endif %}" class="nav-link">👉 Ir al Generador y Carga de Comidas Precargadas</a>
-    </div>
-</body>
-</html>
-"""
 
 HTML_CALCULADORA_RECETAS = """
 <!DOCTYPE html>
@@ -158,7 +104,7 @@ HTML_CALCULADORA_RECETAS = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generador de Comidas Precargadas</title>
+    <title>Generador de Comidas Precargadas - Bot Nutricional</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 30px; background-color: #f4f6f9; color: #333; }
         .container { max-width: 850px; margin: auto; background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
@@ -168,8 +114,9 @@ HTML_CALCULADORA_RECETAS = """
         textarea { height: 100px; resize: vertical; }
         .row { display: flex; gap: 15px; }
         .col { flex: 1; }
-        button { background-color: #27ae60; color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 20px; }
+        button { background-color: #27ae60; color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 20px; transition: background 0.2s; }
         button:hover { background-color: #219150; }
+        button:disabled { background-color: #95a5a6; cursor: not-allowed; }
         #loading { display: none; text-align: center; margin-top: 15px; font-style: italic; color: #7f8c8d; }
         #resultado-section { display: none; margin-top: 25px; border-top: 2px solid #eee; padding-top: 15px; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
@@ -179,20 +126,17 @@ HTML_CALCULADORA_RECETAS = """
         .btn-save:hover { background-color: #71368a; }
         .btn-copy { background-color: #2980b9; margin-top: 10px; }
         .btn-copy:hover { background-color: #1f6391; }
-        .nav-link { display: inline-block; margin-bottom: 15px; color: #2980b9; text-decoration: none; font-weight: bold; }
         .user-badge { background: #e0f2fe; color: #0369a1; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; display: inline-block; margin-bottom: 15px; }
-        .error-user { background: #fee2e2; color: #991b1b; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-weight: bold; }
+        .error-user { background: #fee2e2; color: #991b1b; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-weight: bold; border-left: 4px solid #dc2626; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <a href="/?user_id={{ user_id }}" class="nav-link">← Volver al Buscador Nutricional</a>
-    
     {% if user_id %}
         <div class="user-badge">👤 Usuario conectado: {{ user_id }} (Pestaña: Comidas_{{ user_id }})</div>
     {% else %}
-        <div class="error-user">⚠️ Atención: No se ha detectado ID de usuario. Accedé desde el link enviado por Telegram para poder guardar directamente en tu planilla.</div>
+        <div class="error-user">⚠️ Atención: Acceso anónimo detectado. No se pueden realizar consultas a la IA ni guardar en planillas. Por favor, accedé mediante el link personalizado enviado por el bot de Telegram.</div>
     {% endif %}
 
     <h2>🍳 Generador de Comidas Precargadas</h2>
@@ -200,32 +144,32 @@ HTML_CALCULADORA_RECETAS = """
     <div class="row">
         <div class="col" style="flex: 0.4;">
             <label for="codigo">Código / Nombre (Columna A):</label>
-            <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;">
+            <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" {% if not user_id %}disabled{% endif %}>
         </div>
         <div class="col">
             <label for="descripcion">Descripción de la Comida (Columna B):</label>
-            <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún o torta de chocolate">
+            <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún o torta de chocolate" {% if not user_id %}disabled{% endif %}>
         </div>
     </div>
 
     <label for="recetaText">Ingredientes y Cantidades (Receta Completa):</label>
-    <textarea id="recetaText" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca&#10;300 g de azúcar"></textarea>
+    <textarea id="recetaText" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca&#10;300 g de azúcar" {% if not user_id %}disabled{% endif %}></textarea>
 
     <div class="row">
         <div class="col">
             <label for="tipoCalculo">Criterio de División:</label>
-            <select id="tipoCalculo" onchange="toggleCriterio()">
+            <select id="tipoCalculo" onchange="toggleCriterio()" {% if not user_id %}disabled{% endif %}>
                 <option value="porciones">Dividir por cantidad de Porciones</option>
                 <option value="gramos">Dividir de a 100 gramos (Fracción fija 100g)</option>
             </select>
         </div>
         <div class="col" id="colPorciones">
             <label for="porciones">Cantidad de Porciones:</label>
-            <input type="number" id="porciones" value="1" min="1">
+            <input type="number" id="porciones" value="1" min="1" {% if not user_id %}disabled{% endif %}>
         </div>
     </div>
 
-    <button onclick="calcularReceta()">✨ Calcular Fila con IA</button>
+    <button onclick="calcularReceta()" {% if not user_id %}disabled title="Acceso restringido a usuarios registrados vía Telegram"{% endif %}>✨ Calcular Fila con IA</button>
 
     <div id="loading">🔍 Analizando ingredientes con Groq y calculando proporciones...</div>
 
@@ -273,6 +217,11 @@ function toggleCriterio() {
 }
 
 async function calcularReceta() {
+    if (!currentUserId) {
+        alert("Acción no permitida para usuarios no registrados.");
+        return;
+    }
+
     const codigo = document.getElementById('codigo').value.trim();
     const descripcion = document.getElementById('descripcion').value.trim();
     const receta = document.getElementById('recetaText').value.trim();
@@ -292,6 +241,7 @@ async function calcularReceta() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
+                user_id: currentUserId,
                 codigo, 
                 descripcion, 
                 receta, 
@@ -330,7 +280,7 @@ async function calcularReceta() {
 
 async function guardarEnGoogleSheets() {
     if (!currentUserId) {
-        alert("No hay ID de usuario asociado. Accedé mediante el link de Telegram.");
+        alert("No hay ID de usuario asociado.");
         return;
     }
     if (!ultimoResultadoCalculado) {
@@ -350,7 +300,6 @@ async function guardarEnGoogleSheets() {
 
         const res = await response.json();
         if (response.ok) {
-            // Se actualiza el código en pantalla si cambió por haber un duplicado en el servidor
             if (res.codigo_guardado) {
                 ultimoResultadoCalculado.nombre = res.codigo_guardado;
                 const tdNombre = document.querySelector('#filaExcel td:first-child');
@@ -381,63 +330,31 @@ function copiarFilaExcel() {
 </html>
 """
 
-@app.route('/', methods=['GET', 'POST'])
-def health_check():
-    user_id = request.args.get('user_id', '')
-    resultado = None
-    error = None
-    query_text = ""
-    if request.method == 'POST':
-        query_text = request.form.get('comida', '').strip()
-        if query_text:
-            try:
-                data = analizar_con_groq(query_text)
-                items = data.get("items", [])
-                res_lines = []
-                tot_cal = 0
-                tot_prot = 0
-                tot_gras = 0
-                tot_carb = 0
-                tot_fibr = 0
-                for it in items:
-                    c = parse_raw_val(it.get('calorias', 0))
-                    p = parse_raw_val(it.get('proteinas', 0))
-                    g = parse_raw_val(it.get('grasas', 0))
-                    cb = parse_raw_val(it.get('carbohidratos', 0))
-                    f = parse_raw_val(it.get('fibras', 0))
-                    tot_cal += c
-                    tot_prot += p
-                    tot_gras += g
-                    tot_carb += cb
-                    tot_fibr += f
-                    res_lines.append(f"• {it.get('alimento')} ({it.get('peso',0)}g): {c:.1f} kcal | Prot: {p:.1f}g | Gras: {g:.1f}g | Carb: {cb:.1f}g | Fibr: {f:.1f}g")
-                
-                res_lines.append(f"\n---\nTOTALES: {tot_cal:.1f} kcal | Prot: {tot_prot:.1f}g | Gras: {tot_gras:.1f}g | Carb: {tot_carb:.1f}g | Fibr: {tot_fibr:.1f}g")
-                resultado = "\n".join(res_lines)
-            except Exception as e:
-                error = str(e)
-    return render_template_string(HTML_TEMPLATE, resultado=resultado, error=error, query_text=query_text, user_id=user_id)
-
-
-@app.route('/calculadora', methods=['GET'])
+@app.route('/', methods=['GET'])
 def vista_calculadora():
-    """Renderiza la calculadora de recetas recibiendo opcionalmente el user_id por URL."""
+    """Renderiza la calculadora de recetas como única página principal, recibiendo el user_id por URL."""
     user_id = request.args.get('user_id', '')
     return render_template_string(HTML_CALCULADORA_RECETAS, user_id=user_id)
 
 
 @app.route('/api/calcular-receta', methods=['POST'])
 def api_calcular_receta():
-    """Procesa los datos con Groq dividiendo por porciones o por fracción fija de 100g."""
+    """Procesa los datos con Groq validando obligatoriamente que venga un user_id válido."""
     try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+
+        # Seguridad extra en backend: Bloquear si no hay user_id (evita consumo anónimo de tokens)
+        if not user_id:
+            return jsonify({"error": "Acceso denegado. Se requiere un usuario válido de Telegram para usar la IA."}), 403
+
         if not client_ai:
             return jsonify({"error": "GROQ_API_KEY no está configurada en el servidor."}), 500
 
-        data = request.get_json()
         codigo_nombre = data.get('codigo', '').strip().upper()
         descripcion = data.get('descripcion', '').strip()
         receta = data.get('receta', '').strip()
-        tipo_calculo = data.get('tipoCalculo', 'porciones')  # 'porciones' o 'gramos'
+        tipo_calculo = data.get('tipoCalculo', 'porciones')  
         porciones = int(data.get('porciones', 1))
 
         prompt = f"""
@@ -481,7 +398,6 @@ def api_calcular_receta():
         fibr_tot = float(datos_total.get('fibras_total', 0))
 
         if tipo_calculo == 'gramos':
-            # División a fracción fija de 100g
             factor = 100.0 / peso_tot if peso_tot > 0 else 1.0
             peso_unitario = 100.0
             cal_unitario = cal_tot * factor
@@ -491,7 +407,6 @@ def api_calcular_receta():
             fibr_unitario = fibr_tot * factor
             desc_final = f"{descripcion} porcion 100 g"
         else:
-            # División por cantidad de porciones
             div = porciones if porciones > 0 else 1
             peso_unitario = peso_tot / div
             cal_unitario = cal_tot / div
@@ -501,7 +416,6 @@ def api_calcular_receta():
             fibr_unitario = fibr_tot / div
             desc_final = f"{descripcion} porcion {int(round(peso_unitario))} g"
 
-        # Conversión x1000 para compatibilidad exacta con la planilla Excel/Google Sheets (Cols A-H)
         resultado_excel = {
             "nombre": codigo_nombre,
             "descripcion": desc_final,
@@ -509,7 +423,7 @@ def api_calcular_receta():
             "calorias": int(round(cal_unitario * 1000)),
             "proteinas": int(round(prot_unitario * 1000)),
             "grasas": int(round(gras_unitario * 1000)),
-             "carbohidratos": int(round(carb_unitario * 1000)),
+            "carbohidratos": int(round(carb_unitario * 1000)),
             "fibras": int(round(fibr_unitario * 1000))
         }
 
@@ -521,7 +435,7 @@ def api_calcular_receta():
 
 @app.route('/api/guardar-comida', methods=['POST'])
 def api_guardar_comida():
-    """Guarda la fila calculada delegando completamente el acceso a datos."""
+    """Guarda la fila calculada validando el usuario."""
     try:
         data = request.get_json()
         user_id = data.get('user_id')
@@ -530,7 +444,6 @@ def api_guardar_comida():
         if not user_id or not fila:
             return jsonify({"error": "Faltan parámetros obligatorios (user_id o fila)."}), 400
 
-        # Llamada pura: La interfaz web solo pasa los datos y recibe el resultado
         codigo_unico = guardar_comida_precargada_db(user_id, fila)
         
         codigo_original = fila.get('nombre', '')
@@ -4300,12 +4213,12 @@ async def generar_y_enviar_pdf_presion(query, user_id, mes_str, context):
 @requiere_registro
 async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Envía un botón interactivo y enlace con el user_id para acceder
-    a la calculadora e ingresar directamente la comida precargada.
+    Envía un botón interactivo y enlace con el user_id apuntando directamente
+    a la página principal (calculadora) para ingresar la comida precargada.
     """
     user_id = update.effective_user.id
-    # URL pública de tu app en Render o servidor
-    web_app_url = f"https://telegram-bot-nutricion.onrender.com/calculadora?user_id={user_id}"
+    # URL apuntando a la raíz ya que ahora la calculadora es la única página
+    web_app_url = f"https://telegram-bot-nutricion.onrender.com/?user_id={user_id}"
     
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🍳 Abrir Creador de Recetas", url=web_app_url)]
