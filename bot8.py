@@ -2976,7 +2976,7 @@ async def cmd_mensajeRESERVA0903(update: Update, context: ContextTypes.DEFAULT_T
 #                       INICIO                  COMANDO INGRESO (ALTA DE USUARIO)                               INICIO
 # ======================================================================================================================================
 
-def nueva_cuenta(datos_usuario):
+def cmd_nueva_cuenta(datos_usuario):
     """
     Crea la hoja de perfil, presión y comidas del usuario, 
     e inserta su registro en la hoja 'Usuarios' con todos los datos correspondientes.
@@ -3316,7 +3316,7 @@ async def ing_recibir_cumple(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     try:
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, nueva_cuenta, datos_usuario)
+        await loop.run_in_executor(None, cmd_nueva_cuenta, datos_usuario)
 
         resumen = (
             "✅ **¡Ficha y planillas creadas exitosamente!**\n\n"
