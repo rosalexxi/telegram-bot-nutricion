@@ -3316,7 +3316,7 @@ async def ing_recibir_cumple(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     try:
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, cmd_nueva_cuenta, datos_usuario)
+        await loop.run_in_executor(None, nueva_cuenta, datos_usuario)
 
         resumen = (
             "✅ **¡Ficha y planillas creadas exitosamente!**\n\n"
@@ -3371,7 +3371,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 **¡Bienvenido a tu Bot Nutricional Personalizado!**\n\n"
         "Guía rápida de comandos e ingestas disponibles:\n\n"
         "📌 **Comandos Principales:**\n"
-        "• `/inicio`: Inicia el bot, apertura/reinicio de cuenta y reenvío de este manual.\n"
+        "• `/inicio`: Resumen de los comando y PDF del manual.\n"
+        "• `/nuevo`: Apertura de cuenta ingresando los datos.\n"
         "• `/presi`: Registro y consulta de presión arterial.\n"
         "  `  /presi 120,80,70,nota` (Completo) | `/presi 120,80,70` (Sin nota) | `1/presi 20,80` (Solo presión)\n"
         "  `  /presi 120,80,70` (Sin nota)\n"
@@ -3389,7 +3390,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• **Con IA:** Texto libre, Notas de voz 🎤 o Fotos de platos 📸.\n"
         "• **Modificación parcial:** Editar por item manteniendo peso (`DESCRIPCION`) o recalculando (`DESCRIPCION,PESO`).\n"
         "• **Sin IA (Plantillas):** `*DESAYUNO,1`, `*PIZZA (porcion),4` o `*TORTA (fraccion x 100g),1.5` (multiplicadores por porción/unidad).\n"
-        "• **Actividad Física:** `# MINUTOS DESCRIPCION, CALORIAS` (Ej: `# 45 minutos caminata, 250`).\n\n"
+        "• **Actividad Física:** `# MINUTOS DESCRIPCION, CALORIAS` (Ej: `# 45 min caminata, 250 cal`).\n\n"
         "📄 *Te adjuntamos el Manual de Usuario completo en formato PDF.*"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
@@ -3479,7 +3480,11 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         [Paragraph("Comando", body_bold), Paragraph("Descripción Detallada y Formato de Uso", body_bold)],
         [
             Paragraph("<b>/inicio</b>", code_style), 
-            Paragraph("Primer ingreso. Solicita datos personales para la apertura de cuenta. Ya con la cuenta abierta presenta la guía rápida con opción de descargar este manual PDF.", body_style)
+            Paragraph("Presenta la guía rápida con opción de descargar este manual en formato PDF.", body_style)
+        ],
+        [
+            Paragraph("<b>/ingreso</b>", code_style), 
+            Paragraph("Apertura de la cuenta ingresando la clave del profesional y los datos personales del paciente.", body_style)
         ],
         [
             Paragraph("<b>/comidas</b>", code_style), 
@@ -3496,18 +3501,21 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("Permite seleccionar el día de consulta. Muestra por pantalla los consumos del día y descarga el PDF detallado con todas las ingestas.", body_style)
         ],
         [
-            Paragraph("<b>/semanal</b>", code_style), 
+            Paragraph("<b>/semana</b>", code_style), 
             Paragraph("Estadística de la semana pasada (resumen de calorías, proteínas, actividad física y consejo IA). "
                       "El corte se realiza de lunes a domingo. Los lunes muestra la semana cerrada; de martes a domingo muestra la semana en curso.", body_style)
         ],
         [
-            Paragraph("<b>/mensual</b>", code_style), 
-            Paragraph("Selección del mes de consulta. Presenta reporte mensual, resumen calórico, estimación de cambio de peso, tabla de macronutrientes y descarga de informe diario completo con recomendaciones de IA.", body_style)
+            Paragraph("<b>/mes</b>", code_style), 
+            Paragraph("Selección del mes de consulta. Presenta reporte mensual, resumen calórico, estimación de cambio de peso, tabla de macronutrientes y descarga de informe diario completo.", body_style)
         ],
         [
             Paragraph("<b>/perfil</b>", code_style), 
-            Paragraph("<b>• Consulta:</b> <code>/perfil</code> Muestra los datos biométricos corporales cargados en el sistema.<br/>"
-                      "<b>• Actualización:</b> <code>/perfil 90</code> Actualiza el peso registrado para el mes en curso.", body_style)
+            Paragraph("<b>• Consulta:</b> <code>/perfil</code> Muestra los datos biométricos corporales cargados en el sistema.", body_style)
+        ],
+        [
+            Paragraph("<b>/peso</b>", code_style), 
+            Paragraph("<b>• Actualización:</b> <code>/peso 90</code> Actualiza el peso registrado para el mes en curso.", body_style)
         ],
         [
             Paragraph("<b>/receta</b>", code_style), 
