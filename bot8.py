@@ -5944,25 +5944,17 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                     except Exception as e_ia:
                         logger.error(f"Error generando resumen semanal con IA para {user_id}: {e_ia}")
 
-            # 3. Envío automático del resumen/informe mensual con IA (Día 15 a la mañana)
-
-            if es_dia_15_tarde:
-	 await procesar_y_enviar_informe_mensual(context, user_id, mes_actual_str)
-	 if index < len(usuarios_validos) - 1:
-	    await asyncio.sleep(60)
+            # 3. Envío automático del resumen/informe mensual con IA (Día 15 a la tarde)
             if es_dia_15_tarde:
                 peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
                 if peso_ok:
                     try:
-                        # Consultamos el mes en curso (o el que corresponda al corte quincenal/mensual)
                         mes_actual_str = hoy.strftime("%Y-%m")
                         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
                         
                         if not df_datos.empty and 'Fecha' in df_datos.columns:
                             df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
-                            hoy_comienzo = pd.Timestamp.now().floor('D')
                             
-                            # Filtramos los datos del mes en curso hasta el día anterior o actual
                             df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_actual_str)].copy()
                             
                             if not df_mes.empty:
@@ -5970,7 +5962,6 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                                 m = calcular_metricas_mensuales(df_mes, perfil) if 'calcular_metricas_mensuales' in globals() else {}
                                 conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_actual_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
 
-                                # Llamada al informe mensual auditado de 10 intentos
                                 informe_ia = await generar_informe_mensual_auditado(
                                     context, 
                                     user_id, 
@@ -6057,7 +6048,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
             logger.error(f"Error procesando usuario {user_id}: {e}")
             if 'registrar_log_en_sheet' in globals():
                 await registrar_log_en_sheet(sh, f"Procesando User {user_id}", e)
-                
+                                
 async def ejecutar_recordatorio_comidasRESERVA0903(context, momento: str):
     """
     Verifica y envía alertas de comidas pendientes y el resumen semanal con IA.
