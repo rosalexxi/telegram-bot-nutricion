@@ -66,6 +66,7 @@ AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT
 GROQ_TEXTO = "openai/gpt-oss-120b"
 GROQ_FOTO = "qwen/qwen3.8-27b"
 GROQ_AUDIO = "whisper-large-v3"
+GROQ_REVISION = "openai/gpt-oss-20b"
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -2217,7 +2218,160 @@ def analizar_frecuencia_alimentos_mes(user_id: int, mes_target: str = None) -> d
 # 3. INTEGRACIÓN CON IA (GROQ)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
-def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4, system_prompt: str = None) -> str:
+async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuencias=None):
+    """
+    Función independiente para generar el informe mensual auditado usando la función centralizada.
+    """
+    if frecuencias is None:
+        frecuencias = {}
+
+    frec_str = "\n".join([f"- {cat}: {cant} ingestas" for cat, cant in frecuencias.items()]) if frecuencias else "- No hay frecuencias registradas."
+
+    prompt_1 = (
+        f"Actúa como un nutricionista clínico experto. A partir de los siguientes datos estadísticos ya calculados, "
+        f"redacta un diagnóstico nutricional profundo del mes {mes_str}:\n"
+        f"- Calorías promedio: {m.get('prom_cal', 0)} kcal (Meta: {m.get('ideal_cal', 0)} kcal)\n"
+        f"- Proteínas: {m.get('prom_prot', 0)} g (Meta: {m.get('ideal_prot', 0)} g)\n"
+        f"- Grasas: {m.get('prom_gras', 0)} g (Meta: {m.get('ideal_gras', 0)} g)\n"
+        f"- Carbohidratos: {m.get('prom_carb', 0)} g (Meta: {m.get('ideal_carb', 0)} g)\n"
+        f"- Fibras: {m.get('prom_fibr', 0)} g (Meta: {m.get('ideal_fibr', 0)} g)\n"
+        f"Frecuencia de grupos alimentarios:\n{frec_str}\n"
+        f"No pongas números falsos, céntrate en el análisis clínico global."
+    )
+
+    prompt_2 = (
+        f"Siguiendo con el caso anterior, redacta una lista numerada del 1 al 10 con alimentos "
+        f"específicos y accesibles que el paciente debería incorporar para corregir sus desvíos de macronutrientes."
+    )
+
+    prompt_3 = (
+        f"Finalmente, detalla una lista numerada del 1 al 10 con alimentos o hábitos a reducir o evitar, "
+        f"junto con una estrategia breve sobre consumo de agua y hábitos sostenibles."
+    )
+
+    prompt_auditor_base = (
+        f"Actúa como un médico supervisor estricto y auditor de calidad. "
+        f"Revisa el siguiente informe nutricional compuesto por tres secciones:\n\n"
+        f"--- INFORME A EVALUAR ---\n{{informe_completo}}\n-------------------------\n\n"
+        f"INSTRUCCIONES DE AUDITORÍA:\n"
+        f"1. Verifica que el texto sea coherente, empático, sin contradicciones y estrictamente profesional.\n"
+        f"2. Si el informe está perfecto y listo para entregar, responde únicamente comenzando con la palabra 'OK'.\n"
+        f"3. Si encuentras errores lógicos, datos cruzados o incoherencias, responde comenzando con la palabra 'RECHAZADO' seguido del motivo."
+    )
+
+    max_intentos = 10
+    for intento_actual in range(1, max_intentos + 1):
+        try:
+            logger.info(f"Generando informe mensual auditado para usuario {user_id} (Intento {intento_actual}/{max_intentos})")
+
+            # Paso 1: Bloque General (Usa GROQ_TEXTO por defecto)
+            texto_p1 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_1, max_tokens=600, temperature=0.3)
+            await asyncio.sleep(60)
+
+            # Paso 2: Alimentos a incorporar
+            texto_p2 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_2, max_tokens=600, temperature=0.3)
+            await asyncio.sleep(60)
+
+            # Paso 3: Alimentos a evitar y hábitos
+            texto_p3 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_3, max_tokens=600, temperature=0.3)
+            await asyncio.sleep(60)
+
+            # Unimos las partes en formato HTML limpio para el PDF
+            informe_candidato = (
+                f"<b>1. DIAGNÓSTICO NUTRICIONAL GLOBAL</b><br/>{texto_p1}<br/><br/>"
+                f"<b>2. ALIMENTOS A INCORPORAR</b><br/>{texto_p2}<br/><br/>"
+                f"<b>3. ALIMENTOS A REDUCIR Y HÁBITOS</b><br/>{texto_p3}"
+            )
+
+            # Paso 4: Instancia del Modelo Revisor (Usa GROQ_REVISION explícitamente)
+            prompt_auditor_final = prompt_auditor_base.format(informe_completo=informe_candidato)
+            modelo_rev = globals().get('GROQ_REVISION', 'openai/gpt-oss-20b')
+            
+            veredicto = await asyncio.to_thread(
+                ejecutar_consulta_ia, 
+                prompt=prompt_auditor_final, 
+                max_tokens=200, 
+                temperature=0.1, 
+                modelo_override=modelo_rev
+            )
+
+            if veredicto and veredicto.strip().upper().startswith("OK"):
+                logger.info(f"¡Informe mensual aprobado por el modelo revisor en el intento {intento_actual} para el usuario {user_id}!")
+                return informe_candidato
+            else:
+                motivo_rechazo = veredicto.strip() if veredicto else "Respuesta vacía del revisor"
+                logger.warning(f"Revisor rechazó el informe en el intento {intento_actual}. Motivo: {motivo_rechazo}")
+
+        except Exception as e:
+            logger.error(f"Error en intento {intento_actual} para usuario {user_id}: {e}")
+
+        if intento_actual < max_intentos:
+            await asyncio.sleep(60)
+
+    # Puerta de salida si se agotan los 10 intentos -> Notificamos al médico tratante
+    logger.error(f"Se agotaron los {max_intentos} intentos para generar el informe mensual del usuario {user_id}. Notificando al médico.")
+    
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        sheet_usuarios = sh.worksheet("Usuarios")
+        registros_usuarios = sheet_usuarios.get_all_records()
+        
+        medico_id = None
+        for u in registros_usuarios:
+            if str(u.get("User ID", "")).strip() == str(user_id):
+                medico_id = u.get("Medico ID") or u.get("Médico ID") or u.get("Medico_ID")
+                break
+
+        if medico_id:
+            mensaje_medico = (
+                f"⚠️ **Alerta de Sistema / Error Técnico**\n"
+                f"Estimado profesional, el paciente con ID `{user_id}` no pudo recibir su informe nutricional quincenal automático correspondiente al período `{mes_str}` debido a un inconveniente técnico persistente en los servidores de IA tras 10 reintentos.\n\n"
+                f"🛠️ **Acción sugerida:** Utilice el comando exclusivo para reenviar el informe cuando el servicio se normalice."
+            )
+            await context.bot.send_message(chat_id=int(medico_id), text=mensaje_medico, parse_mode="Markdown")
+    except Exception as err_medico:
+        logger.error(f"No se pudo notificar al médico del usuario {user_id}: {err_medico}")
+
+    return None
+
+def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4, system_prompt: str = None, modelo_override: str = None) -> str:
+    """Función centralizada para consultas a la API de Groq."""
+    try:
+        client = globals().get('client_ai') or globals().get('groq_client')
+        if not client:
+            api_key = globals().get('GROQ_API_KEY') or os.getenv("GROQ_API_KEY")
+            if not api_key:
+                logger.error("⚠️ GROQ_API_KEY no configurada.")
+                return ""
+            from groq import Groq
+            client = Groq(api_key=api_key)
+
+        # Selecciona el modelo pasado por argumento o el predeterminado de globals
+        modelo = modelo_override or globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile")
+        
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        response = client.chat.completions.create(
+            model=modelo,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+        
+        if response and response.choices:
+            content = response.choices[0].message.content
+            return content.strip() if content else ""
+            
+    except Exception as e:
+        logger.error(f"⚠️ Error en ejecución de IA: {e}")
+        
+    return ""
+        
+def ejecutar_consulta_iaRESERVA0903(prompt: str, max_tokens: int = 300, temperature: float = 0.4, system_prompt: str = None) -> str:
     """Función centralizada para consultas a la API de Groq."""
     try:
         client = globals().get('client_ai') or globals().get('groq_client')
@@ -2252,7 +2406,37 @@ def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float 
         
     return ""
 
-def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
+async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
+    """
+    Adaptador de compatibilidad para llamadas antiguas que usaban 'obtener_recomendacion_ia'.
+    Redirige la consulta a la nueva lógica centralizada o mantiene un comportamiento simple si se prefiere.
+    """
+    if es_semanal:
+        prompt = (
+            f"Actúa como un coach nutricional breve y conciso. "
+            f"Analiza este resumen semanal:\n{resumen_texto}\n\n"
+            f"Escribe un solo párrafo corto de análisis general y 3 recomendaciones breves en puntos."
+        )
+        max_t = 350
+    else:
+        # Para el mensual viejo, si aún se llama en alguna parte suelta
+        prompt = (
+            f"Actúa como un nutricionista clínico personal. "
+            f"Analiza la siguiente información:\n{resumen_texto}"
+        )
+        max_t = 700
+
+    system_msg = "Eres un nutricionista profesional y empático. Proporciona respuestas claras sin dejar oraciones inconclusas."
+    
+    # Llama a tu única función centralizada de IA
+    res = ejecutar_consulta_ia(prompt, max_tokens=max_t, temperature=0.4, system_prompt=system_msg)
+    
+    if res:
+        return res.replace("##", "").replace("###", "").strip()
+        
+    return "⚠️ No se pudo obtener el análisis nutricional en este momento."
+
+def obtener_recomendacion_iaRESERVA0903(resumen_texto: str, es_semanal: bool = False) -> str:
     """Genera el análisis nutricional apoyándose en la función centralizada de IA."""
     if es_semanal:
         prompt = f"""
@@ -2294,6 +2478,108 @@ def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> st
 # 4. FUNCIONES DE LOGGING Y COMPONENTES DE INTERFAZ TELEGRAM
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
+async def _verificar_y_obtener_profesional(update: Update) -> str:
+    """
+    Función auxiliar para validar que quien ejecuta el comando sea un profesional registrado.
+    Retorna el ID del profesional en formato string si es válido, o None en caso contrario.
+    """
+    prof_id = str(update.effective_user.id).strip()
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws_prof = sh.worksheet("Profesionales")
+        recs_prof = ws_prof.get_all_records()
+        for rp in recs_prof:
+            id_p = str(rp.get("User ID", rp.get("user_id", ""))).split('.')[0].strip()
+            if id_p == prof_id:
+                return prof_id
+    except Exception:
+        pass
+    return None
+    
+async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
+    """
+    Función unificada para generar y enviar el informe periódico con IA:
+    - Si es el envío automático del día 15: procesa estrictamente del día 1 al 14 (fecha -1 respecto al envío).
+    - Si es una solicitud manual del profesional: procesa el mes seleccionado completo (si ya pasó) 
+      o hasta ayer (fecha -1) si es el mes en curso, ya que el día actual no está completo.
+    """
+    try:
+        peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
+        if not peso_ok and not forzar_envio:
+            return False
+
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        if df_datos.empty or 'Fecha' not in df_datos.columns:
+            await context.bot.send_message(chat_id=user_id, text="⚠️ No hay registros suficientes para generar el informe.")
+            return False
+
+        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None)
+        
+        ahora_arg = obtener_ahora_arg()[cite: 4]
+        if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
+            ahora_arg = ahora_arg.replace(tzinfo=None)
+        
+        hoy_ts = pd.Timestamp(ahora_arg).floor('D')[cite: 4]
+        ayer_ts = hoy_ts - pd.Timedelta(days=1)
+        mes_actual_str = hoy_ts.strftime("%Y-%m")
+
+        # Determinación de rangos aplicando el criterio de fecha -1 para períodos en curso
+        if es_automatico_15:
+            inicio_periodo = pd.Timestamp(f"{mes_target}-01")
+            # El día 15 se envía el informe, por lo que el último día cerrado es el 14 (ayer respecto al envío)
+            fin_periodo = pd.Timestamp(f"{mes_target}-14")
+            etiqueta_periodo = f"Quincenal ({mes_target}: 1 al 14)"
+            df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
+        else:
+            inicio_periodo = pd.Timestamp(f"{mes_target}-01")
+            if mes_target == mes_actual_str:
+                # Si es el mes actual, filtramos hasta ayer (fecha -1) para evitar datos incompletos del día corriente
+                fin_periodo = ayer_ts
+                etiqueta_periodo = f"Mes Actual en curso ({mes_target}: hasta el {ayer_ts.strftime('%d/%m')})"
+            else:
+                # Si es un mes pasado, toma el último día calendario de ese mes
+                fin_periodo = pd.Timestamp(inicio_periodo) + pd.offsets.MonthEnd(0)
+                etiqueta_periodo = f"Mes Completo ({mes_target})"
+
+            df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
+
+        if df_filtrado.empty:
+            await context.bot.send_message(chat_id=user_id, text=f"⚠️ No se encontraron registros cerrados para el período {etiqueta_periodo}.")
+            return False
+
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
+        m = calcular_metricas_mensuales(df_filtrado, perfil) if 'calcular_metricas_mensuales' in globals() else {}
+        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_target) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
+
+        informe_ia = await generar_informe_mensual_auditado(
+            context, 
+            user_id, 
+            mes_target, 
+            m, 
+            conteo_frecuencias
+        )
+
+        if not informe_ia:
+            informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
+
+        txt_mensual = (
+            f"📊 **Informe Nutricional ({etiqueta_periodo}):**\n"
+            f"⚖️ *Peso registrado: `{m.get('peso_actual', 0)} kg`*\n\n"
+            f"• Calorías Promedio: `{m.get('prom_cal', 0)} kcal` (Meta: `{m.get('ideal_cal', 0)} kcal`)\n"
+            f"• Días Registrados: `{m.get('dias_registrados', 0)}`\n\n"
+            f"🤖 **Análisis Nutricional Profundo:**\n"
+            f"{informe_ia}"
+        )
+
+        await context.bot.send_message(chat_id=int(user_id), text=txt_mensual, parse_mode="HTML")
+        logger.info(f"Informe periódico ({etiqueta_periodo}) enviado exitosamente a {user_id}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}")
+        return False
+                
 async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
     """Registra errores en consola y en Google Sheets."""
     mensaje_consola = f"Error en [{contexto}]"
@@ -3423,112 +3709,6 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # =============================================================================================================================================
 
-def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
-    """Genera el análisis nutricional breve para pantalla apoyándose en la función centralizada de IA."""
-    if es_semanal:
-        prompt = f"""
-        Actúa como un coach nutricional breve y conciso.
-        Analiza este resumen semanal:
-        {resumen_texto}
-
-        REGLAS OBLIGATORIAS:
-        1. Escribe UN solo párrafo corto de análisis general (máximo 50 palabras).
-        2. Agrega solo 3 recomendaciones breves en puntos (-).
-        3. Extensión TOTAL máxima: 120 palabras.
-        4. NO USES NUMERALES (##).
-        5. Cierra siempre la última oración con punto final.
-        """
-        max_t = 350
-    else:
-        prompt = f"""
-        Actúa como un nutricionista clínico. Escribe un único párrafo muy corto y directo (máximo 40 palabras) evaluando el balance general del mes. 
-        Datos a evaluar:
-        {resumen_texto}
-
-        REGLAS OBLIGATORIAS:
-        1. Máximo un párrafo breve.
-        2. Prohibido repetir cifras numéricas exactas.
-        3. Cierra con punto final y no dejes ideas inconclusas.
-        """
-        max_t = 120  # Límite estricto para que entre holgadamente en Telegram sin cortarse
-
-    system_msg = "Eres un nutricionista profesional y empático. Proporciona respuestas claras y breves."
-    res = ejecutar_consulta_ia(prompt, max_tokens=max_t, temperature=0.3, system_prompt=system_msg)
-    
-    if res:
-        return res.replace("##", "").replace("###", "").strip()
-        
-    return "⚠️ No se pudo obtener el análisis nutricional en este momento."
-
-# =============================================================================================================================================
-
-def generar_recomendacion_ia(promedios: dict, metas: dict, biometria: dict = None, frecuencias: dict = None) -> str:
-    """
-    Envía datos biométricos, promedios mensuales y frecuencias de alimentos a Groq/IA
-    para que redacte un informe nutricional clínico completo para el PDF.
-    """
-    if biometria is None:
-        biometria = {}
-    if frecuencias is None:
-        frecuencias = {}
-
-    peso_act = round(float(biometria.get('peso_actual', 0)), 1)
-    peso_id = round(float(biometria.get('peso_ideal', 0)), 1)
-    
-    cal_r, cal_m = int(round(promedios.get('calorias', 0))), int(round(metas.get('calorias', 2000)))
-    prot_r, prot_m = int(round(promedios.get('proteinas', 0))), int(round(metas.get('proteinas', 100)))
-    gras_r, gras_m = int(round(promedios.get('grasas', 0))), int(round(metas.get('grasas', 55)))
-    carb_r, carb_m = int(round(promedios.get('carbohidratos', 0))), int(round(metas.get('carbohidratos', 200)))
-    fibr_r, fibr_m = int(round(promedios.get('fibras', 0))), int(round(metas.get('fibras', 25)))
-
-    frec_str = "\n".join([f"- {cat}: {cant} ingestas" for cat, cant in frecuencias.items()]) if frecuencias else "- No hay frecuencias registradas."
-
-    prompt_pdf = f"""
-    Actúa como un nutricionista clínico experto. Analiza minuciosamente el siguiente resumen nutricional mensual de un paciente y redacta un informe extenso y profesional.
-
-    DATOS BIOMÉTRICOS DEL PACIENTE:
-    - Peso actual: {peso_act} kg | Peso objetivo: {peso_id} kg
-
-    BALANCE MENSUAL CONSUMIDO VS METAS OBJETIVO:
-    - Calorías: {cal_r} kcal/día (Meta: {cal_m} kcal)
-    - Proteínas: {prot_r} g/día (Meta: {prot_m} g)
-    - Grasas: {gras_r} g/día (Meta: {gras_m} g)
-    - Carbohidratos: {carb_r} g/día (Meta: {carb_m} g)
-    - Fibra: {fibr_r} g/día (Meta: {fibr_m} g)
-
-    FRECUENCIA DE GRUPOS ALIMENTARIOS REGISTRADOS EN EL MES:
-    {frec_str}
-
-    ESTRUCTURA Y FORMATO DE LA RESPUESTA:
-    Usa etiquetas HTML básicas (<b>, <br/>) para dar formato. El informe DEBE dividirse en exactamente estas 5 secciones encabezadas en negrita:
-
-    <b>1. DIAGNÓSTICO NUTRICIONAL INTEGRAL DEL MES</b>
-    (Análisis profundo del balance energético global y cumplimiento del perfil).
-
-    <b>2. ANÁLISIS DE BRECHAS Y DESVÍOS ESPECÍFICOS</b>
-    (Evaluación numérica del déficit o exceso de macronutrientes y fibra).
-
-    <b>3. ALIMENTOS Y COMIDAS QUE DEBERÍAS INGERIR (10 OPCIONES)</b>
-    (Lista numerada del 1 al 10 recomendando alimentos concretos para suplir faltantes).
-
-    <b>4. ALIMENTOS Y COMIDAS QUE DEBERÍAS REDUCIR O EVITAR (10 OPCIONES)</b>
-    (Lista numerada del 1 al 10 indicando alimentos específicos a moderar).
-
-    <b>5. RECOMENDACIÓN GENERAL Y ESTRATEGIA DE HÁBITOS</b>
-    (Estrategias sobre consumo de agua y hábitos sostenibles).
-
-    REGLA STRICTA: Devuelve ÚNICAMENTE el texto formateado en HTML limpio, asegurando cerrar correctamente todas las etiquetas <b>. No uses comillas dobles dentro de etiquetas ni anides mal el formato.
-    """
-
-    respuesta = ejecutar_consulta_ia(prompt=prompt_pdf, max_tokens=1500, temperature=0.3)
-    
-    if respuesta:
-        return respuesta
-
-    return "<b>⚠️ No se pudo generar la recomendación mediante IA en este momento.</b>"    
-
-# =============================================================================================================================================
-
 async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         query = update.callback_query
@@ -3625,7 +3805,8 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"Calorías promedio: {_fmt(m.get('prom_cal', 0))} kcal (Meta: {_fmt(m.get('ideal_cal', 0))} kcal). "
                 f"Proteínas: {_fmt(m.get('prom_prot', 0))} g. Grasas: {_fmt(m.get('prom_gras', 0))} g. Fibra: {_fmt(m.get('prom_fibr', 0))} g."
             )
-            recomendacion_pantalla = await asyncio.to_thread(obtener_recomendacion_ia, resumen_texto_base, es_semanal=False)
+            # Reutiliza la función centralizada que ya vive en ConsultasIA.py
+            recomendacion_pantalla = await obtener_recomendacion_ia(resumen_texto_base, es_semanal=False)
         else:
             recomendacion_pantalla = (
                 "📌 *Este reporte corresponde a un período mensual ya finalizado. "
@@ -3823,6 +4004,527 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
 # ======================================================================================================================================
 
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("Generando PDF... ⏳")
+
+    try:
+        user_id = query.from_user.id
+        cb_val = query.data
+        for prefix in ["descargar_pdf_resumen_", "pdf_mes_"]:
+            if cb_val.startswith(prefix):
+                cb_val = cb_val.replace(prefix, "")
+        mes_str = cb_val
+
+        ahora = obtener_ahora_arg()
+        mes_actual_str = ahora.strftime("%Y-%m")
+
+        if mes_str == mes_actual_str:
+            if not await _validar_peso_mes_actual(update, context):
+                return
+
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        
+        if not df_datos.empty and 'Fecha' in df_datos.columns:
+            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
+            hoy_comienzo = pd.Timestamp.now().floor('D')
+            
+            if mes_str == mes_actual_str:
+                df_mes = df_datos[
+                    (df_datos['Fecha'].astype(str).str.startswith(mes_str)) & 
+                    (df_datos['Fecha_dt'] < hoy_comienzo)
+                ].copy()
+            else:
+                df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)].copy()
+        else:
+            df_mes = pd.DataFrame()
+
+        if df_mes.empty:
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=f"⚠️ No hay registros de días en el mes `{mes_str}` para generar el PDF.",
+                parse_mode="Markdown"
+            )
+            return
+
+        perfil = obtener_perfil_usuario_db(user_id, mes_target=mes_str) if 'obtener_perfil_usuario_db' in globals() else {}
+        df_presion = pd.DataFrame()
+        tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
+
+        if mes_str == mes_actual_str:
+            m = calcular_metricas_mensuales(df_mes, perfil)
+            conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
+
+            # Conectado directamente al nuevo motor auditado de 10 intentos en ConsultasIA.py
+            recomendacion_pdf = await generar_informe_mensual_auditado(
+                context, 
+                user_id, 
+                mes_str, 
+                m, 
+                conteo_frecuencias
+            )
+            
+            if not recomendacion_pdf:
+                recomendacion_pdf = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
+        else:
+            recomendacion_pdf = (
+                "<b>INFORME HISTÓRICO CONSOLIDADO:</b><br/>"
+                "Este reporte PDF corresponde a un período mensual finalizado. "
+                "Los datos presentados reflejan el balance metabólico exacto y los promedios registrados durante dicho mes."
+            )
+
+        pdf_buffer = await asyncio.to_thread(
+            generar_pdf_resumen_bytes,
+            mes_str,
+            df_mes,
+            df_presion,
+            perfil,
+            tmb_val,
+            recomendacion_pdf,
+            user_id
+        )
+
+        await context.bot.send_document(
+            chat_id=query.message.chat_id,
+            document=pdf_buffer,
+            filename=f"Reporte_Nutricional_{mes_str}.pdf",
+            caption=f"📄 Reporte mensual correspondiente a **{mes_str}**.",
+            parse_mode="Markdown"
+        )
+
+    except Exception as e:
+        logger.error(f"Error al enviar PDF: {e}")
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=f"⚠️ Error al procesar la descarga del PDF: {e}"
+        )
+
+@requiere_registro
+async def cmd_resumenRESERVA0903(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Manejador del comando /resumen.
+    Muestra el menú de selección de mes solo si el peso del mes en curso está al día.
+    """
+    if not await _validar_peso_mes_actual(update, context):
+        return
+
+    ahora = obtener_ahora_arg()
+    mes_actual = ahora.strftime("%Y-%m")
+    mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual}")],
+        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
+        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+    ])
+
+    await update.message.reply_text(
+        "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", 
+        reply_markup=keyboard, 
+        parse_mode="Markdown"
+    )
+
+# =============================================================================================================================================
+
+def obtener_recomendacion_iaRESERVA0903(resumen_texto: str, es_semanal: bool = False) -> str:
+    """Genera el análisis nutricional breve para pantalla apoyándose en la función centralizada de IA."""
+    if es_semanal:
+        prompt = f"""
+        Actúa como un coach nutricional breve y conciso.
+        Analiza este resumen semanal:
+        {resumen_texto}
+
+        REGLAS OBLIGATORIAS:
+        1. Escribe UN solo párrafo corto de análisis general (máximo 50 palabras).
+        2. Agrega solo 3 recomendaciones breves en puntos (-).
+        3. Extensión TOTAL máxima: 120 palabras.
+        4. NO USES NUMERALES (##).
+        5. Cierra siempre la última oración con punto final.
+        """
+        max_t = 350
+    else:
+        prompt = f"""
+        Actúa como un nutricionista clínico. Escribe un único párrafo muy corto y directo (máximo 40 palabras) evaluando el balance general del mes. 
+        Datos a evaluar:
+        {resumen_texto}
+
+        REGLAS OBLIGATORIAS:
+        1. Máximo un párrafo breve.
+        2. Prohibido repetir cifras numéricas exactas.
+        3. Cierra con punto final y no dejes ideas inconclusas.
+        """
+        max_t = 120  # Límite estricto para que entre holgadamente en Telegram sin cortarse
+
+    system_msg = "Eres un nutricionista profesional y empático. Proporciona respuestas claras y breves."
+    res = ejecutar_consulta_ia(prompt, max_tokens=max_t, temperature=0.3, system_prompt=system_msg)
+    
+    if res:
+        return res.replace("##", "").replace("###", "").strip()
+        
+    return "⚠️ No se pudo obtener el análisis nutricional en este momento."
+
+# =============================================================================================================================================
+
+def generar_recomendacion_iaRESERVA0903(promedios: dict, metas: dict, biometria: dict = None, frecuencias: dict = None) -> str:
+    """
+    Envía datos biométricos, promedios mensuales y frecuencias de alimentos a Groq/IA
+    para que redacte un informe nutricional clínico completo para el PDF.
+    """
+    if biometria is None:
+        biometria = {}
+    if frecuencias is None:
+        frecuencias = {}
+
+    peso_act = round(float(biometria.get('peso_actual', 0)), 1)
+    peso_id = round(float(biometria.get('peso_ideal', 0)), 1)
+    
+    cal_r, cal_m = int(round(promedios.get('calorias', 0))), int(round(metas.get('calorias', 2000)))
+    prot_r, prot_m = int(round(promedios.get('proteinas', 0))), int(round(metas.get('proteinas', 100)))
+    gras_r, gras_m = int(round(promedios.get('grasas', 0))), int(round(metas.get('grasas', 55)))
+    carb_r, carb_m = int(round(promedios.get('carbohidratos', 0))), int(round(metas.get('carbohidratos', 200)))
+    fibr_r, fibr_m = int(round(promedios.get('fibras', 0))), int(round(metas.get('fibras', 25)))
+
+    frec_str = "\n".join([f"- {cat}: {cant} ingestas" for cat, cant in frecuencias.items()]) if frecuencias else "- No hay frecuencias registradas."
+
+    prompt_pdf = f"""
+    Actúa como un nutricionista clínico experto. Analiza minuciosamente el siguiente resumen nutricional mensual de un paciente y redacta un informe extenso y profesional.
+
+    DATOS BIOMÉTRICOS DEL PACIENTE:
+    - Peso actual: {peso_act} kg | Peso objetivo: {peso_id} kg
+
+    BALANCE MENSUAL CONSUMIDO VS METAS OBJETIVO:
+    - Calorías: {cal_r} kcal/día (Meta: {cal_m} kcal)
+    - Proteínas: {prot_r} g/día (Meta: {prot_m} g)
+    - Grasas: {gras_r} g/día (Meta: {gras_m} g)
+    - Carbohidratos: {carb_r} g/día (Meta: {carb_m} g)
+    - Fibra: {fibr_r} g/día (Meta: {fibr_m} g)
+
+    FRECUENCIA DE GRUPOS ALIMENTARIOS REGISTRADOS EN EL MES:
+    {frec_str}
+
+    ESTRUCTURA Y FORMATO DE LA RESPUESTA:
+    Usa etiquetas HTML básicas (<b>, <br/>) para dar formato. El informe DEBE dividirse en exactamente estas 5 secciones encabezadas en negrita:
+
+    <b>1. DIAGNÓSTICO NUTRICIONAL INTEGRAL DEL MES</b>
+    (Análisis profundo del balance energético global y cumplimiento del perfil).
+
+    <b>2. ANÁLISIS DE BRECHAS Y DESVÍOS ESPECÍFICOS</b>
+    (Evaluación numérica del déficit o exceso de macronutrientes y fibra).
+
+    <b>3. ALIMENTOS Y COMIDAS QUE DEBERÍAS INGERIR (10 OPCIONES)</b>
+    (Lista numerada del 1 al 10 recomendando alimentos concretos para suplir faltantes).
+
+    <b>4. ALIMENTOS Y COMIDAS QUE DEBERÍAS REDUCIR O EVITAR (10 OPCIONES)</b>
+    (Lista numerada del 1 al 10 indicando alimentos específicos a moderar).
+
+    <b>5. RECOMENDACIÓN GENERAL Y ESTRATEGIA DE HÁBITOS</b>
+    (Estrategias sobre consumo de agua y hábitos sostenibles).
+
+    REGLA STRICTA: Devuelve ÚNICAMENTE el texto formateado en HTML limpio, asegurando cerrar correctamente todas las etiquetas <b>. No uses comillas dobles dentro de etiquetas ni anides mal el formato.
+    """
+
+    respuesta = ejecutar_consulta_ia(prompt=prompt_pdf, max_tokens=1500, temperature=0.3)
+    
+    if respuesta:
+        return respuesta
+
+    return "<b>⚠️ No se pudo generar la recomendación mediante IA en este momento.</b>"    
+
+# =============================================================================================================================================
+
+async def mostrar_resumen_mesRESERVA0903(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+
+        ahora = obtener_ahora_arg()
+        mes_actual_str = ahora.strftime("%Y-%m")
+
+        mes_str = None
+        if query and query.data:
+            await query.answer()
+            cb_data = query.data
+
+            if cb_data == "resumen_mes_menu_otros":
+                botones_meses = []
+                primer_dia_mes_actual = ahora.replace(day=1)
+                for i in range(1, 7):
+                    mes_iter = (primer_dia_mes_actual - pd.DateOffset(months=i)).strftime("%Y-%m")
+                    botones_meses.append([InlineKeyboardButton(f"🗓️ Período {mes_iter}", callback_data=f"resumen_mes_{mes_iter}")])
+                
+                botones_meses.append([InlineKeyboardButton("🔙 Volver", callback_data="resumen_volver_menu")])
+                
+                await query.edit_message_text(
+                    "🗓️ **Seleccioná el mes que querés consultar:**", 
+                    reply_markup=InlineKeyboardMarkup(botones_meses),
+                    parse_mode="Markdown"
+                )
+                return
+
+            elif cb_data == "resumen_volver_menu":
+                mes_anterior_str = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+                keyboard = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual_str}")],
+                    [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior_str}")],
+                    [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+                ])
+                await query.edit_message_text(
+                    "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", 
+                    reply_markup=keyboard, 
+                    parse_mode="Markdown"
+                )
+                return
+
+            elif cb_data.startswith("resumen_mes_"):
+                mes_str = cb_data.replace("resumen_mes_", "")
+
+        elif context.args:
+            mes_str = context.args[0]
+
+        if not mes_str:
+            mes_str = mes_actual_str
+
+        if mes_str == mes_actual_str:
+            if not await _validar_peso_mes_actual(update, context):
+                return
+
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        
+        if not df_datos.empty and 'Fecha' in df_datos.columns:
+            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
+            hoy_comienzo = pd.Timestamp.now().floor('D')
+            
+            if mes_str == mes_actual_str:
+                df_mes = df_datos[
+                    (df_datos['Fecha'].astype(str).str.startswith(mes_str)) & 
+                    (df_datos['Fecha_dt'] < hoy_comienzo)
+                ].copy()
+            else:
+                df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)].copy()
+        else:
+            df_mes = pd.DataFrame()
+
+        if df_mes.empty:
+            msg = f"⚠️ No hay registros cargados para el mes `{mes_str}`."
+            if query:
+                await query.edit_message_text(msg, parse_mode="Markdown")
+            else:
+                await update.message.reply_text(msg, parse_mode="Markdown")
+            return
+
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) or {}
+        m = calcular_metricas_mensuales(df_mes, perfil)
+
+        def _fmt(val, dec=0):
+            try:
+                num = float(val)
+                return f"{num:.{dec}f}" if dec > 0 else f"{int(round(num))}"
+            except (ValueError, TypeError):
+                return "0"
+
+        if mes_str == mes_actual_str:
+            resumen_texto_base = (
+                f"Peso actual: {_fmt(m.get('peso_actual', 0), 1)} kg (Meta: {_fmt(m.get('peso_referencia', 0), 1)} kg). "
+                f"Calorías promedio: {_fmt(m.get('prom_cal', 0))} kcal (Meta: {_fmt(m.get('ideal_cal', 0))} kcal). "
+                f"Proteínas: {_fmt(m.get('prom_prot', 0))} g. Grasas: {_fmt(m.get('prom_gras', 0))} g. Fibra: {_fmt(m.get('prom_fibr', 0))} g."
+            )
+            recomendacion_pantalla = await asyncio.to_thread(obtener_recomendacion_ia, resumen_texto_base, es_semanal=False)
+        else:
+            recomendacion_pantalla = (
+                "📌 *Este reporte corresponde a un período mensual ya finalizado. "
+                "Las métricas presentadas son el registro histórico consolidado del mes.*"
+            )
+
+        encabezado_txt = (
+            f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n"
+            f"⚖️ *Peso registrado: `{_fmt(m.get('peso_actual', 0), 1)} kg`*\n\n"
+            f"• Consumidas: `{_fmt(m.get('prom_cal', 0))} kcal` | Quemadas: `{_fmt(m.get('prom_quem', 0))} kcal`\n"
+            f"• Balance Neto: `{_fmt(m.get('prom_bal_neto', 0))} kcal/día`\n"
+            f"• Camb. Est. Peso: `{float(m.get('cambio_peso_kg', 0)):+.1f} kg` ({m.get('dias_registrados', 0)} días)\n\n"
+            f"📈 **Promedios vs. Objetivos:**\n"
+            f"• Calorías: `{_fmt(m.get('prom_cal', 0))}` / `{_fmt(m.get('ideal_cal', 0))} kcal`\n"
+            f"• Proteínas: `{_fmt(m.get('prom_prot', 0))}` / `{_fmt(m.get('ideal_prot', 0))} g`\n"
+            f"• Grasas: `{_fmt(m.get('prom_gras', 0))}` / `{_fmt(m.get('ideal_gras', 0))} g`\n"
+            f"• Carbs: `{_fmt(m.get('prom_carb', 0))}` / `{_fmt(m.get('ideal_carb', 0))} g`\n"
+            f"• Fibras: `{_fmt(m.get('prom_fibr', 0))}` / `{_fmt(m.get('ideal_fibr', 0))} g`\n\n"
+            f"🤖 **Análisis Nutricional:**\n"
+        )
+        
+        pie_txt = f"\n\n📄 Podés descargar el informe completo en PDF abajo:"
+
+        espacio_disponible = 3900 - len(encabezado_txt) - len(pie_txt)
+        if len(recomendacion_pantalla) > espacio_disponible:
+            recomendacion_pantalla = recomendacion_pantalla[:espacio_disponible - 3] + "..."
+
+        txt_final = f"{encabezado_txt}{recomendacion_pantalla}{pie_txt}"
+
+        keyboard = [[InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"descargar_pdf_resumen_{mes_str}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        if query:
+            await query.edit_message_text(txt_final, reply_markup=reply_markup, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(txt_final, reply_markup=reply_markup, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Error en mostrar_resumen_mes: {e}")
+        msg_err = f"⚠️ Ocurrió un error al generar el resumen mensual: {e}"
+        if update.callback_query:
+            await update.callback_query.edit_message_text(msg_err)
+        else:
+            await update.message.reply_text(msg_err)
+
+# ======================================================================================================================================
+
+def generar_pdf_resumen_bytesRESERVA0903(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=14, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
+    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=10, textColor=colors.HexColor('#2563EB'), spaceBefore=6, spaceAfter=2)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#1E293B'))
+    rec_style = ParagraphStyle('RecBody', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#0F172A'), spaceAfter=1)
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
+
+    story = [
+        Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str}</b>", title_style),
+        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=6)
+    ]
+
+    headers_h1 = ["Fecha", "Cal. Consumid.", "Cal. Quemad.", "Bal. Neto", "Proteinas (g)", "Grasas (g)", "Carbohidratos (g)", "Fibras (g)"]
+    table_data_h1 = [[Paragraph(h, header_style) for h in headers_h1]]
+
+    tot_cons, tot_quem, tot_prot, tot_gras, tot_carb, tot_fibr = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+
+    if df_mes is not None and not df_mes.empty:
+        fechas_unicas = sorted(df_mes['Fecha'].unique())
+
+        for f in fechas_unicas:
+            sub = df_mes[df_mes['Fecha'] == f]
+            
+            c_cons = float(sub[sub['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in sub.columns else 0.0
+            c_quem = float(abs(sub[sub['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in sub.columns else 0.0
+            b_neto = c_cons - c_quem
+            
+            prot = float(sub['Proteinas'].sum()) if 'Proteinas' in sub.columns else 0.0
+            gras = float(sub['Grasas'].sum()) if 'Grasas' in sub.columns else 0.0
+            carb = float(sub['Carbohidratos'].sum()) if 'Carbohidratos' in sub.columns else 0.0
+            fibr = float(sub['Fibras'].sum()) if 'Fibras' in sub.columns else 0.0
+
+            tot_cons += c_cons
+            tot_quem += c_quem
+            tot_prot += prot
+            tot_gras += gras
+            tot_carb += carb
+            tot_fibr += fibr
+
+            table_data_h1.append([
+                Paragraph(str(f), body_style),
+                Paragraph(f"{int(round(c_cons))} kcal", body_style),
+                Paragraph(f"{int(round(c_quem))} kcal", body_style),
+                Paragraph(f"{int(round(b_neto))} kcal", body_style),
+                Paragraph(f"{int(round(prot))} g", body_style),
+                Paragraph(f"{int(round(gras))} g", body_style),
+                Paragraph(f"{int(round(carb))} g", body_style),
+                Paragraph(f"{int(round(fibr))} g", body_style)
+            ])
+        
+        tot_neto = tot_cons - tot_quem
+        table_data_h1.append([
+            Paragraph("<b>TOTAL MES</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_cons))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_quem))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_neto))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_prot))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_gras))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_carb))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_fibr))} g</b>", body_style)
+        ])
+
+        dias_activos = len(fechas_unicas) if len(fechas_unicas) > 0 else 1
+        table_data_h1.append([
+            Paragraph("<b>PROM. DIARIO</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_cons/dias_activos))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_quem/dias_activos))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_neto/dias_activos))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_prot/dias_activos))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_gras/dias_activos))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_carb/dias_activos))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_fibr/dias_activos))} g</b>", body_style)
+        ])
+
+    t1 = Table(table_data_h1, colWidths=[65, 75, 70, 70, 65, 60, 80, 55])
+    t1.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('BACKGROUND', (0, -2), (-1, -1), colors.HexColor('#F1F5F9'))
+    ]))
+    story.append(t1)
+
+    story.append(PageBreak())
+    story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes</b>", title_style))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=6))
+
+    perfil_dict = perfil if isinstance(perfil, dict) else {}
+    m = calcular_metricas_mensuales(df_mes, perfil_dict)
+
+    table_comp = [
+        [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Valor Ideal (Peso Ponderado 75/25)</b>", header_style)],
+        [Paragraph("Calorías", body_style), Paragraph(f"{m['prom_cal']} kcal", body_style), Paragraph(f"{int(round(m['get_meta']))} kcal", body_style)],
+        [Paragraph("Proteínas", body_style), Paragraph(f"{m['prom_prot']} g", body_style), Paragraph(f"{m['ideal_prot']} g", body_style)],
+        [Paragraph("Grasas", body_style), Paragraph(f"{m['prom_gras']} g", body_style), Paragraph(f"{m['ideal_gras']} g", body_style)],
+        [Paragraph("Carbohidratos", body_style), Paragraph(f"{m['prom_carb']} g", body_style), Paragraph(f"{m['ideal_carb']} g", body_style)],
+        [Paragraph("Fibras", body_style), Paragraph(f"{m['prom_fibr']} g", body_style), Paragraph(f"{m['ideal_fibr']} g", body_style)]
+    ]
+    t_comp = Table(table_comp, colWidths=[150, 185, 185])
+    t_comp.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+    ]))
+    story.append(t_comp)
+    story.append(Spacer(1, 4))
+
+    peso_act_pdf = round(float(m.get('peso_actual', 0)), 1)
+    peso_ref_pdf = round(float(m.get('peso_referencia', 0)), 1)
+
+    story.append(Paragraph(f"• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {peso_act_pdf} kg | Peso Objetivo (75/25): {peso_ref_pdf} kg | Altura: {m['altura']} cm", body_style))
+    story.append(Paragraph(f"• <b>DÉFICIT CALÓRICO DIARIO PROMEDIO:</b> {m['deficit_diario_real']} kcal / día", body_style))
+    story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {m['cambio_peso_kg']:+.1f} kg", body_style))
+
+    story.append(Spacer(1, 4))
+    story.append(Paragraph("<b>Informe Nutricional Mensual:</b>", sub_style))
+
+    if isinstance(recomendacion, str) and recomendacion.strip():
+        rec_limpia = recomendacion.strip()
+        rec_limpia = rec_limpia.replace('""', '"').replace('"', '')
+
+        for bloque in rec_limpia.split('\n\n'):
+            bloque_txt = bloque.strip()
+            if bloque_txt:
+                bloque_formateado = bloque_txt.replace('\n', '<br/>')
+                
+                if bloque_formateado.count('<b>') > bloque_formateado.count('</b>'):
+                    bloque_formateado += '</b>'
+
+                try:
+                    story.append(Paragraph(bloque_formateado, rec_style))
+                    story.append(Spacer(1, 2))
+                except Exception:
+                    texto_plano = re.sub('<[^<]+?>', '', bloque_formateado)
+                    story.append(Paragraph(texto_plano, rec_style))
+                    story.append(Spacer(1, 2))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+# ======================================================================================================================================
+
+async def generar_y_enviar_pdf_resumenRESERVA0903(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("Generando PDF... ⏳")
 
@@ -5119,11 +5821,244 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 #                FINAL                                 MANEJADORES HANDLE                       FINAL
 #===================================================================================================================================
 
-# =====================================================================================================================================
+#=======================================================================================================================
 #                INICIO                               MENSAJES PROGRAMADOS                          INICIO  
 # ======================================================================================================================================
 
 async def ejecutar_recordatorio_comidas(context, momento: str):
+    """
+    Verifica y envía alertas de comidas pendientes, el resumen semanal (martes) 
+    y el informe mensual automático con IA (el día 15 de cada mes).
+    """
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        
+        sheet_usuarios = sh.worksheet("Usuarios")
+        registros_usuarios = sheet_usuarios.get_all_records()
+        usuarios_validos = []
+        
+        for u in registros_usuarios:
+            estado = str(u.get("Estado", "")).strip().lower()
+            notif = str(u.get("Notificaciones", "")).strip().lower()
+            raw_user_id = u.get("User ID")
+            
+            if estado == "activo" and notif in ["si", "sí"] and raw_user_id:
+                try:
+                    uid_int = int(raw_user_id)
+                    usuarios_validos.append(uid_int)
+                except ValueError:
+                    continue
+
+    except Exception as e:
+        logger.error(f"Error al acceder a la pestaña 'Usuarios': {e}")
+        return
+
+    ahora_dt = obtener_ahora_arg()
+    hoy = ahora_dt.date() if hasattr(ahora_dt, "date") else ahora_dt
+    ayer = hoy - timedelta(days=1)
+    anteayer = hoy - timedelta(days=2)
+
+    str_hoy = hoy.strftime("%Y-%m-%d")
+    str_ayer = ayer.strftime("%Y-%m-%d")
+    str_anteayer = anteayer.strftime("%Y-%m-%d")
+
+    todas_comidas = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
+    
+    es_lunes_manana = (hoy.weekday() == 0 and momento == 'manana')
+    es_martes_manana = (hoy.weekday() == 1 and momento == 'manana')
+    es_dia_15_tarde = (hoy.day == 15 and momento == 'tarde')
+    
+    # 📌 Condición para el envío automático del resumen mensual el día 15 a la mañana
+    es_dia_15_manana = (hoy.day == 15 and momento == 'manana')
+
+    for index, user_id in enumerate(usuarios_validos):
+        try:
+
+            # 1. Recordatorio preventivo de peso el Lunes a la mañana
+            if es_lunes_manana:
+                await _validar_peso_mes_actual(context=context, user_id=user_id)
+
+            # 2. Envío automático del resumen semanal con IA (Martes a la mañana)
+            if es_martes_manana:
+                peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
+                if peso_ok:
+                    try:
+                        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+                        if not df_datos.empty and 'Fecha' in df_datos.columns:
+                            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None)
+                            
+                            ahora_raw = obtener_ahora_arg()
+                            if hasattr(ahora_raw, 'tzinfo') and ahora_raw.tzinfo is not None:
+                                ahora_raw = ahora_raw.replace(tzinfo=None)
+                            ahora_ts = pd.Timestamp(ahora_raw)
+
+                            inicio_rango = ahora_ts.floor('D') - pd.Timedelta(days=7)
+                            fin_rango = ahora_ts.floor('D') - pd.Timedelta(seconds=1)
+                            etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
+
+                            df_semana = df_datos[(df_datos['Fecha_dt'] >= inicio_rango) & (df_datos['Fecha_dt'] <= fin_rango)].copy()
+                            
+                            if not df_semana.empty:
+                                mes_target = inicio_rango.strftime("%Y-%m")
+                                perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
+                                m = calcular_metricas_mensuales(df_semana, perfil) if 'calcular_metricas_mensuales' in globals() else {}
+
+                                prompt_semana = (
+                                    f"Actúa como un nutricionista clínico experto. Proporcioná una devolución amplia, precisa y detallada "
+                                    f"sobre la evolución nutricional de la {etiqueta_periodo}:\n\n"
+                                    f"DATOS REEVALUADOS:\n"
+                                    f"- Días evaluados: {m.get('dias_registrados', 0)}\n"
+                                    f"- Calorías consumidas: {m.get('prom_cal', 0)} kcal/día (Meta: {m.get('ideal_cal', 0)} kcal)\n"
+                                    f"- Proteínas: {m.get('prom_prot', 0)} g/día (Meta: {m.get('ideal_prot', 0)} g)\n"
+                                    f"- Grasas: {m.get('prom_gras', 0)} g/día (Meta: {m.get('ideal_gras', 0)} g)\n"
+                                    f"- Carbohidratos: {m.get('prom_carb', 0)} g/día (Meta: {m.get('ideal_carb', 0)} g)\n"
+                                    f"- Fibra: {m.get('prom_fibr', 0)} g/día (Meta: {m.get('ideal_fibr', 0)} g)\n\n"
+                                    f"INSTRUCCIONES:\n"
+                                    f"Analizá en profundidad los desvíos numéricos de cada macronutriente. "
+                                    f"Si hubo exceso de grasas o déficit de proteínas, señalalo con claridad y recomendá alimentos "
+                                    f"específicos accesibles para corregirlo durante los próximos días."
+                                )
+
+                                recomendacion = await asyncio.to_thread(obtener_recomendacion_ia, prompt_semana)
+
+                                txt = (
+                                    f"📅 **Informe Nutricional Semanal con IA:**\n"
+                                    f"ℹ️ *{etiqueta_periodo}*\n\n"
+                                    f"• **Promedio Calorías:** `{m.get('prom_cal', 0)} kcal` / Meta: `{m.get('ideal_cal', 0)} kcal`\n"
+                                    f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Meta: `{m.get('ideal_prot', 0)} g`\n"
+                                    f"• **Grasas:** `{m.get('prom_gras', 0)} g` / Meta: `{m.get('ideal_gras', 0)} g`\n"
+                                    f"• **Carbohidratos:** `{m.get('prom_carb', 0)} g` / Meta: `{m.get('ideal_carb', 0)} g`\n"
+                                    f"• **Fibras:** `{m.get('prom_fibr', 0)} g` / Meta: `{m.get('ideal_fibr', 0)} g`\n"
+                                    f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`\n\n"
+                                    f"🤖 **Evaluación y Recomendaciones del Especialista:**\n"
+                                    f"{recomendacion}"
+                                )
+
+                                await context.bot.send_message(chat_id=int(user_id), text=txt, parse_mode="Markdown")
+                                logger.info(f"Resumen semanal con IA enviado exitosamente a {user_id}")
+
+                                if index < len(usuarios_validos) - 1:
+                                    await asyncio.sleep(60)
+
+                    except Exception as e_ia:
+                        logger.error(f"Error generando resumen semanal con IA para {user_id}: {e_ia}")
+
+            # 3. Envío automático del resumen/informe mensual con IA (Día 15 a la mañana)
+
+            if es_dia_15_tarde:
+	 await procesar_y_enviar_informe_mensual(context, user_id, mes_actual_str)
+	 if index < len(usuarios_validos) - 1:
+	    await asyncio.sleep(60)
+            if es_dia_15_tarde:
+                peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
+                if peso_ok:
+                    try:
+                        # Consultamos el mes en curso (o el que corresponda al corte quincenal/mensual)
+                        mes_actual_str = hoy.strftime("%Y-%m")
+                        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+                        
+                        if not df_datos.empty and 'Fecha' in df_datos.columns:
+                            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
+                            hoy_comienzo = pd.Timestamp.now().floor('D')
+                            
+                            # Filtramos los datos del mes en curso hasta el día anterior o actual
+                            df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_actual_str)].copy()
+                            
+                            if not df_mes.empty:
+                                perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual_str) if 'obtener_perfil_usuario' in globals() else {}
+                                m = calcular_metricas_mensuales(df_mes, perfil) if 'calcular_metricas_mensuales' in globals() else {}
+                                conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_actual_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
+
+                                # Llamada al informe mensual auditado de 10 intentos
+                                informe_ia = await generar_informe_mensual_auditado(
+                                    context, 
+                                    user_id, 
+                                    mes_actual_str, 
+                                    m, 
+                                    conteo_frecuencias
+                                )
+
+                                if not informe_ia:
+                                    informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
+
+                                txt_mensual = (
+                                    f"📊 **Informe Quincenal / Mensual Automático ({mes_actual_str}):**\n"
+                                    f"⚖️ *Peso registrado: `{m.get('peso_actual', 0)} kg`*\n\n"
+                                    f"• Calorías Promedio: `{m.get('prom_cal', 0)} kcal` (Meta: `{m.get('ideal_cal', 0)} kcal`)\n"
+                                    f"• Días Registrados: `{m.get('dias_registrados', 0)}`\n\n"
+                                    f"🤖 **Análisis Nutricional Profundo:**\n"
+                                    f"{informe_ia}"
+                                )
+
+                                await context.bot.send_message(chat_id=int(user_id), text=txt_mensual, parse_mode="HTML")
+                                logger.info(f"Informe mensual automático del día 15 enviado exitosamente a {user_id}")
+
+                                if index < len(usuarios_validos) - 1:
+                                    await asyncio.sleep(60)
+
+                    except Exception as e_mensual:
+                        logger.error(f"Error generando informe mensual automático para {user_id}: {e_mensual}")
+
+            # 4. Recordatorio habitual de comidas pendientes
+            nombre_hoja_usuario = f"User_{user_id}"
+            sheet_usuario = sh.worksheet(nombre_hoja_usuario)
+            registros_comidas = sheet_usuario.get_all_records()
+
+            comidas_anteayer = set()
+            comidas_ayer = set()
+            comidas_hoy = set()
+
+            for reg in registros_comidas:
+                fecha_reg = str(reg.get("Fecha", "")).strip()
+                momento_actividad = str(reg.get("Momento/Actividad") or reg.get("Momento", "")).strip()
+                momento_reg = momento_actividad.capitalize()
+
+                if fecha_reg == str_anteayer:
+                    comidas_anteayer.add(momento_reg)
+                elif fecha_reg == str_ayer:
+                    comidas_ayer.add(momento_reg)
+                elif fecha_reg == str_hoy:
+                    comidas_hoy.add(momento_reg)
+
+            faltantes = []
+            if momento == 'manana':
+                for c in todas_comidas:
+                    if c not in comidas_anteayer:
+                        faltantes.append(f"{c} de anteayer ({str_anteayer})")
+                for c in todas_comidas:
+                    if c not in comidas_ayer:
+                        faltantes.append(f"{c} de ayer ({str_ayer})")
+
+            elif momento == 'tarde':
+                for c in todas_comidas:
+                    if c not in comidas_ayer:
+                        faltantes.append(f"{c} de ayer ({str_ayer})")
+                if "Desayuno" not in comidas_hoy:
+                    faltantes.append("Desayuno de hoy")
+                if "Almuerzo" not in comidas_hoy:
+                    faltantes.append("Almuerzo de hoy")
+
+            if faltantes:
+                lista_formateada = "\n• " + "\n• ".join(faltantes)
+                mensaje_recordatorio = (
+                    f"📌 **Recordatorio de comidas pendientes:**\n"
+                    f"{lista_formateada}\n\n"
+                    f"Si ya las consumiste, podés registrarlas en cualquier momento."
+                )
+                await context.bot.send_message(
+                    chat_id=int(user_id), 
+                    text=mensaje_recordatorio, 
+                    parse_mode="Markdown"
+                )
+                logger.info(f"Recordatorio de comidas ({momento}) enviado a {user_id}")
+
+        except Exception as e:
+            logger.error(f"Error procesando usuario {user_id}: {e}")
+            if 'registrar_log_en_sheet' in globals():
+                await registrar_log_en_sheet(sh, f"Procesando User {user_id}", e)
+                
+async def ejecutar_recordatorio_comidasRESERVA0903(context, momento: str):
     """
     Verifica y envía alertas de comidas pendientes y el resumen semanal con IA.
     - LUNES a la mañana: Recordatorio preventivo de peso.
@@ -5301,125 +6236,6 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
             if 'registrar_log_en_sheet' in globals():
                 await registrar_log_en_sheet(sh, f"Procesando User {user_id}", e)
                 
-async def ejecutar_recordatorio_comidasRESERVA0903(context, momento: str):
-    """
-    Verifica y envía alertas de comidas pendientes y resumen semanal.
-    - Garantiza la inicialización de la fila mensual del usuario (día 1°).
-    - LUNES a la mañana: Si no tiene peso cargado, manda aviso genérico preventivo.
-    - MARTES a la mañana: Valida el peso. Si está OK, dispara el resumen semanal; si no, envía el aviso y omite el informe.
-    """
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        
-        sheet_usuarios = sh.worksheet("Usuarios")
-        registros_usuarios = sheet_usuarios.get_all_records()
-        usuarios_validos = []
-        
-        for u in registros_usuarios:
-            estado = str(u.get("Estado", "")).strip().lower()
-            notif = str(u.get("Notificaciones", "")).strip().lower()
-            raw_user_id = u.get("User ID")
-            
-            if estado == "activo" and notif in ["si", "sí"] and raw_user_id:
-                try:
-                    uid_int = int(raw_user_id)
-                    usuarios_validos.append(uid_int)
-                except ValueError:
-                    continue
-
-    except Exception as e:
-        logger.error(f"Error al acceder a la pestaña 'Usuarios': {e}")
-        return
-
-    ahora_dt = obtener_ahora_arg()
-    hoy = ahora_dt.date() if hasattr(ahora_dt, "date") else ahora_dt
-    ayer = hoy - timedelta(days=1)
-    anteayer = hoy - timedelta(days=2)
-
-    str_hoy = hoy.strftime("%Y-%m-%d")
-    str_ayer = ayer.strftime("%Y-%m-%d")
-    str_anteayer = anteayer.strftime("%Y-%m-%d")
-
-    todas_comidas = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
-    
-    es_lunes_manana = (hoy.weekday() == 0 and momento == 'manana')
-    es_martes_manana = (hoy.weekday() == 1 and momento == 'manana')
-
-    for user_id in usuarios_validos:
-        try:
-            # 0. Garantizar fila mensual en Perfil (Automático y transparente)
-            _garantizar_fila_mes_actual(user_id, ahora_dt)
-
-            # 1. Recordatorio preventivo de peso el Lunes a la mañana
-            if es_lunes_manana:
-                await _validar_peso_mes_actual(context=context, user_id=user_id)
-
-            # 2. Envío automático del resumen semanal (Martes a la mañana)
-            if es_martes_manana:
-                # Se valida el peso: si retorna True, se emite el reporte semanal
-                peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
-                if peso_ok and 'enviar_resumen_semanal_usuario' in globals():
-                    await enviar_resumen_semanal_usuario(context, user_id, semana_actual=False)
-
-            # 3. Recordatorio habitual de comidas pendientes
-            nombre_hoja_usuario = f"User_{user_id}"
-            sheet_usuario = sh.worksheet(nombre_hoja_usuario)
-            registros_comidas = sheet_usuario.get_all_records()
-
-            comidas_anteayer = set()
-            comidas_ayer = set()
-            comidas_hoy = set()
-
-            for reg in registros_comidas:
-                fecha_reg = str(reg.get("Fecha", "")).strip()
-                momento_actividad = str(reg.get("Momento/Actividad") or reg.get("Momento", "")).strip()
-                momento_reg = momento_actividad.capitalize()
-
-                if fecha_reg == str_anteayer:
-                    comidas_anteayer.add(momento_reg)
-                elif fecha_reg == str_ayer:
-                    comidas_ayer.add(momento_reg)
-                elif fecha_reg == str_hoy:
-                    comidas_hoy.add(momento_reg)
-
-            faltantes = []
-            if momento == 'manana':
-                for c in todas_comidas:
-                    if c not in comidas_anteayer:
-                        faltantes.append(f"{c} de anteayer ({str_anteayer})")
-                for c in todas_comidas:
-                    if c not in comidas_ayer:
-                        faltantes.append(f"{c} de ayer ({str_ayer})")
-
-            elif momento == 'tarde':
-                for c in todas_comidas:
-                    if c not in comidas_ayer:
-                        faltantes.append(f"{c} de ayer ({str_ayer})")
-                if "Desayuno" not in comidas_hoy:
-                    faltantes.append("Desayuno de hoy")
-                if "Almuerzo" not in comidas_hoy:
-                    faltantes.append("Almuerzo de hoy")
-
-            if faltantes:
-                lista_formateada = "\n• " + "\n• ".join(faltantes)
-                mensaje_recordatorio = (
-                    f"📌 **Recordatorio de comidas pendientes:**\n"
-                    f"{lista_formateada}\n\n"
-                    f"Si ya las consumiste, podés registrarlas en cualquier momento."
-                )
-                await context.bot.send_message(
-                    chat_id=int(user_id), 
-                    text=mensaje_recordatorio, 
-                    parse_mode="Markdown"
-                )
-                logger.info(f"Recordatorio de comidas ({momento}) enviado a {user_id}")
-
-        except Exception as e:
-            logger.error(f"Error procesando usuario {user_id}: {e}")
-            if 'registrar_log_en_sheet' in globals():
-                await registrar_log_en_sheet(sh, f"Procesando User {user_id}", e)
-
 # =============================================================================================================================================
 #                    FINAL                                    MENSAJES PROGRAMADOS                                        FINAL
 # =============================================================================================================================================
@@ -5567,6 +6383,227 @@ async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYP
 # =============================================================================================================================================
 
 async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando para que el profesional vea el listado de sus pacientes y genere un reporte PDF avanzado (hasta 6 meses)."""
+    msg_espera = await update.message.reply_text("⏳ **Buscando pacientes y procesando historial clínico (hasta 6 meses)...**", parse_mode="Markdown")
+
+    # Validación utilizando la función auxiliar existente
+    prof_id = await _verificar_y_obtener_profesional(update)
+    if not prof_id:
+        await msg_espera.edit_text("⛔ **Acceso denegado:** Este comando es exclusivo para profesionales registrados.", parse_mode="Markdown")
+        return
+
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        
+        # Obtener la especialidad del profesional desde la hoja 'Profesionales'
+        especialidad_prof = "General"
+        try:
+            ws_prof = sh.worksheet("Profesionales")
+            recs_prof = ws_prof.get_all_records()
+            for rp in recs_prof:
+                id_p = str(rp.get("User ID", rp.get("user_id", ""))).split('.')[0].strip()
+                if id_p == prof_id:
+                    especialidad_prof = str(rp.get("Especialidad", rp.get("especialidad", "General"))).strip()
+                    break
+        except Exception:
+            pass
+
+        # Filtrar pacientes del médico
+        ws_usuarios = sh.worksheet("Usuarios")
+        records_usuarios = ws_usuarios.get_all_records()
+
+        pacientes_del_medico = []
+        for r in records_usuarios:
+            p_id = str(r.get("profesional", r.get("Profesional", ""))).split('.')[0].strip()
+            if p_id == prof_id:
+                u_id = str(r.get("User ID", r.get("user_id", ""))).split('.')[0].strip()
+                nombre = r.get("Nombre", r.get("nombre", "Sin Nombre"))
+                estado = r.get("Estado", r.get("estado", "Activo"))
+                if estado.lower() in ['activo', 'sí', 'si', 'true', '1']:
+                    pacientes_del_medico.append({"user_id": u_id, "nombre": nombre})
+
+        if not pacientes_del_medico:
+            await msg_espera.edit_text("ℹ️ No tenés pacientes activos asignados en este momento.", parse_mode="Markdown")
+            return
+
+        # 3. Determinar los últimos 6 meses dinámicamente
+        ahora = obtener_ahora_arg()
+        meses_a_evaluar = []
+        for i in range(6):
+            mes_calculado = ahora - timedelta(days=i * 30)
+            m_str = mes_calculado.strftime("%Y-%m")
+            if m_str not in meses_a_evaluar:
+                meses_a_evaluar.append(m_str)
+        meses_a_evaluar = sorted(list(set(meses_a_evaluar)))[-6:]
+
+        texto_reporte = f"📋 **Listado de Pacientes Asignados**\n🩺 *Especialidad:* `{especialidad_prof}`\n\n"
+        datos_para_pdf = []
+
+        nombres_hojas = [ws.title for ws in sh.worksheets()]
+
+        for pac in pacientes_del_medico:
+            u_id = pac["user_id"]
+            nombre = pac["nombre"]
+            peso_str = "S/D"
+            presion_str = "S/D"
+            calorias_str = "S/D"
+
+            try:
+                ws_perfil = sh.worksheet(f"Perfil_{u_id}")
+                recs_perfil = ws_perfil.get_all_records()
+                if recs_perfil:
+                    ultimo_p = recs_perfil[-1]
+                    p_val = parse_raw_val(ultimo_p.get("PESO", ultimo_p.get("peso", 0)))
+                    if p_val > 0:
+                        peso_str = f"{p_val / 1000:.1f} kg" if p_val > 300 else f"{p_val} kg"
+            except Exception:
+                pass
+
+            # Búsqueda flexible de la hoja de Presión
+            recs_presion_all = []
+            hoja_presion_nombre = next((h for h in nombres_hojas if h.lower() in [f"presion_{u_id}".lower(), f"presión_{u_id}".lower()]), None)
+            if hoja_presion_nombre:
+                try:
+                    ws_p = sh.worksheet(hoja_presion_nombre)
+                    recs_presion_all = ws_p.get_all_records()
+                    if recs_presion_all:
+                        ult_pres = recs_presion_all[-1]
+                        sys = ult_pres.get("Alta", ult_pres.get("Sistolica", ult_pres.get("sistónica", ult_pres.get("sistolica", ""))))
+                        dia = ult_pres.get("Baja", ult_pres.get("Diastolica", ult_pres.get("diastólica", ult_pres.get("diastolica", ""))))
+                        if sys and dia:
+                            presion_str = f"{sys}/{dia} mmHg"
+                except Exception:
+                    pass
+
+            try:
+                ws_comidas = sh.worksheet(f"Comidas_{u_id}")
+                recs_comidas = ws_comidas.get_all_records()
+                calorias_mes = []
+                mes_actual_str = ahora.strftime("%Y-%m")
+                for c in recs_comidas:
+                    fecha_comida = str(c.get("Fecha", c.get("fecha", "")))
+                    if mes_actual_str in fecha_comida:
+                        cal = parse_raw_val(c.get("Calorias", c.get("calorias", 0)))
+                        if cal > 0: calorias_mes.append(cal)
+                if calorias_mes:
+                    prom_cal = sum(calorias_mes) / len(calorias_mes)
+                    calorias_str = f"{round(prom_cal)} kcal/día"
+            except Exception:
+                pass
+
+            texto_reporte += (
+                f"👤 **{nombre}** (ID: `{u_id}`)\n"
+                f"⚖️ Peso: `{peso_str}` | 🩸 Presión: `{presion_str}`\n"
+                f"🔥 Prom. Calorías: `{calorias_str}`\n"
+                "--------------------------------------------------\n"
+            )
+
+            # Recopilar métricas históricas de hasta 6 meses
+            historial_6m = []
+            perfil_dict = recs_perfil[-1] if 'recs_perfil' in locals() and recs_perfil else {}
+
+            for m_str in meses_a_evaluar:
+                df_u = obtener_datos_usuario(u_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+                prom_prot_m = 0
+                prom_grasas_m = 0
+                dias_m = 0
+                prom_cal_m = 0
+
+                if not df_u.empty and 'Fecha' in df_u.columns:
+                    df_u['Mes_Filtro'] = df_u['Fecha'].str.slice(0, 7)
+                    df_m = df_u[df_u['Mes_Filtro'] == m_str]
+                    metricas_m = calcular_metricas_mensuales(df_m, perfil_dict)
+                    prom_cal_m = metricas_m.get("prom_cal", 0)
+                    prom_prot_m = metricas_m.get("prom_prot", 0)
+                    prom_grasas_m = metricas_m.get("prom_grasas", metricas_m.get("prom_grasa", 0))
+                    dias_m = metricas_m.get("dias_registrados", 0)
+
+                presion_m_str = "S/D"
+                presiones_mes = []
+                for p in recs_presion_all:
+                    f_pres = str(p.get("Fecha", p.get("fecha", p.get("Fecha_Hora", p.get("fecha_hora", "")))))
+                    if m_str in f_pres:
+                        s = p.get("Alta", p.get("Sistolica", p.get("sistónica", p.get("sistolica", ""))))
+                        d = p.get("Baja", p.get("Diastolica", p.get("diastólica", p.get("diastolica", ""))))
+                        if s and d:
+                            presiones_mes.append(f"{s}/{d}")
+                if presiones_mes:
+                    presion_m_str = presiones_mes[-1]
+
+                historial_6m.append({
+                    "mes": m_str,
+                    "prom_cal": prom_cal_m,
+                    "prom_prot": prom_prot_m,
+                    "prom_grasas": prom_grasas_m,
+                    "presion": presion_m_str,
+                    "dias": dias_m
+                })
+
+            datos_para_pdf.append({
+                "nombre": nombre,
+                "user_id": u_id,
+                "historial": historial_6m
+            })
+
+        # 4. Generación de PDF avanzado
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+        styles = getSampleStyleSheet()
+        elements = []
+
+        elements.append(Paragraph(f"<b>Reporte Clínico Consolidado ({especialidad_prof})</b>", styles['Heading1']))
+        elements.append(Paragraph(f"Generado el: {ahora.strftime('%Y-%m-%d %H:%M')} | Período analizado: Últimos 6 meses", styles['Normal']))
+        elements.append(Spacer(1, 15))
+
+        elements.append(Paragraph("<b>Evolución Mensual por Paciente (Calorías, Proteínas, Grasas y Presión)</b>", styles['Heading2']))
+        elements.append(Spacer(1, 10))
+
+        for d in datos_para_pdf:
+            elements.append(Paragraph(f"<b>Paciente: {d['nombre']} (ID: {d['user_id']})</b>", styles['Normal']))
+            hist_data = [["Mes", "Calorías", "Proteínas", "Grasas", "Presión", "Días"]]
+            for h in d["historial"]:
+                hist_data.append([
+                    h["mes"], 
+                    f"{h['prom_cal']} kcal", 
+                    f"{h['prom_prot']} g", 
+                    f"{h['prom_grasas']} g", 
+                    h["presion"], 
+                    str(h["dias"])
+                ])
+            
+            t_hist = Table(hist_data, colWidths=[80, 100, 95, 95, 102, 80])
+            t_hist.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2C3E50")),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#F8F9F9")),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#BDC3C7")),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')
+            ]))
+            elements.append(t_hist)
+            elements.append(Spacer(1, 15))
+
+        doc.build(elements)
+        buffer.seek(0)
+
+        await msg_espera.delete()
+        await update.message.reply_text(texto_reporte, parse_mode="Markdown")
+        await update.message.reply_document(
+            document=buffer,
+            filename=f"Reporte_Clinico_{especialidad_prof}_{ahora.strftime('%Y-%m')}.pdf",
+            caption="📄 **Reporte clínico actualizado leyendo las columnas 'Alta' y 'Baja'.**",
+            parse_mode="Markdown"
+        )
+
+    except Exception as e:
+        logger.error(f"Error al generar listado de pacientes para el profesional {prof_id}: {e}")
+        await msg_espera.edit_text(f"❌ Ocurrió un error al procesar el listado clínico: {e}")
+
+async def cmd_pacientesRESERVA0903(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Comando para que el profesional vea el listado de sus pacientes y genere un reporte PDF avanzado (hasta 6 meses)."""
     prof_id = str(update.effective_user.id).strip()
     
@@ -5792,6 +6829,71 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =============================================================================================================================================
 
 # =============================================================================================================================================
+#                    INICIO                                    COMANDO INFORME                                 INICIO  
+# =============================================================================================================================================
+
+async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Comando exclusivo para el profesional: 
+    Envía manualmente el resumen del mes actual (hasta ayer) al paciente indicado.
+    Uso: /enviar_informe <user_id>
+    """
+    prof_id = await _verificar_y_obtener_profesional(update)
+    if not prof_id:
+        await update.message.reply_text("⛔ **Acceso denegado:** Este comando es exclusivo para profesionales registrados.", parse_mode="Markdown")
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "⚠️ Debes indicar el ID del paciente.\n"
+            "Uso correcto: `/enviar_informe <user_id>`", 
+            parse_mode="Markdown"
+        )
+        return
+
+    try:
+        target_user_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("⚠️ El ID de usuario ingresado debe ser un número entero válido.")
+        return
+
+    ahora_arg = obtener_ahora_arg()
+    if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
+        ahora_arg = ahora_arg.replace(tzinfo=None)
+    
+    mes_actual_str = ahora_arg.strftime("%Y-%m")
+
+    msg_espera = await update.message.reply_text(
+        f"⏳ Procesando informe del mes actual para el paciente `{target_user_id}`...", 
+        parse_mode="Markdown"
+    )
+
+    exito = await procesar_y_enviar_informe_mensual(
+        context=context,
+        user_id=target_user_id,
+        mes_target=mes_actual_str,
+        es_automatico_15=False,
+        forzar_envio=True
+    )
+
+    await msg_espera.delete()
+    if exito:
+        await update.message.reply_text(
+            f"✅ El informe nutricional del mes actual fue enviado con éxito al paciente `{target_user_id}`.", 
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            f"❌ No se pudo completar el envío para el usuario `{target_user_id}`. "
+            f"Revisá si tiene registros cargados en el mes o consulta los logs.", 
+            parse_mode="Markdown"
+        )
+
+# =============================================================================================================================================
+#                    FINAL                                    COMANDO INFORME                                 FINAL  
+# =============================================================================================================================================
+
+# =============================================================================================================================================
 #                    INICIO                                     MAIN EXECUTION                                  INICIO  
 # =============================================================================================================================================
 
@@ -5853,6 +6955,7 @@ def main():
     app_bot.add_handler(CommandHandler(["mensaje", "semana", "semanal", "s"], cmd_mensaje))
     app_bot.add_handler(CommandHandler(["receta", "planilla"], cmd_cargar_receta))
     app_bot.add_handler(CommandHandler("eliminar", cmd_eliminar_ingesta))
+    app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
 
     # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
     app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
