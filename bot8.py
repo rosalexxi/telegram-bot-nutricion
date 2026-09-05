@@ -764,19 +764,17 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
     conn.commit()
     return conn, cur
     
-def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anterior_str, registros_perfil=None):
+def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anterior_str, peso_fin_mes_override=None):
     """
     Calcula el factor del mes anterior extrayendo los promedios reales de ingesta 
-    y ejercicio, calculando el delta de peso real durante el mes (comparando con el mes siguiente)
-    y actualizando el resultado en la hoja Perfil.
+    y ejercicio, calculando el delta de peso real durante el mes y actualizando 
+    el resultado en la hoja Perfil[cite: 2].
     """
     try:
-        # 1. Obtener los datos diarios del usuario
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
         if df_datos.empty or 'Fecha' not in df_datos.columns:
             return None
 
-        # Filtrar estrictamente por el mes anterior (ej: "2026-08")
         df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_anterior_str)].copy()
         if df_mes.empty:
             return None
@@ -785,15 +783,13 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anteri
         if dias_registrados == 0:
             dias_registrados = 1
 
-        # 2. Extraer los totales reales de ingesta y ejercicio
         tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
         tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in df_mes.columns else 0.0
 
         ingesta_diaria = tot_cons_mes / dias_registrados
         ejercicio_diario = tot_quem_mes / dias_registrados
 
-        # 3. Obtener el perfil y la TMB base del usuario
-        perfil = obtener_perfil_usuario_db(user_id, mes_target=mes_anterior_str) if 'obtener_perfil_usuario_db' in globals() else {}
+        perfil = obtener_perfil_usuario_supa(user_id, mes_target=mes_anterior_str) if 'obtener_perfil_usuario_supa' in globals() else {}
         
         peso_actual = float(perfil.get('Peso', perfil.get('peso', 108400)))
         if peso_actual > 1000: peso_actual /= 1000.0
@@ -810,7 +806,6 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anteri
         if tmb_pura <= 0:
             tmb_pura = 1813.0
 
-        # 4. Cálculo correcto del delta de peso DURANTE el mes anterior
         delta_peso = 0.0
         try:
             if sheet_perfil is not None:
@@ -829,31 +824,32 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anteri
                 
                 meses_ordenados = sorted(pesos_por_mes.keys())
                 if mes_anterior_str in meses_ordenados:
-                    idx_actual = meses_ordenados.index(mes_anterior_str)
                     peso_inicio_mes = pesos_por_mes[mes_anterior_str]
                     
-                    # La variación real del mes se obtiene viendo el peso registrado en el mes SIGUIENTE
-                    if idx_actual + 1 < len(meses_ordenados):
-                        mes_siguiente = meses_ordenados[idx_actual + 1]
-                        peso_fin_mes = pesos_por_mes[mes_siguiente]
+                    # CORRECCIÓN: Si se pasa el peso nuevo del mes actual como override, 
+                    # se toma como el cierre exacto del mes anterior.
+                    if peso_fin_mes_override is not None:
+                        peso_fin_mes = float(peso_fin_mes_override)
+                        if peso_fin_mes > 1000: peso_fin_mes /= 1000.0
                         delta_peso = peso_fin_mes - peso_inicio_mes
                     else:
-                        # Si no hay mes siguiente registrado aún, se toma el peso actual ingresado
-                        delta_peso = 0.0
+                        idx_actual = meses_ordenados.index(mes_anterior_str)
+                        if idx_actual + 1 < len(meses_ordenados):
+                            mes_siguiente = meses_ordenados[idx_actual + 1]
+                            peso_fin_mes = pesos_por_mes[mes_siguiente]
+                            delta_peso = peso_fin_mes - peso_inicio_mes
+                        else:
+                            delta_peso = 0.0
         except Exception as e_delta:
             logger.error(f"Error calculando delta de peso dinámico para User {user_id}: {e_delta}")
             delta_peso = 0.0
 
-        # 5. Aplicación de la fórmula termodinámica exacta
         gasto_diario_total = ingesta_diaria - ((delta_peso * 7700.0) / dias_registrados)
         factor_limpio = (gasto_diario_total - ejercicio_diario) / tmb_pura
         
-        # Aplicar límites de seguridad (clamp entre 1.20 y 1.85)
         factor_limpio = max(1.20, min(1.85, factor_limpio))
-        
         ocupacion_sheet = int(round(factor_limpio * 1000))
 
-        # 6. Actualizar la celda de ocupación en la hoja Perfil del mes anterior
         try:
             if sheet_perfil is not None:
                 cell = sheet_perfil.find(str(mes_anterior_str))
@@ -869,7 +865,7 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anteri
     except Exception as e:
         logger.error(f"Error al calcular factor limpio del mes anterior para User {user_id}: {e}")
         return None
-        
+                
 def _calcular_y_actualizar_factor_mes_anteriorRESERVA0903(user_id, sheet_perfil, mes_anterior_str, registros_perfil=None):
     """
     Calcula el factor del mes anterior extrayendo los promedios reales de ingesta 
@@ -1011,7 +1007,7 @@ def obtener_perfil_usuario(user_id, mes_target=None):
                 # Procesa el número (ej: 1400 -> 1.4)
                 val = parse_float_from_sheets(v)
                 val_norm = (val / 1000.0) if val > 1000 else val
-                # Si por alguna razón vino en 0 o vacío, asigna por defecto 1.375
+                # Si por alguna razón vino en 0 o vacío, asigna por defecto 1.
                 factor_final = val_norm if val_norm > 0 else 1.375
                 
                 perfil['Ocupacion'] = factor_final
@@ -1403,7 +1399,6 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     records = ws.get_all_records()
     fila_a_actualizar = None
 
-    # 1. Buscar si el mes actual ya tiene fila asignada
     if records:
         for idx, row in enumerate(records, start=2):
             mes_en_fila = str(row.get('MES', row.get('Mes', ''))).strip()
@@ -1414,7 +1409,6 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     peso_nuevo_sheet = to_sheet_int(peso)
 
     if fila_a_actualizar:
-        # CASO A: Actualización dentro del mismo mes
         peso_actual_en_celda = str(ws.cell(fila_a_actualizar, 2).value).strip()
         if peso_actual_en_celda == str(peso_nuevo_sheet):
             print(f"📌 El peso {peso} ya estaba registrado para el mes {mes}. No se reescribe nada.")
@@ -1425,20 +1419,17 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         ocupacion_final_para_usuarios = ws.cell(fila_a_actualizar, 5).value
 
     else:
-        # CASO B: Apertura de nuevo mes (Ej: Ingresa septiembre)
-        
-        # PASO CRÍTICO: Primero actualizamos el mes anterior con la fórmula termodinámica real
+        # CORRECCIÓN: Al abrir nuevo mes, pasamos 'peso' como override para que 
+        # calcule correctamente el delta del mes anterior que acaba de cerrar.
         if len(records) >= 1:
             ultimo_reg_previo = records[-1]
             mes_anterior_str = str(ultimo_reg_previo.get('MES', ultimo_reg_previo.get('Mes', ''))).strip()
             
             if mes_anterior_str:
-                _calcular_y_actualizar_factor_mes_anterior(user_id, ws, mes_anterior_str)
+                _calcular_y_actualizar_factor_mes_anterior(user_id, ws, mes_anterior_str, peso_fin_mes_override=peso)
 
-        # Volvemos a leer los registros ya con el mes anterior actualizado por la termodinámica
         records_actualizados = ws.get_all_records()
         
-        # Ahora sí, calculamos el promedio de los últimos 3 meses para la ocupación del nuevo mes
         valores_ocupacion = []
         for row in records_actualizados:
             val_ocu = row.get('ocupacion') or row.get('Ocupacion') or row.get('OCUPACION')
@@ -1452,13 +1443,12 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                     pass
         
         if valores_ocupacion:
-            ultimos_tres = valores_ocupacion[-3:]  # Últimos hasta 3 meses
+            ultimos_tres = valores_ocupacion[-3:]
             promedio_ocupacion = sum(ultimos_tres) / len(ultimos_tres)
             ocupacion_calculada = int(round(promedio_ocupacion * 1000)) if promedio_ocupacion < 10 else int(round(promedio_ocupacion))
         else:
             ocupacion_calculada = ocupacion if ocupacion is not None else 1684
 
-        # Tomar datos de referencia del último registro para la nueva fila
         ultimo_registro = records_actualizados[-1] if records_actualizados else {}
         edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
         altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
@@ -1471,7 +1461,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
             peso_nuevo_sheet,
             str(altura_raw),
             str(genero_final),
-            str(ocupacion_calculada),  # Promedio correcto de los últimos 3 meses ya corregidos
+            str(ocupacion_calculada),
             str(mes),
             ahora.strftime("%Y-%m-%d %H:%M:%S"),
             str(peso_ideal_final),
@@ -1480,7 +1470,6 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         ws.append_row(nueva_fila)
         ocupacion_final_para_usuarios = ocupacion_calculada
 
-    # 4. Actualización de la pestaña general 'Usuarios'
     try:
         ws_usuarios = sh.worksheet("Usuarios")
         registros_usuarios = ws_usuarios.get_all_records()
@@ -1514,7 +1503,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
             
     except Exception as e:
         print(f"❌ Error crítico al actualizar la pestaña 'Usuarios': {e}")
-                                       
+                                               
 def guardar_perfil_dbRESERVA0904(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     gc = get_gspread_client()
     sh = gc.open(SPREADSHEET_NAME)
