@@ -3374,7 +3374,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/inicio`: Resumen de los comando y PDF del manual.\n"
         "• `/nuevo`: Apertura de cuenta ingresando los datos.\n"
         "• `/presi`: Registro y consulta de presión arterial.\n"
-        "  `  /presi 120,80,70,nota` (Completo) | `/presi 120,80,70` (Sin nota) | `1/presi 20,80` (Solo presión)\n"
+        "  `  /presi 120,80,70,nota` (Completo)\n"
         "  `  /presi 120,80,70` (Sin nota)\n"
         "  `  /presi 120,80` (Solo presión)\n"
         "  `  /presi AAAA-MM` Consulta promedio mensual y descarga reporte PDF.\n"
@@ -3382,7 +3382,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/semanal`: Estadística de la semana pasada (calorías, proteínas, actividad física).\n"
         "• `/mensual`: Reporte mensual con estimación de peso, macronutrientes y descarga reporte PDF.\n"
         "• `/perfil`: Consulta de datos biométricos.\n"
-        "• `/peso`: /peso 90` Actualiza el peso del mes.\n"
+        "• `/peso`: `/peso 90` Actualiza el peso del mes.\n"
         "• `/eliminar`: Borra ingestas o actividades seleccionando el dia.\n"
         "• `/comidas`: Visualiza listado de comidas predeterminadas y descarga su plantilla PDF.\n"
         "• `/receta`: Acceso a la Calculadora Web para registrar platos y recetas complejas.\n\n"
@@ -3616,7 +3616,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ('RIGHTPADDING', (0,0), (-1,-1), 6),
         ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
         ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, BG_LIGHT]) # Corregido: se eliminó colors.black
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, BG_LIGHT])
     ]))
     
     direct_data[0][0].style.textColor = colors.white
@@ -3626,7 +3626,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     story.append(t_direct)
     story.append(Spacer(1, 8))
 
-# --- SECCIÓN 3: CALCULADORA WEB DE RECETAS ---
+    # --- SECCIÓN 3: CALCULADORA WEB DE RECETAS ---
     story.append(KeepTogether([
         Paragraph("3. Calculadora Nutricional Web (/receta)", section_style),
         Paragraph("Permite cargar recetas elaboradas o combinaciones de alimentos habituales directamente en tu planilla personal.", body_style),
@@ -3660,7 +3660,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 
     t_receta = Table(receta_data, colWidths=[270, 270])
     t_receta.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), PRIMARY),  # Fondo oscuro (igual al de la Sección 2)
+        ('BACKGROUND', (0,0), (-1,0), PRIMARY),  # Fondo oscuro
         ('BACKGROUND', (0,1), (-1,1), BG_CARD),  # Fondo claro para el contenido
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('TOPPADDING', (0,0), (-1,-1), 5),
