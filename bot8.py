@@ -1728,6 +1728,7 @@ def obtener_momento_y_fecha_auto():
 # 2. CÁLCULOS BIOMÉTRICOS Y MÉTRICAS
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
+
 def calcular_contextura(sexo: str, altura_cm: float, muneca_cm: float) -> str:
     """Calcula la contextura física según la relación Altura / Muñeca."""
     if muneca_cm <= 0: return "Mediana"
@@ -2232,37 +2233,53 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
     if frecuencias is None:
         frecuencias = {}
 
+    # Mapeo seguro y normalización de datos antropométricos basados en los encabezados reales de la hoja
+    edad = m.get('EDAD') or m.get('edad') or 64
+    
+    raw_altura = m.get('ALTURA') or m.get('altura') or 172000
+    if raw_altura > 10:
+        estatura = raw_altura / 100000 if raw_altura > 10000 else raw_altura / 100
+    else:
+        estatura = 1.72
+
+    raw_peso = m.get('PESO') or m.get('peso') or 104600
+    peso_actual = raw_peso / 1000 if raw_peso > 1000 else raw_peso
+
+    raw_peso_ideal = m.get('Peso_ideal') or m.get('peso_ideal') or 69000
+    peso_objetivo = raw_peso_ideal / 1000 if raw_peso_ideal > 1000 else raw_peso_ideal
+
+    sexo = m.get('GENERO') or m.get('genero') or 'M'
+
     frec_str = "\n".join([f"- {cat}: {cant} ingestas" for cat, cant in frecuencias.items()]) if frecuencias else "- No hay frecuencias registradas."
 
     prompt_1 = (
-        f"Actúa como un nutricionista clínico experto. Redacta un diagnóstico nutricional profundo, crítico y personalizado "
-        f"para el paciente correspondiente al mes {mes_str}, basándote estrictamente en sus datos reales:\n"
-        f"- Edad: {m.get('edad', 'N/A')} años | Sexo: {m.get('sexo', 'N/A')} | Estatura: {m.get('estatura', 'N/A')} m\n"
-        f"- Peso actual: {m.get('peso_actual', 'N/A')} kg | Meta de peso: {m.get('peso_objetivo', 'N/A')} kg\n"
+        f"Actúa estrictamente como un nutricionista clínico experto. Redacta un diagnóstico nutricional profundo, crítico y personalizado "
+        f"para el paciente correspondiente al mes {mes_str}, basándote en los siguientes datos reales:\n"
+        f"- Edad: {edad} años | Sexo: {sexo} | Estatura: {estatura} m\n"
+        f"- Peso actual: {peso_actual} kg | Meta de peso: {peso_objetivo} kg\n"
         f"- Calorías promedio reales: {m.get('prom_cal', 0)} kcal (Meta: {m.get('ideal_cal', 0)} kcal)\n"
         f"- Proteínas promedio: {m.get('prom_prot', 0)} g (Meta: {m.get('ideal_prot', 0)} g)\n"
         f"- Grasas promedio: {m.get('prom_gras', 0)} g (Meta: {m.get('ideal_gras', 0)} g)\n"
         f"- Carbohidratos promedio: {m.get('prom_carb', 0)} g (Meta: {m.get('ideal_carb', 0)} g)\n"
         f"- Fibras promedio: {m.get('prom_fibr', 0)} g (Meta: {m.get('ideal_fibr', 0)} g)\n"
-        f"Frecuencia de consumo por grupos alimentarios en el mes:\n{frec_str}\n\n"
-        f"INSTRUCCIÓN: Calcula y menciona el IMC exacto utilizando la estatura y peso provistos (prohibido hacer suposiciones genéricas). "
-        f"Analiza los desvíos cuantitativos (déficit calórico, desequilibrio de macronutrientes) y relaciónalos directamente con las frecuencias de ingesta registradas. "
-        f"No hagas listas de alimentos aquí, céntrate puramente en el diagnóstico clínico y metabólico del paciente."
+        f"Frecuencia de consumo por grupos alimentarios:\n{frec_str}\n\n"
+        f"INSTRUCCIÓN: Calcula explícitamente el IMC (Peso / Estatura al cuadrado) usando {peso_actual} kg y {estatura} m. "
+        f"Analiza los desvíos cuantitativos y relacionalos con las frecuencias. Prohibido saludar, hacer introducciones o listas de alimentos en esta sección."
     )
 
     prompt_2 = (
-        f"Siguiendo con el diagnóstico clínico anterior y los baches detectados en los macronutrientes del paciente "
-        f"(proteínas, fibra, calorías, considerando su estatura de {m.get('estatura', 'N/A')} m y peso objetivo de {m.get('peso_objetivo', 'N/A')} kg), "
-        f"redacta una lista numerada del 1 al 10 con recomendaciones de alimentos específicos, accesibles y altamente personalizados "
-        f"que este paciente en particular debe incorporar para corregir sus desvíos nutricionales reales."
+        f"Actúa como nutricionista clínico. Basándote en el diagnóstico y baches de macronutrientes del paciente "
+        f"(estatura {estatura} m, peso objetivo {peso_objetivo} kg), "
+        f"redacta una lista numerada estricta del 1 al 10 con recomendaciones de alimentos específicos y accesibles.\n"
+        f"INSTRUCCIÓN: Comienza directamente con el número 1. Prohibido usar saludos, introducciones o frases conversacionales."
     )
 
     prompt_3 = (
-        f"Basándote en los excesos o desvíos detectados en el mes para este paciente, redacta una lista numerada del 1 al 10 "
-        f"con alimentos o hábitos alimentarios específicos a reducir o evitar. "
-        f"Añade al final una estrategia breve y concreta sobre consumo óptimo de agua y **hábitos nutricionales sostenibles** "
-        f"(enfocados estrictamente en la adherencia a la dieta, control de porciones y conductas alimentarias saludables; "
-        f"prohibido mencionar ecología, plásticos, reciclaje o electrodomésticos)."
+        f"Actúa como nutricionista clínico. Basándote en los excesos del mes para este paciente, "
+        f"redacta una lista numerada estricta del 1 al 10 con alimentos o hábitos a reducir o evitar.\n"
+        f"Añade al final un párrafo corto con una estrategia concreta sobre consumo de agua y hábitos nutricionales sostenibles "
+        f"(prohibido mencionar ecología, plásticos, reciclaje o electrodomésticos).\n"
+        f"INSTRUCCIÓN: Comienza directamente con el número 1. Sin saludos ni introducciones."
     )
 
     prompt_auditor_base = (
@@ -2271,8 +2288,9 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         f"--- INFORME A EVALUAR ---\n{{informe_completo}}\n-------------------------\n\n"
         f"Criterios de rechazo obligatorios:\n"
         f"1. Si incluye consejos ecológicos, de reciclaje, plásticos o electrodomésticos.\n"
-        f"2. Si la sección 1 es una lista de alimentos en vez de un diagnóstico clínico.\n"
-        f"Si el informe es estrictamente profesional, clínico y coherente, tu respuesta debe incluir la palabra 'OK'."
+        f"2. Si la sección 1 contiene una lista de alimentos en vez de diagnóstico clínico o si menciona que faltan datos (estatura/peso).\n"
+        f"3. Si hay saludos, introducciones conversacionales o texto informal dirigido al paciente.\n"
+        f"Si el informe es estrictamente profesional y cumple todo, responde únicamente con la palabra 'OK'."
     )
 
     max_intentos = 3  
@@ -2280,16 +2298,16 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         try:
             logger.info(f"Generando informe mensual auditado para usuario {user_id} (Intento {intento_actual}/{max_intentos})")
 
-            # Paso 1: Bloque General
-            texto_p1 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_1, max_tokens=600, temperature=0.3)
+            # Paso 1
+            texto_p1 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_1, max_tokens=800, temperature=0.2)
             await asyncio.sleep(2)
 
-            # Paso 2: Alimentos a incorporar
-            texto_p2 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_2, max_tokens=600, temperature=0.3)
+            # Paso 2
+            texto_p2 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_2, max_tokens=800, temperature=0.2)
             await asyncio.sleep(2)
 
-            # Paso 3: Alimentos a evitar y hábitos
-            texto_p3 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_3, max_tokens=600, temperature=0.3)
+            # Paso 3
+            texto_p3 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_3, max_tokens=800, temperature=0.2)
             await asyncio.sleep(2)
 
             # Unimos las partes en formato HTML limpio
@@ -2299,10 +2317,10 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
                 f"<b>3. ALIMENTOS A REDUCIR Y HÁBITOS</b><br/>{texto_p3}"
             )
 
-            # Paso 4: Instancia del Modelo Revisor con Doble Respaldo
+            # Auditoría
             prompt_auditor_final = prompt_auditor_base.format(informe_completo=informe_candidato)
             
-            modelo_rev = globals().get('GROQ_REVISION', 'llama-3.3-70b-versatile')
+            modelo_rev = globals().get('GROQ_REVISION', 'qwen/qwen3.8-27b')
             veredicto = await asyncio.to_thread(
                 ejecutar_consulta_ia, 
                 prompt=prompt_auditor_final, 
@@ -2312,7 +2330,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
             )
 
             if not veredicto or veredicto.strip() == "":
-                modelo_rev_2 = globals().get('GROQ_REVISOR_2', 'openai/gpt-oss-20b')
+                modelo_rev_2 = globals().get('GROQ_REVISOR_2', 'llama-3.3-70b-versatile')
                 logger.warning(f"Revisor principal ({modelo_rev}) devolvió vacío. Reintentando con revisor secundario ({modelo_rev_2})...")
                 veredicto = await asyncio.to_thread(
                     ejecutar_consulta_ia, 
@@ -2324,7 +2342,6 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
 
             veredicto_limpio = veredicto.strip().upper() if veredicto else ""
 
-            # Validación más flexible para evitar que un modelo muy conversacional rechace un buen informe por no decir solo "OK"
             if "OK" in veredicto_limpio and "RECHAZ" not in veredicto_limpio:
                 logger.info(f"¡Informe mensual aprobado por el sistema en el intento {intento_actual} para el usuario {user_id}!")
                 return informe_candidato
@@ -2367,6 +2384,9 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         logger.error(f"No se pudo notificar al médico del usuario {user_id}: {err_medico}")
 
     return None
+
+
+
                 
 async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
     """
@@ -5130,86 +5150,6 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                    INICIO                                    COMANDO INFORME MEDICO                                INICIO  
 # =============================================================================================================================================
 
-async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
-    try:
-        peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
-        if not peso_ok and not forzar_envio:
-            return False
-
-        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
-        if df_datos.empty or 'Fecha' not in df_datos.columns:
-            await context.bot.send_message(chat_id=chat_destino, text="⚠️ No hay registros suficientes para generar el informe.")
-            return False
-
-        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
-        
-        ahora_arg = obtener_ahora_arg()
-        if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
-            ahora_arg = ahora_arg.replace(tzinfo=None)
-        
-        hoy_ts = pd.Timestamp(ahora_arg).normalize()
-        ayer_ts = hoy_ts - pd.Timedelta(days=1)
-        mes_actual_str = hoy_ts.strftime("%Y-%m")
-
-        if es_automatico_15:
-            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
-            fin_periodo = pd.Timestamp(f"{mes_target}-14").normalize()
-            etiqueta_periodo = f"Quincenal ({mes_target}: 1 al 14)"
-        else:
-            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
-            if mes_target == mes_actual_str:
-                fin_periodo = ayer_ts
-                etiqueta_periodo = f"Mes Actual en curso ({mes_target}: del 01 al {ayer_ts.strftime('%d/%m')})"
-            else:
-                fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
-                etiqueta_periodo = f"Mes Completo ({mes_target})"
-
-        df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
-
-        if df_filtrado.empty:
-            await context.bot.send_message(chat_id=chat_destino, text=f"⚠️ No se encontraron registros cerrados para el período {etiqueta_periodo}.")
-            return False
-
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
-        m = calcular_metricas_mensuales(df_filtrado, perfil) if 'calcular_metricas_mensuales' in globals() else {}
-        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_target) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
-
-        informe_ia = await generar_informe_mensual_auditado(context, user_id, mes_target, m, conteo_frecuencias)
-
-        if not informe_ia:
-            informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
-
-        # Compilación unificada en PDF mediante ReportLab para cualquier invocación (automática o manual)
-        df_presion = pd.DataFrame()
-        tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
-
-        pdf_buffer = await asyncio.to_thread(
-            generar_pdf_resumen_bytes,
-            mes_target,
-            df_filtrado,
-            df_presion,
-            perfil,
-            tmb_val,
-            informe_ia,
-            user_id
-        )
-
-        await context.bot.send_document(
-            chat_id=chat_destino,
-            document=pdf_buffer,
-            filename=f"Informe_Nutricional_{mes_target}.pdf",
-            caption=f"📄 <b>Informe Nutricional Auditado ({etiqueta_periodo})</b>",
-            parse_mode="HTML"
-        )
-        return True
-
-    except Exception as e:
-        logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}", exc_info=True)
-        try:
-            await context.bot.send_message(chat_id=chat_destino, text=f"⚠️ Error al compilar el informe PDF: {str(e)}")
-        except Exception:
-            pass
-        return False
 
 async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
