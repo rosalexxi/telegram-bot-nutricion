@@ -22,6 +22,8 @@ import sys
 import pytz
 import pandas as pd
 import gspread
+import html  
+
 
 
 from typing import Dict, Tuple, List, Optional, Any            
@@ -3719,7 +3721,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await update.message.reply_text(msg, parse_mode="Markdown")
             return
 
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) or {}
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
         m = calcular_metricas_mensuales(df_mes, perfil)
 
         def _fmt(val, dec=0):
@@ -3733,9 +3735,9 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         cambio_peso_val = float(m.get('cambio_peso_kg', 0))
         texto_variacion_peso = f"`{cambio_peso_val:+.1f} kg`"
 
-        encabezado_txt = (
+encabezado_txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n"
-            f"⚖️ *Peso registrado: `{_fmt(m.get('peso_actual', 0), 1)} kg`*\n\n"
+            f"⚖️ Peso registrado: `{_fmt(m.get('peso_actual', 0), 1)} kg`\n\n"
             f"• Consumidas: `{_fmt(m.get('prom_cal', 0))} kcal` | Quemadas: `{_fmt(m.get('prom_quem', 0))} kcal`\n"
             f"• Balance Neto: `{_fmt(m.get('prom_bal_neto', 0))} kcal/día`\n"
             f"• Variación Est. de Peso: {texto_variacion_peso} ({m.get('dias_registrados', 0)} días)\n\n"
@@ -3745,7 +3747,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"• Grasas: `{_fmt(m.get('prom_gras', 0))}` / `{_fmt(m.get('ideal_gras', 0))} g`\n"
             f"• Carbs: `{_fmt(m.get('prom_carb', 0))}` / `{_fmt(m.get('ideal_carb', 0))} g`\n"
             f"• Fibras: `{_fmt(m.get('prom_fibr', 0))}` / `{_fmt(m.get('ideal_fibr', 0))} g`\n\n"
-            f"📌 *Resumen calculado con éxito *"
+            f"📌 Resumen calculado con éxito"
         )
         
         pie_txt = f"\n\n📄 Podés descargar el informe completo en PDF abajo:"
@@ -3866,8 +3868,8 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     m = calcular_metricas_mensuales(df_mes, perfil_dict)
 
     table_comp = [
-        [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Valor Ideal (Peso Ponderado 75/25)</b>", header_style)],
-        [Paragraph("Calorías", body_style), Paragraph(f"{m.get('prom_cal', 0)} kcal", body_style), Paragraph(f"{int(round(m.get('get_meta', 0)))} kcal", body_style)],
+        [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Valor Ideal</b>", header_style)],
+        [Paragraph("Calorías", body_style), Paragraph(f"{m.get('prom_cal', 0)} kcal", body_style), Paragraph(f"{int(round(m.get('ideal_cal', 0)))} kcal", body_style)],
         [Paragraph("Proteínas", body_style), Paragraph(f"{m.get('prom_prot', 0)} g", body_style), Paragraph(f"{m.get('ideal_prot', 0)} g", body_style)],
         [Paragraph("Grasas", body_style), Paragraph(f"{m.get('prom_gras', 0)} g", body_style), Paragraph(f"{m.get('ideal_gras', 0)} g", body_style)],
         [Paragraph("Carbohidratos", body_style), Paragraph(f"{m.get('prom_carb', 0)} g", body_style), Paragraph(f"{m.get('ideal_carb', 0)} g", body_style)],
@@ -3885,7 +3887,7 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     peso_act_pdf = round(float(m.get('peso_actual', 0)), 1)
     peso_ref_pdf = round(float(m.get('peso_referencia', 0)), 1)
 
-    story.append(Paragraph(f"• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {peso_act_pdf} kg | Peso Objetivo  de esta etapa : {peso_ref_pdf} kg |", body_style))
+    story.append(Paragraph(f"• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {peso_act_pdf} kg | Peso Objetivo de esta etapa : {peso_ref_pdf} kg |", body_style))
     story.append(Paragraph(f"• <b>DÉFICIT CALÓRICO DIARIO PROMEDIO:</b> {m.get('deficit_diario_real', 0)} kcal / día", body_style))
     story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {m.get('cambio_peso_kg', 0):+.1f} kg", body_style))
 
@@ -3950,12 +3952,12 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         if df_mes.empty:
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
-                text=f"⚠️ No hay registros de días en el mes `{mes_str}` para generar el PDF.",
+                text=f"⚠️ No hay registros de días in el mes `{mes_str}` para generar el PDF.",
                 parse_mode="Markdown"
             )
             return
 
-        perfil = obtener_perfil_usuario_db(user_id, mes_target=mes_str) if 'obtener_perfil_usuario_db' in globals() else {}
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
         df_presion = pd.DataFrame()
         tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
 
@@ -5951,7 +5953,6 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                    INICIO                                    COMANDO INFORME MEDICO                                INICIO  
 # =============================================================================================================================================
 
-
 async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False, chat_destino: int = None):
     """
     Función unificada para generar y enviar el informe periódico con IA.
@@ -6007,7 +6008,23 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
         if not informe_ia:
             informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
 
+        # Limpiamos los saltos de línea y escapamos caracteres conflictivos para HTML de Telegram
         informe_limpio = informe_ia.replace("<br>", "\n").replace("<br/>", "\n").replace("<BR>", "\n")
+        
+        # Opcional: si la IA devuelve etiquetas HTML válidas que querés conservar, podés pasarlas por un parser seguro, 
+        # pero si querés evitar por completo que rompa por caracteres sueltos o símbolos '<' / '>', usamos html.escape en el texto plano:
+        # (Si querés mantener las etiquetas de la IA como <b> o <i>, aplicamos el escape selectivo o evitamos que rompa el parser).
+        # Una solución robusta para texto mixto de IA es escapar los caracteres peligrosos excepto en las etiquetas de formato:
+        informe_seguro = (
+            informe_limpio
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            # Restauramos las etiquetas básicas de negrita y cursiva que emite la IA para que sigan funcionando:
+            .replace("&lt;b&gt;", "<b>").replace("&lt;/b&gt;", "</b>")
+            .replace("&lt;i&gt;", "<i>").replace("&lt;/i&gt;", "</i>")
+            .replace("&lt;u&gt;", "<u>").replace("&lt;/u&gt;", "</u>")
+        )
 
         txt_mensual = (
             f"📊 <b>Informe Nutricional ({etiqueta_periodo}):</b>\n"
@@ -6015,7 +6032,7 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
             f"• Calorías Promedio: <b>{m.get('prom_cal', 0)} kcal</b> (Meta: {m.get('ideal_cal', 0)} kcal)\n"
             f"• Días Registrados: <b>{m.get('dias_registrados', 0)}</b>\n\n"
             f"🤖 <b>Análisis Nutricional Profundo:</b>\n"
-            f"{informe_limpio}"
+            f"{informe_seguro}"
         )
 
         await context.bot.send_message(chat_id=dest, text=txt_mensual, parse_mode="HTML")
@@ -6024,8 +6041,6 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
     except Exception as e:
         logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}", exc_info=True)
         return False
-
-
 async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando para que el médico fuerce el envío del informe mensual/actual.
@@ -6081,8 +6096,7 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
     except Exception as e:
         logger.error(f"Error en cmd_enviar_informe_actual: {e}", exc_info=True)
         await update.message.reply_text("❌ Ocurrió un error al procesar la solicitud del informe.")
-        
-                    
+                            
 # =============================================================================================================================================
 #                    FINAL                                    COMANDO INFORME MEDICO                                FINAL  
 # =============================================================================================================================================
