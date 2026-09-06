@@ -2025,6 +2025,42 @@ def analizar_frecuencia_alimentos_mes(user_id: int, mes_target: str = None) -> d
 # 3. INTEGRACIÓN CON IA (GROQ)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
+def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4, system_prompt: str = None, modelo_override: str = None) -> str:
+    """Función centralizada para consultas a la API de Groq."""
+    try:
+        client = globals().get('client_ai') or globals().get('groq_client')
+        if not client:
+            api_key = globals().get('GROQ_API_KEY') or os.getenv("GROQ_API_KEY")
+            if not api_key:
+                logger.error("⚠️ GROQ_API_KEY no configurada.")
+                return ""
+            from groq import Groq
+            client = Groq(api_key=api_key)
+
+        # Selecciona el modelo pasado por argumento o el predeterminado de globals
+        modelo = modelo_override or globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile")
+        
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        response = client.chat.completions.create(
+            model=modelo,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+        
+        if response and response.choices:
+            content = response.choices[0].message.content
+            return content.strip() if content else ""
+            
+    except Exception as e:
+        logger.error(f"⚠️ Error en ejecución de IA: {e}")
+        
+    return ""
+
 async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.BytesIO]:
     """
     Consulta a Groq con reintentos automáticos, audita el informe con el modelo de revisión 
