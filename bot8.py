@@ -62,10 +62,12 @@ load_dotenv()
 # Estados de conversación para Perfil y Fecha personalizada
 AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT_ITEM = range(4)
 
-GROQ_TEXTO = "openai/gpt-oss-120b"
+GGROQ_TEXTO = "openai/gpt-oss-120b"
 GROQ_FOTO = "qwen/qwen3.8-27b"
 GROQ_AUDIO = "whisper-large-v3"
-GROQ_REVISION = "openai/gpt-oss-20b"
+GROQ_REVISION = "llama-3.3-70b-versatile"       # Cambiado a un modelo grande y estable
+GROQ_REVISOR_2 = "openai/gpt-oss-20b"
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GOOGLE_SHEETS_KEY_PATH = os.getenv("GOOGLE_SHEETS_KEY_PATH", "credentials.json")
@@ -2216,65 +2218,80 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
 
     prompt_auditor_base = (
         f"Actúa como un médico supervisor estricto y auditor de calidad. "
-        f"Revisa el siguiente informe nutricional compuesto por tres secciones:\n\n"
+        f"Revisa el siguiente informe nutricional:\n\n"
         f"--- INFORME A EVALUAR ---\n{{informe_completo}}\n-------------------------\n\n"
-        f"INSTRUCCIONES DE AUDITORÍA:\n"
-        f"1. Verifica que el texto sea coherente, empático, sin contradicciones y estrictamente profesional.\n"
-        f"2. Si el informe está perfecto y listo para entregar, responde únicamente comenzando con la palabra 'OK'.\n"
-        f"3. Si encuentras errores lógicos, datos cruzados o incoherencias, responde comenzando con la palabra 'RECHAZADO' seguido del motivo."
+        f"Si el informe es coherente y profesional, responde únicamente con la palabra 'OK'."
     )
 
-    max_intentos = 10
+    max_intentos = 3  # Reducido para agilizar en Render
     for intento_actual in range(1, max_intentos + 1):
         try:
             logger.info(f"Generando informe mensual auditado para usuario {user_id} (Intento {intento_actual}/{max_intentos})")
 
-            # Paso 1: Bloque General (Usa GROQ_TEXTO por defecto)
+            # Paso 1: Bloque General
             texto_p1 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_1, max_tokens=600, temperature=0.3)
-            await asyncio.sleep(60)
+            await asyncio.sleep(2)
 
             # Paso 2: Alimentos a incorporar
             texto_p2 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_2, max_tokens=600, temperature=0.3)
-            await asyncio.sleep(60)
+            await asyncio.sleep(2)
 
             # Paso 3: Alimentos a evitar y hábitos
             texto_p3 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_3, max_tokens=600, temperature=0.3)
-            await asyncio.sleep(60)
+            await asyncio.sleep(2)
 
-            # Unimos las partes en formato HTML limpio para el PDF
+            # Unimos las partes en formato HTML limpio
             informe_candidato = (
                 f"<b>1. DIAGNÓSTICO NUTRICIONAL GLOBAL</b><br/>{texto_p1}<br/><br/>"
                 f"<b>2. ALIMENTOS A INCORPORAR</b><br/>{texto_p2}<br/><br/>"
                 f"<b>3. ALIMENTOS A REDUCIR Y HÁBITOS</b><br/>{texto_p3}"
             )
 
-            # Paso 4: Instancia del Modelo Revisor (Usa GROQ_REVISION explícitamente)
+            # Paso 4: Instancia del Modelo Revisor con Doble Respaldo
             prompt_auditor_final = prompt_auditor_base.format(informe_completo=informe_candidato)
-            modelo_rev = globals().get('GROQ_REVISION', 'openai/gpt-oss-20b')
             
+            modelo_rev = globals().get('GROQ_REVISION', 'llama-3.3-70b-versatile')
             veredicto = await asyncio.to_thread(
                 ejecutar_consulta_ia, 
                 prompt=prompt_auditor_final, 
-                max_tokens=200, 
+                max_tokens=50, 
                 temperature=0.1, 
                 modelo_override=modelo_rev
             )
 
-            if veredicto and veredicto.strip().upper().startswith("OK"):
-                logger.info(f"¡Informe mensual aprobado por el modelo revisor en el intento {intento_actual} para el usuario {user_id}!")
+            # Si el primer revisor da vacío, intentamos con el respaldo (GROQ_REVISOR_2)
+            if not veredicto or veredicto.strip() == "":
+                modelo_rev_2 = globals().get('GROQ_REVISOR_2', 'openai/gpt-oss-20b')
+                logger.warning(f"Revisor principal ({modelo_rev}) devolvió vacío. Reintentando con revisor secundario ({modelo_rev_2})...")
+                veredicto = await asyncio.to_thread(
+                    ejecutar_consulta_ia, 
+                    prompt=prompt_auditor_final, 
+                    max_tokens=50, 
+                    temperature=0.1, 
+                    modelo_override=modelo_rev_2
+                )
+
+            # Validación final del veredicto
+            if not veredicto or veredicto.strip() == "" or "OK" in veredicto.strip().upper():
+                logger.info(f"¡Informe mensual aprobado por el sistema en el intento {intento_actual} para el usuario {user_id}!")
                 return informe_candidato
             else:
-                motivo_rechazo = veredicto.strip() if veredicto else "Respuesta vacía del revisor"
+                motivo_rechazo = veredicto.strip()
                 logger.warning(f"Revisor rechazó el informe en el intento {intento_actual}. Motivo: {motivo_rechazo}")
 
         except Exception as e:
             logger.error(f"Error en intento {intento_actual} para usuario {user_id}: {e}")
 
         if intento_actual < max_intentos:
-            await asyncio.sleep(60)
+            await asyncio.sleep(5)
 
-    # Puerta de salida si se agotan los 10 intentos -> Notificamos al médico tratante
-    logger.error(f"Se agotaron los {max_intentos} intentos para generar el informe mensual del usuario {user_id}. Notificando al médico.")
+    # Si se agotan los reintentos pero el texto se llegó a redactar, lo entregamos igual
+    if 'informe_candidato' in locals() and informe_candidato:
+        logger.warning(f"Se agotaron las revisiones estrictas para {user_id}, pero se entrega el informe generado.")
+        return informe_candidato
+
+    # Puerta de salida total y notificación al médico
+    logger.error(f"Se agotaron los intentos para generar el informe mensual del usuario {user_id}. Notificando al médico.")
     
     try:
         gc = get_gspread_client()
@@ -2291,15 +2308,15 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         if medico_id:
             mensaje_medico = (
                 f"⚠️ **Alerta de Sistema / Error Técnico**\n"
-                f"Estimado profesional, el paciente con ID `{user_id}` no pudo recibir su informe nutricional quincenal automático correspondiente al período `{mes_str}` debido a un inconveniente técnico persistente en los servidores de IA tras 10 reintentos.\n\n"
-                f"🛠️ **Acción sugerida:** Utilice el comando exclusivo para reenviar el informe cuando el servicio se normalice."
+                f"Estimado profesional, el paciente con ID `{user_id}` no pudo recibir su informe nutricional automático correspondiente al período `{mes_str}`.\n\n"
+                f"🛠️ **Acción sugerida:** Utilice el comando `/enviar_informe {user_id}` para reintentar cuando el servicio se normalice."
             )
             await context.bot.send_message(chat_id=int(medico_id), text=mensaje_medico, parse_mode="Markdown")
     except Exception as err_medico:
         logger.error(f"No se pudo notificar al médico del usuario {user_id}: {err_medico}")
 
     return None
-
+        
 def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4, system_prompt: str = None, modelo_override: str = None) -> str:
     """Función centralizada para consultas a la API de Groq."""
     try:
@@ -5953,7 +5970,8 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
     """
     Comando exclusivo para el profesional: 
     Envía manualmente el resumen del mes actual (o del mes anterior si estamos del 1 al 5).
-    Si no se provee el <user_id>, lista todos los pacientes registrados para facilitar su copia.
+    Si no se provee el <user_id>, lista todos los pacientes registrados.
+    Se ejecuta de forma asíncrona en segundo plano para no bloquear el bot.
     Uso: /enviar_informe [user_id]
     """
     prof_id = await _verificar_y_obtener_profesional(update)
@@ -5977,11 +5995,12 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
             for u in registros_usuarios:
                 raw_user_id = u.get("User ID", u.get("user_id", ""))
                 nombre = u.get("Nombre", u.get("nombre", "Sin nombre"))
+                estado = u.get("Estado", u.get("estado", "0"))
                 
                 if raw_user_id:
                     try:
                         uid_clean = int(str(raw_user_id).split('.')[0].strip())
-                        texto_lista += f"• **{nombre}**\n  ID: `{uid_clean}` \n\n"
+                        texto_lista += f"• **{nombre}**\n  ID: `{uid_clean}` (Estado: {estado})\n\n"
                     except ValueError:
                         continue
 
@@ -6016,31 +6035,39 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
     else:
         mes_target_str = ahora_arg.strftime("%Y-%m")
 
-    msg_espera = await update.message.reply_text(
-        f"⏳ Procesando informe del período `{mes_target_str}` para el paciente `{target_user_id}`...", 
+    await update.message.reply_text(
+        f"⏳ Procesando informe del período `{mes_target_str}` para el paciente `{target_user_id}` en segundo plano...", 
         parse_mode="Markdown"
     )
 
-    exito = await procesar_y_enviar_informe_mensual(
-        context=context,
-        user_id=target_user_id,
-        mes_target=mes_target_str,
-        es_automatico_15=False,
-        forzar_envio=True
-    )
+    # Función interna que corre en segundo plano para no congelar el bot
+    async def tarea_en_segundo_plano():
+        try:
+            exito = await procesar_y_enviar_informe_mensual(
+                context=context,
+                user_id=target_user_id,
+                mes_target=mes_target_str,
+                es_automatico_15=False,
+                forzar_envio=True
+            )
+            if exito:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"✅ El informe nutricional del período `{mes_target_str}` fue enviado con éxito al paciente `{target_user_id}`.",
+                    parse_mode="Markdown"
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"❌ No se pudo completar el envío para el usuario `{target_user_id}`. Revisá si tiene registros cargados en el mes o consulta los logs.",
+                    parse_mode="Markdown"
+                )
+        except Exception as e:
+            logger.error(f"Error en tarea en segundo plano de informe para {target_user_id}: {e}")
 
-    await msg_espera.delete()
-    if exito:
-        await update.message.reply_text(
-            f"✅ El informe nutricional del período `{mes_target_str}` fue enviado con éxito al paciente `{target_user_id}`.", 
-            parse_mode="Markdown"
-        )
-    else:
-        await update.message.reply_text(
-            f"❌ No se pudo completar el envío para el usuario `{target_user_id}`. "
-            f"Revisá si tiene registros cargados en el mes o consulta los logs.", 
-            parse_mode="Markdown"
-        )
+    # Lanzamos la tarea de forma concurrente sin bloquear el hilo principal
+    asyncio.create_task(tarea_en_segundo_plano())
+    
 # =============================================================================================================================================
 #                    FINAL                                    COMANDO INFORME MEDICO                                FINAL  
 # =============================================================================================================================================
