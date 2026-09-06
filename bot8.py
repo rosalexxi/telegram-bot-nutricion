@@ -2199,35 +2199,45 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
     frec_str = "\n".join([f"- {cat}: {cant} ingestas" for cat, cant in frecuencias.items()]) if frecuencias else "- No hay frecuencias registradas."
 
     prompt_1 = (
-        f"Actúa como un nutricionista clínico experto. A partir de los siguientes datos estadísticos ya calculados, "
-        f"redacta un diagnóstico nutricional profundo del mes {mes_str}:\n"
-        f"- Calorías promedio: {m.get('prom_cal', 0)} kcal (Meta: {m.get('ideal_cal', 0)} kcal)\n"
-        f"- Proteínas: {m.get('prom_prot', 0)} g (Meta: {m.get('ideal_prot', 0)} g)\n"
-        f"- Grasas: {m.get('prom_gras', 0)} g (Meta: {m.get('ideal_gras', 0)} g)\n"
-        f"- Carbohidratos: {m.get('prom_carb', 0)} g (Meta: {m.get('ideal_carb', 0)} g)\n"
-        f"- Fibras: {m.get('prom_fibr', 0)} g (Meta: {m.get('ideal_fibr', 0)} g)\n"
-        f"Frecuencia de grupos alimentarios:\n{frec_str}\n"
-        f"No pongas números falsos, céntrate en el análisis clínico global."
+        f"Actúa como un nutricionista clínico experto. Redacta un diagnóstico nutricional profundo, crítico y personalizado "
+        f"para el paciente correspondiente al mes {mes_str}, basándote estrictamente en sus datos reales:\n"
+        f"- Peso actual: {m.get('peso_actual', 'N/A')} kg | Meta: {m.get('peso_objetivo', 'N/A')} kg\n"
+        f"- Calorías promedio reales: {m.get('prom_cal', 0)} kcal (Meta: {m.get('ideal_cal', 0)} kcal)\n"
+        f"- Proteínas promedio: {m.get('prom_prot', 0)} g (Meta: {m.get('ideal_prot', 0)} g)\n"
+        f"- Grasas promedio: {m.get('prom_gras', 0)} g (Meta: {m.get('ideal_gras', 0)} g)\n"
+        f"- Carbohidratos promedio: {m.get('prom_carb', 0)} g (Meta: {m.get('ideal_carb', 0)} g)\n"
+        f"- Fibras promedio: {m.get('prom_fibr', 0)} g (Meta: {m.get('ideal_fibr', 0)} g)\n"
+        f"Frecuencia de consumo por grupos alimentarios en el mes:\n{frec_str}\n\n"
+        f"INSTRUCCIÓN: Analiza los desvíos cuantitativos (déficit calórico, déficit de fibra o proteínas) y "
+        f"relaciónalos directamente con las frecuencias de ingesta registradas. No hagas listas de alimentos aquí, "
+        f"céntrate puramente en el diagnóstico clínico y metabólico del paciente."
     )
 
     prompt_2 = (
-        f"Siguiendo con el caso anterior, redacta una lista numerada del 1 al 10 con alimentos "
-        f"específicos y accesibles que el paciente debería incorporar para corregir sus desvíos de macronutrientes."
+        f"Siguiendo con el diagnóstico clínico anterior y los baches detectados en los macronutrientes del paciente "
+        f"(proteínas, fibra, calorías), redacta una lista numerada del 1 al 10 con recomendaciones de alimentos específicos, "
+        f"accesibles y personalizados que este paciente en particular debe incorporar para corregir sus desvíos nutricionales reales."
     )
 
     prompt_3 = (
-        f"Finalmente, detalla una lista numerada del 1 al 10 con alimentos o hábitos a reducir o evitar, "
-        f"junto con una estrategia breve sobre consumo de agua y hábitos sostenibles."
+        f"Basándote en los excesos o desvíos detectados en el mes, redacta una lista numerada del 1 al 10 con alimentos o "
+        f"hábitos alimentarios específicos a reducir o evitar. "
+        f"Añade al final una estrategia breve sobre consumo óptimo de agua y **hábitos nutricionales sostenibles** "
+        f"(enfocados estrictamente en la adherencia a la dieta, control de porciones y conductas alimentarias saludables; "
+        f"prohibido mencionar ecología, plásticos, reciclaje o electrodomésticos)."
     )
 
     prompt_auditor_base = (
         f"Actúa como un médico supervisor estricto y auditor de calidad. "
         f"Revisa el siguiente informe nutricional:\n\n"
         f"--- INFORME A EVALUAR ---\n{{informe_completo}}\n-------------------------\n\n"
-        f"Si el informe es coherente y profesional, responde únicamente con la palabra 'OK'."
+        f"Criterios de rechazo obligatorios:\n"
+        f"1. Si incluye consejos ecológicos, de reciclaje, plásticos o electrodomésticos.\n"
+        f"2. Si la sección 1 es una lista de alimentos en vez de un diagnóstico clínico.\n"
+        f"Si el informe es estrictamente profesional, clínico y coherente, responde únicamente con la palabra 'OK'."
     )
 
-    max_intentos = 3  # Reducido para agilizar en Render
+    max_intentos = 3  
     for intento_actual in range(1, max_intentos + 1):
         try:
             logger.info(f"Generando informe mensual auditado para usuario {user_id} (Intento {intento_actual}/{max_intentos})")
@@ -2263,7 +2273,6 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
                 modelo_override=modelo_rev
             )
 
-            # Si el primer revisor da vacío, intentamos con el respaldo (GROQ_REVISOR_2)
             if not veredicto or veredicto.strip() == "":
                 modelo_rev_2 = globals().get('GROQ_REVISOR_2', 'openai/gpt-oss-20b')
                 logger.warning(f"Revisor principal ({modelo_rev}) devolvió vacío. Reintentando con revisor secundario ({modelo_rev_2})...")
@@ -2275,12 +2284,13 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
                     modelo_override=modelo_rev_2
                 )
 
-            # Validación final del veredicto
-            if not veredicto or veredicto.strip() == "" or "OK" in veredicto.strip().upper():
+            veredicto_limpio = veredicto.strip().upper() if veredicto else ""
+
+            if veredicto_limpio == "OK" or veredicto_limpio.startswith("OK."):
                 logger.info(f"¡Informe mensual aprobado por el sistema en el intento {intento_actual} para el usuario {user_id}!")
                 return informe_candidato
             else:
-                motivo_rechazo = veredicto.strip()
+                motivo_rechazo = veredicto.strip() if veredicto else "Auditoría vacía o nula"
                 logger.warning(f"Revisor rechazó el informe en el intento {intento_actual}. Motivo: {motivo_rechazo}")
 
         except Exception as e:
@@ -2289,12 +2299,10 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         if intento_actual < max_intentos:
             await asyncio.sleep(5)
 
-    # Si se agotan los reintentos pero el texto se llegó a redactar, lo entregamos igual
     if 'informe_candidato' in locals() and informe_candidato:
         logger.warning(f"Se agotaron las revisiones estrictas para {user_id}, pero se entrega el informe generado.")
         return informe_candidato
 
-    # Puerta de salida total y notificación al médico
     logger.error(f"Se agotaron los intentos para generar el informe mensual del usuario {user_id}. Notificando al médico.")
     
     try:
@@ -2320,43 +2328,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         logger.error(f"No se pudo notificar al médico del usuario {user_id}: {err_medico}")
 
     return None
-        
-def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4, system_prompt: str = None, modelo_override: str = None) -> str:
-    """Función centralizada para consultas a la API de Groq."""
-    try:
-        client = globals().get('client_ai') or globals().get('groq_client')
-        if not client:
-            api_key = globals().get('GROQ_API_KEY') or os.getenv("GROQ_API_KEY")
-            if not api_key:
-                logger.error("⚠️ GROQ_API_KEY no configurada.")
-                return ""
-            from groq import Groq
-            client = Groq(api_key=api_key)
-
-        # Selecciona el modelo pasado por argumento o el predeterminado de globals
-        modelo = modelo_override or globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile")
-        
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-
-        response = client.chat.completions.create(
-            model=modelo,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
-        
-        if response and response.choices:
-            content = response.choices[0].message.content
-            return content.strip() if content else ""
             
-    except Exception as e:
-        logger.error(f"⚠️ Error en ejecución de IA: {e}")
-        
-    return ""
-        
 async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
     """
     Adaptador de compatibilidad para llamadas antiguas que usaban 'obtener_recomendacion_ia'.
