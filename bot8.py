@@ -3731,11 +3731,10 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             except (ValueError, TypeError):
                 return "0"
 
-        # --- SE ELIMINÓ LA LLAMADA A LA IA EN PANTALLA PARAAHORRAR TOKENS ---
         cambio_peso_val = float(m.get('cambio_peso_kg', 0))
         texto_variacion_peso = f"`{cambio_peso_val:+.1f} kg`"
 
-encabezado_txt = (
+        encabezado_txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n"
             f"⚖️ Peso registrado: `{_fmt(m.get('peso_actual', 0), 1)} kg`\n\n"
             f"• Consumidas: `{_fmt(m.get('prom_cal', 0))} kcal` | Quemadas: `{_fmt(m.get('prom_quem', 0))} kcal`\n"
@@ -3768,7 +3767,7 @@ encabezado_txt = (
             await update.callback_query.edit_message_text(msg_err)
         else:
             await update.message.reply_text(msg_err)
-            
+                        
 # ======================================================================================================================================
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
     buffer = io.BytesIO()
