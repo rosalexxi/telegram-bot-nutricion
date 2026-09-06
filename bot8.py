@@ -5952,6 +5952,27 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                    INICIO                                    COMANDO INFORME MEDICO                                INICIO  
 # =============================================================================================================================================
 
+import html  # Asegurate de tener este import arriba del archivo si no lo tenías
+
+async def enviar_mensaje_largo(context, chat_id, texto, parse_mode="HTML"):
+    """Envía un mensaje largo dividiéndolo en fragmentos de máximo 4000 caracteres para evitar el límite de Telegram."""
+    limite = 4000
+    if len(texto) <= limite:
+        await context.bot.send_message(chat_id=chat_id, text=texto, parse_mode=parse_mode)
+        return
+
+    lineas = texto.split("\n")
+    chunk_actual = ""
+    for linea in lineas:
+        if len(chunk_actual) + len(linea) + 1 > limite:
+            await context.bot.send_message(chat_id=chat_id, text=chunk_actual, parse_mode=parse_mode)
+            chunk_actual = linea + "\n"
+        else:
+            chunk_actual += linea + "\n"
+    
+    if chunk_actual.strip():
+        await context.bot.send_message(chat_id=chat_id, text=chunk_actual, parse_mode=parse_mode)
+
 async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False, chat_destino: int = None):
     """
     Función unificada para generar y enviar el informe periódico con IA.
@@ -6010,19 +6031,14 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
         # Limpiamos los saltos de línea y escapamos caracteres conflictivos para HTML de Telegram
         informe_limpio = informe_ia.replace("<br>", "\n").replace("<br/>", "\n").replace("<BR>", "\n")
         
-        # Opcional: si la IA devuelve etiquetas HTML válidas que querés conservar, podés pasarlas por un parser seguro, 
-        # pero si querés evitar por completo que rompa por caracteres sueltos o símbolos '<' / '>', usamos html.escape en el texto plano:
-        # (Si querés mantener las etiquetas de la IA como <b> o <i>, aplicamos el escape selectivo o evitamos que rompa el parser).
-        # Una solución robusta para texto mixto de IA es escapar los caracteres peligrosos excepto en las etiquetas de formato:
         informe_seguro = (
             informe_limpio
             .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
-            # Restauramos las etiquetas básicas de negrita y cursiva que emite la IA para que sigan funcionando:
             .replace("&lt;b&gt;", "<b>").replace("&lt;/b&gt;", "</b>")
             .replace("&lt;i&gt;", "<i>").replace("&lt;/i&gt;", "</i>")
-            .replace("&lt;u&gt;", "<u>").replace("&lt;/u&gt;", "</u>")
+            .replace("&lt;u&gt;", "<u>").replace("&lt;/u&gt;", "<u>")
         )
 
         txt_mensual = (
@@ -6034,12 +6050,13 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
             f"{informe_seguro}"
         )
 
-        await context.bot.send_message(chat_id=dest, text=txt_mensual, parse_mode="HTML")
+        await enviar_mensaje_largo(context, dest, txt_mensual, parse_mode="HTML")
         return True
 
     except Exception as e:
         logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}", exc_info=True)
         return False
+
 async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando para que el médico fuerce el envío del informe mensual/actual.
@@ -6095,7 +6112,8 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
     except Exception as e:
         logger.error(f"Error en cmd_enviar_informe_actual: {e}", exc_info=True)
         await update.message.reply_text("❌ Ocurrió un error al procesar la solicitud del informe.")
-                            
+        
+                    
 # =============================================================================================================================================
 #                    FINAL                                    COMANDO INFORME MEDICO                                FINAL  
 # =============================================================================================================================================
