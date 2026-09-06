@@ -5978,23 +5978,15 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                    INICIO                                    COMANDO INFORME MEDICO                                INICIO  
 # =============================================================================================================================================
 
-import os
-import html
-
-async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False, chat_destino: int = None):
-    """
-    Genera el informe nutricional, compila el documento PDF formal y lo envía al chat correspondiente.
-    """
+async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
     try:
-        dest = chat_destino if chat_destino is not None else user_id
-
         peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
         if not peso_ok and not forzar_envio:
             return False
 
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
         if df_datos.empty or 'Fecha' not in df_datos.columns:
-            await context.bot.send_message(chat_id=dest, text="⚠️ No hay registros suficientes para generar el informe.")
+            await context.bot.send_message(chat_id=chat_destino, text="⚠️ No hay registros suficientes para generar el informe.")
             return False
 
         df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
@@ -6023,57 +6015,48 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
         df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
 
         if df_filtrado.empty:
-            await context.bot.send_message(chat_id=dest, text=f"⚠️ No se encontraron registros cerrados para el período {etiqueta_periodo}.")
+            await context.bot.send_message(chat_id=chat_destino, text=f"⚠️ No se encontraron registros cerrados para el período {etiqueta_periodo}.")
             return False
 
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
         m = calcular_metricas_mensuales(df_filtrado, perfil) if 'calcular_metricas_mensuales' in globals() else {}
         conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_target) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
 
-        # Obtenemos el análisis de la IA para integrarlo dentro del documento PDF
         informe_ia = await generar_informe_mensual_auditado(context, user_id, mes_target, m, conteo_frecuencias)
+
         if not informe_ia:
-            informe_ia = "No se pudo generar el análisis detallado mediante IA para este período."
+            informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
 
-        # Verificamos si tenés tu función de generación de PDF en el entorno (ej. generar_pdf_resumen_mensual)
-        if 'generar_pdf_resumen_mensual' in globals():
-            ruta_pdf = generar_pdf_resumen_mensual(user_id, mes_target, df_filtrado, m, informe_ia)
-        elif 'crear_pdf_informe' in globals():
-            ruta_pdf = crear_pdf_informe(user_id, mes_target, df_filtrado, m, informe_ia)
-        else:
-            ruta_pdf = None
+        # Limpieza total de etiquetas mal formadas que envía la IA
+        informe_limpio = (
+            informe_ia
+            .replace("<br>", "\n")
+            .replace("<br/>", "\n")
+            .replace("<BR>", "\n")
+            .replace("</br>", "")
+            .replace("<br />", "\n")
+        )
 
-        if ruta_pdf and os.path.exists(ruta_pdf):
-            caption_txt = (
-                f"📄 <b>Informe Nutricional Formal ({etiqueta_periodo})</b>\n"
-                f"⚖️ Peso actual: {m.get('peso_actual', 0)} kg | Días registrados: {m.get('dias_registrados', 0)}"
-            )
-            with open(ruta_pdf, 'rb') as pdf_file:
-                await context.bot.send_document(
-                    chat_id=dest,
-                    document=pdf_file,
-                    filename=f"Informe_Nutricional_{mes_target}.pdf",
-                    caption=caption_txt,
-                    parse_mode="HTML"
-                )
-            try:
-                os.remove(ruta_pdf) # Limpiamos el archivo temporal del disco
-            except Exception:
-                pass
-        else:
-            # Fallback por si la función de PDF no está expuesta con ese nombre exacto
-            txt_fallback = (
-                f"📊 <b>Informe Nutricional ({etiqueta_periodo}):</b>\n"
-                f"⚖️ Peso: {m.get('peso_actual', 0)} kg\n"
-                f"• Promedio Calorías: {m.get('prom_cal', 0)} kcal\n\n"
-                f"🤖 <b>Análisis:</b>\n{informe_ia[:3000]}"
-            )
-            await context.bot.send_message(chat_id=dest, text=txt_fallback, parse_mode="HTML")
+        txt_mensual = (
+            f"📊 <b>Informe Nutricional ({etiqueta_periodo}):</b>\n"
+            f"⚖️ <i>Peso registrado: {m.get('peso_actual', 0)} kg</i>\n\n"
+            f"• Calorías Promedio: <b>{m.get('prom_cal', 0)} kcal</b> (Meta: {m.get('ideal_cal', 0)} kcal)\n"
+            f"• Días Registrados: <b>{m.get('dias_registrados', 0)}</b>\n\n"
+            f"🤖 <b>Análisis Nutricional Profundo:</b>\n"
+            f"{informe_limpio}"
+        )
 
+        await enviar_mensaje_largo(context, chat_destino, txt_mensual, parse_mode="HTML")
         return True
 
     except Exception as e:
         logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}", exc_info=True)
+        # Si falla el HTML por entidades maliciosas, mandamos en texto plano como plan de emergencia
+        try:
+            txt_plano = f"📊 Informe Nutricional ({mes_target})\n\n{str(e)}"
+            await context.bot.send_message(chat_id=chat_destino, text=txt_plano)
+        except Exception:
+            pass
         return False
 
 async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -6120,7 +6103,7 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
                 if not exito:
                     await context.bot.send_message(
                         chat_id=chat_id_actual,
-                        text=f"❌ No se pudo generar el PDF para el usuario `{target_user_id}`.",
+                        text=f"❌ No se pudo generar el PDF para el usuario `{target_user_id}`. Verificá si tiene registros cargados.",
                         parse_mode="Markdown"
                     )
             except Exception as e:
