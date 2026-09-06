@@ -1943,81 +1943,94 @@ def obtener_categorias_diccionario(sh):
         print(f"Error al leer Categorias_Comida: {e}")
         return {}
 
-def analizar_frecuencia_alimentos_mes(user_id: int, mes_target: str = None) -> dict:
-    """
-    Analiza la frecuencia de consumo de cada grupo alimentario en el mes.
-    Aplica la regla de exclusión celda por celda para harinas integrales vs refinadas.
-    """
+def calcular_porcentajes_harinas(frecuencias):
+    key_int = next((k for k in frecuencias.keys() if 'integral' in k), None)
+    key_ref = next((k for k in frecuencias.keys() if 'refinada' in k or 'blanca' in k), None)
+
+    total_integrales = frecuencias.get(key_int, 0) if key_int else 0
+    total_refinadas = frecuencias.get(key_ref, 0) if key_ref else 0
+    total_harinas = total_integrales + total_refinadas
+    
+    if total_harinas > 0:
+        porc_int = round((total_integrales / total_harinas) * 100)
+        porc_ref = round((total_refinadas / total_harinas) * 100)
+    else:
+        porc_int, porc_ref = 0, 0
+        
+    return porc_int, porc_ref
+    
+def analizar_frecuencia_alimentos_mes(df_mes, cat_dict, col_integrales=None, col_refinadas=None, otras_categorias=None):
     try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        
-        # 1. Cargar el diccionario de palabras clave por categoría
-        cat_dict = obtener_categorias_diccionario(sh)
-        if not cat_dict:
-            return {}
-
-        # 2. Obtener los registros del diario del usuario
-        df = obtener_datos_usuario(user_id)
-        if df.empty or 'Fecha' not in df.columns or 'Alimento' not in df.columns:
-            return {}
-
-        # 3. Filtrar por el mes deseado (ej: "2026-08")
-        if not mes_target:
-            ahora = obtener_ahora_arg()
-            mes_target = ahora.strftime("%Y-%m")
-        
-        df['Mes_Filtro'] = df['Fecha'].str.slice(0, 7)
-        df_mes = df[df['Mes_Filtro'] == str(mes_target).strip()].copy()
-        
-        if df_mes.empty:
-            return {}
-
-        # Identificar qué clave en el Excel representa cada grupo
-        col_integrales = None
-        col_refinadas = None
-        otras_categorias = {}
-
-        for cat_key, palabras in cat_dict.items():
-            if 'integral' in cat_key:
-                col_integrales = palabras
-            elif 'refinada' in cat_key or 'blanca' in cat_key:
-                col_refinadas = palabras
-            else:
-                otras_categorias[cat_key] = palabras
-
-        # Diccionario acumulador de conteos
+        if otras_categorias is None:
+            otras_categorias = {}
+            
+        # Inicializar el diccionario de contadores con las claves originales
         frecuencias = {cat: 0 for cat in cat_dict.keys()}
 
-        # 4. Procesamiento CELDA POR CELDA
+        # Procesamiento celda por celda manteniendo la lógica de protección integral
         for _, row in df_mes.iterrows():
             texto_celda = str(row.get('Alimento', '')).strip().lower()
             if not texto_celda:
                 continue
 
-            # A. Regla de Harinas / Integrales
-            es_integral = any(p in texto_celda for p in (col_integrales or ['integral', 'salvado']))
+            # 1. Evaluar primero si es integral
+            es_integral = any(p in texto_celda for p in (col_integrales or ['integral', 'salvado', 'centeno', 'avena']))
             
             if es_integral:
-                # Suma a la categoría integral
                 for cat_key in cat_dict.keys():
                     if 'integral' in cat_key:
                         frecuencias[cat_key] += 1
-                # Excluye explícitamente de harinas refinadas
             else:
-                # Si no fue integral, verifica si es harina refinada/blanca
+                # 2. Si no es integral, evaluar si cae en refinadas/blancas
                 if col_refinadas and any(p in texto_celda for p in col_refinadas):
                     for cat_key in cat_dict.keys():
                         if 'refinada' in cat_key or 'blanca' in cat_key:
                             frecuencias[cat_key] += 1
 
-            # B. Evaluación independiente del resto de categorías (Carnes, Pollo, Pescado, Verduras, Lácteos, etc.)
+            # 3. Evaluar el resto de las categorías complementarias
             for cat_nombre, palabras in otras_categorias.items():
                 if any(p in texto_celda for p in palabras):
                     frecuencias[cat_nombre] += 1
 
         return frecuencias
+    except Exception as e:
+        print(f"Error analizando frecuencias de alimentos: {e}")
+        return {}
+        
+    
+def analizar_frecuencia_alimentos_mes(df_mes, cat_dict, col_integrales=None, col_refinadas=None, otras_categorias=None):
+    if otras_categorias is None:
+        otras_categorias = {}
+        
+    # Inicializar el diccionario de contadores con las claves originales
+    frecuencias = {cat: 0 for cat in cat_dict.keys()}
 
+    # Procesamiento celda por celda manteniendo la lógica de protección integral
+    for _, row in df_mes.iterrows():
+        texto_celda = str(row.get('Alimento', '')).strip().lower()
+        if not texto_celda:
+            continue
+
+        # 1. Evaluar primero si es integral
+        es_integral = any(p in texto_celda for p in (col_integrales or ['integral', 'salvado', 'centeno', 'avena']))
+        
+        if es_integral:
+            for cat_key in cat_dict.keys():
+                if 'integral' in cat_key:
+                    frecuencias[cat_key] += 1
+        else:
+            # 2. Si no es integral, evaluar si cae en refinadas/blancas
+            if col_refinadas and any(p in texto_celda for p in col_refinadas):
+                for cat_key in cat_dict.keys():
+                    if 'refinada' in cat_key or 'blanca' in cat_key:
+                        frecuencias[cat_key] += 1
+
+        # 3. Evaluar el resto de las categorías complementarias
+        for cat_nombre, palabras in otras_categorias.items():
+            if any(p in texto_celda for p in palabras):
+                frecuencias[cat_nombre] += 1
+
+    return frecuencias
     except Exception as e:
         print(f"Error analizando frecuencias de alimentos para user {user_id}: {e}")
         return {}
@@ -2566,6 +2579,22 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
     if frecuencias is None:
         frecuencias = {}
 
+    # --- CÁLCULO DE PORCENTAJES DE HARINAS PARA LA IA ---
+    key_int = next((k for k in frecuencias.keys() if 'integral' in k), None)
+    key_ref = next((k for k in frecuencias.keys() if 'refinada' in k or 'blanca' in k), None)
+
+    total_integrales = frecuencias.get(key_int, 0) if key_int else 0
+    total_refinadas = frecuencias.get(key_ref, 0) if key_ref else 0
+    total_harinas = total_integrales + total_refinadas
+
+    if total_harinas > 0:
+        porc_int = round((total_integrales / total_harinas) * 100)
+        porc_ref = round((total_refinadas / total_harinas) * 100)
+        contexto_harinas_str = f"- Balance analítico de harinas del período: {porc_int}% de fuentes integrales ({total_integrales} registros) y {porc_ref}% de fuentes refinadas ({total_refinadas} registros). Ten muy en cuenta esta proporción exacta para tu evaluación."
+    else:
+        contexto_harinas_str = "- No se registran datos suficientes de harinas en este período."
+    # ----------------------------------------------------
+
     # Determinación del perfil clínico para orientar el tono del consejo de IA de forma interna
     peso_act = m.get('peso_actual', 0)
     peso_ref = m.get('peso_referencia', 0)
@@ -2582,6 +2611,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
 
     prompt_1 = (
         f"Actúa como un nutricionista clínico experto y empático. Contexto interno del paciente: {enfoque_clinico}\n"
+        f"{contexto_harinas_str}\n"
         f"Redacta un diagnóstico y análisis nutricional global puramente cualitativo del mes {mes_str}.\n"
         f"Frecuencia de consumo por grupos alimentarios:\n{frec_str}\n\n"
         f"INSTRUCCIONES ESTRICTAS:\n"
@@ -2702,7 +2732,6 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         logger.error(f"No se pudo notificar al médico del usuario {user_id}: {err_medico}")
 
     return None
-
 async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
     """
     Adaptador de compatibilidad para llamadas antiguas que usaban 'obtener_recomendacion_ia'.
