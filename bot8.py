@@ -5953,15 +5953,14 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Comando para que el médico (o el usuario autorizado) fuerce el envío 
-    del informe mensual/actual de un paciente específico o de sí mismo.
+    Comando para que el médico fuerce el envío del informe mensual/actual.
     Uso: /informe [user_id] [mes (opcional YYYY-MM)]
     """
     try:
         args = context.args
         user_id_actual = update.effective_user.id
+        chat_id_actual = update.effective_chat.id
 
-        # Validar si se pasó un user_id como argumento, sino usa el propio
         if args and len(args) > 0:
             try:
                 target_user_id = int(args[0])
@@ -5971,56 +5970,44 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
         else:
             target_user_id = user_id_actual
 
-        # Determinar el mes objetivo (por defecto el mes actual en curso)
         ahora_arg = obtener_ahora_arg()
         if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
             ahora_arg = ahora_arg.replace(tzinfo=None)
         
         mes_actual_str = ahora_arg.strftime("%Y-%m")
+        mes_target_str = args[1] if (args and len(args) > 1) else mes_actual_str
 
-        if args and len(args) > 1:
-            mes_target_str = args[1] # Formato esperado: YYYY-MM
-        else:
-            mes_target_str = mes_actual_str
-
-        # Mensaje inicial de aviso de que se está procesando
         await update.message.reply_text(
             f"⏳ Procesando informe del período `{mes_target_str}` para el paciente `{target_user_id}` en segundo plano...",
             parse_mode="Markdown"
         )
 
-        # Función interna que corre en segundo plano para no congelar el bot
         async def tarea_segundo_plano():
             try:
-                exito = await procesar_y_enviar_informe_mensual(
+                # AQUÍ ESTABA EL ERROR: Llamamos a la función correcta pasando el chat_destino
+                exito = await procesar_y_enviar_informe_mensual_para_chat(
                     context=context,
                     user_id=target_user_id,
+                    chat_destino=chat_id_actual,
                     mes_target=mes_target_str,
                     es_automatico_15=False,
                     forzar_envio=True
                 )
-                if exito:
+                if not exito:
                     await context.bot.send_message(
-                        chat_id=user_id_actual,
-                        text=f"✅ El informe nutricional del período `{mes_target_str}` fue enviado con éxito al paciente `{target_user_id}`.",
-                        parse_mode="Markdown"
-                    )
-                else:
-                    await context.bot.send_message(
-                        chat_id=user_id_actual,
+                        chat_id=chat_id_actual,
                         text=f"❌ No se pudo completar el envío para el usuario `{target_user_id}`. Revisá si tiene registros cargados en el mes.",
                         parse_mode="Markdown"
                     )
             except Exception as e:
-                logger.error(f"Error en tarea en segundo plano de informe para {target_user_id}: {e}")
+                logger.error(f"Error en tarea en segundo plano de informe para {target_user_id}: {e}", exc_info=True)
 
-        # Disparamos la tarea asíncrona
         asyncio.create_task(tarea_segundo_plano())
 
     except Exception as e:
         logger.error(f"Error en cmd_enviar_informe_actual: {e}", exc_info=True)
         await update.message.reply_text("❌ Ocurrió un error al procesar la solicitud del informe.")
-            
+                    
 # =============================================================================================================================================
 #                    FINAL                                    COMANDO INFORME MEDICO                                FINAL  
 # =============================================================================================================================================
