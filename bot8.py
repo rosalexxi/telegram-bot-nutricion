@@ -5360,7 +5360,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         if not mes_str:
             # Si estamos entre el día 1 y el 6 inclusive, muestra por defecto el mes anterior
-            if ahora.day <= 6:
+            if ahora.day <= 7:
                 mes_str = mes_anterior_str
             else:
                 mes_str = mes_actual_str
