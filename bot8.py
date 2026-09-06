@@ -5217,7 +5217,6 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                    INICIO                                    COMANDO INFORME MEDICO                                INICIO  
 # =============================================================================================================================================
 
-
 async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando para que el médico fuerce la generación y envío del informe en PDF.
@@ -5242,7 +5241,17 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
             ahora_arg = ahora_arg.replace(tzinfo=None)
         
         mes_actual_str = ahora_arg.strftime("%Y-%m")
-        mes_target_str = args[1] if (args and len(args) > 1) else mes_actual_str
+        mes_anterior_str = (ahora_arg.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+
+        # Si el médico especificó un mes por parámetro, se respeta.
+        # Si no lo especificó, evalúa el día: si está entre el 1 y el 7, toma por defecto el mes anterior.
+        if args and len(args) > 1:
+            mes_target_str = args[1]
+        else:
+            if ahora_arg.day <= 7:
+                mes_target_str = mes_anterior_str
+            else:
+                mes_target_str = mes_actual_str
 
         await update.message.reply_text(
             f"⏳ Compilando informe PDF del período `{mes_target_str}` para el usuario `{target_user_id}`...",
@@ -5359,7 +5368,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             mes_str = context.args[0]
 
         if not mes_str:
-            # Si estamos entre el día 1 y el 6 inclusive, muestra por defecto el mes anterior
+            # Si estamos entre el día 1 y el 7 inclusive, muestra por defecto el mes anterior
             if ahora.day <= 7:
                 mes_str = mes_anterior_str
             else:
