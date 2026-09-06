@@ -2561,7 +2561,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
 
     prompt_3 = (
         f"Finalmente, redacta una lista numerada exactamente del 1 al 5 con alimentos o hábitos alimentarios a reducir o evitar.\n"
-        f"REQUISITO ESTRICTO: Escribí únicamente el concepto de forma directa (ej: 'Bebidas azucaradas', 'Snacks ultraprocesados'), sin explicaciones numéricas ni porcentajes, acompañado al final de un párrafo breve sobre estrategia de hidratación y hábitos sostenibles."
+        f"REQUISITO ESTRICTO: Escribí únicamente el concepto de forma directa (ej: 'Bebidas azucaradas', 'Snacks ultraprocesados'), sin explicaciones numéricas ni porcentajes, acompañado al final de un párrafo breve sobre estrategia de hidratación y control de porciones para la salud metabólica del paciente (prohibido mencionar ecología, reciclaje, planetas o medio ambiente)."
     )
 
     prompt_auditor_base = (
@@ -2569,8 +2569,8 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         f"Revisa el siguiente informe nutricional:\n\n"
         f"--- INFORME A EVALUAR ---\n{{informe_completo}}\n-------------------------\n\n"
         f"Criterios de rechazo obligatorios:\n"
-        f"1. Si incluye consejos ecológicos, de reciclaje, plásticos o electrodomésticos.\n"
-        f"2. Si la sección 1 contiene números, gramos, calorías o fórmulas matemáticas (como IMC).\n"
+        f"1. Si incluye consejos ecológicos, de reciclaje, plásticos, medio ambiente o electrodomésticos.\n"
+        f"2. Si la sección 1 contiene números, gramos, calorías o fórmulas matemáticas (como IMC) o si el texto se corta de forma incompleta.\n"
         f"3. Si las listas de incorporar o reducir tienen más o menos de 5 elementos.\n"
         f"Si el informe cumple perfectamente con todo, responde únicamente con la palabra 'OK'."
     )
@@ -2580,8 +2580,8 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         try:
             logger.info(f"Generando informe mensual auditado para usuario {user_id} (Intento {intento_actual}/{max_intentos})")
 
-            # Paso 1
-            texto_p1 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_1, max_tokens=700, temperature=0.3)
+            # Paso 1 (aumentamos max_tokens para evitar cortes por longitud)
+            texto_p1 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_1, max_tokens=1000, temperature=0.3)
             await asyncio.sleep(2)
 
             # Paso 2
@@ -2589,7 +2589,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
             await asyncio.sleep(2)
 
             # Paso 3
-            texto_p3 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_3, max_tokens=500, temperature=0.3)
+            texto_p3 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_3, max_tokens=600, temperature=0.3)
             await asyncio.sleep(2)
 
             # Unimos las partes en formato HTML limpio
@@ -2665,8 +2665,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
     except Exception as err_medico:
         logger.error(f"No se pudo notificar al médico del usuario {user_id}: {err_medico}")
 
-    return None
-        
+    return None        
 async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
     """
     Adaptador de compatibilidad para llamadas antiguas que usaban 'obtener_recomendacion_ia'.
