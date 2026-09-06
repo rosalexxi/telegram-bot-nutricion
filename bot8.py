@@ -5951,6 +5951,81 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                    INICIO                                    COMANDO INFORME MEDICO                                INICIO  
 # =============================================================================================================================================
 
+
+async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False, chat_destino: int = None):
+    """
+    Función unificada para generar y enviar el informe periódico con IA.
+    Si chat_destino no se especifica, se envía por defecto al user_id del paciente.
+    """
+    try:
+        dest = chat_destino if chat_destino is not None else user_id
+
+        peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
+        if not peso_ok and not forzar_envio:
+            return False
+
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        if df_datos.empty or 'Fecha' not in df_datos.columns:
+            await context.bot.send_message(chat_id=dest, text="⚠️ No hay registros suficientes para generar el informe.")
+            return False
+
+        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
+        
+        ahora_arg = obtener_ahora_arg()
+        if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
+            ahora_arg = ahora_arg.replace(tzinfo=None)
+        
+        hoy_ts = pd.Timestamp(ahora_arg).normalize()
+        ayer_ts = hoy_ts - pd.Timedelta(days=1)
+        mes_actual_str = hoy_ts.strftime("%Y-%m")
+
+        if es_automatico_15:
+            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
+            fin_periodo = pd.Timestamp(f"{mes_target}-14").normalize()
+            etiqueta_periodo = f"Quincenal ({mes_target}: 1 al 14)"
+        else:
+            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
+            if mes_target == mes_actual_str:
+                fin_periodo = ayer_ts
+                etiqueta_periodo = f"Mes Actual en curso ({mes_target}: del 01 al {ayer_ts.strftime('%d/%m')})"
+            else:
+                fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
+                etiqueta_periodo = f"Mes Completo ({mes_target})"
+
+        df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
+
+        if df_filtrado.empty:
+            await context.bot.send_message(chat_id=dest, text=f"⚠️ No se encontraron registros cerrados para el período {etiqueta_periodo}.")
+            return False
+
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
+        m = calcular_metricas_mensuales(df_filtrado, perfil) if 'calcular_metricas_mensuales' in globals() else {}
+        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_target) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
+
+        informe_ia = await generar_informe_mensual_auditado(context, user_id, mes_target, m, conteo_frecuencias)
+
+        if not informe_ia:
+            informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
+
+        informe_limpio = informe_ia.replace("<br>", "\n").replace("<br/>", "\n").replace("<BR>", "\n")
+
+        txt_mensual = (
+            f"📊 <b>Informe Nutricional ({etiqueta_periodo}):</b>\n"
+            f"⚖️ <i>Peso registrado: {m.get('peso_actual', 0)} kg</i>\n\n"
+            f"• Calorías Promedio: <b>{m.get('prom_cal', 0)} kcal</b> (Meta: {m.get('ideal_cal', 0)} kcal)\n"
+            f"• Días Registrados: <b>{m.get('dias_registrados', 0)}</b>\n\n"
+            f"🤖 <b>Análisis Nutricional Profundo:</b>\n"
+            f"{informe_limpio}"
+        )
+
+        await context.bot.send_message(chat_id=dest, text=txt_mensual, parse_mode="HTML")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}", exc_info=True)
+        return False
+
+
 async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando para que el médico fuerce el envío del informe mensual/actual.
@@ -5984,14 +6059,13 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 
         async def tarea_segundo_plano():
             try:
-                # AQUÍ ESTABA EL ERROR: Llamamos a la función correcta pasando el chat_destino
-                exito = await procesar_y_enviar_informe_mensual_para_chat(
+                exito = await procesar_y_enviar_informe_mensual(
                     context=context,
                     user_id=target_user_id,
-                    chat_destino=chat_id_actual,
                     mes_target=mes_target_str,
                     es_automatico_15=False,
-                    forzar_envio=True
+                    forzar_envio=True,
+                    chat_destino=chat_id_actual
                 )
                 if not exito:
                     await context.bot.send_message(
@@ -6007,6 +6081,7 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
     except Exception as e:
         logger.error(f"Error en cmd_enviar_informe_actual: {e}", exc_info=True)
         await update.message.reply_text("❌ Ocurrió un error al procesar la solicitud del informe.")
+        
                     
 # =============================================================================================================================================
 #                    FINAL                                    COMANDO INFORME MEDICO                                FINAL  
