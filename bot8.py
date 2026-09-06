@@ -2023,403 +2023,6 @@ def analizar_frecuencia_alimentos_mes(user_id: int, mes_target: str = None) -> d
         return {}
             
 # ---------------------------------------------------------------------------------------------------------------------------------------------
-# 3. INTEGRACIÓN CON IA (GROQ)
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-
-def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4, system_prompt: str = None, modelo_override: str = None) -> str:
-    """Función centralizada para consultas a la API de Groq."""
-    try:
-        client = globals().get('client_ai') or globals().get('groq_client')
-        if not client:
-            api_key = globals().get('GROQ_API_KEY') or os.getenv("GROQ_API_KEY")
-            if not api_key:
-                logger.error("⚠️ GROQ_API_KEY no configurada.")
-                return ""
-            from groq import Groq
-            client = Groq(api_key=api_key)
-
-        # Selecciona el modelo pasado por argumento o el predeterminado de globals
-        modelo = modelo_override or globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile")
-        
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-
-        response = client.chat.completions.create(
-            model=modelo,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
-        
-        if response and response.choices:
-            content = response.choices[0].message.content
-            return content.strip() if content else ""
-            
-    except Exception as e:
-        logger.error(f"⚠️ Error en ejecución de IA: {e}")
-        
-    return ""
-
-async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.BytesIO]:
-    """
-    Consulta a Groq con reintentos automáticos, audita el informe con el modelo de revisión 
-    para garantizar calidad y evitar textos truncados, y compila el PDF de bienvenida.
-    """
-    nombre = datos_usuario.get('nombre')
-    edad = datos_usuario.get('edad')
-    sexo = datos_usuario.get('sexo')
-    altura = datos_usuario.get('altura')
-    peso = datos_usuario.get('peso')
-    contextura = datos_usuario.get('contextura')
-    peso_ideal = datos_usuario.get('peso_ideal')
-    peso_etapa = datos_usuario.get('peso_etapa')
-    tmb = datos_usuario.get('tmb')
-    get_calorias = datos_usuario.get('get')
-
-    # 1. Construcción del prompt clínico para el informe inicial
-    prompt_ia = (
-        f"Actúa como un médico nutricionista experto. Analiza el perfil del paciente:\n"
-        f"- Nombre: {nombre}, Edad: {edad} años, Sexo: {sexo}\n"
-        f"- Altura: {altura} cm, Peso Actual: {peso} kg\n"
-        f"- Contextura ósea: {contextura}, Peso Ideal Teórico: {peso_ideal} kg\n"
-        f"- Peso Objetivo para la 1ra Etapa (ponderado prudente 75/25): {peso_etapa} kg\n"
-        f"- Gasto Basal (TMB): {tmb} kcal, Gasto Energético Total (GET): {get_calorias} kcal\n\n"
-        f"Redacta un informe breve y motivador de bienvenida que incluya:\n"
-        f"1. Una explicación clara y empática de por qué en esta primera etapa apuntamos a un peso objetivo intermedio ({peso_etapa} kg) en lugar de exigir el peso ideal final de golpe.\n"
-        f"2. Una recomendación general sobre el manejo de la dieta y calorías diarias orientada a un déficit saludable basado en su GET.\n"
-        f"3. Pautas generales de actividad física complementaria (caminatas, movilidad).\n"
-        f"Mantén un tono profesional, cálido y alentador sin dejar oraciones inconclusas."
-    )
-    
-    system_msg = "Eres un nutricionista clínico profesional y empático."
-    prompt_auditor_base = (
-        f"Actúa como un médico supervisor estricto y auditor de calidad. "
-        f"Revisa el siguiente informe nutricional de bienvenida:\n\n"
-        f"--- INFORME A EVALUAR ---\n{{informe_candidato}}\n-------------------------\n\n"
-        f"INSTRUCCIONES DE AUDITORÍA:\n"
-        f"1. Verifica que el texto sea coherente, empático, completo (sin cortes ni oraciones truncadas) y estrictamente profesional.\n"
-        f"2. Si el informe está perfecto y listo para entregar, responde únicamente comenzando con la palabra 'OK'.\n"
-        f"3. Si encuentras errores, oraciones inconclusas o falta de redacción, responde comenzando con la palabra 'RECHAZADO' indicando qué corregir."
-    )
-
-    informe_ia = ""
-    max_intentos = 3
-
-    # Función interna de reintentos rápidos para proteger las peticiones de red
-    async def _llamar_ia_con_retry(p, tokens, temp, sys_p=None, mod_over=None, intentos_max=3):
-        for it in range(1, intentos_max + 1):
-            try:
-                res = await asyncio.to_thread(
-                    ejecutar_consulta_ia, 
-                    prompt=p, 
-                    max_tokens=tokens, 
-                    temperature=temp, 
-                    system_prompt=sys_p, 
-                    modelo_override=mod_over
-                )
-                if res and res.strip():
-                    return res
-            except Exception as e:
-                print(f"⚠️ Fallo en intento IA {it}/{intentos_max}: {e}")
-                if it == intentos_max:
-                    raise e
-                await asyncio.sleep(2)
-        return ""
-
-    # Bucle principal de generación y auditoría cruzada
-    for intento in range(1, max_intentos + 1):
-        try:
-            # 1. Generación del texto candidato
-            texto_generado = await _llamar_ia_con_retry(
-                prompt=prompt_ia, 
-                max_tokens=600, 
-                temperature=0.3, 
-                system_prompt=system_msg
-            )
-            
-            if not texto_generado:
-                continue
-
-            # 2. Instancia y consulta al Modelo Revisor
-            prompt_auditor_final = prompt_auditor_base.format(informe_candidato=texto_generado)
-            modelo_rev = globals().get('GROQ_REVISION', 'openai/gpt-oss-20b')
-            
-            veredicto = await _llamar_ia_con_retry(
-                prompt=prompt_auditor_final, 
-                max_tokens=150, 
-                temperature=0.1, 
-                modelo_override=modelo_rev
-            )
-
-            if veredicto and veredicto.strip().upper().startswith("OK"):
-                informe_ia = texto_generado
-                break
-            else:
-                motivo = veredicto.strip() if veredicto else "Sin respuesta"
-                print(f"🔄 Revisor rechazó el informe inicial en el intento {intento}. Motivo: {motivo}")
-
-        except Exception as err:
-            print(f"❌ Error en ciclo de informe inicial (Intento {intento}): {err}")
-
-    # Fallback por seguridad si se agotaran los intentos
-    if not informe_ia:
-        informe_ia = "Estimado paciente, le damos la bienvenida a su plan nutricional personalizado. Su ficha ha sido configurada correctamente con los parámetros metabólicos iniciales."
-
-    # 3. Compilación del informe aprobado en formato PDF con ReportLab
-    pdf_buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        pdf_buffer, 
-        pagesize=letter, 
-        rightMargin=36, 
-        leftMargin=36, 
-        topMargin=36, 
-        bottomMargin=36
-    )
-    story = []
-    
-    styles = getSampleStyleSheet()
-    titulo_style = ParagraphStyle(
-        'TituloInforme', 
-        parent=styles['Heading1'], 
-        fontSize=15, 
-        leading=18, 
-        alignment=1, 
-        textColor=colors.HexColor('#1b4f72')
-    )
-    sub_style = ParagraphStyle(
-        'SubInforme', 
-        parent=styles['Normal'], 
-        fontSize=10, 
-        leading=14, 
-        textColor=colors.HexColor('#566573')
-    )
-    body_style = ParagraphStyle(
-        'CuerpoInforme', 
-        parent=styles['Normal'], 
-        fontSize=10, 
-        leading=15, 
-        textColor=colors.HexColor('#2c3e50')
-    )
-    
-    story.append(Paragraph("<b>INFORME NUTRICIONAL INICIAL - APERTURA DE FICHA</b>", titulo_style))
-    story.append(Spacer(1, 10))
-    
-    resumen_datos = (
-        f"<b>Paciente:</b> {nombre} | <b>ID Telegram:</b> `{datos_usuario.get('user_id')}`<br/>"
-        f"<b>Edad:</b> {edad} años | <b>Sexo:</b> {sexo} | <b>Altura:</b> {altura} cm<br/>"
-        f"<b>Peso Actual:</b> {peso} kg | <b>Contextura:</b> {contextura} | <b>Peso Ideal:</b> {peso_ideal} kg<br/>"
-        f"<b>Objetivo Etapa 1:</b> {peso_etapa} kg | <b>TMB:</b> {round(tmb)} kcal | <b>GET:</b> {round(get_calorias)} kcal"
-    )
-    story.append(Paragraph(resumen_datos, sub_style))
-    story.append(Spacer(1, 15))
-    story.append(Paragraph("<b>EVALUACIÓN Y PLANIFICACIÓN INICIAL</b>", styles['Heading2']))
-    story.append(Spacer(1, 8))
-    
-    # Reemplazo seguro de saltos de línea para compatibilidad con HTML de ReportLab
-    texto_formateado = informe_ia.replace('\n', '<br/>')
-    story.append(Paragraph(texto_formateado, body_style))
-    
-    doc.build(story)
-    pdf_buffer.seek(0)
-    
-    return informe_ia, pdf_buffer
-        
-async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuencias=None):
-    """
-    Función independiente para generar el informe mensual auditado usando la función centralizada.
-    """
-    if frecuencias is None:
-        frecuencias = {}
-
-    # Mapeo seguro y normalización de datos antropométricos basados en los encabezados reales de la hoja
-    edad = m.get('EDAD') or m.get('edad') or 64
-    
-    raw_altura = m.get('ALTURA') or m.get('altura') or 172000
-    if raw_altura > 10:
-        estatura = raw_altura / 100000 if raw_altura > 10000 else raw_altura / 100
-    else:
-        estatura = 1.72
-
-    raw_peso = m.get('PESO') or m.get('peso') or 104600
-    peso_actual = raw_peso / 1000 if raw_peso > 1000 else raw_peso
-
-    raw_peso_ideal = m.get('Peso_ideal') or m.get('peso_ideal') or 69000
-    peso_objetivo = raw_peso_ideal / 1000 if raw_peso_ideal > 1000 else raw_peso_ideal
-
-    sexo = m.get('GENERO') or m.get('genero') or 'M'
-
-    frec_str = "\n".join([f"- {cat}: {cant} ingestas" for cat, cant in frecuencias.items()]) if frecuencias else "- No hay frecuencias registradas."
-
-    prompt_1 = (
-        f"Actúa estrictamente como un nutricionista clínico experto. Redacta un diagnóstico nutricional profundo, crítico y personalizado "
-        f"para el paciente correspondiente al mes {mes_str}, basándote en los siguientes datos reales:\n"
-        f"- Edad: {edad} años | Sexo: {sexo} | Estatura: {estatura} m\n"
-        f"- Peso actual: {peso_actual} kg | Meta de peso: {peso_objetivo} kg\n"
-        f"- Calorías promedio reales: {m.get('prom_cal', 0)} kcal (Meta: {m.get('ideal_cal', 0)} kcal)\n"
-        f"- Proteínas promedio: {m.get('prom_prot', 0)} g (Meta: {m.get('ideal_prot', 0)} g)\n"
-        f"- Grasas promedio: {m.get('prom_gras', 0)} g (Meta: {m.get('ideal_gras', 0)} g)\n"
-        f"- Carbohidratos promedio: {m.get('prom_carb', 0)} g (Meta: {m.get('ideal_carb', 0)} g)\n"
-        f"- Fibras promedio: {m.get('prom_fibr', 0)} g (Meta: {m.get('ideal_fibr', 0)} g)\n"
-        f"Frecuencia de consumo por grupos alimentarios:\n{frec_str}\n\n"
-        f"INSTRUCCIÓN: Calcula explícitamente el IMC (Peso / Estatura al cuadrado) usando {peso_actual} kg y {estatura} m. "
-        f"Analiza los desvíos cuantitativos y relacionalos con las frecuencias. Prohibido saludar, hacer introducciones o listas de alimentos en esta sección."
-    )
-
-    prompt_2 = (
-        f"Actúa como nutricionista clínico. Basándote en el diagnóstico y baches de macronutrientes del paciente "
-        f"(estatura {estatura} m, peso objetivo {peso_objetivo} kg), "
-        f"redacta una lista numerada estricta del 1 al 10 con recomendaciones de alimentos específicos y accesibles.\n"
-        f"INSTRUCCIÓN: Comienza directamente con el número 1. Prohibido usar saludos, introducciones o frases conversacionales."
-    )
-
-    prompt_3 = (
-        f"Actúa como nutricionista clínico. Basándote en los excesos del mes para este paciente, "
-        f"redacta una lista numerada estricta del 1 al 10 con alimentos o hábitos a reducir o evitar.\n"
-        f"Añade al final un párrafo corto con una estrategia concreta sobre consumo de agua y hábitos nutricionales sostenibles "
-        f"(prohibido mencionar ecología, plásticos, reciclaje o electrodomésticos).\n"
-        f"INSTRUCCIÓN: Comienza directamente con el número 1. Sin saludos ni introducciones."
-    )
-
-    prompt_auditor_base = (
-        f"Actúa como un médico supervisor estricto y auditor de calidad. "
-        f"Revisa el siguiente informe nutricional:\n\n"
-        f"--- INFORME A EVALUAR ---\n{{informe_completo}}\n-------------------------\n\n"
-        f"Criterios de rechazo obligatorios:\n"
-        f"1. Si incluye consejos ecológicos, de reciclaje, plásticos o electrodomésticos.\n"
-        f"2. Si la sección 1 contiene una lista de alimentos en vez de diagnóstico clínico o si menciona que faltan datos (estatura/peso).\n"
-        f"3. Si hay saludos, introducciones conversacionales o texto informal dirigido al paciente.\n"
-        f"Si el informe es estrictamente profesional y cumple todo, responde únicamente con la palabra 'OK'."
-    )
-
-    max_intentos = 3  
-    for intento_actual in range(1, max_intentos + 1):
-        try:
-            logger.info(f"Generando informe mensual auditado para usuario {user_id} (Intento {intento_actual}/{max_intentos})")
-
-            # Paso 1
-            texto_p1 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_1, max_tokens=800, temperature=0.2)
-            await asyncio.sleep(2)
-
-            # Paso 2
-            texto_p2 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_2, max_tokens=800, temperature=0.2)
-            await asyncio.sleep(2)
-
-            # Paso 3
-            texto_p3 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_3, max_tokens=800, temperature=0.2)
-            await asyncio.sleep(2)
-
-            # Unimos las partes en formato HTML limpio
-            informe_candidato = (
-                f"<b>1. DIAGNÓSTICO NUTRICIONAL GLOBAL</b><br/>{texto_p1}<br/><br/>"
-                f"<b>2. ALIMENTOS A INCORPORAR</b><br/>{texto_p2}<br/><br/>"
-                f"<b>3. ALIMENTOS A REDUCIR Y HÁBITOS</b><br/>{texto_p3}"
-            )
-
-            # Auditoría
-            prompt_auditor_final = prompt_auditor_base.format(informe_completo=informe_candidato)
-            
-            modelo_rev = globals().get('GROQ_REVISION', 'qwen/qwen3.8-27b')
-            veredicto = await asyncio.to_thread(
-                ejecutar_consulta_ia, 
-                prompt=prompt_auditor_final, 
-                max_tokens=100, 
-                temperature=0.1, 
-                modelo_override=modelo_rev
-            )
-
-            if not veredicto or veredicto.strip() == "":
-                modelo_rev_2 = globals().get('GROQ_REVISOR_2', 'llama-3.3-70b-versatile')
-                logger.warning(f"Revisor principal ({modelo_rev}) devolvió vacío. Reintentando con revisor secundario ({modelo_rev_2})...")
-                veredicto = await asyncio.to_thread(
-                    ejecutar_consulta_ia, 
-                    prompt=prompt_auditor_final, 
-                    max_tokens=100, 
-                    temperature=0.1, 
-                    modelo_override=modelo_rev_2
-                )
-
-            veredicto_limpio = veredicto.strip().upper() if veredicto else ""
-
-            if "OK" in veredicto_limpio and "RECHAZ" not in veredicto_limpio:
-                logger.info(f"¡Informe mensual aprobado por el sistema en el intento {intento_actual} para el usuario {user_id}!")
-                return informe_candidato
-            else:
-                motivo_rechazo = veredicto.strip() if veredicto else "Auditoría vacía o nula"
-                logger.warning(f"Revisor rechazó el informe en el intento {intento_actual}. Motivo: {motivo_rechazo}")
-
-        except Exception as e:
-            logger.error(f"Error en intento {intento_actual} para usuario {user_id}: {e}")
-
-        if intento_actual < max_intentos:
-            await asyncio.sleep(5)
-
-    if 'informe_candidato' in locals() and informe_candidato:
-        logger.warning(f"Se agotaron las revisiones estrictas para {user_id}, pero se entrega el informe generado.")
-        return informe_candidato
-
-    logger.error(f"Se agotaron los intentos para generar el informe mensual del usuario {user_id}. Notificando al médico.")
-    
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        sheet_usuarios = sh.worksheet("Usuarios")
-        registros_usuarios = sheet_usuarios.get_all_records()
-        
-        medico_id = None
-        for u in registros_usuarios:
-            if str(u.get("User ID", "")).strip() == str(user_id):
-                medico_id = u.get("Medico ID") or u.get("Médico ID") or u.get("Medico_ID")
-                break
-
-        if medico_id:
-            mensaje_medico = (
-                f"⚠️ **Alerta de Sistema / Error Técnico**\n"
-                f"Estimado profesional, el paciente con ID `{user_id}` no pudo recibir su informe nutricional automático correspondiente al período `{mes_str}`.\n\n"
-                f"🛠️ **Acción sugerida:** Utilice el comando `/enviar_informe {user_id}` para reintentar cuando el servicio se normalice."
-            )
-            await context.bot.send_message(chat_id=int(medico_id), text=mensaje_medico, parse_mode="Markdown")
-    except Exception as err_medico:
-        logger.error(f"No se pudo notificar al médico del usuario {user_id}: {err_medico}")
-
-    return None
-
-
-
-                
-async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
-    """
-    Adaptador de compatibilidad para llamadas antiguas que usaban 'obtener_recomendacion_ia'.
-    Redirige la consulta a la nueva lógica centralizada o mantiene un comportamiento simple si se prefiere.
-    """
-    if es_semanal:
-        prompt = (
-            f"Actúa como un coach nutricional breve y conciso. "
-            f"Analiza este resumen semanal:\n{resumen_texto}\n\n"
-            f"Escribe un solo párrafo corto de análisis general y 3 recomendaciones breves en puntos."
-        )
-        max_t = 350
-    else:
-        # Para el mensual viejo, si aún se llama en alguna parte suelta
-        prompt = (
-            f"Actúa como un nutricionista clínico personal. "
-            f"Analiza la siguiente información:\n{resumen_texto}"
-        )
-        max_t = 700
-
-    system_msg = "Eres un nutricionista profesional y empático. Proporciona respuestas claras sin dejar oraciones inconclusas."
-    
-    # Llama a tu única función centralizada de IA
-    res = ejecutar_consulta_ia(prompt, max_tokens=max_t, temperature=0.4, system_prompt=system_msg)
-    
-    if res:
-        return res.replace("##", "").replace("###", "").strip()
-        
-    return "⚠️ No se pudo obtener el análisis nutricional en este momento."
-
-
-# ---------------------------------------------------------------------------------------------------------------------------------------------
 # 4. FUNCIONES DE LOGGING Y COMPONENTES DE INTERFAZ TELEGRAM
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -2750,6 +2353,388 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
     
 # =====================================================================================================================================
 #                FINAL                        FUNCIONES AUXILIARES Y FORMATO                                      FINAL
+# ======================================================================================================================================
+
+# =====================================================================================================================================
+#                INICIO                        FUNCIONES IA GROQ                                      INICIO
+# ======================================================================================================================================
+
+def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4, system_prompt: str = None, modelo_override: str = None) -> str:
+    """Función centralizada para consultas a la API de Groq."""
+    try:
+        client = globals().get('client_ai') or globals().get('groq_client')
+        if not client:
+            api_key = globals().get('GROQ_API_KEY') or os.getenv("GROQ_API_KEY")
+            if not api_key:
+                logger.error("⚠️ GROQ_API_KEY no configurada.")
+                return ""
+            from groq import Groq
+            client = Groq(api_key=api_key)
+
+        # Selecciona el modelo pasado por argumento o el predeterminado de globals
+        modelo = modelo_override or globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile")
+        
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        response = client.chat.completions.create(
+            model=modelo,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+        
+        if response and response.choices:
+            content = response.choices[0].message.content
+            return content.strip() if content else ""
+            
+    except Exception as e:
+        logger.error(f"⚠️ Error en ejecución de IA: {e}")
+        
+    return ""
+
+async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.BytesIO]:
+    """
+    Consulta a Groq con reintentos automáticos, audita el informe con el modelo de revisión 
+    para garantizar calidad y evitar textos truncados, y compila el PDF de bienvenida.
+    """
+    nombre = datos_usuario.get('nombre')
+    edad = datos_usuario.get('edad')
+    sexo = datos_usuario.get('sexo')
+    altura = datos_usuario.get('altura')
+    peso = datos_usuario.get('peso')
+    contextura = datos_usuario.get('contextura')
+    peso_ideal = datos_usuario.get('peso_ideal')
+    peso_etapa = datos_usuario.get('peso_etapa')
+    tmb = datos_usuario.get('tmb')
+    get_calorias = datos_usuario.get('get')
+
+    # 1. Construcción del prompt clínico para el informe inicial
+    prompt_ia = (
+        f"Actúa como un médico nutricionista experto. Analiza el perfil del paciente:\n"
+        f"- Nombre: {nombre}, Edad: {edad} años, Sexo: {sexo}\n"
+        f"- Altura: {altura} cm, Peso Actual: {peso} kg\n"
+        f"- Contextura ósea: {contextura}, Peso Ideal Teórico: {peso_ideal} kg\n"
+        f"- Peso Objetivo para la 1ra Etapa (ponderado prudente 75/25): {peso_etapa} kg\n"
+        f"- Gasto Basal (TMB): {tmb} kcal, Gasto Energético Total (GET): {get_calorias} kcal\n\n"
+        f"Redacta un informe breve y motivador de bienvenida que incluya:\n"
+        f"1. Una explicación clara y empática de por qué en esta primera etapa apuntamos a un peso objetivo intermedio ({peso_etapa} kg) en lugar de exigir el peso ideal final de golpe.\n"
+        f"2. Una recomendación general sobre el manejo de la dieta y calorías diarias orientada a un déficit saludable basado en su GET.\n"
+        f"3. Pautas generales de actividad física complementaria (caminatas, movilidad).\n"
+        f"Mantén un tono profesional, cálido y alentador sin dejar oraciones inconclusas."
+    )
+    
+    system_msg = "Eres un nutricionista clínico profesional y empático."
+    prompt_auditor_base = (
+        f"Actúa como un médico supervisor estricto y auditor de calidad. "
+        f"Revisa el siguiente informe nutricional de bienvenida:\n\n"
+        f"--- INFORME A EVALUAR ---\n{{informe_candidato}}\n-------------------------\n\n"
+        f"INSTRUCCIONES DE AUDITORÍA:\n"
+        f"1. Verifica que el texto sea coherente, empático, completo (sin cortes ni oraciones truncadas) y estrictamente profesional.\n"
+        f"2. Si el informe está perfecto y listo para entregar, responde únicamente comenzando con la palabra 'OK'.\n"
+        f"3. Si encuentras errores, oraciones inconclusas o falta de redacción, responde comenzando con la palabra 'RECHAZADO' indicando qué corregir."
+    )
+
+    informe_ia = ""
+    max_intentos = 3
+
+    # Función interna de reintentos rápidos para proteger las peticiones de red
+    async def _llamar_ia_con_retry(p, tokens, temp, sys_p=None, mod_over=None, intentos_max=3):
+        for it in range(1, intentos_max + 1):
+            try:
+                res = await asyncio.to_thread(
+                    ejecutar_consulta_ia, 
+                    prompt=p, 
+                    max_tokens=tokens, 
+                    temperature=temp, 
+                    system_prompt=sys_p, 
+                    modelo_override=mod_over
+                )
+                if res and res.strip():
+                    return res
+            except Exception as e:
+                print(f"⚠️ Fallo en intento IA {it}/{intentos_max}: {e}")
+                if it == intentos_max:
+                    raise e
+                await asyncio.sleep(2)
+        return ""
+
+    # Bucle principal de generación y auditoría cruzada
+    for intento in range(1, max_intentos + 1):
+        try:
+            # 1. Generación del texto candidato
+            texto_generado = await _llamar_ia_con_retry(
+                prompt=prompt_ia, 
+                max_tokens=600, 
+                temperature=0.3, 
+                system_prompt=system_msg
+            )
+            
+            if not texto_generado:
+                continue
+
+            # 2. Instancia y consulta al Modelo Revisor
+            prompt_auditor_final = prompt_auditor_base.format(informe_candidato=texto_generado)
+            modelo_rev = globals().get('GROQ_REVISION', 'openai/gpt-oss-20b')
+            
+            veredicto = await _llamar_ia_con_retry(
+                prompt=prompt_auditor_final, 
+                max_tokens=150, 
+                temperature=0.1, 
+                modelo_override=modelo_rev
+            )
+
+            if veredicto and veredicto.strip().upper().startswith("OK"):
+                informe_ia = texto_generado
+                break
+            else:
+                motivo = veredicto.strip() if veredicto else "Sin respuesta"
+                print(f"🔄 Revisor rechazó el informe inicial en el intento {intento}. Motivo: {motivo}")
+
+        except Exception as err:
+            print(f"❌ Error en ciclo de informe inicial (Intento {intento}): {err}")
+
+    # Fallback por seguridad si se agotaran los intentos
+    if not informe_ia:
+        informe_ia = "Estimado paciente, le damos la bienvenida a su plan nutricional personalizado. Su ficha ha sido configurada correctamente con los parámetros metabólicos iniciales."
+
+    # 3. Compilación del informe aprobado en formato PDF con ReportLab
+    pdf_buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        pdf_buffer, 
+        pagesize=letter, 
+        rightMargin=36, 
+        leftMargin=36, 
+        topMargin=36, 
+        bottomMargin=36
+    )
+    story = []
+    
+    styles = getSampleStyleSheet()
+    titulo_style = ParagraphStyle(
+        'TituloInforme', 
+        parent=styles['Heading1'], 
+        fontSize=15, 
+        leading=18, 
+        alignment=1, 
+        textColor=colors.HexColor('#1b4f72')
+    )
+    sub_style = ParagraphStyle(
+        'SubInforme', 
+        parent=styles['Normal'], 
+        fontSize=10, 
+        leading=14, 
+        textColor=colors.HexColor('#566573')
+    )
+    body_style = ParagraphStyle(
+        'CuerpoInforme', 
+        parent=styles['Normal'], 
+        fontSize=10, 
+        leading=15, 
+        textColor=colors.HexColor('#2c3e50')
+    )
+    
+    story.append(Paragraph("<b>INFORME NUTRICIONAL INICIAL - APERTURA DE FICHA</b>", titulo_style))
+    story.append(Spacer(1, 10))
+    
+    resumen_datos = (
+        f"<b>Paciente:</b> {nombre} | <b>ID Telegram:</b> `{datos_usuario.get('user_id')}`<br/>"
+        f"<b>Edad:</b> {edad} años | <b>Sexo:</b> {sexo} | <b>Altura:</b> {altura} cm<br/>"
+        f"<b>Peso Actual:</b> {peso} kg | <b>Contextura:</b> {contextura} | <b>Peso Ideal:</b> {peso_ideal} kg<br/>"
+        f"<b>Objetivo Etapa 1:</b> {peso_etapa} kg | <b>TMB:</b> {round(tmb)} kcal | <b>GET:</b> {round(get_calorias)} kcal"
+    )
+    story.append(Paragraph(resumen_datos, sub_style))
+    story.append(Spacer(1, 15))
+    story.append(Paragraph("<b>EVALUACIÓN Y PLANIFICACIÓN INICIAL</b>", styles['Heading2']))
+    story.append(Spacer(1, 8))
+    
+    # Reemplazo seguro de saltos de línea para compatibilidad con HTML de ReportLab
+    texto_formateado = informe_ia.replace('\n', '<br/>')
+    story.append(Paragraph(texto_formateado, body_style))
+    
+    doc.build(story)
+    pdf_buffer.seek(0)
+    
+    return informe_ia, pdf_buffer
+        
+async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuencias=None):
+    """
+    Función independiente para generar el informe mensual auditado usando la función centralizada.
+    """
+    if frecuencias is None:
+        frecuencias = {}
+
+    # Determinación del perfil clínico para orientar el tono del consejo de IA de forma interna
+    peso_act = m.get('peso_actual', 0)
+    peso_ref = m.get('peso_referencia', 0)
+    diferencia_peso = peso_act - peso_ref
+
+    if diferencia_peso > 2.0:
+        enfoque_clinico = "El paciente presenta un peso superior al objetivo de esta etapa. El enfoque debe ser motivador, orientado a la reducción paulatina de porciones, control de ansiedad y elección de alimentos de alta saciedad."
+    elif diferencia_peso < -2.0:
+        enfoque_clinico = "El paciente se encuentra por debajo de su peso de referencia. El enfoque debe orientarse a asegurar una densidad calórica adecuada y porciones suficientes para sostener la masa muscular."
+    else:
+        enfoque_clinico = "El paciente se encuentra muy cerca de su peso de referencia. El enfoque debe centrarse en la consolidación de hábitos estables y mantenimiento a largo plazo."
+
+    frec_str = "\n".join([f"- {cat}: {cant} ingestas" for cat, cant in frecuencias.items()]) if frecuencias else "- No hay frecuencias registradas."
+
+    prompt_1 = (
+        f"Actúa como un nutricionista clínico experto y empático. Contexto interno del paciente: {enfoque_clinico}\n"
+        f"Redacta un diagnóstico y análisis nutricional global puramente cualitativo del mes {mes_str}.\n"
+        f"Frecuencia de consumo por grupos alimentarios:\n{frec_str}\n\n"
+        f"INSTRUCCIONES ESTRICTAS:\n"
+        f"1. PROHIBIDO incluir números, métricas, porcentajes, gramos, calorías, cálculos matemáticos o fórmulas (ni IMC, ni calorías consumidas, ni déficits, ni 'kcal', ni 'g').\n"
+        f"2. Céntrate exclusivamente en consejos de hábitos, interpretación de patrones de conducta alimentaria (como la frecuencia de ciertos grupos) y orientaciones prácticas sobre cómo mejorar la calidad de las ingestas de forma sencilla.\n"
+        f"3. Mantén un tono sumamente humano, profesional, constructivo y directo (sin saludos ni introducciones)."
+    )
+
+    prompt_2 = (
+        f"Siguiendo con el caso anterior, redacta una lista numerada exactamente del 1 al 5 con alimentos o grupos de alimentos específicos que el paciente debería incorporar.\n"
+        f"REQUISITO ESTRICTO: Escribí únicamente el nombre del alimento o categoría de forma directa (máximo 3 o 4 palabras por ítem), sin explicaciones, sin porciones en gramos, sin calorías y sin descripciones largas."
+    )
+
+    prompt_3 = (
+        f"Finalmente, redacta una lista numerada exactamente del 1 al 5 con alimentos o hábitos alimentarios a reducir o evitar.\n"
+        f"REQUISITO ESTRICTO: Escribí únicamente el concepto de forma directa (ej: 'Bebidas azucaradas', 'Snacks ultraprocesados'), sin explicaciones numéricas ni porcentajes, acompañado al final de un párrafo breve sobre estrategia de hidratación y hábitos sostenibles."
+    )
+
+    prompt_auditor_base = (
+        f"Actúa como un médico supervisor estricto y auditor de calidad. "
+        f"Revisa el siguiente informe nutricional:\n\n"
+        f"--- INFORME A EVALUAR ---\n{{informe_completo}}\n-------------------------\n\n"
+        f"Criterios de rechazo obligatorios:\n"
+        f"1. Si incluye consejos ecológicos, de reciclaje, plásticos o electrodomésticos.\n"
+        f"2. Si la sección 1 contiene números, gramos, calorías o fórmulas matemáticas (como IMC).\n"
+        f"3. Si las listas de incorporar o reducir tienen más o menos de 5 elementos.\n"
+        f"Si el informe cumple perfectamente con todo, responde únicamente con la palabra 'OK'."
+    )
+
+    max_intentos = 3  
+    for intento_actual in range(1, max_intentos + 1):
+        try:
+            logger.info(f"Generando informe mensual auditado para usuario {user_id} (Intento {intento_actual}/{max_intentos})")
+
+            # Paso 1
+            texto_p1 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_1, max_tokens=700, temperature=0.3)
+            await asyncio.sleep(2)
+
+            # Paso 2
+            texto_p2 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_2, max_tokens=400, temperature=0.3)
+            await asyncio.sleep(2)
+
+            # Paso 3
+            texto_p3 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_3, max_tokens=500, temperature=0.3)
+            await asyncio.sleep(2)
+
+            # Unimos las partes en formato HTML limpio
+            informe_candidato = (
+                f"<b>1. DIAGNÓSTICO NUTRICIONAL GLOBAL</b><br/>{texto_p1}<br/><br/>"
+                f"<b>2. ALIMENTOS A INCORPORAR</b><br/>{texto_p2}<br/><br/>"
+                f"<b>3. ALIMENTOS A REDUCIR Y HÁBITOS</b><br/>{texto_p3}"
+            )
+
+            # Auditoría
+            prompt_auditor_final = prompt_auditor_base.format(informe_completo=informe_candidato)
+            
+            modelo_rev = globals().get('GROQ_REVISION', 'qwen/qwen2.5-72b-instruct')
+            veredicto = await asyncio.to_thread(
+                ejecutar_consulta_ia, 
+                prompt=prompt_auditor_final, 
+                max_tokens=100, 
+                temperature=0.1, 
+                modelo_override=modelo_rev
+            )
+
+            if not veredicto or veredicto.strip() == "":
+                modelo_rev_2 = globals().get('GROQ_REVISOR_2', 'llama-3.3-70b-versatile')
+                logger.warning(f"Revisor principal ({modelo_rev}) devolvió vacío. Reintentando con revisor secundario ({modelo_rev_2})...")
+                veredicto = await asyncio.to_thread(
+                    ejecutar_consulta_ia, 
+                    prompt=prompt_auditor_final, 
+                    max_tokens=100, 
+                    temperature=0.1, 
+                    modelo_override=modelo_rev_2
+                )
+
+            veredicto_limpio = veredicto.strip().upper() if veredicto else ""
+
+            if "OK" in veredicto_limpio and "RECHAZ" not in veredicto_limpio:
+                logger.info(f"¡Informe mensual aprobado por el sistema en el intento {intento_actual} para el usuario {user_id}!")
+                return informe_candidato
+            else:
+                motivo_rechazo = veredicto.strip() if veredicto else "Auditoría vacía o nula"
+                logger.warning(f"Revisor rechazó el informe en el intento {intento_actual}. Motivo: {motivo_rechazo}")
+
+        except Exception as e:
+            logger.error(f"Error en intento {intento_actual} para usuario {user_id}: {e}")
+
+        if intento_actual < max_intentos:
+            await asyncio.sleep(5)
+
+    if 'informe_candidato' in locals() and informe_candidato:
+        logger.warning(f"Se agotaron las revisiones estrictas para {user_id}, pero se entrega el informe generado.")
+        return informe_candidato
+
+    logger.error(f"Se agotaron los intentos para generar el informe mensual del usuario {user_id}. Notificando al médico.")
+    
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        sheet_usuarios = sh.worksheet("Usuarios")
+        registros_usuarios = sheet_usuarios.get_all_records()
+        
+        medico_id = None
+        for u in registros_usuarios:
+            if str(u.get("User ID", "")).strip() == str(user_id):
+                medico_id = u.get("Medico ID") or u.get("Médico ID") or u.get("Medico_ID")
+                break
+
+        if medico_id:
+            mensaje_medico = (
+                f"⚠️ **Alerta de Sistema / Error Técnico**\n"
+                f"Estimado profesional, el paciente con ID `{user_id}` no pudo recibir su informe nutricional automático correspondiente al período `{mes_str}`.\n\n"
+                f"🛠️ **Acción sugerida:** Utilice el comando `/enviar_informe {user_id}` para reintentar cuando el servicio se normalice."
+            )
+            await context.bot.send_message(chat_id=int(medico_id), text=mensaje_medico, parse_mode="Markdown")
+    except Exception as err_medico:
+        logger.error(f"No se pudo notificar al médico del usuario {user_id}: {err_medico}")
+
+    return None
+
+async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
+    """
+    Adaptador de compatibilidad para llamadas antiguas que usaban 'obtener_recomendacion_ia'.
+    Redirige la consulta a la nueva lógica centralizada o mantiene un comportamiento simple si se prefiere.
+    """
+    if es_semanal:
+        prompt = (
+            f"Actúa como un coach nutricional breve y conciso. "
+            f"Analiza este resumen semanal:\n{resumen_texto}\n\n"
+            f"Escribe un solo párrafo corto de análisis general y 3 recomendaciones breves en puntos."
+        )
+        max_t = 350
+    else:
+        # Para el mensual viejo, si aún se llama en alguna parte suelta
+        prompt = (
+            f"Actúa como un nutricionista clínico personal. "
+            f"Analiza la siguiente información:\n{resumen_texto}"
+        )
+        max_t = 700
+
+    system_msg = "Eres un nutricionista profesional y empático. Proporciona respuestas claras sin dejar oraciones inconclusas."
+    
+    # Llama a tu única función centralizada de IA
+    res = ejecutar_consulta_ia(prompt, max_tokens=max_t, temperature=0.4, system_prompt=system_msg)
+    
+    if res:
+        return res.replace("##", "").replace("###", "").strip()
+        
+    return "⚠️ No se pudo obtener el análisis nutricional en este momento."
+    
+# =====================================================================================================================================
+#                FINAL                        FUNCIONES IA GROQ                                      FINAL
 # ======================================================================================================================================
 
 # ======================================================================================================================================
@@ -5331,6 +5316,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         ahora = obtener_ahora_arg()
         mes_actual_str = ahora.strftime("%Y-%m")
+        mes_anterior_str = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
 
         mes_str = None
         if query and query.data:
@@ -5354,7 +5340,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
                 return
 
             elif cb_data == "resumen_volver_menu":
-                mes_anterior_str = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
                 keyboard = InlineKeyboardMarkup([
                     [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual_str}")],
                     [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior_str}")],
@@ -5374,7 +5359,11 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             mes_str = context.args[0]
 
         if not mes_str:
-            mes_str = mes_actual_str
+            # Si estamos entre el día 1 y el 6 inclusive, muestra por defecto el mes anterior
+            if ahora.day <= 6:
+                mes_str = mes_anterior_str
+            else:
+                mes_str = mes_actual_str
 
         if mes_str == mes_actual_str:
             if not await _validar_peso_mes_actual(update, context):
