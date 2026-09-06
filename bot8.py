@@ -62,10 +62,10 @@ load_dotenv()
 # Estados de conversación para Perfil y Fecha personalizada
 AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT_ITEM = range(4)
 
-GGROQ_TEXTO = "openai/gpt-oss-120b"
+GROQ_TEXTO = "openai/gpt-oss-120b"
 GROQ_FOTO = "qwen/qwen3.8-27b"
 GROQ_AUDIO = "whisper-large-v3"
-GROQ_REVISION = "llama-3.3-70b-versatile"       # Cambiado a un modelo grande y estable
+GROQ_REVISION = "openai/gpt-oss-120b"        # Cambiado al modelo activo y grande
 GROQ_REVISOR_2 = "openai/gpt-oss-20b"
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
