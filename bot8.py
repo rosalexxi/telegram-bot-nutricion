@@ -1651,7 +1651,7 @@ def extraer_val(texto: str) -> float:
 #                    FINAL                              GOOGLE SHEETS OPERACIONES                      FINAL
 # =======================================================================================================================================
 
-# =============================================================================================================================================
+## =============================================================================================================================================
 #                       INICIO                     FUNCIONES AUXILIARES Y FORMATO                                   INICIO  
 # =============================================================================================================================================
 
@@ -1997,44 +1997,6 @@ def analizar_frecuencia_alimentos_mes(df_mes, cat_dict, col_integrales=None, col
         print(f"Error analizando frecuencias de alimentos: {e}")
         return {}
         
-    
-def analizar_frecuencia_alimentos_mes(df_mes, cat_dict, col_integrales=None, col_refinadas=None, otras_categorias=None):
-    if otras_categorias is None:
-        otras_categorias = {}
-        
-    # Inicializar el diccionario de contadores con las claves originales
-    frecuencias = {cat: 0 for cat in cat_dict.keys()}
-
-    # Procesamiento celda por celda manteniendo la lógica de protección integral
-    for _, row in df_mes.iterrows():
-        texto_celda = str(row.get('Alimento', '')).strip().lower()
-        if not texto_celda:
-            continue
-
-        # 1. Evaluar primero si es integral
-        es_integral = any(p in texto_celda for p in (col_integrales or ['integral', 'salvado', 'centeno', 'avena']))
-        
-        if es_integral:
-            for cat_key in cat_dict.keys():
-                if 'integral' in cat_key:
-                    frecuencias[cat_key] += 1
-        else:
-            # 2. Si no es integral, evaluar si cae en refinadas/blancas
-            if col_refinadas and any(p in texto_celda for p in col_refinadas):
-                for cat_key in cat_dict.keys():
-                    if 'refinada' in cat_key or 'blanca' in cat_key:
-                        frecuencias[cat_key] += 1
-
-        # 3. Evaluar el resto de las categorías complementarias
-        for cat_nombre, palabras in otras_categorias.items():
-            if any(p in texto_celda for p in palabras):
-                frecuencias[cat_nombre] += 1
-
-    return frecuencias
-    except Exception as e:
-        print(f"Error analizando frecuencias de alimentos para user {user_id}: {e}")
-        return {}
-            
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 4. FUNCIONES DE LOGGING Y COMPONENTES DE INTERFAZ TELEGRAM
 # ---------------------------------------------------------------------------------------------------------------------------------------------
@@ -2367,8 +2329,7 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
 # =====================================================================================================================================
 #                FINAL                        FUNCIONES AUXILIARES Y FORMATO                                      FINAL
 # ======================================================================================================================================
-
-# =====================================================================================================================================
+ =====================================================================================================================================
 #                INICIO                        FUNCIONES IA GROQ                                      INICIO
 # ======================================================================================================================================
 
@@ -2579,21 +2540,20 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
     if frecuencias is None:
         frecuencias = {}
 
-    # --- CÁLCULO DE PORCENTAJES DE HARINAS PARA LA IA ---
+    # --- LLAMADO A LA FUNCIÓN CENTRALIZADA ---
+    porc_int, porc_ref = calcular_porcentajes_harinas(frecuencias)
+
     key_int = next((k for k in frecuencias.keys() if 'integral' in k), None)
     key_ref = next((k for k in frecuencias.keys() if 'refinada' in k or 'blanca' in k), None)
-
     total_integrales = frecuencias.get(key_int, 0) if key_int else 0
     total_refinadas = frecuencias.get(key_ref, 0) if key_ref else 0
     total_harinas = total_integrales + total_refinadas
 
     if total_harinas > 0:
-        porc_int = round((total_integrales / total_harinas) * 100)
-        porc_ref = round((total_refinadas / total_harinas) * 100)
         contexto_harinas_str = f"- Balance analítico de harinas del período: {porc_int}% de fuentes integrales ({total_integrales} registros) y {porc_ref}% de fuentes refinadas ({total_refinadas} registros). Ten muy en cuenta esta proporción exacta para tu evaluación."
     else:
         contexto_harinas_str = "- No se registran datos suficientes de harinas en este período."
-    # ----------------------------------------------------
+    # ----------------------------------------
 
     # Determinación del perfil clínico para orientar el tono del consejo de IA de forma interna
     peso_act = m.get('peso_actual', 0)
@@ -2732,6 +2692,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         logger.error(f"No se pudo notificar al médico del usuario {user_id}: {err_medico}")
 
     return None
+        
 async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
     """
     Adaptador de compatibilidad para llamadas antiguas que usaban 'obtener_recomendacion_ia'.
@@ -5315,7 +5276,6 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 # =============================================================================================================================================
 #                    FINAL                                    COMANDO INFORME MEDICO                                FINAL  
 # =============================================================================================================================================
-
 # ==============================================================================================================================================
 #               INICIO                           COMANDO RESUMEN Y GENERACIÓN DE PDF                        INICIO DB OK
 # ==============================================================================================================================================
