@@ -2081,14 +2081,27 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
 
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
         m = calcular_metricas_mensuales(df_filtrado, perfil) if 'calcular_metricas_mensuales' in globals() else {}
-        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_target) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
+        
+        try:
+            gc = get_gspread_client()
+            sh = gc.open(SPREADSHEET_NAME)
+            cat_dict = obtener_categorias_diccionario(sh)
+        except Exception:
+            cat_dict = {}
+
+        conteo_frecuencias = analizar_frecuencia_alimentos_mes(
+            df_mes=df_filtrado,
+            cat_dict=cat_dict,
+            col_integrales=['integral', 'salvado', 'centeno', 'avena'],
+            col_refinadas=['refinada', 'blanca', 'común'],
+            otras_categorias=cat_dict
+        ) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
 
         informe_ia = await generar_informe_mensual_auditado(context, user_id, mes_target, m, conteo_frecuencias)
 
         if not informe_ia:
             informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
 
-        # Compilación unificada en PDF mediante ReportLab para cualquier invocación (automática o manual)
         df_presion = pd.DataFrame()
         tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
 
@@ -2163,14 +2176,27 @@ async def procesar_y_enviar_informe_mensualPANTALLA(context, user_id: int, chat_
 
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
         m = calcular_metricas_mensuales(df_filtrado, perfil) if 'calcular_metricas_mensuales' in globals() else {}
-        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_target) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
+        
+        try:
+            gc = get_gspread_client()
+            sh = gc.open(SPREADSHEET_NAME)
+            cat_dict = obtener_categorias_diccionario(sh)
+        except Exception:
+            cat_dict = {}
+
+        conteo_frecuencias = analizar_frecuencia_alimentos_mes(
+            df_mes=df_filtrado,
+            cat_dict=cat_dict,
+            col_integrales=['integral', 'salvado', 'centeno', 'avena'],
+            col_refinadas=['refinada', 'blanca', 'común'],
+            otras_categorias=cat_dict
+        ) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
 
         informe_ia = await generar_informe_mensual_auditado(context, user_id, mes_target, m, conteo_frecuencias)
 
         if not informe_ia:
             informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
 
-        # Reemplazamos los saltos de línea de la IA y limpiamos posibles etiquetas inválidas o rotas
         informe_limpio = (
             informe_ia
             .replace("<br>", "\n")
@@ -2188,65 +2214,12 @@ async def procesar_y_enviar_informe_mensualPANTALLA(context, user_id: int, chat_
             f"{informe_limpio}"
         )
 
-        # Enviamos directo al chat manejando el troceo automático si excede los 4000 caracteres
         await enviar_mensaje_largo(context, chat_destino, txt_mensual, parse_mode="HTML")
         return True
 
     except Exception as e:
         logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}", exc_info=True)
         return False
-                                                        
-async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
-    """Registra errores en consola y en Google Sheets."""
-    mensaje_consola = f"Error en [{contexto}]"
-    if user_id:
-        mensaje_consola += f" - User ID: {user_id}"
-    mensaje_consola += f": {excepcion}"
-
-    logger.error(mensaje_consola)
-
-    try:
-        ctx_str = f"ERROR | {contexto}" + (f" (User {user_id})" if user_id else "")
-        if 'registrar_log_en_sheet' in globals():
-            await registrar_log_en_sheet(contexto=ctx_str, detalle=str(excepcion))
-    except Exception as e_sheet:
-        logger.error(f"Fallo secundario: No se pudo escribir el error en Google Sheets: {e_sheet}")
-
-async def mostrar_diario_fecha(query_or_update, user_id, fecha_str):
-    df = obtener_datos_usuario(user_id)
-    responder = query_or_update.edit_message_text if hasattr(query_or_update, 'edit_message_text') else query_or_update.message.reply_text
-
-    if df.empty or df[df['Fecha'] == fecha_str].empty:
-        txt = f"📅 **Registro del día {fecha_str}:**\n\nNo hay registros guardados para este día."
-        await responder(txt, parse_mode="Markdown")
-        return
-
-    df_diario = df[df['Fecha'] == fecha_str]
-    momentos_dict = {}
-    
-    for _, row in df_diario.iterrows():
-        momento = str(row.get("Momento", "General")).strip().title()
-        concepto = str(row.get("Alimento", "")).strip()
-        if concepto:
-            momentos_dict.setdefault(momento, []).append(concepto)
-
-    lineas_desglose = [f"• {m}: {', '.join(items)}" for m, items in momentos_dict.items()]
-    tot_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
-    tot_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
-
-    resumen_msg = (
-        f"📅 **Registro del día {fecha_str}:**\n\n"
-        + "\n".join(lineas_desglose) + "\n\n"
-        f"🖥️ **Consumidas:** {tot_cons:.0f} kcal\n"
-        f"🔥 **Quemadas:** {tot_quem:.0f} kcal\n"
-        f"⚖️ **Balance Neto:** {tot_cons - tot_quem:.0f} kcal"
-    )
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📄 Descargar PDF del Diario", callback_data=f"descargar_pdf_diario_{fecha_str}")]
-    ])
-
-    await responder(resumen_msg, reply_markup=keyboard, parse_mode="Markdown")
 
 #                                          VALIDACIÓN CENTRALIZADA DE PESO
 # =============================================================================================================================================
