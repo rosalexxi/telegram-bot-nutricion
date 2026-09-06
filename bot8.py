@@ -2237,28 +2237,30 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
     prompt_1 = (
         f"Actúa como un nutricionista clínico experto. Redacta un diagnóstico nutricional profundo, crítico y personalizado "
         f"para el paciente correspondiente al mes {mes_str}, basándote estrictamente en sus datos reales:\n"
-        f"- Peso actual: {m.get('peso_actual', 'N/A')} kg | Meta: {m.get('peso_objetivo', 'N/A')} kg\n"
+        f"- Edad: {m.get('edad', 'N/A')} años | Sexo: {m.get('sexo', 'N/A')} | Estatura: {m.get('estatura', 'N/A')} m\n"
+        f"- Peso actual: {m.get('peso_actual', 'N/A')} kg | Meta de peso: {m.get('peso_objetivo', 'N/A')} kg\n"
         f"- Calorías promedio reales: {m.get('prom_cal', 0)} kcal (Meta: {m.get('ideal_cal', 0)} kcal)\n"
         f"- Proteínas promedio: {m.get('prom_prot', 0)} g (Meta: {m.get('ideal_prot', 0)} g)\n"
         f"- Grasas promedio: {m.get('prom_gras', 0)} g (Meta: {m.get('ideal_gras', 0)} g)\n"
         f"- Carbohidratos promedio: {m.get('prom_carb', 0)} g (Meta: {m.get('ideal_carb', 0)} g)\n"
         f"- Fibras promedio: {m.get('prom_fibr', 0)} g (Meta: {m.get('ideal_fibr', 0)} g)\n"
         f"Frecuencia de consumo por grupos alimentarios en el mes:\n{frec_str}\n\n"
-        f"INSTRUCCIÓN: Analiza los desvíos cuantitativos (déficit calórico, déficit de fibra o proteínas) y "
-        f"relaciónalos directamente con las frecuencias de ingesta registradas. No hagas listas de alimentos aquí, "
-        f"céntrate puramente en el diagnóstico clínico y metabólico del paciente."
+        f"INSTRUCCIÓN: Calcula y menciona el IMC exacto utilizando la estatura y peso provistos (prohibido hacer suposiciones genéricas). "
+        f"Analiza los desvíos cuantitativos (déficit calórico, desequilibrio de macronutrientes) y relaciónalos directamente con las frecuencias de ingesta registradas. "
+        f"No hagas listas de alimentos aquí, céntrate puramente en el diagnóstico clínico y metabólico del paciente."
     )
 
     prompt_2 = (
         f"Siguiendo con el diagnóstico clínico anterior y los baches detectados en los macronutrientes del paciente "
-        f"(proteínas, fibra, calorías), redacta una lista numerada del 1 al 10 con recomendaciones de alimentos específicos, "
-        f"accesibles y personalizados que este paciente en particular debe incorporar para corregir sus desvíos nutricionales reales."
+        f"(proteínas, fibra, calorías, considerando su estatura de {m.get('estatura', 'N/A')} m y peso objetivo de {m.get('peso_objetivo', 'N/A')} kg), "
+        f"redacta una lista numerada del 1 al 10 con recomendaciones de alimentos específicos, accesibles y altamente personalizados "
+        f"que este paciente en particular debe incorporar para corregir sus desvíos nutricionales reales."
     )
 
     prompt_3 = (
-        f"Basándote en los excesos o desvíos detectados en el mes, redacta una lista numerada del 1 al 10 con alimentos o "
-        f"hábitos alimentarios específicos a reducir o evitar. "
-        f"Añade al final una estrategia breve sobre consumo óptimo de agua y **hábitos nutricionales sostenibles** "
+        f"Basándote en los excesos o desvíos detectados en el mes para este paciente, redacta una lista numerada del 1 al 10 "
+        f"con alimentos o hábitos alimentarios específicos a reducir o evitar. "
+        f"Añade al final una estrategia breve y concreta sobre consumo óptimo de agua y **hábitos nutricionales sostenibles** "
         f"(enfocados estrictamente en la adherencia a la dieta, control de porciones y conductas alimentarias saludables; "
         f"prohibido mencionar ecología, plásticos, reciclaje o electrodomésticos)."
     )
@@ -2270,7 +2272,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         f"Criterios de rechazo obligatorios:\n"
         f"1. Si incluye consejos ecológicos, de reciclaje, plásticos o electrodomésticos.\n"
         f"2. Si la sección 1 es una lista de alimentos en vez de un diagnóstico clínico.\n"
-        f"Si el informe es estrictamente profesional, clínico y coherente, responde únicamente con la palabra 'OK'."
+        f"Si el informe es estrictamente profesional, clínico y coherente, tu respuesta debe incluir la palabra 'OK'."
     )
 
     max_intentos = 3  
@@ -2304,7 +2306,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
             veredicto = await asyncio.to_thread(
                 ejecutar_consulta_ia, 
                 prompt=prompt_auditor_final, 
-                max_tokens=50, 
+                max_tokens=100, 
                 temperature=0.1, 
                 modelo_override=modelo_rev
             )
@@ -2315,14 +2317,15 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
                 veredicto = await asyncio.to_thread(
                     ejecutar_consulta_ia, 
                     prompt=prompt_auditor_final, 
-                    max_tokens=50, 
+                    max_tokens=100, 
                     temperature=0.1, 
                     modelo_override=modelo_rev_2
                 )
 
             veredicto_limpio = veredicto.strip().upper() if veredicto else ""
 
-            if veredicto_limpio == "OK" or veredicto_limpio.startswith("OK."):
+            # Validación más flexible para evitar que un modelo muy conversacional rechace un buen informe por no decir solo "OK"
+            if "OK" in veredicto_limpio and "RECHAZ" not in veredicto_limpio:
                 logger.info(f"¡Informe mensual aprobado por el sistema en el intento {intento_actual} para el usuario {user_id}!")
                 return informe_candidato
             else:
@@ -2364,7 +2367,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         logger.error(f"No se pudo notificar al médico del usuario {user_id}: {err_medico}")
 
     return None
-            
+                
 async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
     """
     Adaptador de compatibilidad para llamadas antiguas que usaban 'obtener_recomendacion_ia'.
