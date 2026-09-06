@@ -2408,6 +2408,12 @@ async def _verificar_y_obtener_profesional(update: Update) -> str:
     return None
     
 async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
+    """
+    Función unificada para generar y enviar el informe periódico con IA:
+    - Si es el envío automático del día 15: procesa estrictamente del día 1 al 14.
+    - Si es una solicitud manual: procesa el mes completo si ya pasó, 
+      o desde el día 1 hasta ayer si es el mes en curso.
+    """
     try:
         peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
         if not peso_ok and not forzar_envio:
@@ -2464,21 +2470,27 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
         if not informe_ia:
             informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
 
+        # Aseguramos que el informe de la IA use saltos de línea normales y HTML limpio
+        informe_limpio = informe_ia.replace("<br>", "\n").replace("<br/>", "\n").replace("<BR>", "\n")
+
         txt_mensual = (
-            f"📊 **Informe Nutricional ({etiqueta_periodo}):**\n"
-            f"⚖️ *Peso registrado: `{m.get('peso_actual', 0)} kg`*\n\n"
-            f"• Calorías Promedio: `{m.get('prom_cal', 0)} kcal` (Meta: `{m.get('ideal_cal', 0)} kcal`)\n"
-            f"• Días Registrados: `{m.get('dias_registrados', 0)}`\n\n"
-            f"🤖 **Análisis Nutricional Profundo:**\n"
-            f"{informe_ia}"
+            f"📊 <b>Informe Nutricional ({etiqueta_periodo}):</b>\n"
+            f"⚖️ <i>Peso registrado: {m.get('peso_actual', 0)} kg</i>\n\n"
+            f"• Calorías Promedio: <b>{m.get('prom_cal', 0)} kcal</b> (Meta: {m.get('ideal_cal', 0)} kcal)\n"
+            f"• Días Registrados: <b>{m.get('dias_registrados', 0)}</b>\n\n"
+            f"🤖 <b>Análisis Nutricional Profundo:</b>\n"
+            f"{informe_limpio}"
         )
 
+        # Envío único con formato HTML estricto
         await context.bot.send_message(chat_id=int(user_id), text=txt_mensual, parse_mode="HTML")
         return True
 
     except Exception as e:
         logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}", exc_info=True)
         return False
+
+
                                         
 async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
     """Registra errores en consola y en Google Sheets."""
