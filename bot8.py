@@ -3883,7 +3883,7 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     peso_act_pdf = round(float(m.get('peso_actual', 0)), 1)
     peso_ref_pdf = round(float(m.get('peso_referencia', 0)), 1)
 
-    story.append(Paragraph(f"• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {peso_act_pdf} kg | Peso Objetivo (75/25): {peso_ref_pdf} kg | Altura: {m.get('altura', 0)} cm", body_style))
+    story.append(Paragraph(f"• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {peso_act_pdf} kg | Peso Objetivo  de esta etapa : {peso_ref_pdf} kg |", body_style))
     story.append(Paragraph(f"• <b>DÉFICIT CALÓRICO DIARIO PROMEDIO:</b> {m.get('deficit_diario_real', 0)} kcal / día", body_style))
     story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {m.get('cambio_peso_kg', 0):+.1f} kg", body_style))
 
@@ -3963,7 +3963,7 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         if mes_str == mes_actual_str:
             recomendacion_pdf = (
                 f"<b>REPORTE MENSUAL EN CURSO ({mes_str}):</b><br/>"
-                f"• Promedio Calórico Diario: {m.get('prom_cal', 0)} kcal (Meta: {m.get('ideal_cal', 0)} kcal)<br/>"
+                f"• Promedio Calórico Diario: {m.get('prom_cal', 0)} kcal (Valor de equilibrio: {m.get('ideal_cal', 0)} kcal)<br/>"
                 f"• Balance Neto Promedio: {m.get('prom_bal_neto', 0)} kcal/día<br/>"
                 f"• Variación Estimada de Peso: {m.get('cambio_peso_kg', 0):+.1f} kg en {m.get('dias_registrados', 0)} días.<br/><br/>"
                 f"Este reporte consolida el estado actual de las métricas registradas durante el mes en curso."
@@ -4004,7 +4004,6 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
 # ======================================================================================================================================
 #                   FINAL                                COMANDO RESUMEN                                           FINAL
 # ======================================================================================================================================
-
 
 # ======================================================================================================================================
 #                   INICIO                               COMANDO PRESION                                          INICIO  DB OK
@@ -5177,11 +5176,11 @@ async def recordatorio_lunes_presion(context):
     except Exception as e:
         logger.error(f"Error en la ejecución del recordatorio semanal de presión: {e}")
 
-
 async def ejecutar_recordatorio_comidas(context, momento: str):
     """
     Verifica y envía alertas de comidas pendientes, evalúa el cumplimiento semanal de ingestas 
-    (lunes y martes) aplicando el sistema de penalizaciones y suspensión, y emite informes periódicos.
+    (lunes y martes) aplicando el sistema de penalizaciones y suspensión, y emite el informe 
+    mensual definitivo en formato PDF el día 2 del mes siguiente cubriendo el mes completo anterior.
     """
     try:
         gc = get_gspread_client()
@@ -5207,8 +5206,9 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
     
     es_lunes_manana = (hoy.weekday() == 0 and momento == 'manana')
     es_martes_manana = (hoy.weekday() == 1 and momento == 'manana')
-    es_dia_15_tarde = (hoy.day in [15, 30] and momento == 'tarde')
-    es_dia_15_manana = (hoy.day in [15, 30] and momento == 'manana')
+    
+    # MODIFICACIÓN: Se cambia el selector de días [15, 30] por el día 2 del mes siguiente a la tarde
+    es_informe_mensual_pdf = (hoy.day == 2 and momento == 'tarde')
 
     if es_lunes_manana:
         await recordatorio_lunes_presion(context)
@@ -5301,7 +5301,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                             if col_estado_idx and col_userid_idx:
                                 sheet_usuarios.update_cell(row_index, col_estado_idx, "3")
                         except Exception as e_upd:
-                            logger.error(f-f"Error al actualizar estado de suspensión para {user_id}: {e_upd}")
+                            logger.error(f"Error al actualizar estado de suspensión para {user_id}: {e_upd}")
 
                         await context.bot.send_message(
                             chat_id=user_id,
@@ -5449,51 +5449,72 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                         parse_mode="Markdown"
                     )
 
-            # 3. Envío automático del resumen/informe mensual con IA (Días 15 y 30 a la tarde)
-            if es_dia_15_tarde:
+            # 3. Envío automático del informe mensual definitivo en PDF (Día 2 del mes siguiente a la tarde)
+            if es_informe_mensual_pdf:
                 peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
                 if peso_ok:
                     try:
-                        mes_actual_str = hoy.strftime("%Y-%m")
+                        # Calcular el mes anterior completo
+                        primer_dia_mes_actual = hoy.replace(day=1)
+                        ultimo_dia_mes_anterior = primer_dia_mes_actual - timedelta(days=1)
+                        mes_anterior_str = ultimo_dia_mes_anterior.strftime("%Y-%m")
+                        
                         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
                         
                         if not df_datos.empty and 'Fecha' in df_datos.columns:
-                            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
-                            df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_actual_str)].copy()
+                            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce')
                             
-                            if not df_mes.empty:
-                                perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual_str) if 'obtener_perfil_usuario' in globals() else {}
-                                m = calcular_metricas_mensuales(df_mes, perfil) if 'calcular_metricas_mensuales' in globals() else {}
-                                conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_actual_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
+                            inicio_periodo = pd.Timestamp(ultimo_dia_mes_anterior.replace(day=1))
+                            fin_periodo = pd.Timestamp(ultimo_dia_mes_anterior)
+                            
+                            df_mes = df_datos[
+                                (df_datos['Fecha_dt'] >= inicio_periodo) & 
+                                (df_datos['Fecha_dt'] <= fin_periodo)
+                            ].copy()
+                            
+                            perfil = obtener_perfil_usuario(user_id, mes_target=mes_anterior_str) if 'obtener_perfil_usuario' in globals() else {}
+                            m = calcular_metricas_mensuales(df_mes, perfil) if 'calcular_metricas_mensuales' in globals() else {}
+                            conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_anterior_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
 
-                                informe_ia = await generar_informe_mensual_auditado(
-                                    context, 
-                                    user_id, 
-                                    mes_actual_str, 
-                                    m, 
-                                    conteo_frecuencias
-                                )
+                            # Generar PDF mediante ReportLab
+                            ruta_pdf = generar_pdf_informe_mensual(user_id, mes_anterior_str, m, conteo_frecuencias, df_mes) if 'generar_pdf_informe_mensual' in globals() else None
 
+                            if ruta_pdf and os.path.exists(ruta_pdf):
+                                with open(ruta_pdf, 'rb') as archivo_pdf:
+                                    await context.bot.send_document(
+                                        chat_id=int(user_id),
+                                        document=archivo_pdf,
+                                        filename=f"Informe_Nutricional_{mes_anterior_str}.pdf",
+                                        caption=f"📋 **Informe Mensual Definitivo ({mes_anterior_str})**\n⚖️ Peso de cierre: `{m.get('peso_actual', 0)} kg`",
+                                        parse_mode="HTML"
+                                    )
+                                try:
+                                    os.remove(ruta_pdf)
+                                except Exception:
+                                    pass
+                            else:
+                                # Fallback a mensaje de texto si no se pudo compilar el PDF
+                                informe_ia = await generar_informe_mensual_auditado(context, user_id, mes_anterior_str, m, conteo_frecuencias)
                                 if not informe_ia:
                                     informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
 
                                 txt_mensual = (
-                                    f"📊 **Informe Periódico Automático ({mes_actual_str}):**\n"
+                                    f"📊 **Informe Mensual Definitivo ({mes_anterior_str}):**\n"
                                     f"⚖️ *Peso registrado: `{m.get('peso_actual', 0)} kg`*\n\n"
                                     f"• Calorías Promedio: `{m.get('prom_cal', 0)} kcal` (Meta: `{m.get('ideal_cal', 0)} kcal`)\n"
                                     f"• Días Registrados: `{m.get('dias_registrados', 0)}`\n\n"
                                     f"🤖 **Análisis Nutricional Profundo:**\n"
                                     f"{informe_ia}"
                                 )
-
                                 await context.bot.send_message(chat_id=int(user_id), text=txt_mensual, parse_mode="HTML")
-                                logger.info(f"Informe periódico enviado exitosamente a {user_id}")
 
-                                if index < len(registros_usuarios) - 1:
-                                    await asyncio.sleep(60)
+                            logger.info(f"Informe mensual en PDF del período {mes_anterior_str} enviado exitosamente a {user_id}")
+
+                            if index < len(registros_usuarios) - 1:
+                                await asyncio.sleep(60)
 
                     except Exception as e_mensual:
-                        logger.error(f"Error generando informe periódico para {user_id}: {e_mensual}")
+                        logger.error(f"Error generando informe mensual en PDF para {user_id}: {e_mensual}")
 
             # 4. Recordatorio habitual de comidas pendientes (mañana y tarde)
             nombre_hoja_usuario = f"User_{user_id}"
@@ -5556,7 +5577,6 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 # =============================================================================================================================================
 #                    FINAL                                    MENSAJES PROGRAMADOS                                        FINAL
 # =============================================================================================================================================
-
 
 # =====================================================================================================================================
 #                INICIO                               COMANDO ELIMINAR                          INICIO  
@@ -5922,31 +5942,61 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg_espera.edit_text(f"❌ Ocurrió un error al procesar el listado clínico: {e}")
 
 # =============================================================================================================================================
-#                    FINAL                                    COMANDO PACIENTES                                 FINAL
+#                    FINAL                                    COMANDO PACIENTES MEDICO                                FINAL
 # =============================================================================================================================================
 
 # =============================================================================================================================================
-#                    INICIO                                    COMANDO INFORME                                 INICIO  
+#                    INICIO                                    COMANDO INFORME MEDICO                                INICIO  
 # =============================================================================================================================================
 
 async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando exclusivo para el profesional: 
-    Envía manualmente el resumen del mes actual (hasta ayer) al paciente indicado.
-    Uso: /enviar_informe <user_id>
+    Envía manualmente el resumen del mes actual (o del mes anterior si estamos del 1 al 5).
+    Si no se provee el <user_id>, lista todos los pacientes registrados para facilitar su copia.
+    Uso: /enviar_informe [user_id]
     """
     prof_id = await _verificar_y_obtener_profesional(update)
     if not prof_id:
         await update.message.reply_text("⛔ **Acceso denegado:** Este comando es exclusivo para profesionales registrados.", parse_mode="Markdown")
         return
 
+    # Si no se pasan argumentos, listamos los pacientes disponibles desde Google Sheets
     if not context.args:
-        await update.message.reply_text(
-            "⚠️ Debes indicar el ID del paciente.\n"
-            "Uso correcto: `/enviar_informe <user_id>`", 
-            parse_mode="Markdown"
-        )
-        return
+        try:
+            gc = get_gspread_client()
+            sh = gc.open(SPREADSHEET_NAME)
+            sheet_usuarios = sh.worksheet("Usuarios")
+            registros_usuarios = sheet_usuarios.get_all_records()
+            
+            if not registros_usuarios:
+                await update.message.reply_text("⚠️ No se encontraron pacientes registrados en el sistema.")
+                return
+
+            texto_lista = "📋 **Listado de Pacientes Registrados:**\n\n"
+            for u in registros_usuarios:
+                raw_user_id = u.get("User ID", u.get("user_id", ""))
+                nombre = u.get("Nombre", u.get("nombre", "Sin nombre"))
+                
+                if raw_user_id:
+                    try:
+                        uid_clean = int(str(raw_user_id).split('.')[0].strip())
+                        texto_lista += f"• **{nombre}**\n  ID: `{uid_clean}` \n\n"
+                    except ValueError:
+                        continue
+
+            texto_lista += "💡 *Para enviar el informe usa:* `/enviar_informe <user_id>`"
+            await update.message.reply_text(texto_lista, parse_mode="Markdown")
+            return
+
+        except Exception as e:
+            logger.error(f"Error al listar pacientes para el profesional: {e}")
+            await update.message.reply_text(
+                "⚠️ Debes indicar el ID del paciente o ocurrió un error al consultar la lista.\n"
+                "Uso correcto: `/enviar_informe <user_id>`", 
+                parse_mode="Markdown"
+            )
+            return
 
     try:
         target_user_id = int(context.args[0])
@@ -5958,17 +6008,23 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
     if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
         ahora_arg = ahora_arg.replace(tzinfo=None)
     
-    mes_actual_str = ahora_arg.strftime("%Y-%m")
+    # Si estamos del 1 al 5, seleccionamos por defecto el mes anterior completo
+    if 1 <= ahora_arg.day <= 5:
+        primer_dia_mes_actual = ahora_arg.replace(day=1)
+        mes_anterior_dt = primer_dia_mes_actual - timedelta(days=1)
+        mes_target_str = mes_anterior_dt.strftime("%Y-%m")
+    else:
+        mes_target_str = ahora_arg.strftime("%Y-%m")
 
     msg_espera = await update.message.reply_text(
-        f"⏳ Procesando informe del mes actual para el paciente `{target_user_id}`...", 
+        f"⏳ Procesando informe del período `{mes_target_str}` para el paciente `{target_user_id}`...", 
         parse_mode="Markdown"
     )
 
     exito = await procesar_y_enviar_informe_mensual(
         context=context,
         user_id=target_user_id,
-        mes_target=mes_actual_str,
+        mes_target=mes_target_str,
         es_automatico_15=False,
         forzar_envio=True
     )
@@ -5976,7 +6032,7 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
     await msg_espera.delete()
     if exito:
         await update.message.reply_text(
-            f"✅ El informe nutricional del mes actual fue enviado con éxito al paciente `{target_user_id}`.", 
+            f"✅ El informe nutricional del período `{mes_target_str}` fue enviado con éxito al paciente `{target_user_id}`.", 
             parse_mode="Markdown"
         )
     else:
@@ -5985,9 +6041,8 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
             f"Revisá si tiene registros cargados en el mes o consulta los logs.", 
             parse_mode="Markdown"
         )
-
 # =============================================================================================================================================
-#                    FINAL                                    COMANDO INFORME                                 FINAL  
+#                    FINAL                                    COMANDO INFORME MEDICO                                FINAL  
 # =============================================================================================================================================
 
 # =============================================================================================================================================
