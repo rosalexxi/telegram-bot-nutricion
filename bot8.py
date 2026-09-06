@@ -5952,31 +5952,12 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                    INICIO                                    COMANDO INFORME MEDICO                                INICIO  
 # =============================================================================================================================================
 
-import html  # Asegurate de tener este import arriba del archivo si no lo tenías
-
-async def enviar_mensaje_largo(context, chat_id, texto, parse_mode="HTML"):
-    """Envía un mensaje largo dividiéndolo en fragmentos de máximo 4000 caracteres para evitar el límite de Telegram."""
-    limite = 4000
-    if len(texto) <= limite:
-        await context.bot.send_message(chat_id=chat_id, text=texto, parse_mode=parse_mode)
-        return
-
-    lineas = texto.split("\n")
-    chunk_actual = ""
-    for linea in lineas:
-        if len(chunk_actual) + len(linea) + 1 > limite:
-            await context.bot.send_message(chat_id=chat_id, text=chunk_actual, parse_mode=parse_mode)
-            chunk_actual = linea + "\n"
-        else:
-            chunk_actual += linea + "\n"
-    
-    if chunk_actual.strip():
-        await context.bot.send_message(chat_id=chat_id, text=chunk_actual, parse_mode=parse_mode)
+import os
+import html
 
 async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False, chat_destino: int = None):
     """
-    Función unificada para generar y enviar el informe periódico con IA.
-    Si chat_destino no se especifica, se envía por defecto al user_id del paciente.
+    Genera el informe nutricional, compila el documento PDF formal y lo envía al chat correspondiente.
     """
     try:
         dest = chat_destino if chat_destino is not None else user_id
@@ -6023,34 +6004,46 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
         m = calcular_metricas_mensuales(df_filtrado, perfil) if 'calcular_metricas_mensuales' in globals() else {}
         conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_target) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
 
+        # Obtenemos el análisis de la IA para integrarlo dentro del documento PDF
         informe_ia = await generar_informe_mensual_auditado(context, user_id, mes_target, m, conteo_frecuencias)
-
         if not informe_ia:
-            informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
+            informe_ia = "No se pudo generar el análisis detallado mediante IA para este período."
 
-        # Limpiamos los saltos de línea y escapamos caracteres conflictivos para HTML de Telegram
-        informe_limpio = informe_ia.replace("<br>", "\n").replace("<br/>", "\n").replace("<BR>", "\n")
-        
-        informe_seguro = (
-            informe_limpio
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("&lt;b&gt;", "<b>").replace("&lt;/b&gt;", "</b>")
-            .replace("&lt;i&gt;", "<i>").replace("&lt;/i&gt;", "</i>")
-            .replace("&lt;u&gt;", "<u>").replace("&lt;/u&gt;", "<u>")
-        )
+        # Verificamos si tenés tu función de generación de PDF en el entorno (ej. generar_pdf_resumen_mensual)
+        if 'generar_pdf_resumen_mensual' in globals():
+            ruta_pdf = generar_pdf_resumen_mensual(user_id, mes_target, df_filtrado, m, informe_ia)
+        elif 'crear_pdf_informe' in globals():
+            ruta_pdf = crear_pdf_informe(user_id, mes_target, df_filtrado, m, informe_ia)
+        else:
+            ruta_pdf = None
 
-        txt_mensual = (
-            f"📊 <b>Informe Nutricional ({etiqueta_periodo}):</b>\n"
-            f"⚖️ <i>Peso registrado: {m.get('peso_actual', 0)} kg</i>\n\n"
-            f"• Calorías Promedio: <b>{m.get('prom_cal', 0)} kcal</b> (Meta: {m.get('ideal_cal', 0)} kcal)\n"
-            f"• Días Registrados: <b>{m.get('dias_registrados', 0)}</b>\n\n"
-            f"🤖 <b>Análisis Nutricional Profundo:</b>\n"
-            f"{informe_seguro}"
-        )
+        if ruta_pdf and os.path.exists(ruta_pdf):
+            caption_txt = (
+                f"📄 <b>Informe Nutricional Formal ({etiqueta_periodo})</b>\n"
+                f"⚖️ Peso actual: {m.get('peso_actual', 0)} kg | Días registrados: {m.get('dias_registrados', 0)}"
+            )
+            with open(ruta_pdf, 'rb') as pdf_file:
+                await context.bot.send_document(
+                    chat_id=dest,
+                    document=pdf_file,
+                    filename=f"Informe_Nutricional_{mes_target}.pdf",
+                    caption=caption_txt,
+                    parse_mode="HTML"
+                )
+            try:
+                os.remove(ruta_pdf) # Limpiamos el archivo temporal del disco
+            except Exception:
+                pass
+        else:
+            # Fallback por si la función de PDF no está expuesta con ese nombre exacto
+            txt_fallback = (
+                f"📊 <b>Informe Nutricional ({etiqueta_periodo}):</b>\n"
+                f"⚖️ Peso: {m.get('peso_actual', 0)} kg\n"
+                f"• Promedio Calorías: {m.get('prom_cal', 0)} kcal\n\n"
+                f"🤖 <b>Análisis:</b>\n{informe_ia[:3000]}"
+            )
+            await context.bot.send_message(chat_id=dest, text=txt_fallback, parse_mode="HTML")
 
-        await enviar_mensaje_largo(context, dest, txt_mensual, parse_mode="HTML")
         return True
 
     except Exception as e:
@@ -6059,7 +6052,7 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
 
 async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Comando para que el médico fuerce el envío del informe mensual/actual.
+    Comando para que el médico fuerce la generación y envío del informe en PDF.
     Uso: /informe [user_id] [mes (opcional YYYY-MM)]
     """
     try:
@@ -6084,7 +6077,7 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
         mes_target_str = args[1] if (args and len(args) > 1) else mes_actual_str
 
         await update.message.reply_text(
-            f"⏳ Procesando informe del período `{mes_target_str}` para el paciente `{target_user_id}` en segundo plano...",
+            f"⏳ Compilando informe PDF del período `{mes_target_str}` para el usuario `{target_user_id}`...",
             parse_mode="Markdown"
         )
 
@@ -6101,19 +6094,18 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
                 if not exito:
                     await context.bot.send_message(
                         chat_id=chat_id_actual,
-                        text=f"❌ No se pudo completar el envío para el usuario `{target_user_id}`. Revisá si tiene registros cargados en el mes.",
+                        text=f"❌ No se pudo generar el PDF para el usuario `{target_user_id}`.",
                         parse_mode="Markdown"
                     )
             except Exception as e:
-                logger.error(f"Error en tarea en segundo plano de informe para {target_user_id}: {e}", exc_info=True)
+                logger.error(f"Error en tarea en segundo plano de PDF para {target_user_id}: {e}", exc_info=True)
 
         asyncio.create_task(tarea_segundo_plano())
 
     except Exception as e:
         logger.error(f"Error en cmd_enviar_informe_actual: {e}", exc_info=True)
-        await update.message.reply_text("❌ Ocurrió un error al procesar la solicitud del informe.")
-        
-                    
+        await update.message.reply_text("❌ Ocurrió un error al procesar la solicitud del informe PDF.")
+
 # =============================================================================================================================================
 #                    FINAL                                    COMANDO INFORME MEDICO                                FINAL  
 # =============================================================================================================================================
