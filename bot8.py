@@ -2407,28 +2407,15 @@ async def _verificar_y_obtener_profesional(update: Update) -> str:
         pass
     return None
     
-async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
-    """
-    Función unificada para generar y enviar el informe periódico con IA:
-    - Si es el envío automático del día 15: procesa estrictamente del día 1 al 14.
-    - Si es una solicitud manual: procesa el mes completo si ya pasó, 
-      o desde el día 1 hasta ayer si es el mes en curso.
-    """
+async def procesar_y_enviar_informe_mensual_para_chat(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
     try:
         peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
         if not peso_ok and not forzar_envio:
             return False
 
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
-        
-        # --- LÍNEAS DE DIAGNÓSTICO TEMPORALES ---
-        logger.info(f"DEBUG USUARIO {user_id} - Columnas detectadas: {list(df_datos.columns) if not df_datos.empty else 'DF VACÍO'}")
-        if not df_datos.empty and 'Fecha' in df_datos.columns:
-            logger.info(f"DEBUG - Últimas 5 fechas en el Sheet: {df_datos['Fecha'].tail(5).tolist()}")
-        # ----------------------------------------
-
         if df_datos.empty or 'Fecha' not in df_datos.columns:
-            await context.bot.send_message(chat_id=user_id, text="⚠️ No hay registros suficientes para generar el informe.")
+            await context.bot.send_message(chat_id=chat_destino, text="⚠️ No hay registros suficientes para generar el informe.")
             return False
 
         df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
@@ -2457,8 +2444,7 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
         df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
 
         if df_filtrado.empty:
-            logger.warning(f"DataFrame filtrado vacío para {user_id}. Rango buscado: {inicio_periodo.date()} a {fin_periodo.date()}")
-            await context.bot.send_message(chat_id=int(user_id), text=f"⚠️ No se encontraron registros cerrados para el período {etiqueta_periodo}.")
+            await context.bot.send_message(chat_id=chat_destino, text=f"⚠️ No se encontraron registros cerrados para el período {etiqueta_periodo}.")
             return False
 
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
@@ -2470,7 +2456,6 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
         if not informe_ia:
             informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
 
-        # Aseguramos que el informe de la IA use saltos de línea normales y HTML limpio
         informe_limpio = informe_ia.replace("<br>", "\n").replace("<br/>", "\n").replace("<BR>", "\n")
 
         txt_mensual = (
@@ -2482,16 +2467,14 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
             f"{informe_limpio}"
         )
 
-        # Envío único con formato HTML estricto
-        await context.bot.send_message(chat_id=int(user_id), text=txt_mensual, parse_mode="HTML")
+        # Enviamos directo al chat donde estás operando
+        await context.bot.send_message(chat_id=chat_destino, text=txt_mensual, parse_mode="HTML")
         return True
 
     except Exception as e:
-        logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}", exc_info=True)
+        logger.error(f"Error en procesar_y_enviar_informe_mensual_para_chat para {user_id}: {e}", exc_info=True)
         return False
-
-
-                                        
+                                                
 async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
     """Registra errores en consola y en Google Sheets."""
     mensaje_consola = f"Error en [{contexto}]"
@@ -5970,106 +5953,74 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Comando exclusivo para el profesional: 
-    Envía manualmente el resumen del mes actual (o del mes anterior si estamos del 1 al 5).
-    Si no se provee el <user_id>, lista todos los pacientes registrados.
-    Se ejecuta de forma asíncrona en segundo plano para no bloquear el bot.
-    Uso: /enviar_informe [user_id]
+    Comando para que el médico (o el usuario autorizado) fuerce el envío 
+    del informe mensual/actual de un paciente específico o de sí mismo.
+    Uso: /informe [user_id] [mes (opcional YYYY-MM)]
     """
-    prof_id = await _verificar_y_obtener_profesional(update)
-    if not prof_id:
-        await update.message.reply_text("⛔ **Acceso denegado:** Este comando es exclusivo para profesionales registrados.", parse_mode="Markdown")
-        return
-
-    # Si no se pasan argumentos, listamos los pacientes disponibles desde Google Sheets
-    if not context.args:
-        try:
-            gc = get_gspread_client()
-            sh = gc.open(SPREADSHEET_NAME)
-            sheet_usuarios = sh.worksheet("Usuarios")
-            registros_usuarios = sheet_usuarios.get_all_records()
-            
-            if not registros_usuarios:
-                await update.message.reply_text("⚠️ No se encontraron pacientes registrados en el sistema.")
-                return
-
-            texto_lista = "📋 **Listado de Pacientes Registrados:**\n\n"
-            for u in registros_usuarios:
-                raw_user_id = u.get("User ID", u.get("user_id", ""))
-                nombre = u.get("Nombre", u.get("nombre", "Sin nombre"))
-                estado = u.get("Estado", u.get("estado", "0"))
-                
-                if raw_user_id:
-                    try:
-                        uid_clean = int(str(raw_user_id).split('.')[0].strip())
-                        texto_lista += f"• **{nombre}**\n  ID: `{uid_clean}` (Estado: {estado})\n\n"
-                    except ValueError:
-                        continue
-
-            texto_lista += "💡 *Para enviar el informe usa:* `/enviar_informe <user_id>`"
-            await update.message.reply_text(texto_lista, parse_mode="Markdown")
-            return
-
-        except Exception as e:
-            logger.error(f"Error al listar pacientes para el profesional: {e}")
-            await update.message.reply_text(
-                "⚠️ Debes indicar el ID del paciente o ocurrió un error al consultar la lista.\n"
-                "Uso correcto: `/enviar_informe <user_id>`", 
-                parse_mode="Markdown"
-            )
-            return
-
     try:
-        target_user_id = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text("⚠️ El ID de usuario ingresado debe ser un número entero válido.")
-        return
+        args = context.args
+        user_id_actual = update.effective_user.id
 
-    ahora_arg = obtener_ahora_arg()
-    if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
-        ahora_arg = ahora_arg.replace(tzinfo=None)
-    
-    # Si estamos del 1 al 5, seleccionamos por defecto el mes anterior completo
-    if 1 <= ahora_arg.day <= 5:
-        primer_dia_mes_actual = ahora_arg.replace(day=1)
-        mes_anterior_dt = primer_dia_mes_actual - timedelta(days=1)
-        mes_target_str = mes_anterior_dt.strftime("%Y-%m")
-    else:
-        mes_target_str = ahora_arg.strftime("%Y-%m")
+        # Validar si se pasó un user_id como argumento, sino usa el propio
+        if args and len(args) > 0:
+            try:
+                target_user_id = int(args[0])
+            except ValueError:
+                await update.message.reply_text("⚠️ El ID de usuario debe ser un número válido.\nEjemplo: `/informe 123456789`", parse_mode="Markdown")
+                return
+        else:
+            target_user_id = user_id_actual
 
-    await update.message.reply_text(
-        f"⏳ Procesando informe del período `{mes_target_str}` para el paciente `{target_user_id}` en segundo plano...", 
-        parse_mode="Markdown"
-    )
+        # Determinar el mes objetivo (por defecto el mes actual en curso)
+        ahora_arg = obtener_ahora_arg()
+        if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
+            ahora_arg = ahora_arg.replace(tzinfo=None)
+        
+        mes_actual_str = ahora_arg.strftime("%Y-%m")
 
-    # Función interna que corre en segundo plano para no congelar el bot
-    async def tarea_en_segundo_plano():
-        try:
-            exito = await procesar_y_enviar_informe_mensual(
-                context=context,
-                user_id=target_user_id,
-                mes_target=mes_target_str,
-                es_automatico_15=False,
-                forzar_envio=True
-            )
-            if exito:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=f"✅ El informe nutricional del período `{mes_target_str}` fue enviado con éxito al paciente `{target_user_id}`.",
-                    parse_mode="Markdown"
+        if args and len(args) > 1:
+            mes_target_str = args[1] # Formato esperado: YYYY-MM
+        else:
+            mes_target_str = mes_actual_str
+
+        # Mensaje inicial de aviso de que se está procesando
+        await update.message.reply_text(
+            f"⏳ Procesando informe del período `{mes_target_str}` para el paciente `{target_user_id}` en segundo plano...",
+            parse_mode="Markdown"
+        )
+
+        # Función interna que corre en segundo plano para no congelar el bot
+        async def tarea_segundo_plano():
+            try:
+                exito = await procesar_y_enviar_informe_mensual(
+                    context=context,
+                    user_id=target_user_id,
+                    mes_target=mes_target_str,
+                    es_automatico_15=False,
+                    forzar_envio=True
                 )
-            else:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=f"❌ No se pudo completar el envío para el usuario `{target_user_id}`. Revisá si tiene registros cargados en el mes o consulta los logs.",
-                    parse_mode="Markdown"
-                )
-        except Exception as e:
-            logger.error(f"Error en tarea en segundo plano de informe para {target_user_id}: {e}")
+                if exito:
+                    await context.bot.send_message(
+                        chat_id=user_id_actual,
+                        text=f"✅ El informe nutricional del período `{mes_target_str}` fue enviado con éxito al paciente `{target_user_id}`.",
+                        parse_mode="Markdown"
+                    )
+                else:
+                    await context.bot.send_message(
+                        chat_id=user_id_actual,
+                        text=f"❌ No se pudo completar el envío para el usuario `{target_user_id}`. Revisá si tiene registros cargados en el mes.",
+                        parse_mode="Markdown"
+                    )
+            except Exception as e:
+                logger.error(f"Error en tarea en segundo plano de informe para {target_user_id}: {e}")
 
-    # Lanzamos la tarea de forma concurrente sin bloquear el hilo principal
-    asyncio.create_task(tarea_en_segundo_plano())
-    
+        # Disparamos la tarea asíncrona
+        asyncio.create_task(tarea_segundo_plano())
+
+    except Exception as e:
+        logger.error(f"Error en cmd_enviar_informe_actual: {e}", exc_info=True)
+        await update.message.reply_text("❌ Ocurrió un error al procesar la solicitud del informe.")
+            
 # =============================================================================================================================================
 #                    FINAL                                    COMANDO INFORME MEDICO                                FINAL  
 # =============================================================================================================================================
