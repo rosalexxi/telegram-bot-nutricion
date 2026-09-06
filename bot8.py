@@ -2409,11 +2409,11 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
 
         df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None)
         
-        ahora_arg = obtener_ahora_arg()[cite: 4]
+        ahora_arg = obtener_ahora_arg()
         if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
             ahora_arg = ahora_arg.replace(tzinfo=None)
         
-        hoy_ts = pd.Timestamp(ahora_arg).floor('D')[cite: 4]
+        hoy_ts = pd.Timestamp(ahora_arg).floor('D')
         ayer_ts = hoy_ts - pd.Timedelta(days=1)
         mes_actual_str = hoy_ts.strftime("%Y-%m")
 
@@ -2472,7 +2472,7 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
     except Exception as e:
         logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}")
         return False
-                
+                        
 async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
     """Registra errores en consola y en Google Sheets."""
     mensaje_consola = f"Error en [{contexto}]"
