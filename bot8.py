@@ -3607,7 +3607,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 # ==============================================================================================================================================
 
 # ==============================================================================================================================================
-#               INICIO                           COMANDO RESUMEN                             INICIO DB OK
+#               INICIO                           COMANDO RESUMEN (MODIFICADO SIN IA)                        INICIO DB OK
 # ==============================================================================================================================================
 
 @requiere_registro
@@ -3696,7 +3696,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
         
         if not df_datos.empty and 'Fecha' in df_datos.columns:
-            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
+            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce')
             hoy_comienzo = pd.Timestamp.now().floor('D')
             
             if mes_str == mes_actual_str:
@@ -3727,42 +3727,27 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             except (ValueError, TypeError):
                 return "0"
 
-        if mes_str == mes_actual_str:
-            resumen_texto_base = (
-                f"Peso actual: {_fmt(m.get('peso_actual', 0), 1)} kg (Meta: {_fmt(m.get('peso_referencia', 0), 1)} kg). "
-                f"Calorías promedio: {_fmt(m.get('prom_cal', 0))} kcal (Meta: {_fmt(m.get('ideal_cal', 0))} kcal). "
-                f"Proteínas: {_fmt(m.get('prom_prot', 0))} g. Grasas: {_fmt(m.get('prom_gras', 0))} g. Fibra: {_fmt(m.get('prom_fibr', 0))} g."
-            )
-            # Reutiliza la función centralizada que ya vive en ConsultasIA.py
-            recomendacion_pantalla = await obtener_recomendacion_ia(resumen_texto_base, es_semanal=False)
-        else:
-            recomendacion_pantalla = (
-                "📌 *Este reporte corresponde a un período mensual ya finalizado. "
-                "Las métricas presentadas son el registro histórico consolidado del mes.*"
-            )
+        # --- SE ELIMINÓ LA LLAMADA A LA IA EN PANTALLA PARAAHORRAR TOKENS ---
+        cambio_peso_val = float(m.get('cambio_peso_kg', 0))
+        texto_variacion_peso = f"`{cambio_peso_val:+.1f} kg`"
 
         encabezado_txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n"
             f"⚖️ *Peso registrado: `{_fmt(m.get('peso_actual', 0), 1)} kg`*\n\n"
             f"• Consumidas: `{_fmt(m.get('prom_cal', 0))} kcal` | Quemadas: `{_fmt(m.get('prom_quem', 0))} kcal`\n"
             f"• Balance Neto: `{_fmt(m.get('prom_bal_neto', 0))} kcal/día`\n"
-            f"• Camb. Est. Peso: `{float(m.get('cambio_peso_kg', 0)):+.1f} kg` ({m.get('dias_registrados', 0)} días)\n\n"
+            f"• Variación Est. de Peso: {texto_variacion_peso} ({m.get('dias_registrados', 0)} días)\n\n"
             f"📈 **Promedios vs. Objetivos:**\n"
             f"• Calorías: `{_fmt(m.get('prom_cal', 0))}` / `{_fmt(m.get('ideal_cal', 0))} kcal`\n"
             f"• Proteínas: `{_fmt(m.get('prom_prot', 0))}` / `{_fmt(m.get('ideal_prot', 0))} g`\n"
             f"• Grasas: `{_fmt(m.get('prom_gras', 0))}` / `{_fmt(m.get('ideal_gras', 0))} g`\n"
             f"• Carbs: `{_fmt(m.get('prom_carb', 0))}` / `{_fmt(m.get('ideal_carb', 0))} g`\n"
             f"• Fibras: `{_fmt(m.get('prom_fibr', 0))}` / `{_fmt(m.get('ideal_fibr', 0))} g`\n\n"
-            f"🤖 **Análisis Nutricional:**\n"
+            f"📌 *Resumen calculado con éxito sin uso de IA.*"
         )
         
         pie_txt = f"\n\n📄 Podés descargar el informe completo en PDF abajo:"
-
-        espacio_disponible = 3900 - len(encabezado_txt) - len(pie_txt)
-        if len(recomendacion_pantalla) > espacio_disponible:
-            recomendacion_pantalla = recomendacion_pantalla[:espacio_disponible - 3] + "..."
-
-        txt_final = f"{encabezado_txt}{recomendacion_pantalla}{pie_txt}"
+        txt_final = f"{encabezado_txt}{pie_txt}"
 
         keyboard = [[InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"descargar_pdf_resumen_{mes_str}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -3779,9 +3764,8 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.callback_query.edit_message_text(msg_err)
         else:
             await update.message.reply_text(msg_err)
-
+            
 # ======================================================================================================================================
-
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
@@ -3838,6 +3822,8 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
             ])
         
         tot_neto = tot_cons - tot_quem
+        dias_activos = len(fechas_unicas) if len(fechas_unicas) > 0 else 1
+
         table_data_h1.append([
             Paragraph("<b>TOTAL MES</b>", body_style),
             Paragraph(f"<b>{int(round(tot_cons))} kcal</b>", body_style),
@@ -3849,7 +3835,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
             Paragraph(f"<b>{int(round(tot_fibr))} g</b>", body_style)
         ])
 
-        dias_activos = len(fechas_unicas) if len(fechas_unicas) > 0 else 1
         table_data_h1.append([
             Paragraph("<b>PROM. DIARIO</b>", body_style),
             Paragraph(f"<b>{int(round(tot_cons/dias_activos))} kcal</b>", body_style),
@@ -3880,11 +3865,11 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
 
     table_comp = [
         [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Valor Ideal (Peso Ponderado 75/25)</b>", header_style)],
-        [Paragraph("Calorías", body_style), Paragraph(f"{m['prom_cal']} kcal", body_style), Paragraph(f"{int(round(m['get_meta']))} kcal", body_style)],
-        [Paragraph("Proteínas", body_style), Paragraph(f"{m['prom_prot']} g", body_style), Paragraph(f"{m['ideal_prot']} g", body_style)],
-        [Paragraph("Grasas", body_style), Paragraph(f"{m['prom_gras']} g", body_style), Paragraph(f"{m['ideal_gras']} g", body_style)],
-        [Paragraph("Carbohidratos", body_style), Paragraph(f"{m['prom_carb']} g", body_style), Paragraph(f"{m['ideal_carb']} g", body_style)],
-        [Paragraph("Fibras", body_style), Paragraph(f"{m['prom_fibr']} g", body_style), Paragraph(f"{m['ideal_fibr']} g", body_style)]
+        [Paragraph("Calorías", body_style), Paragraph(f"{m.get('prom_cal', 0)} kcal", body_style), Paragraph(f"{int(round(m.get('get_meta', 0)))} kcal", body_style)],
+        [Paragraph("Proteínas", body_style), Paragraph(f"{m.get('prom_prot', 0)} g", body_style), Paragraph(f"{m.get('ideal_prot', 0)} g", body_style)],
+        [Paragraph("Grasas", body_style), Paragraph(f"{m.get('prom_gras', 0)} g", body_style), Paragraph(f"{m.get('ideal_gras', 0)} g", body_style)],
+        [Paragraph("Carbohidratos", body_style), Paragraph(f"{m.get('prom_carb', 0)} g", body_style), Paragraph(f"{m.get('ideal_carb', 0)} g", body_style)],
+        [Paragraph("Fibras", body_style), Paragraph(f"{m.get('prom_fibr', 0)} g", body_style), Paragraph(f"{m.get('ideal_fibr', 0)} g", body_style)]
     ]
     t_comp = Table(table_comp, colWidths=[150, 185, 185])
     t_comp.setStyle(TableStyle([
@@ -3898,25 +3883,20 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     peso_act_pdf = round(float(m.get('peso_actual', 0)), 1)
     peso_ref_pdf = round(float(m.get('peso_referencia', 0)), 1)
 
-    story.append(Paragraph(f"• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {peso_act_pdf} kg | Peso Objetivo (75/25): {peso_ref_pdf} kg | Altura: {m['altura']} cm", body_style))
-    story.append(Paragraph(f"• <b>DÉFICIT CALÓRICO DIARIO PROMEDIO:</b> {m['deficit_diario_real']} kcal / día", body_style))
-    story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {m['cambio_peso_kg']:+.1f} kg", body_style))
+    story.append(Paragraph(f"• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {peso_act_pdf} kg | Peso Objetivo (75/25): {peso_ref_pdf} kg | Altura: {m.get('altura', 0)} cm", body_style))
+    story.append(Paragraph(f"• <b>DÉFICIT CALÓRICO DIARIO PROMEDIO:</b> {m.get('deficit_diario_real', 0)} kcal / día", body_style))
+    story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {m.get('cambio_peso_kg', 0):+.1f} kg", body_style))
 
     story.append(Spacer(1, 4))
-    story.append(Paragraph("<b>Informe Nutricional Mensual:</b>", sub_style))
+    story.append(Paragraph("<b>Informe Nutricional:</b>", sub_style))
 
+    # Procesamiento seguro de bloques de texto (sin depender de formato complejo de IA si no existe)
     if isinstance(recomendacion, str) and recomendacion.strip():
-        rec_limpia = recomendacion.strip()
-        rec_limpia = rec_limpia.replace('""', '"').replace('"', '')
-
+        rec_limpia = recomendacion.strip().replace('""', '"')
         for bloque in rec_limpia.split('\n\n'):
             bloque_txt = bloque.strip()
             if bloque_txt:
                 bloque_formateado = bloque_txt.replace('\n', '<br/>')
-                
-                if bloque_formateado.count('<b>') > bloque_formateado.count('</b>'):
-                    bloque_formateado += '</b>'
-
                 try:
                     story.append(Paragraph(bloque_formateado, rec_style))
                     story.append(Spacer(1, 2))
@@ -3928,7 +3908,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     doc.build(story)
     buffer.seek(0)
     return buffer
-
 # ======================================================================================================================================
 
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
