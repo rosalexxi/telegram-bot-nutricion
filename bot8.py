@@ -2409,6 +2409,25 @@ async def _verificar_y_obtener_profesional(update: Update) -> str:
         pass
     return None
     
+async def enviar_mensaje_largo(context, chat_id, texto, parse_mode="HTML"):
+    """Envía un mensaje largo dividiéndolo en fragmentos de máximo 4000 caracteres para evitar el límite de Telegram."""
+    limite = 4000
+    if len(texto) <= limite:
+        await context.bot.send_message(chat_id=chat_id, text=texto, parse_mode=parse_mode)
+        return
+
+    lineas = texto.split("\n")
+    chunk_actual = ""
+    for linea in lineas:
+        if len(chunk_actual) + len(linea) + 1 > limite:
+            await context.bot.send_message(chat_id=chat_id, text=chunk_actual, parse_mode=parse_mode)
+            chunk_actual = linea + "\n"
+        else:
+            chunk_actual += linea + "\n"
+    
+    if chunk_actual.strip():
+        await context.bot.send_message(chat_id=chat_id, text=chunk_actual, parse_mode=parse_mode)
+
 async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
     try:
         peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
@@ -2458,7 +2477,14 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
         if not informe_ia:
             informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
 
-        informe_limpio = informe_ia.replace("<br>", "\n").replace("<br/>", "\n").replace("<BR>", "\n")
+        # Reemplazamos los saltos de línea de la IA y limpiamos posibles etiquetas inválidas o rotas
+        informe_limpio = (
+            informe_ia
+            .replace("<br>", "\n")
+            .replace("<br/>", "\n")
+            .replace("<BR>", "\n")
+            .replace("</br>", "")
+        )
 
         txt_mensual = (
             f"📊 <b>Informe Nutricional ({etiqueta_periodo}):</b>\n"
@@ -2469,14 +2495,14 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
             f"{informe_limpio}"
         )
 
-        # Enviamos directo al chat donde estás operando
-        await context.bot.send_message(chat_id=chat_destino, text=txt_mensual, parse_mode="HTML")
+        # Enviamos directo al chat manejando el troceo automático si excede los 4000 caracteres
+        await enviar_mensaje_largo(context, chat_destino, txt_mensual, parse_mode="HTML")
         return True
 
     except Exception as e:
         logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}", exc_info=True)
         return False
-                                                
+                                                        
 async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
     """Registra errores en consola y en Google Sheets."""
     mensaje_consola = f"Error en [{contexto}]"
