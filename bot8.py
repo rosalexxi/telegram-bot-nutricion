@@ -2407,7 +2407,7 @@ async def _verificar_y_obtener_profesional(update: Update) -> str:
         pass
     return None
     
-async def procesar_y_enviar_informe_mensual_para_chat(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
+async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
     try:
         peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
         if not peso_ok and not forzar_envio:
@@ -2472,7 +2472,7 @@ async def procesar_y_enviar_informe_mensual_para_chat(context, user_id: int, cha
         return True
 
     except Exception as e:
-        logger.error(f"Error en procesar_y_enviar_informe_mensual_para_chat para {user_id}: {e}", exc_info=True)
+        logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}", exc_info=True)
         return False
                                                 
 async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
