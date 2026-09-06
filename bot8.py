@@ -69,8 +69,8 @@ GROQ_TEXTO      = "openai/gpt-oss-120b"   # Generación principal
 GROQ_FOTO       = "qwen/qwen3.8-27b"
 GROQ_AUDIO      = "whisper-large-v3"
 
-GROQ_REVISION   = "openai/gpt-oss-20b"    # Revisión principal
-GROQ_REVISOR_2  = "qwen/qwen3.8-27b"      # Respaldo
+GROQ_REVISION_2   = "openai/gpt-oss-20b"    # Revisión principal
+GROQ_REVISOR  = "qwen/qwen3.8-27b"      # Respaldo
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -2462,6 +2462,88 @@ async def enviar_mensaje_largo(context, chat_id, texto, parse_mode="HTML"):
         await context.bot.send_message(chat_id=chat_id, text=chunk_actual, parse_mode=parse_mode)
 
 async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
+    try:
+        peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
+        if not peso_ok and not forzar_envio:
+            return False
+
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        if df_datos.empty or 'Fecha' not in df_datos.columns:
+            await context.bot.send_message(chat_id=chat_destino, text="⚠️ No hay registros suficientes para generar el informe.")
+            return False
+
+        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
+        
+        ahora_arg = obtener_ahora_arg()
+        if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
+            ahora_arg = ahora_arg.replace(tzinfo=None)
+        
+        hoy_ts = pd.Timestamp(ahora_arg).normalize()
+        ayer_ts = hoy_ts - pd.Timedelta(days=1)
+        mes_actual_str = hoy_ts.strftime("%Y-%m")
+
+        if es_automatico_15:
+            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
+            fin_periodo = pd.Timestamp(f"{mes_target}-14").normalize()
+            etiqueta_periodo = f"Quincenal ({mes_target}: 1 al 14)"
+        else:
+            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
+            if mes_target == mes_actual_str:
+                fin_periodo = ayer_ts
+                etiqueta_periodo = f"Mes Actual en curso ({mes_target}: del 01 al {ayer_ts.strftime('%d/%m')})"
+            else:
+                fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
+                etiqueta_periodo = f"Mes Completo ({mes_target})"
+
+        df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
+
+        if df_filtrado.empty:
+            await context.bot.send_message(chat_id=chat_destino, text=f"⚠️ No se encontraron registros cerrados para el período {etiqueta_periodo}.")
+            return False
+
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
+        m = calcular_metricas_mensuales(df_filtrado, perfil) if 'calcular_metricas_mensuales' in globals() else {}
+        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_target) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
+
+        informe_ia = await generar_informe_mensual_auditado(context, user_id, mes_target, m, conteo_frecuencias)
+
+        if not informe_ia:
+            informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
+
+        # Compilación unificada en PDF mediante ReportLab para cualquier invocación (automática o manual)
+        df_presion = pd.DataFrame()
+        tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
+
+        pdf_buffer = await asyncio.to_thread(
+            generar_pdf_resumen_bytes,
+            mes_target,
+            df_filtrado,
+            df_presion,
+            perfil,
+            tmb_val,
+            informe_ia,
+            user_id
+        )
+
+        await context.bot.send_document(
+            chat_id=chat_destino,
+            document=pdf_buffer,
+            filename=f"Informe_Nutricional_{mes_target}.pdf",
+            caption=f"📄 <b>Informe Nutricional Auditado ({etiqueta_periodo})</b>",
+            parse_mode="HTML"
+        )
+        return True
+
+    except Exception as e:
+        logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}", exc_info=True)
+        try:
+            await context.bot.send_message(chat_id=chat_destino, text=f"⚠️ Error al compilar el informe PDF: {str(e)}")
+        except Exception:
+            pass
+        return False
+
+
+async def procesar_y_enviar_informe_mensualPANTALLA(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
     try:
         peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
         if not peso_ok and not forzar_envio:
