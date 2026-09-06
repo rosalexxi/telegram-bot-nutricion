@@ -2410,9 +2410,9 @@ async def _verificar_y_obtener_profesional(update: Update) -> str:
 async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
     """
     Función unificada para generar y enviar el informe periódico con IA:
-    - Si es el envío automático del día 15: procesa estrictamente del día 1 al 14 (fecha -1 respecto al envío).
-    - Si es una solicitud manual del profesional: procesa el mes seleccionado completo (si ya pasó) 
-      o hasta ayer (fecha -1) si es el mes en curso, ya que el día actual no está completo.
+    - Si es el envío automático del día 15: procesa estrictamente del día 1 al 14.
+    - Si es una solicitud manual: procesa el mes completo si ya pasó, 
+      o desde el día 1 hasta ayer si es el mes en curso.
     """
     try:
         peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
@@ -2424,38 +2424,39 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
             await context.bot.send_message(chat_id=user_id, text="⚠️ No hay registros suficientes para generar el informe.")
             return False
 
-        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None)
+        # Normalizamos la columna de fechas a datetime puro sin tz para evitar conflictos de comparación
+        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
         
         ahora_arg = obtener_ahora_arg()
         if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
             ahora_arg = ahora_arg.replace(tzinfo=None)
         
-        hoy_ts = pd.Timestamp(ahora_arg).floor('D')
+        hoy_ts = pd.Timestamp(ahora_arg).normalize()
         ayer_ts = hoy_ts - pd.Timedelta(days=1)
         mes_actual_str = hoy_ts.strftime("%Y-%m")
 
-        # Determinación de rangos aplicando el criterio de fecha -1 para períodos en curso
+        # Determinación de rangos según el período
         if es_automatico_15:
-            inicio_periodo = pd.Timestamp(f"{mes_target}-01")
-            # El día 15 se envía el informe, por lo que el último día cerrado es el 14 (ayer respecto al envío)
-            fin_periodo = pd.Timestamp(f"{mes_target}-14")
+            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
+            fin_periodo = pd.Timestamp(f"{mes_target}-14").normalize()
             etiqueta_periodo = f"Quincenal ({mes_target}: 1 al 14)"
-            df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
         else:
-            inicio_periodo = pd.Timestamp(f"{mes_target}-01")
+            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
             if mes_target == mes_actual_str:
-                # Si es el mes actual, filtramos hasta ayer (fecha -1) para evitar datos incompletos del día corriente
+                # Si es el mes en curso, filtramos desde el día 1 hasta ayer (ej: día 5)
                 fin_periodo = ayer_ts
-                etiqueta_periodo = f"Mes Actual en curso ({mes_target}: hasta el {ayer_ts.strftime('%d/%m')})"
+                etiqueta_periodo = f"Mes Actual en curso ({mes_target}: del 01 al {ayer_ts.strftime('%d/%m')})"
             else:
-                # Si es un mes pasado, toma el último día calendario de ese mes
-                fin_periodo = pd.Timestamp(inicio_periodo) + pd.offsets.MonthEnd(0)
+                # Mes pasado completo
+                fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
                 etiqueta_periodo = f"Mes Completo ({mes_target})"
 
-            df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
+        # Filtro seguro de DataFrame por rangos de fechas normalizados
+        df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
 
         if df_filtrado.empty:
-            await context.bot.send_message(chat_id=user_id, text=f"⚠️ No se encontraron registros cerrados para el período {etiqueta_periodo}.")
+            logger.warning(f"DataFrame filtrado vacío para {user_id} en período {etiqueta_periodo}. Rango buscado: {inicio_periodo.date()} a {fin_periodo.date()}")
+            await context.bot.send_message(chat_id=int(user_id), text=f"⚠️ No se encontraron registros cerrados para el período {etiqueta_periodo}.")
             return False
 
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
@@ -2487,9 +2488,9 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
         return True
 
     except Exception as e:
-        logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}")
+        logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}", exc_info=True)
         return False
-                        
+                                
 async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
     """Registra errores en consola y en Google Sheets."""
     mensaje_consola = f"Error en [{contexto}]"
