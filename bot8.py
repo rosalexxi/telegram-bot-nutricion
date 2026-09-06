@@ -3743,7 +3743,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"• Grasas: `{_fmt(m.get('prom_gras', 0))}` / `{_fmt(m.get('ideal_gras', 0))} g`\n"
             f"• Carbs: `{_fmt(m.get('prom_carb', 0))}` / `{_fmt(m.get('ideal_carb', 0))} g`\n"
             f"• Fibras: `{_fmt(m.get('prom_fibr', 0))}` / `{_fmt(m.get('ideal_fibr', 0))} g`\n\n"
-            f"📌 *Resumen calculado con éxito sin uso de IA.*"
+            f"📌 *Resumen calculado con éxito *"
         )
         
         pie_txt = f"\n\n📄 Podés descargar el informe completo en PDF abajo:"
@@ -3957,21 +3957,17 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         df_presion = pd.DataFrame()
         tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
 
+        # --- CAMBIO CLAVE: SE ELIMINÓ LA LLAMADA A LA IA AQUÍ PARA EVITAR BLOQUEOS Y GASTO DE TOKENS ---
+        m = calcular_metricas_mensuales(df_mes, perfil)
+        
         if mes_str == mes_actual_str:
-            m = calcular_metricas_mensuales(df_mes, perfil)
-            conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
-
-            # Conectado directamente al nuevo motor auditado de 10 intentos en ConsultasIA.py
-            recomendacion_pdf = await generar_informe_mensual_auditado(
-                context, 
-                user_id, 
-                mes_str, 
-                m, 
-                conteo_frecuencias
+            recomendacion_pdf = (
+                f"<b>REPORTE MENSUAL EN CURSO ({mes_str}):</b><br/>"
+                f"• Promedio Calórico Diario: {m.get('prom_cal', 0)} kcal (Meta: {m.get('ideal_cal', 0)} kcal)<br/>"
+                f"• Balance Neto Promedio: {m.get('prom_bal_neto', 0)} kcal/día<br/>"
+                f"• Variación Estimada de Peso: {m.get('cambio_peso_kg', 0):+.1f} kg en {m.get('dias_registrados', 0)} días.<br/><br/>"
+                f"Este reporte consolida el estado actual de las métricas registradas durante el mes en curso."
             )
-            
-            if not recomendacion_pdf:
-                recomendacion_pdf = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
         else:
             recomendacion_pdf = (
                 "<b>INFORME HISTÓRICO CONSOLIDADO:</b><br/>"
@@ -4004,10 +4000,11 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
             chat_id=query.message.chat_id,
             text=f"⚠️ Error al procesar la descarga del PDF: {e}"
         )
-
+        
 # ======================================================================================================================================
 #                   FINAL                                COMANDO RESUMEN                                           FINAL
 # ======================================================================================================================================
+
 
 # ======================================================================================================================================
 #                   INICIO                               COMANDO PRESION                                          INICIO  DB OK
