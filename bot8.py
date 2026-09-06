@@ -64,11 +64,13 @@ load_dotenv()
 # Estados de conversación para Perfil y Fecha personalizada
 AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT_ITEM = range(4)
 
-GROQ_TEXTO = "openai/gpt-oss-120b"
-GROQ_FOTO = "qwen/qwen3.8-27b"
-GROQ_AUDIO = "whisper-large-v3"
-GROQ_REVISION = "openai/gpt-oss-120b"        # Cambiado al modelo activo y grande
-GROQ_REVISOR_2 = "openai/gpt-oss-20b"
+
+GROQ_TEXTO      = "openai/gpt-oss-120b"   # Generación principal
+GROQ_FOTO       = "qwen/qwen3.8-27b"
+GROQ_AUDIO      = "whisper-large-v3"
+
+GROQ_REVISION   = "openai/gpt-oss-20b"    # Revisión principal
+GROQ_REVISOR_2  = "qwen/qwen3.8-27b"      # Respaldo
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -5259,7 +5261,7 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 # =============================================================================================================================================
 
 # ==============================================================================================================================================
-#               INICIO                           COMANDO RESUMEN (MODIFICADO SIN IA)                        INICIO DB OK
+#               INICIO                           COMANDO RESUMEN Y GENERACIÓN DE PDF                        INICIO DB OK
 # ==============================================================================================================================================
 
 @requiere_registro
@@ -5517,10 +5519,10 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     table_comp = [
         [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Valor Ideal</b>", header_style)],
         [Paragraph("Calorías", body_style), Paragraph(f"{m.get('prom_cal', 0)} kcal", body_style), Paragraph(f"{int(round(m.get('ideal_cal', 0)))} kcal", body_style)],
-        [Paragraph("Proteínas", body_style), Paragraph(f"{m.get('prom_prot', 0)} g", body_style), Paragraph(f"{m.get('ideal_prot', 0)} g", body_style)],
-        [Paragraph("Grasas", body_style), Paragraph(f"{m.get('prom_gras', 0)} g", body_style), Paragraph(f"{m.get('ideal_gras', 0)} g", body_style)],
-        [Paragraph("Carbohidratos", body_style), Paragraph(f"{m.get('prom_carb', 0)} g", body_style), Paragraph(f"{m.get('ideal_carb', 0)} g", body_style)],
-        [Paragraph("Fibras", body_style), Paragraph(f"{m.get('prom_fibr', 0)} g", body_style), Paragraph(f"{m.get('ideal_fibr', 0)} g", body_style)]
+        [Paragraph("Proteínas", body_style), Paragraph(f"{m.get('prom_prot', 0)} g", body_style), Paragraph(f"{int(round(m.get('ideal_prot', 0)))} g", body_style)],
+        [Paragraph("Grasas", body_style), Paragraph(f"{m.get('prom_gras', 0)} g", body_style), Paragraph(f"{int(round(m.get('ideal_gras', 0)))} g", body_style)],
+        [Paragraph("Carbohidratos", body_style), Paragraph(f"{m.get('prom_carb', 0)} g", body_style), Paragraph(f"{int(round(m.get('ideal_carb', 0)))} g", body_style)],
+        [Paragraph("Fibras", body_style), Paragraph(f"{m.get('prom_fibr', 0)} g", body_style), Paragraph(f"{int(round(m.get('ideal_fibr', 0)))} g", body_style)]
     ]
     t_comp = Table(table_comp, colWidths=[150, 185, 185])
     t_comp.setStyle(TableStyle([
@@ -5541,24 +5543,75 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(Spacer(1, 4))
     story.append(Paragraph("<b>Informe Nutricional:</b>", sub_style))
 
-    # Procesamiento seguro de bloques de texto (sin depender de formato complejo de IA si no existe)
+    # Procesamiento seguro: Filtrado estricto para descartar tablas en markdown (con '|') provistas por la IA
     if isinstance(recomendacion, str) and recomendacion.strip():
         rec_limpia = recomendacion.strip().replace('""', '"')
         for bloque in rec_limpia.split('\n\n'):
             bloque_txt = bloque.strip()
             if bloque_txt:
-                bloque_formateado = bloque_txt.replace('\n', '<br/>')
-                try:
-                    story.append(Paragraph(bloque_formateado, rec_style))
-                    story.append(Spacer(1, 2))
-                except Exception:
-                    texto_plano = re.sub('<[^<]+?>', '', bloque_formateado)
-                    story.append(Paragraph(texto_plano, rec_style))
-                    story.append(Spacer(1, 2))
+                lineas_filtradas = [
+                    linea for linea in bloque_txt.split('\n') 
+                    if not linea.strip().startswith('|') and '|' not in linea
+                ]
+                bloque_sin_tablas = '<br/>'.join(lineas_filtradas).strip()
+                
+                if bloque_sin_tablas:
+                    try:
+                        story.append(Paragraph(bloque_sin_tablas, rec_style))
+                        story.append(Spacer(1, 2))
+                    except Exception:
+                        texto_plano = re.sub('<[^<]+?>', '', bloque_sin_tablas)
+                        story.append(Paragraph(texto_plano, rec_style))
+                        story.append(Spacer(1, 2))
 
     doc.build(story)
     buffer.seek(0)
     return buffer
+
+# LOGICA DE SELECCIÓN DE PROMPT BASADA EN DIFERENCIA DE PESO (10% PRECEDENCIA)
+# ======================================================================================================================================
+def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
+    """
+    Determina la condición clínica en base al peso real vs peso objetivo/ideal:
+    1. Si la diferencia está entre -10% y +10%, se considera Mantenimiento (Estable).
+    2. Si el peso real es mayor al objetivo, es Descenso.
+    3. Si el peso real es menor al objetivo, es Ascenso.
+    """
+    if peso_referencia and peso_referencia > 0:
+        dif_relativa = (peso_actual - peso_referencia) / peso_referencia
+        
+        # 1. Rango de tolerancia del 10% (Evaluado PRIMERO para evitar falsos positivos)
+        if -0.10 <= dif_relativa <= 0.10:
+            return (
+                "ESTADO: MANTENIMIENTO / ESTABLE\n"
+                "Instrucción para la IA: El usuario se encuentra dentro del rango de tolerancia del 10% respecto a su peso objetivo. "
+                "El consumo calórico real y el ideal deben tender a la paridad. Analiza la estabilidad de los hábitos, la variedad de los grupos "
+                "de alimentos y la distribución armónica de los macronutrientes. No sugieras cambios drásticos de peso."
+            )
+        # 2. Exceso de peso -> Descenso buscado
+        elif peso_actual > peso_referencia:
+            return (
+                "ESTADO: DESCENSO DE PESO\n"
+                "Instrucción para la IA: El usuario se encuentra en un régimen de descenso de peso con un déficit calórico deliberado. "
+                "Una ingesta calórica menor al gasto ideal es el comportamiento esperado y correcto. No señales la diferencia calórica como un error "
+                "o déficit involuntario ni recomiendes aumentar calorías para alcanzar el mantenimiento. Enfócate exclusivamente en la calidad nutricional, "
+                "saciedad y densidad de los alimentos consumidos dentro del marco de restricción."
+            )
+        # 3. Falta de peso -> Ascenso / Superávit
+        else:
+            return (
+                "ESTADO: ASCENSO / GANANCIA DE PESO\n"
+                "Instrucción para la IA: El usuario se encuentra en un régimen de ganancia o ascenso de peso mediante un superávit calórico controlado. "
+                "Una ingesta superior al gasto base es el comportamiento pretendido. Evalúa que el aporte extra de nutrientes esté respaldado por proteínas "
+                "y carbohidratos de calidad, evitando alertar por un consumo calórico elevado."
+            )
+    else:
+        # Fallback predeterminado por seguridad
+        return (
+            "ESTADO: DESCENSO DE PESO\n"
+            "Instrucción para la IA: Evalúa el informe priorizando la calidad de los nutrientes y hábitos saludables sin alterar los números duros ya calculados."
+        )
+
 # ======================================================================================================================================
 
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -5611,8 +5664,13 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         m = calcular_metricas_mensuales(df_mes, perfil)
         conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
 
-        # Generamos el análisis profundo con IA para el PDF interactivo
-        informe_ia = await generar_informe_mensual_auditado(context, user_id, mes_str, m, conteo_frecuencias)
+        # Evaluación basada en pesos reales y de referencia para seleccionar el prompt correcto
+        peso_actual_eval = float(m.get('peso_actual', 0))
+        peso_referencia_eval = float(m.get('peso_referencia', 0))
+        prompt_condicional = obtener_prompt_segun_objetivo_peso(peso_actual_eval, peso_referencia_eval)
+
+        # Generamos el análisis profundo con IA inyectando el prompt contextual correcto y usando GROQ_TEXTO actualizado
+        informe_ia = await generar_informe_mensual_auditado(context, user_id, mes_str, m, conteo_frecuencias, prompt_condicional)
         
         if not informe_ia:
             informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA.</b>"
