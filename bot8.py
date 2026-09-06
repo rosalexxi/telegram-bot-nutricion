@@ -2408,23 +2408,23 @@ async def _verificar_y_obtener_profesional(update: Update) -> str:
     return None
     
 async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
-    """
-    Función unificada para generar y enviar el informe periódico con IA:
-    - Si es el envío automático del día 15: procesa estrictamente del día 1 al 14.
-    - Si es una solicitud manual: procesa el mes completo si ya pasó, 
-      o desde el día 1 hasta ayer si es el mes en curso.
-    """
     try:
         peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
         if not peso_ok and not forzar_envio:
             return False
 
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        
+        # --- LÍNEAS DE DIAGNÓSTICO TEMPORALES ---
+        logger.info(f"DEBUG USUARIO {user_id} - Columnas detectadas: {list(df_datos.columns) if not df_datos.empty else 'DF VACÍO'}")
+        if not df_datos.empty and 'Fecha' in df_datos.columns:
+            logger.info(f"DEBUG - Últimas 5 fechas en el Sheet: {df_datos['Fecha'].tail(5).tolist()}")
+        # ----------------------------------------
+
         if df_datos.empty or 'Fecha' not in df_datos.columns:
             await context.bot.send_message(chat_id=user_id, text="⚠️ No hay registros suficientes para generar el informe.")
             return False
 
-        # Normalizamos la columna de fechas a datetime puro sin tz para evitar conflictos de comparación
         df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
         
         ahora_arg = obtener_ahora_arg()
@@ -2435,7 +2435,6 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
         ayer_ts = hoy_ts - pd.Timedelta(days=1)
         mes_actual_str = hoy_ts.strftime("%Y-%m")
 
-        # Determinación de rangos según el período
         if es_automatico_15:
             inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
             fin_periodo = pd.Timestamp(f"{mes_target}-14").normalize()
@@ -2443,19 +2442,16 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
         else:
             inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
             if mes_target == mes_actual_str:
-                # Si es el mes en curso, filtramos desde el día 1 hasta ayer (ej: día 5)
                 fin_periodo = ayer_ts
                 etiqueta_periodo = f"Mes Actual en curso ({mes_target}: del 01 al {ayer_ts.strftime('%d/%m')})"
             else:
-                # Mes pasado completo
                 fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
                 etiqueta_periodo = f"Mes Completo ({mes_target})"
 
-        # Filtro seguro de DataFrame por rangos de fechas normalizados
         df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
 
         if df_filtrado.empty:
-            logger.warning(f"DataFrame filtrado vacío para {user_id} en período {etiqueta_periodo}. Rango buscado: {inicio_periodo.date()} a {fin_periodo.date()}")
+            logger.warning(f"DataFrame filtrado vacío para {user_id}. Rango buscado: {inicio_periodo.date()} a {fin_periodo.date()}")
             await context.bot.send_message(chat_id=int(user_id), text=f"⚠️ No se encontraron registros cerrados para el período {etiqueta_periodo}.")
             return False
 
@@ -2463,13 +2459,7 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
         m = calcular_metricas_mensuales(df_filtrado, perfil) if 'calcular_metricas_mensuales' in globals() else {}
         conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_target) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
 
-        informe_ia = await generar_informe_mensual_auditado(
-            context, 
-            user_id, 
-            mes_target, 
-            m, 
-            conteo_frecuencias
-        )
+        informe_ia = await generar_informe_mensual_auditado(context, user_id, mes_target, m, conteo_frecuencias)
 
         if not informe_ia:
             informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
@@ -2484,13 +2474,12 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, mes_target: s
         )
 
         await context.bot.send_message(chat_id=int(user_id), text=txt_mensual, parse_mode="HTML")
-        logger.info(f"Informe periódico ({etiqueta_periodo}) enviado exitosamente a {user_id}")
         return True
 
     except Exception as e:
         logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}", exc_info=True)
         return False
-                                
+                                        
 async def log_error(contexto: str, excepcion: Exception, user_id: int = None):
     """Registra errores en consola y en Google Sheets."""
     mensaje_consola = f"Error en [{contexto}]"
