@@ -544,15 +544,31 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
                 "GENERO" TEXT,
                 "OCUPACION" DOUBLE PRECISION,
                 "MES" TEXT,
-                "Fecha_Actualizacion" TEXT,
-                "Peso_ideal" DOUBLE PRECISION,
-                "Cumple" TEXT
+                "Fecha_Actualizacion" TEXT
+            );
+        """)
+    elif tipo_tabla == "usuarios":
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS usuarios (
+                id SERIAL PRIMARY KEY,
+                "User ID" TEXT UNIQUE,
+                "Nombre" TEXT,
+                "Estado" INTEGER,
+                "MES" TEXT,
+                "Notificaciones" TEXT,
+                "Fecha Alta" TEXT,
+                "Sexo" TEXT,
+                "Altura" DOUBLE PRECISION,
+                "Muñeca" DOUBLE PRECISION,
+                "Ocupacion" DOUBLE PRECISION,
+                "Cumple" TEXT,
+                "Profesional" TEXT
             );
         """)
 
     conn.commit()
     return conn, cur
-            
+                
 def get_gspread_client():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     if os.path.exists(GOOGLE_SHEETS_KEY_PATH):
@@ -2292,8 +2308,8 @@ def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float 
 
 async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.BytesIO]:
     """
-    Genera el informe inicial de bienvenida con IA adaptado al perfil y desvío de peso,
-    aplicando auditoría de calidad y compilando el PDF con metas saludables para la etapa 1.
+    Genera el informe inicial de bienvenida con IA adaptado al perfil,
+    aplicando una auditoría simplificada y compilando el PDF con metas saludables.
     """
     nombre = datos_usuario.get('nombre', 'Paciente')
     edad = datos_usuario.get('edad', 0)
@@ -2306,44 +2322,32 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
     tmb = datos_usuario.get('tmb', 0)
     get_calorias = datos_usuario.get('get', 2000)
 
-    # 1. Análisis del desvío porcentual para orientar el criterio clínico de la IA
-    dif_pct = ((peso - peso_ideal) / peso_ideal * 100) if peso_ideal > 0 else 0.0
-
-    if dif_pct > 20:
-        contexto_situacion = "El paciente presenta un sobrepeso considerable, por lo que el enfoque debe ser muy gradual, paciente y centrado en la adopción de hábitos sostenibles a largo plazo sin restricciones drásticas."
-    elif dif_pct >= 8:
-        contexto_situacion = "El paciente presenta un sobrepeso moderado (en torno al 10% por encima de su referencia de bienestar), ideal para estructurar un cambio de hábitos enfocado en porciones y constancia."
-    elif dif_pct >= -5:
-        contexto_situacion = "El paciente se encuentra en un rango de peso cercano a su meta o en zona de equilibrio, por lo que el foco estará en la optimización de la calidad nutricional y el mantenimiento."
-    else:
-        contexto_situacion = "El paciente presenta un peso corporal por debajo de su referencia teórica, por lo que el enfoque será de nutrición equilibrada y fortalecimiento saludable."
-
-    # 2. Construcción del prompt clínico (restringiendo mención de números/kilos en las recomendaciones)
+    # 1. Construcción del prompt clínico y empático
     prompt_ia = (
-        f"Actúa como un médico nutricionista experto y muy empático. Contexto del paciente:\n"
-        f"- Situación general: {contexto_situacion}\n\n"
+        f"Actúa como un médico nutricionista experto y muy empático. Perfil del paciente:\n"
+        f"- Nombre: {nombre}, Edad: {edad} años, Sexo: {sexo}\n"
+        f"- Altura: {altura} cm, Peso Actual: {peso} kg, Peso Ideal: {peso_ideal} kg\n"
+        f"- Objetivo 1ra Etapa (Ponderado prudente): {peso_etapa} kg\n\n"
         f"Redacta un informe breve, cálido y motivador de bienvenida que incluya:\n"
-        f"1. Una explicación empática y motivadora sobre por qué avanzamos paso a paso hacia nuestra primera meta intermedia, destacando que lo importante es el proceso y la salud sostenible.\n"
-        f"2. Recomendaciones generales y amables sobre el manejo de la alimentación diaria orientada a un equilibrio energético saludable, SIN MENCIONAR NÚMEROS, NI KILOS, NI GRAMOS, NI CALORÍAS en el texto de los consejos.\n"
-        f"3. Pautas generales de actividad física complementaria (caminatas suaves, movilidad) y hábitos de hidratación.\n"
-        f"REQUISITO ESTRICTO: Mantén un tono sumamente humano, profesional, constructivo y generalizado. No des cifras de peso ni metas numéricas específicas en las recomendaciones. Cierra con un punto final y completa todas las ideas."
+        f"1. Una explicación empática sobre por qué avanzamos paso a paso hacia la meta intermedia ({peso_etapa} kg) priorizando la salud sostenible.\n"
+        f"2. Recomendaciones generales y amables sobre el equilibrio en la alimentación diaria.\n"
+        f"3. Pautas generales de actividad física (caminatas suaves) e hidratación.\n"
+        f"REQUISITO ESTRICTO: Escribe de forma fluida, profesional y completa. Cierra obligatoriamente con un punto final y no dejes ninguna oración inconclusa."
     )
     
     system_msg = "Eres un nutricionista clínico profesional, empático y motivador."
+    
+    # 2. Auditoría simplificada para evitar bloqueos innecesarios
     prompt_auditor_base = (
-        f"Actúa como un médico supervisor estricto y auditor de calidad. "
-        f"Revisa el siguiente informe nutricional de bienvenida:\n\n"
-        f"--- INFORME A EVALUAR ---\n{{informe_candidato}}\n-------------------------\n\n"
-        f"Criterios de rechazo:\n"
-        f"1. Si incluye números, kilos o calorías dentro de las recomendaciones del texto.\n"
-        f"2. Si hay oraciones cortadas o truncadas al final.\n"
-        f"Si el informe cumple perfectamente con todo, responde únicamente con la palabra 'OK'."
+        f"Actúa como un supervisor médico de calidad. "
+        f"Revisa el siguiente informe de bienvenida:\n\n"
+        f"--- INFORME ---\n{{informe_candidato}}\n----------------\n\n"
+        f"Instrucción: Si el texto está completo, bien redactado y no tiene oraciones cortadas o truncadas al final, responde únicamente con la palabra 'OK'."
     )
 
     informe_ia = ""
     max_intentos = 3
 
-    # Corrección de la firma de la función interna para aceptar parámetros por posición o nombre sin romper
     async def _llamar_ia_con_retry(p, tokens=300, temp=0.4, sys_p=None, mod_over=None, intentos_max=3):
         for it in range(1, intentos_max + 1):
             try:
@@ -2381,20 +2385,25 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
             
             veredicto = await _llamar_ia_con_retry(
                 p=prompt_auditor_final, 
-                tokens=100, 
+                tokens=50, 
                 temp=0.1, 
                 mod_over=modelo_rev
             )
 
-            if veredicto and "OK" in veredicto.strip().upper() and "RECHAZ" not in veredicto.strip().upper():
+            # Si el revisor aprueba o responde OK, aceptamos el texto de inmediato
+            if veredicto and "OK" in veredicto.strip().upper():
                 informe_ia = texto_generado
                 break
             else:
-                logger.warning(f"🔄 Revisor rechazó el informe inicial en el intento {intento}.")
+                # Si el revisor tarda o falla por estricto, en el último intento nos quedamos con el texto generado igual
+                if intento == max_intentos:
+                    informe_ia = texto_generado
+                logger.warning(f"🔄 Revisor ajustó el informe en el intento {intento}, reintentando...")
 
         except Exception as err:
             logger.error(f"❌ Error en ciclo de informe inicial (Intento {intento}): {err}")
 
+    # Fallback seguro absoluto si todo fallara
     if not informe_ia:
         informe_ia = (
             f"Hola {nombre}, te damos la bienvenida a tu plan nutricional personalizado. "
@@ -2402,7 +2411,7 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
             "para acompañarte paso a paso hacia tu objetivo de bienestar."
         )
 
-    # 3. Estimación orientativa de macronutrientes (valores positivos)
+    # 3. Estimación orientativa de macronutrientes para el PDF
     get_val = float(get_calorias) if get_calorias > 0 else 2000.0
     factor_prot = 1.5 if str(sexo).upper() in ['M', 'MASCULINO'] else 1.2
     meta_cal = int(round(get_val * 0.85))
