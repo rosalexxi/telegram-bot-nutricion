@@ -2619,6 +2619,69 @@ async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False)
         
     return "⚠️ No se pudo obtener el análisis nutricional en este momento."
 
+def analizar_con_groq(prompt_text):
+    if not client_ai:
+        raise Exception("GROQ_API_KEY no está configurada correctamente.")
+    
+    system_prompt = (
+        "Sos un nutricionista experto. Analizá el texto ingresado. "
+        "Si el texto incluye varios alimentos o porciones, desglosalos individualmente. "
+        "Estimá de forma lógica los pesos en gramos y nutrientes si no están explícitos. "
+        "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
+        "{\n"
+        '  "items": [\n'
+        '    {"alimento": "nombre", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
+        "  ],\n"
+        '  "tipo": "Comida"\n'
+        "}"
+    )
+
+    response = client_ai.chat.completions.create(
+        model=GROQ_TEXTO,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt_text}
+        ],
+        temperature=0.1,
+        response_format={"type": "json_object"}
+    )
+    return json.loads(response.choices[0].message.content)
+    
+def analizar_imagen_con_groq(base64_image, user_caption=""):
+    if not client_ai:
+        raise Exception("GROQ_API_KEY no está configurada correctamente.")
+    
+    base_prompt = (
+        "Analizá esta imagen de comida/plato. "
+        "Identificá los alimentos, estimá sus pesos en gramos y nutrientes. "
+        "Si el usuario incluye una nota o aclaración, utilízala de manera estricta para definir "
+        "el tipo exacto de alimento y método de cocción. "
+        "Respondé ÚNICAMENTE en formato JSON con la clave 'items' conteniendo "
+        "alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras."
+    )
+    
+    if user_caption.strip():
+        prompt = f"{base_prompt}\n\nAclaración obligatoria del usuario sobre la foto: {user_caption.strip()}"
+    else:
+        prompt = base_prompt
+
+    response = client_ai.chat.completions.create(
+        model=GROQ_FOTO,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                ]
+            }
+        ],
+        temperature=0.1,
+        response_format={"type": "json_object"}
+    )
+    return json.loads(response.choices[0].message.content)
+
+
 # =====================================================================================================================================
 #                FINAL                        FUNCIONES IA GROQ                                      FINAL
 # ======================================================================================================================================
