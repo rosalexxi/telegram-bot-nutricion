@@ -2850,8 +2850,8 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def cmd_nueva_cuenta(datos_usuario):
     """
     Crea la hoja de perfil, presión y comidas del usuario en Google Sheets,
-    crea automáticamente las tablas correspondientes en Supabase si no existen,
-    e inserta su registro en la hoja 'Usuarios' y en Supabase con estado inicial 0.
+    crea automáticamente la tabla maestra 'usuarios' en Supabase si no existe,
+    e inserta su registro tanto en la hoja de Google Sheets como en Supabase con estado inicial 0.
     """
     user_id = datos_usuario.get("user_id")
     nombre = datos_usuario.get("nombre")
@@ -2904,14 +2904,14 @@ def cmd_nueva_cuenta(datos_usuario):
     except Exception:
         pass
 
-    # 3. Agregar fila en la hoja 'Usuarios' con estado inicial 0 (activo)
+    # 3. Agregar fila en la hoja 'Usuarios' de Google Sheets con estado inicial 0
     ws_usuarios = sh.worksheet("Usuarios")
     fecha_alta = datetime.now(ARG_TZ).strftime("%Y-%m-%d")
     
     nueva_fila_usuario = [
         str(user_id),
         str(nombre),
-        0,  # Estado inicial 0 (activo según la nueva lógica de control de compromiso)
+        0,
         str(mes_actual),
         "Si",
         str(fecha_alta),
@@ -2924,34 +2924,44 @@ def cmd_nueva_cuenta(datos_usuario):
     ]
     ws_usuarios.append_row(nueva_fila_usuario)
 
-    # 4. Asegurar la creación de tablas en Supabase si no existen e insertar datos iniciales
+    # 4. Asegurar la creación de la tabla maestra 'usuarios' en Supabase e insertar/actualizar el registro
     try:
-        _asegurar_tabla_y_conectar(f"user_{user_id}", tipo_tabla="comida")
-        _asegurar_tabla_y_conectar(f"comidas_{user_id}", tipo_tabla="comidas_precargadas")
-        _asegurar_tabla_y_conectar(f"presion_{user_id}", tipo_tabla="presion")
-        conn_p, cur_p = _asegurar_tabla_y_conectar(f"perfil_{user_id}", tipo_tabla="perfil")
-
-        query_perfil = f"""
-            INSERT INTO perfil_{user_id} ("EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        conn_u, cur_u = _asegurar_tabla_y_conectar("usuarios", tipo_tabla="usuarios")
+        query_usr = """
+            INSERT INTO usuarios ("User ID", "Nombre", "Estado", "MES", "Notificaciones", "Fecha Alta", "Sexo", "Altura", "Muñeca", "Ocupacion", "Cumple", "Profesional")
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT ("User ID") DO UPDATE SET
+                "Nombre" = EXCLUDED."Nombre",
+                "Estado" = EXCLUDED."Estado",
+                "MES" = EXCLUDED."MES",
+                "Notificaciones" = EXCLUDED."Notificaciones",
+                "Sexo" = EXCLUDED."Sexo",
+                "Altura" = EXCLUDED."Altura",
+                "Muñeca" = EXCLUDED."Muñeca",
+                "Ocupacion" = EXCLUDED."Ocupacion",
+                "Cumple" = EXCLUDED."Cumple",
+                "Profesional" = EXCLUDED."Profesional"
         """
-        valores_perfil = (
-            str(edad),
-            float(peso),
-            float(altura),
-            str(sexo),
-            float(ocupacion),
+        valores_usr = (
+            str(user_id),
+            str(nombre),
+            0,
             str(mes_actual),
-            str(fecha_act),
-            float(peso_ideal),
-            str(cumple)
+            "Si",
+            str(fecha_alta),
+            str(sexo),
+            float(altura),
+            float(muneca),
+            float(ocupacion),
+            str(cumple),
+            str(profesional)
         )
-        cur_p.execute(query_perfil, valores_perfil)
-        conn_p.commit()
-        cur_p.close()
-        conn_p.close()
+        cur_u.execute(query_usr, valores_usr)
+        conn_u.commit()
+        cur_u.close()
+        conn_u.close()
     except Exception as e:
-        logger.error(f"Error al crear tablas en Supabase para el nuevo usuario {user_id}: {e}")
+        logger.error(f"Error al crear o insertar en la tabla maestra 'usuarios' de Supabase para el usuario {user_id}: {e}")
                     
 def _verificar_estado_usuario_en_hoja(user_id):
     """Verifica si el usuario existe en la hoja 'Usuarios' y devuelve su estado o None."""
