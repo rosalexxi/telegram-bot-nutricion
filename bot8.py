@@ -2330,7 +2330,6 @@ def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float 
             from groq import Groq
             client = Groq(api_key=api_key)
 
-        # Selecciona el modelo pasado por argumento o el predeterminado de globals
         modelo = modelo_override or globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile")
         
         messages = []
@@ -2356,50 +2355,57 @@ def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float 
 
 async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.BytesIO]:
     """
-    Consulta a Groq con reintentos automáticos, audita el informe con el modelo de revisión 
-    para garantizar calidad y evitar textos truncados, y compila el PDF de bienvenida.
+    Genera el informe inicial de bienvenida con IA adaptado al perfil y desvío de peso,
+    aplicando auditoría de calidad y compilando el PDF con metas saludables para la etapa 1.
     """
-    nombre = datos_usuario.get('nombre')
-    edad = datos_usuario.get('edad')
-    sexo = datos_usuario.get('sexo')
-    altura = datos_usuario.get('altura')
-    peso = datos_usuario.get('peso')
-    contextura = datos_usuario.get('contextura')
-    peso_ideal = datos_usuario.get('peso_ideal')
-    peso_etapa = datos_usuario.get('peso_etapa')
-    tmb = datos_usuario.get('tmb')
-    get_calorias = datos_usuario.get('get')
+    nombre = datos_usuario.get('nombre', 'Paciente')
+    edad = datos_usuario.get('edad', 0)
+    sexo = datos_usuario.get('sexo', 'M')
+    altura = datos_usuario.get('altura', 0)
+    peso = datos_usuario.get('peso', 0)
+    contextura = datos_usuario.get('contextura', 'Mediana')
+    peso_ideal = datos_usuario.get('peso_ideal', 0)
+    peso_etapa = datos_usuario.get('peso_etapa', peso)
+    tmb = datos_usuario.get('tmb', 0)
+    get_calorias = datos_usuario.get('get', 2000)
 
-    # 1. Construcción del prompt clínico para el informe inicial
+    # 1. Análisis del desvío porcentual para orientar el criterio clínico de la IA
+    dif_pct = ((peso - peso_ideal) / peso_ideal * 100) if peso_ideal > 0 else 0.0
+
+    if dif_pct > 20:
+        contexto_situacion = "El paciente presenta un sobrepeso considerable, por lo que el enfoque debe ser muy gradual, paciente y centrado en la adopción de hábitos sostenibles a largo plazo sin restricciones drásticas."
+    elif dif_pct >= 8:
+        contexto_situacion = "El paciente presenta un sobrepeso moderado (en torno al 10% por encima de su referencia de bienestar), ideal para estructurar un cambio de hábitos enfocado en porciones y constancia."
+    elif dif_pct >= -5:
+        contexto_situacion = "El paciente se encuentra en un rango de peso cercano a su meta o en zona de equilibrio, por lo que el foco estará en la optimización de la calidad nutricional y el mantenimiento."
+    else:
+        contexto_situacion = "El paciente presenta un peso corporal por debajo de su referencia teórica, por lo que el enfoque será de nutrición equilibrada y fortalecimiento saludable."
+
+    # 2. Construcción del prompt clínico (sin mencionar números ni kilos en las recomendaciones)
     prompt_ia = (
-        f"Actúa como un médico nutricionista experto. Analiza el perfil del paciente:\n"
-        f"- Nombre: {nombre}, Edad: {edad} años, Sexo: {sexo}\n"
-        f"- Altura: {altura} cm, Peso Actual: {peso} kg\n"
-        f"- Contextura ósea: {contextura}, Peso Ideal Teórico: {peso_ideal} kg\n"
-        f"- Peso Objetivo para la 1ra Etapa (ponderado prudente 75/25): {peso_etapa} kg\n"
-        f"- Gasto Basal (TMB): {tmb} kcal, Gasto Energético Total (GET): {get_calorias} kcal\n\n"
-        f"Redacta un informe breve y motivador de bienvenida que incluya:\n"
-        f"1. Una explicación clara y empática de por qué en esta primera etapa apuntamos a un peso objetivo intermedio ({peso_etapa} kg) en lugar de exigir el peso ideal final de golpe.\n"
-        f"2. Una recomendación general sobre el manejo de la dieta y calorías diarias orientada a un déficit saludable basado en su GET.\n"
-        f"3. Pautas generales de actividad física complementaria (caminatas, movilidad).\n"
-        f"Mantén un tono profesional, cálido y alentador sin dejar oraciones inconclusas."
+        f"Actúa como un médico nutricionista experto y muy empático. Contexto del paciente:\n"
+        f"- Situación general: {contexto_situacion}\n\n"
+        f"Redacta un informe breve, cálido y motivador de bienvenida que incluya:\n"
+        f"1. Una explicación empática y motivadora sobre por qué avanzamos paso a paso hacia nuestra primera meta intermedia, destacando que lo importante es el proceso y la salud sostenible.\n"
+        f"2. Recomendaciones generales y amables sobre el manejo de la alimentación diaria orientada a un equilibrio energético saludable, SIN MENCIONAR NÚMEROS, NI KILOS, NI GRAMOS, NI CALORÍAS en el texto de los consejos.\n"
+        f"3. Pautas generales de actividad física complementaria (caminatas suaves, movilidad) y hábitos de hidratación.\n"
+        f"REQUISITO ESTRICTO: Mantén un tono sumamente humano, profesional, constructivo y generalizado. No des cifras de peso ni metas numéricas específicas en las recomendaciones. Cierra con un punto final y completa todas las ideas."
     )
     
-    system_msg = "Eres un nutricionista clínico profesional y empático."
+    system_msg = "Eres un nutricionista clínico profesional, empático y motivador."
     prompt_auditor_base = (
         f"Actúa como un médico supervisor estricto y auditor de calidad. "
         f"Revisa el siguiente informe nutricional de bienvenida:\n\n"
         f"--- INFORME A EVALUAR ---\n{{informe_candidato}}\n-------------------------\n\n"
-        f"INSTRUCCIONES DE AUDITORÍA:\n"
-        f"1. Verifica que el texto sea coherente, empático, completo (sin cortes ni oraciones truncadas) y estrictamente profesional.\n"
-        f"2. Si el informe está perfecto y listo para entregar, responde únicamente comenzando con la palabra 'OK'.\n"
-        f"3. Si encuentras errores, oraciones inconclusas o falta de redacción, responde comenzando con la palabra 'RECHAZADO' indicando qué corregir."
+        f"Criterios de rechazo:\n"
+        f"1. Si incluye números, kilos o calorías dentro de las recomendaciones del texto.\n"
+        f"2. Si hay oraciones cortadas o truncadas al final.\n"
+        f"Si el informe cumple perfectamente con todo, responde únicamente con la palabra 'OK'."
     )
 
     informe_ia = ""
     max_intentos = 3
 
-    # Función interna de reintentos rápidos para proteger las peticiones de red
     async def _llamar_ia_con_retry(p, tokens, temp, sys_p=None, mod_over=None, intentos_max=3):
         for it in range(1, intentos_max + 1):
             try:
@@ -2420,10 +2426,8 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
                 await asyncio.sleep(2)
         return ""
 
-    # Bucle principal de generación y auditoría cruzada
     for intento in range(1, max_intentos + 1):
         try:
-            # 1. Generación del texto candidato
             texto_generado = await _llamar_ia_con_retry(
                 prompt=prompt_ia, 
                 max_tokens=600, 
@@ -2434,32 +2438,36 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
             if not texto_generado:
                 continue
 
-            # 2. Instancia y consulta al Modelo Revisor
-            prompt_auditor_final = prompt_auditor_base.format(informe_candidato=texto_generado)
             modelo_rev = globals().get('GROQ_REVISION', 'openai/gpt-oss-20b')
+            prompt_auditor_final = prompt_auditor_base.format(informe_candidato=texto_generado)
             
             veredicto = await _llamar_ia_con_retry(
                 prompt=prompt_auditor_final, 
-                max_tokens=150, 
+                max_tokens=100, 
                 temperature=0.1, 
                 modelo_override=modelo_rev
             )
 
-            if veredicto and veredicto.strip().upper().startswith("OK"):
+            if veredicto and "OK" in veredicto.strip().upper() and "RECHAZ" not in veredicto.strip().upper():
                 informe_ia = texto_generado
                 break
             else:
-                motivo = veredicto.strip() if veredicto else "Sin respuesta"
-                print(f"🔄 Revisor rechazó el informe inicial en el intento {intento}. Motivo: {motivo}")
+                print(f"🔄 Revisor rechazó el informe inicial en el intento {intento}.")
 
         except Exception as err:
             print(f"❌ Error en ciclo de informe inicial (Intento {intento}): {err}")
 
-    # Fallback por seguridad si se agotaran los intentos
     if not informe_ia:
         informe_ia = "Estimado paciente, le damos la bienvenida a su plan nutricional personalizado. Su ficha ha sido configurada correctamente con los parámetros metabólicos iniciales."
 
-    # 3. Compilación del informe aprobado en formato PDF con ReportLab
+    # 3. Estimación orientativa de macronutrientes para el descenso saludable de la etapa 1
+    factor_prot = 1.5 if str(sexo).upper() in ['M', 'MASCULINO'] else 1.2
+    meta_cal = int(round(get_calorias * 0.85))
+    meta_prot = int(round(peso_etapa * factor_prot))
+    meta_gras = int(round((meta_cal * 0.25) / 9.0))
+    meta_carb = int(round((meta_cal * 0.50) / 4.0))
+
+    # 4. Compilación del PDF en memoria mediante ReportLab
     pdf_buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         pdf_buffer, 
@@ -2475,16 +2483,16 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
     titulo_style = ParagraphStyle(
         'TituloInforme', 
         parent=styles['Heading1'], 
-        fontSize=15, 
-        leading=18, 
+        fontSize=14, 
+        leading=16, 
         alignment=1, 
         textColor=colors.HexColor('#1b4f72')
     )
     sub_style = ParagraphStyle(
         'SubInforme', 
         parent=styles['Normal'], 
-        fontSize=10, 
-        leading=14, 
+        fontSize=9, 
+        leading=13, 
         textColor=colors.HexColor('#566573')
     )
     body_style = ParagraphStyle(
@@ -2496,20 +2504,20 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
     )
     
     story.append(Paragraph("<b>INFORME NUTRICIONAL INICIAL - APERTURA DE FICHA</b>", titulo_style))
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
     
     resumen_datos = (
         f"<b>Paciente:</b> {nombre} | <b>ID Telegram:</b> `{datos_usuario.get('user_id')}`<br/>"
         f"<b>Edad:</b> {edad} años | <b>Sexo:</b> {sexo} | <b>Altura:</b> {altura} cm<br/>"
-        f"<b>Peso Actual:</b> {peso} kg | <b>Contextura:</b> {contextura} | <b>Peso Ideal:</b> {peso_ideal} kg<br/>"
-        f"<b>Objetivo Etapa 1:</b> {peso_etapa} kg | <b>TMB:</b> {round(tmb)} kcal | <b>GET:</b> {round(get_calorias)} kcal"
+        f"<b>Peso Actual:</b> {peso} kg | <b>Peso Ideal Teórico:</b> {peso_ideal} kg<br/>"
+        f"<b>Objetivo 1ra Etapa (Ponderado 75/25):</b> {peso_etapa} kg<br/>"
+        f"<b>Metas Diarias (Saludable):</b> ~{meta_cal} kcal | Proteínas: ~{meta_prot}g | Grasas: ~{meta_gras}g | Carbohidratos: ~{meta_carb}g"
     )
     story.append(Paragraph(resumen_datos, sub_style))
-    story.append(Spacer(1, 15))
-    story.append(Paragraph("<b>EVALUACIÓN Y PLANIFICACIÓN INICIAL</b>", styles['Heading2']))
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph("<b>PLANIFICACIÓN Y RECOMENDACIONES INICIALES</b>", styles['Heading2']))
+    story.append(Spacer(1, 6))
     
-    # Reemplazo seguro de saltos de línea para compatibilidad con HTML de ReportLab
     texto_formateado = informe_ia.replace('\n', '<br/>')
     story.append(Paragraph(texto_formateado, body_style))
     
@@ -2525,7 +2533,6 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
     if frecuencias is None:
         frecuencias = {}
 
-    # --- LLAMADO A LA FUNCIÓN CENTRALIZADA DE HARINAS ---
     porc_int, porc_ref = calcular_porcentajes_harinas(frecuencias)
 
     key_int = next((k for k in frecuencias.keys() if 'integral' in k), None)
@@ -2538,9 +2545,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         contexto_harinas_str = f"- Balance analítico de harinas del período: {porc_int}% de fuentes integrales ({total_integrales} registros) y {porc_ref}% de fuentes refinadas ({total_refinadas} registros). Ten muy en cuenta esta proporción exacta para tu evaluación."
     else:
         contexto_harinas_str = "- No se registran datos suficientes de harinas en este período."
-    # ----------------------------------------------------
 
-    # Si se pasó un prompt condicional externo (por ejemplo, el de mantenimiento/descenso), lo unimos
     condicion_clinica = prompt_condicional if prompt_condicional else "Evalúa el informe priorizando la calidad de los nutrientes y hábitos saludables."
 
     frec_str = "\n".join([f"- {cat}: {cant} ingestas" for cat, cant in frecuencias.items()]) if frecuencias else "- No hay frecuencias registradas."
@@ -2582,26 +2587,21 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         try:
             logger.info(f"Generando informe mensual auditado para usuario {user_id} (Intento {intento_actual}/{max_intentos})")
 
-            # Paso 1 con mayor margen de tokens (900) para evitar cortes
             texto_p1 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_1, max_tokens=900, temperature=0.3)
             await asyncio.sleep(2)
 
-            # Paso 2
             texto_p2 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_2, max_tokens=400, temperature=0.3)
             await asyncio.sleep(2)
 
-            # Paso 3 con mayor margen de tokens (700) para que entre cómodo el párrafo de hidratación
             texto_p3 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_3, max_tokens=700, temperature=0.3)
             await asyncio.sleep(2)
 
-            # Unimos las partes en formato HTML limpio
             informe_candidato = (
                 f"<b>1. DIAGNÓSTICO NUTRICIONAL GLOBAL</b><br/>{texto_p1}<br/><br/>"
                 f"<b>2. ALIMENTOS A INCORPORAR</b><br/>{texto_p2}<br/><br/>"
                 f"<b>3. ALIMENTOS A REDUCIR Y HÁBITOS</b><br/>{texto_p3}"
             )
 
-            # Auditoría
             prompt_auditor_final = prompt_auditor_base.format(informe_completo=informe_candidato)
             
             modelo_rev = globals().get('GROQ_REVISION', 'qwen/qwen2.5-72b-instruct')
@@ -2640,40 +2640,11 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
             await asyncio.sleep(5)
 
     if 'informe_candidato' in locals() and informe_candidato:
-        logger.warning(f"Se agotaron las revisiones estrictas para {user_id}, pero se entrega el informe generado.")
         return informe_candidato
-
-    logger.error(f"Se agotaron los intentos para generar el informe mensual del usuario {user_id}. Notificando al médico.")
-    
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        sheet_usuarios = sh.worksheet("Usuarios")
-        registros_usuarios = sheet_usuarios.get_all_records()
-        
-        medico_id = None
-        for u in registros_usuarios:
-            if str(u.get("User ID", "")).strip() == str(user_id):
-                medico_id = u.get("Medico ID") or u.get("Médico ID") or u.get("Medico_ID")
-                break
-
-        if medico_id:
-            mensaje_medico = (
-                f"⚠️ **Alerta de Sistema / Error Técnico**\n"
-                f"Estimado profesional, el paciente con ID `{user_id}` no pudo recibir su informe nutricional automático correspondiente al período `{mes_str}`.\n\n"
-                f"🛠️ **Acción sugerida:** Utilice el comando `/enviar_informe {user_id}` para reintentar cuando el servicio se normalice."
-            )
-            await context.bot.send_message(chat_id=int(medico_id), text=mensaje_medico, parse_mode="Markdown")
-    except Exception as err_medico:
-        logger.error(f"No se pudo notificar al médico del usuario {user_id}: {err_medico}")
 
     return None
 
 async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
-    """
-    Adaptador de compatibilidad para llamadas antiguas que usaban 'obtener_recomendacion_ia'.
-    Redirige la consulta a la nueva lógica centralizada o mantiene un comportamiento simple si se prefiere.
-    """
     if es_semanal:
         prompt = (
             f"Actúa como un coach nutricional breve y conciso. "
@@ -2682,7 +2653,6 @@ async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False)
         )
         max_t = 350
     else:
-        # Para el mensual viejo, si aún se llama en alguna parte suelta
         prompt = (
             f"Actúa como un nutricionista clínico personal. "
             f"Analiza la siguiente información:\n{resumen_texto}"
@@ -2690,15 +2660,13 @@ async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False)
         max_t = 700
 
     system_msg = "Eres un nutricionista profesional y empático. Proporciona respuestas claras sin dejar oraciones inconclusas."
-    
-    # Llama a tu única función centralizada de IA
     res = ejecutar_consulta_ia(prompt, max_tokens=max_t, temperature=0.4, system_prompt=system_msg)
     
     if res:
         return res.replace("##", "").replace("###", "").strip()
         
     return "⚠️ No se pudo obtener el análisis nutricional en este momento."
-    
+
 # =====================================================================================================================================
 #                FINAL                        FUNCIONES IA GROQ                                      FINAL
 # ======================================================================================================================================
@@ -2933,7 +2901,7 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ======================================================================================================================================
 
 # =====================================================================================================================================
-#                       INICIO                  COMANDO INGRESO (ALTA DE USUARIO)                               INICIO
+#                       INICIO                  COMANDO INGRESO (ALTA DE USUARIO)                            INICIO
 # ======================================================================================================================================
 
 def cmd_nueva_cuenta(datos_usuario):
@@ -3362,7 +3330,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  `  /presi AAAA-MM` Promedio mensual y PDF.\n"
         "• `/diario`: Ingestas del día detalle nutricional y PDF.\n"
         "• `/semanal`: Estadística semanal (calorías, proteínas, etc).\n"
-        "• `/mensual`: Reporte mensual con estimación de peso, macronutrientes y descarga reporte PDF.\n"
+        "• `/mensual`: Reporte con estimación de peso y PDF.\n"
         "• `/perfil`: Consulta de datos biométricos.\n"
         "• `/peso`: `/peso 90` Actualiza el peso del mes.\n"
         "• `/eliminar`: Borra ingestas o actividades seleccionando el dia.\n"
@@ -3370,9 +3338,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/receta`: Calculadora Web para registrar comidas.\n\n"
         "📌 **Métodos de Registro:**\n"
         "• **Con IA:** Texto libre, Notas de voz 🎤 o Fotos de platos 📸.\n"
-        "• **Modificación parcial:** Editar por item manteniendo peso (`DESCRIPCION`) o recalculando (`DESCRIPCION,PESO`).\n"
-        "• **Sin IA (Plantillas):** `*DESAYUNO,1`, `*PIZZA (porcion),4` o `*TORTA (fraccion x 100g),1.5` (multiplicadores por porción/unidad).\n"
-        "• **Actividad Física:** `# MINUTOS DESCRIPCION, CALORIAS` (Ej: `# 45 min caminata, 250 cal`).\n\n"
+        "• **Modificación parcial:** Editar por item y reenvio a la IA\n"
+        "    `DESCRIPCION` manteniendo el peso\n"
+        "    `DESCRIPCION,PESO` modificando ambos campos\n"
+        "    `,PESO` manteniendo descripcion\n"
+        "• **Sin IA (Plantillas):**\n"
+        "    `DESAYUNO`: Una unidad\n"
+        "    `PIZZA (porcion),4`: 4 unidades\n"
+        "    `TORTA (fraccion x 100g),1.5`: 150 gramos\n"
+        "• **Actividad Física:** `# MINUTOS DESCRIPCION, CALORIAS`\n"
+        "    `# 45 min caminata, 250 cal`.\n\n"
         "📄 *Te adjuntamos el Manual de Usuario completo en formato PDF.*"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
@@ -3507,7 +3482,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         [
             Paragraph("<b>/cancelar</b>", code_style), 
             Paragraph("<b>Cancelar Registro:</b> Permite abortar el proceso de alta en cualquier momento, limpiando los datos temporales almacenados.", body_style)
-        ], # <--- ¡ACÁ FALTABA LA COMA QUE CAUSABA EL ERROR DE SINTAXIS!
+        ],
         [
             Paragraph("<b>/comidas</b>", code_style), 
             Paragraph("Visualiza el listado de comidas predeterminadas guardadas en tu planilla personal y descarga la plantilla en PDF.", body_style)
@@ -3817,7 +3792,6 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         "Formato incorrecto. Uso: /presi 120,80,70, al despertar o /presi 120,80 o /presi 2026-08", 
         parse_mode="Markdown"
     )
-
 
 async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
     # Consulta la capa de datos externa
@@ -4179,7 +4153,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ======================================================================================================================================
 
 # ======================================================================================================================================
-#                      INICIO                                   OPERACIONES COMIDAS                               INICIO  DB OK
+#                      INICIO                                    COMIDAS PRECARGADAS                              INICIO  DB OK
 # =======================================================================================================================================
 
 @requiere_registro
@@ -4264,57 +4238,6 @@ def buscar_comida_precargada_exacta(user_id, texto_codigo):
 
     return None
 
-def analizar_con_groq(prompt_text):
-    if not client_ai:
-        raise Exception("GROQ_API_KEY no está configurada correctamente.")
-    
-    system_prompt = """Sos un nutricionista experto. Analizá el texto ingresado.
-Devolvé EXCLUSIVAMENTE un JSON con este formato:
-{
-  "items": [
-    {"alimento": "nombre", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}
-  ],
-  "tipo": "Comida"
-}"""
-
-    response = client_ai.chat.completions.create(
-        model=GROQ_TEXTO,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt_text}
-        ],
-        temperature=0.1,
-        response_format={"type": "json_object"}
-    )
-    return json.loads(response.choices[0].message.content)
-    
-def analizar_imagen_con_groq(base64_image, user_caption=""):
-    if not client_ai:
-        raise Exception("GROQ_API_KEY no está configurada correctamente.")
-    
-    base_prompt = "Analizá esta imagen de comida/plato. Identificá los alimentos, estimá sus pesos en gramos y nutrientes. Respondé ÚNICAMENTE en formato JSON con la clave 'items' conteniendo alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras."
-    
-    if user_caption.strip():
-        prompt = f"{base_prompt}\n\nNota o aclaración enviada por el usuario sobre esta foto: '{user_caption.strip()}'"
-    else:
-        prompt = base_prompt
-
-    response = client_ai.chat.completions.create(
-        model=GROQ_FOTO,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                ]
-            }
-        ],
-        temperature=0.1,
-        response_format={"type": "json_object"}
-    )
-    return json.loads(response.choices[0].message.content)
-
 def generar_pdf_comidas_bytes(plantillas):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
@@ -4372,11 +4295,11 @@ def generar_pdf_comidas_bytes(plantillas):
     return buffer
 
 # ======================================================================================================================================
-#                   FINAL                                   OPERACION COMIDAS                                      FINAL
+#                   FINAL                                 COMIDAS PRECARGADAS                                      FINAL
 # ======================================================================================================================================
 
 #=========================================================================================================================================
-#                INICIO                                   MANEJADORES HANDLE                                  INICIO DB OK
+#                INICIO                             MANEJADORES COMIDAS ACTIVIDAD                                 INICIO DB OK
 #=========================================================================================================================================
 
 @requiere_registro
@@ -4554,7 +4477,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await render_confirmation_screen(msg, context)
         return
 
-    # 1. SI EL USUARIO PRESIONÓ "EDITAR" Y ESTÁ ENVIANDO LA CORRECCIÓN
+# 1. SI EL USUARIO PRESIONÓ "EDITAR" Y ESTÁ ENVIANDO LA CORRECCIÓN
     # =========================================================================
     if context.user_data.get('awaiting_edit_item_val'):
         idx = context.user_data.get('editing_item_idx')
@@ -4563,16 +4486,43 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if items and 0 <= idx < len(items):
             item_previo = items[idx]
             peso_previo = item_previo.get('peso', 0.0)
+            desc_previa = item_previo.get('alimento', '')
 
             msg_espera = await update.message.reply_text("⏳ Recalculando ítem con la IA...")
             try:
-                prompt_edicion = (
-                    f"El usuario quiere editar un alimento.\n"
-                    f"Texto ingresado por el usuario: '{raw_text}'\n"
-                    f"Si el usuario NO especificó un nuevo peso en gramos en su texto, "
-                    f"DEBES usar exactamente este peso anterior: {peso_previo} gramos.\n"
-                    f"Devolvé el JSON con los nutrientes recalculados para ese alimento y cantidad."
-                )
+                # Verificamos si el usuario ingresó una coma para separar descripción y peso
+                if ',' in raw_text:
+                    partes = raw_text.split(',', 1)
+                    parte_desc = partes[0].strip()
+                    parte_peso = partes[1].strip()
+
+                    # Extraer solo los números del peso ingresado
+                    nuevo_peso = float(re.sub(r'[^\d.]', '', parte_peso.replace(',', '.'))) if parte_peso else peso_previo
+
+                    if parte_desc == "":
+                        # Caso: ", 300" -> Se mantiene la descripción anterior y se cambia solo el peso
+                        prompt_edicion = (
+                            f"El usuario quiere actualizar únicamente el peso de un alimento.\n"
+                            f"Alimento actual: '{desc_previa}'\n"
+                            f"Nuevo peso en gramos: {nuevo_peso}\n"
+                            f"Devolvé el JSON con los nutrientes recalculados para ese mismo alimento y el nuevo peso."
+                        )
+                    else:
+                        # Caso: "milanesa de carne, 300" -> Se cambia descripción y peso
+                        prompt_edicion = (
+                            f"El usuario quiere editar un alimento especificando nueva descripción y peso.\n"
+                            f"Nueva descripción: '{parte_desc}'\n"
+                            f"Nuevo peso en gramos: {nuevo_peso}\n"
+                            f"Devolvé el JSON con los nutrientes recalculados para esa descripción y cantidad."
+                        )
+                else:
+                    # Caso: Solo un texto (sin coma) -> Se actualiza solo la descripción manteniendo el peso anterior
+                    prompt_edicion = (
+                        f"El usuario quiere editar un alimento.\n"
+                        f"Nueva descripción ingresada por el usuario: '{raw_text}'\n"
+                        f"El usuario NO especificó un nuevo peso, por lo tanto DEBES usar exactamente este peso anterior: {peso_previo} gramos.\n"
+                        f"Devolvé el JSON con los nutrientes recalculados para esa nueva descripción y cantidad."
+                    )
 
                 nuevo_analisis = analizar_con_groq(prompt_edicion)
                 items_nuevos = nuevo_analisis.get('items', [])
@@ -4607,7 +4557,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await render_confirmation_screen(update, context)
         return
-
+        
     # 2. COMIDAS PRECARGADAS EN PLANTILLAS DEL USUARIO (MENSAJES QUE EMPIEZAN CON *)
     # =========================================================================
     if raw_text.startswith('*'):
@@ -4689,9 +4639,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar el texto: {e}")   
 
-#==============================================================================================================================
-
-#==============================================================================================================================
+#====================================================================================================================================
+#                FINAL                      MANEJADORES COMIDAS ACTIVIDAD                      FINAL
+#===================================================================================================================================
+	
+#====================================================================================================================================
+#                INICIO                           MANEJADOR MENU                           INICIO
+#===================================================================================================================================
+	
 
 @requiere_registro
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4806,11 +4761,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await generar_y_enviar_pdf_presion(query, user_id, mes_str, context)
 
 #====================================================================================================================================
-#                FINAL                                 MANEJADORES HANDLE                       FINAL
+#                FINAL                           MANEJADOR MENU                     FINAL
 #===================================================================================================================================
-
-
-
 	
 # =====================================================================================================================================
 #                INICIO                               COMANDO ELIMINAR                          INICIO  
@@ -4947,11 +4899,11 @@ async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 # =====================================================================================================================================
-#                FINAL                               COMANDO ELIMINAR                          FINAL
+#                FINAL                               COMANDO ELIMINAR                              FINAL
 # ======================================================================================================================================
 
 # =============================================================================================================================================
-#                    INICIO                                    COMANDO PACIENTES                                       INICIO
+#                INICIO                            COMANDO PACIENTES                                INICIO
 # =============================================================================================================================================
 
 async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -5176,11 +5128,11 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg_espera.edit_text(f"❌ Ocurrió un error al procesar el listado clínico: {e}")
 
 # =============================================================================================================================================
-#                    FINAL                                    COMANDO PACIENTES MEDICO                                FINAL
+#                    FINAL                                COMANDO PACIENTES MEDICO                                FINAL
 # =============================================================================================================================================
 
 # =============================================================================================================================================
-#                    INICIO                                    COMANDO INFORME MEDICO                                INICIO  
+#                    INICIO                                COMANDO INFORME MEDICO                                INICIO  
 # =============================================================================================================================================
 
 async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -5257,7 +5209,7 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
         await update.message.reply_text("⚠️ Ocurrió un error al procesar la solicitud del informe PDF.")
 
 # =============================================================================================================================================
-#                    FINAL                                    COMANDO INFORME MEDICO                                FINAL  
+#                    FINAL                             COMANDO INFORME MEDICO                                FINAL  
 # =============================================================================================================================================
 
 # ==============================================================================================================================================
@@ -5423,6 +5375,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(msg_err)
                         
 # ======================================================================================================================================
+
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
@@ -5574,6 +5527,7 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
 
 # LOGICA DE SELECCIÓN DE PROMPT BASADA EN DIFERENCIA DE PESO (10% PRECEDENCIA)
 # ======================================================================================================================================
+
 def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
     """
     Determina la condición clínica en base al peso real vs peso objetivo/ideal:
