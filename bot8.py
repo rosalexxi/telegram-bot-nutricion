@@ -2381,7 +2381,7 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
     else:
         contexto_situacion = "El paciente presenta un peso corporal por debajo de su referencia teórica, por lo que el enfoque será de nutrición equilibrada y fortalecimiento saludable."
 
-    # 2. Construcción del prompt clínico (sin mencionar números ni kilos en las recomendaciones)
+    # 2. Construcción del prompt clínico (restringiendo mención de números/kilos en las recomendaciones)
     prompt_ia = (
         f"Actúa como un médico nutricionista experto y muy empático. Contexto del paciente:\n"
         f"- Situación general: {contexto_situacion}\n\n"
@@ -2420,7 +2420,7 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
                 if res and res.strip():
                     return res
             except Exception as e:
-                print(f"⚠️ Fallo en intento IA {it}/{intentos_max}: {e}")
+                logger.error(f"⚠️ Fallo en intento IA {it}/{intentos_max}: {e}")
                 if it == intentos_max:
                     raise e
                 await asyncio.sleep(2)
@@ -2452,17 +2452,22 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
                 informe_ia = texto_generado
                 break
             else:
-                print(f"🔄 Revisor rechazó el informe inicial en el intento {intento}.")
+                logger.warning(f"🔄 Revisor rechazó el informe inicial en el intento {intento}.")
 
         except Exception as err:
-            print(f"❌ Error en ciclo de informe inicial (Intento {intento}): {err}")
+            logger.error(f"❌ Error en ciclo de informe inicial (Intento {intento}): {err}")
 
     if not informe_ia:
-        informe_ia = "Estimado paciente, le damos la bienvenida a su plan nutricional personalizado. Su ficha ha sido configurada correctamente con los parámetros metabólicos iniciales."
+        informe_ia = (
+            f"Hola {nombre}, te damos la bienvenida a tu plan nutricional personalizado. "
+            "Hemos configurado tu ficha correctamente con los parámetros metabólicos iniciales "
+            "para acompañarte paso a paso hacia tu objetivo de bienestar."
+        )
 
-    # 3. Estimación orientativa de macronutrientes para el descenso saludable de la etapa 1
+    # 3. Estimación orientativa de macronutrientes (valores positivos corregidos)
+    get_val = float(get_calorias) if get_calorias > 0 else 2000.0
     factor_prot = 1.5 if str(sexo).upper() in ['M', 'MASCULINO'] else 1.2
-    meta_cal = int(round(get_calorias * 0.85))
+    meta_cal = int(round(get_val * 0.85))  # Objetivo calórico saludable (déficit del 15%)
     meta_prot = int(round(peso_etapa * factor_prot))
     meta_gras = int(round((meta_cal * 0.25) / 9.0))
     meta_carb = int(round((meta_cal * 0.50) / 4.0))
@@ -2525,7 +2530,7 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
     pdf_buffer.seek(0)
     
     return informe_ia, pdf_buffer
-        
+                
 async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuencias=None, prompt_condicional=None):
     """
     Función independiente para generar el informe mensual auditado usando la función centralizada.
@@ -3166,7 +3171,7 @@ async def ing_recibir_peso(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data['ing_peso'] = peso
     await update.message.reply_text(
-        "Ingresá el **diámetro/perímetro de tu muñeca en cm** (ejemplo: `16.5`):\n"
+        "Ingresá el **perímetro de tu muñeca en cm** (ejemplo: `16.5`):\n"
         "_(Se utiliza para calcular tu contextura ósea)_",
         parse_mode="Markdown"
     )
@@ -3184,11 +3189,11 @@ async def ing_recibir_muneca(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data['ing_muneca'] = muneca
     
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Sedentario / Ligero (1.375)", callback_data="ocup_1375")],
-        [InlineKeyboardButton("Moderado (1.550)", callback_data="ocup_1550")],
-        [InlineKeyboardButton("Intenso / Trabajo Físico (1.725)", callback_data="ocup_1725")]
+        [InlineKeyboardButton("Sedentario / Ligero ", callback_data="ocup_1375")],
+        [InlineKeyboardButton("Moderado ", callback_data="ocup_1550")],
+        [InlineKeyboardButton("Intenso / Trabajo Físico ", callback_data="ocup_1725")]
     ])
-    await update.message.reply_text("Seleccioná tu **nivel de actividad u ocupación habitual**:", reply_markup=keyboard, parse_mode="Markdown")
+    await update.message.reply_text("Seleccioná tu **nivel de actividad u ocupación habitual. Sin considerar ejercicios , que se contabilizan por separado**:", reply_markup=keyboard, parse_mode="Markdown")
     return ING_OCUPACION
 
 async def ing_recibir_ocupacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3204,7 +3209,7 @@ async def ing_recibir_ocupacion(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data['ing_ocupacion'] = ocupacion
     
     await query.edit_message_text(
-        f"Nivel de actividad registrado: *{ocupacion}*.\n\n"
+        f"Nivel de actividad registrado:.\n\n"
         "Por último, ingresá tu **fecha de nacimiento** en formato `AAAA-MM-DD` (ejemplo: `1985-04-12`):",
         parse_mode="Markdown"
     )
