@@ -469,7 +469,6 @@ def api_guardar_comida():
 #                    FINAL                                   PAGINA WEB                                     FINAL
 # =============================================================================================================================================
 
-
 # ========================================================================================================================================
 #                 INICIO                           GOOGLE SHEETS OPERACIONES  2026 09 05                          INICIO
 # =============================================================================================================================================
@@ -477,6 +476,52 @@ def api_guardar_comida():
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 1. CLIENTES Y CONEXIÓN BASE (VAN PRIMERO)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
+
+def obtener_todos_usuarios() -> list:
+    """Función puente: Devuelve todos los registros de la pestaña 'Usuarios'."""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws_usuarios = sh.worksheet("Usuarios")
+        return ws_usuarios.get_all_records()
+    except Exception as e:
+        logger.error(f"Error al obtener usuarios puente: {e}")
+        return []
+
+def actualizar_estado_usuario(user_id: str, nuevo_estado: str):
+    """Función puente: Actualiza el estado o puntos de penalización de un usuario por su ID."""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        sheet_usuarios = sh.worksheet("Usuarios")
+        records = sheet_usuarios.get_all_records()
+        
+        for idx, r in enumerate(records):
+            uid = str(r.get("User ID", r.get("user_id", ""))).split('.')[0].strip()
+            if uid == str(user_id):
+                row_index = idx + 2  # Fila en Sheets (considerando cabecera en fila 1)
+                header_row = sheet_usuarios.row_values(1)
+                col_estado_idx = None
+                for h_idx, h_name in enumerate(header_row, start=1):
+                    if h_name.strip().lower() in ['estado', 'status']:
+                        col_estado_idx = h_idx
+                        break
+                if col_estado_idx:
+                    sheet_usuarios.update_cell(row_index, col_estado_idx, str(nuevo_estado))
+                break
+    except Exception as e:
+        logger.error(f"Error al actualizar estado en puente para {user_id}: {e}")
+
+def obtener_registros_usuario(user_id: str) -> list:
+    """Función puente: Devuelve los registros de ingesta de la solapa individual del usuario."""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws_u = sh.worksheet(f"User_{user_id}")
+        return ws_u.get_all_records()
+    except Exception:
+        return []
+
 def _obtener_conexion_db():
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
@@ -5705,10 +5750,9 @@ async def recordatorio_lunes_presion(context):
     envía un recordatorio amistoso sin ningún tipo de sanción o penalización.
     """
     try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws_usuarios = sh.worksheet("Usuarios")
-        records = ws_usuarios.get_all_records()
+        records = obtener_todos_usuarios()
+        if not records:
+            return
 
         ahora = obtener_ahora_arg()
         hace_siete_dias = ahora - timedelta(days=7)
@@ -5764,15 +5808,8 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
     (lunes y martes) aplicando el sistema de penalizaciones y suspensión, y emite el informe 
     mensual definitivo en formato PDF el día 2 del mes siguiente cubriendo el mes completo anterior.
     """
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        
-        sheet_usuarios = sh.worksheet("Usuarios")
-        registros_usuarios = sheet_usuarios.get_all_records()
-        
-    except Exception as e:
-        logger.error(f"Error al acceder a la pestaña 'Usuarios': {e}")
+    registros_usuarios = obtener_todos_usuarios()
+    if not registros_usuarios:
         return
 
     ahora_dt = obtener_ahora_arg()
@@ -5789,22 +5826,11 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
     es_lunes_manana = (hoy.weekday() == 0 and momento == 'manana')
     es_martes_manana = (hoy.weekday() == 1 and momento == 'manana')
     
-# Configurado para enviarse los días 5 y 20 de cada mes a la tarde
+    # Configurado para enviarse los días 5 y 20 de cada mes a la tarde
     es_informe_mensual_pdf = (hoy.day in [5, 20] and momento == 'tarde')
 
     if es_lunes_manana:
         await recordatorio_lunes_presion(context)
-
-    # Identificar la columna Estado y User ID para actualizaciones precisas
-    col_estado_idx = None
-    col_userid_idx = None
-    header_row = sheet_usuarios.row_values(1)
-    for idx_h, h_name in enumerate(header_row, start=1):
-        h_lower = h_name.strip().lower()
-        if h_lower in ['estado', 'status']:
-            col_estado_idx = idx_h
-        elif h_lower in ['user id', 'user_id']:
-            col_userid_idx = idx_h
 
     for index, u in enumerate(registros_usuarios):
         try:
@@ -5827,8 +5853,6 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
             if notif not in ["si", "sí"]:
                 continue
 
-            row_index = index + 2  # Fila en Google Sheets (considerando cabecera)
-
             # 1. LÓGICA DE LOS LUNES: Validar peso y evaluar la semana anterior (Lunes a Domingo)
             if es_lunes_manana:
                 await _validar_peso_mes_actual(context=context, user_id=user_id)
@@ -5836,12 +5860,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                 inicio_semana_pasada = hoy - timedelta(days=7)
                 fin_semana_pasada = hoy - timedelta(days=1)
 
-                nombre_hoja_usuario = f"User_{user_id}"
-                try:
-                    ws_u = sh.worksheet(nombre_hoja_usuario)
-                    registros_u = ws_u.get_all_records()
-                except Exception:
-                    registros_u = []
+                registros_u = obtener_registros_usuario(user_id)
 
                 # Evaluar día por día la semana pasada
                 dias_incompletos = []
@@ -5878,12 +5897,8 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                     actual_puntos += 1
                     if actual_puntos >= 3:
                         actual_puntos = 3
-                        # Suspensión definitiva
-                        try:
-                            if col_estado_idx and col_userid_idx:
-                                sheet_usuarios.update_cell(row_index, col_estado_idx, "3")
-                        except Exception as e_upd:
-                            logger.error(f"Error al actualizar estado de suspensión para {user_id}: {e_upd}")
+                        # Suspensión definitiva mediante función puente
+                        actualizar_estado_usuario(user_id, "3")
 
                         await context.bot.send_message(
                             chat_id=user_id,
@@ -5892,12 +5907,8 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                         )
                         continue  # Saltear procesamiento posterior para este usuario dado de baja
                     else:
-                        # Actualizar puntos de penalización en la hoja
-                        try:
-                            if col_estado_idx:
-                                sheet_usuarios.update_cell(row_index, col_estado_idx, str(actual_puntos))
-                        except Exception as e_upd:
-                            logger.error(f"Error al actualizar advertencias para {user_id}: {e_upd}")
+                        # Actualizar puntos de penalización mediante función puente
+                        actualizar_estado_usuario(user_id, str(actual_puntos))
 
                         dias_str = ", ".join(dias_incompletos) if dias_incompletos else "varios días"
                         await context.bot.send_message(
@@ -5911,28 +5922,24 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                             parse_mode="Markdown"
                         )
                 else:
-                    # Si completó la semana correctamente, podemos reiniciar el contador a 0 o dejarlo activo
+                    # Si completó la semana correctamente, reiniciar el contador a 0 si tenía advertencias
                     if actual_puntos > 0:
                         actual_puntos = 0
-                        try:
-                            if col_estado_idx:
-                                sheet_usuarios.update_cell(row_index, col_estado_idx, "0")
-                        except Exception as e_upd:
-                            logger.error(f"Error al restablecer estado para {user_id}: {e_upd}")
+                        actualizar_estado_usuario(user_id, "0")
 
             # 2. LÓGICA DE LOS MARTES: Emitir resumen semanal o aviso de falta de registros
             if es_martes_manana:
                 # Releer estado actualizado por si cambió el lunes
-                current_estado_val = str(sheet_usuarios.cell(row_index, col_estado_idx).value if col_estado_idx else "0").strip().lower()
+                usuarios_actualizados = obtener_todos_usuarios()
+                usuario_actual = next((u for u in usuarios_actualizados if str(u.get("User ID", u.get("user_id", ""))).split('.')[0].strip() == str(user_id)), {})
+                current_estado_val = str(usuario_actual.get("Estado", usuario_actual.get("estado", "0"))).strip().lower()
                 if current_estado_val == '3':
                     continue
 
                 peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
                 
                 # Verificamos si la semana anterior estuvo completa de comidas
-                nombre_hoja_usuario = f"User_{user_id}"
-                ws_u = sh.worksheet(nombre_hoja_usuario)
-                registros_u = ws_u.get_all_records()
+                registros_u = obtener_registros_usuario(user_id)
 
                 inicio_semana_pasada = hoy - timedelta(days=7)
                 fin_semana_pasada = hoy - timedelta(days=1)
@@ -6036,7 +6043,6 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                 peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
                 if peso_ok:
                     try:
-                        # Si es día 5 mandamos el mes anterior completo; si es día 20 mandamos el corte quincenal del mes actual
                         if hoy.day == 5:
                             primer_dia_mes_actual = hoy.replace(day=1)
                             ultimo_dia_mes_anterior = primer_dia_mes_actual - timedelta(days=1)
@@ -6058,16 +6064,14 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                         if exito_envio:
                             logger.info(f"Informe automático en PDF del período {mes_target_str} enviado exitosamente a {user_id}")
 
-                        if index < len(registros_usuarios) - 1:
-                            await asyncio.sleep(60)
+                            if index < len(registros_usuarios) - 1:
+                                await asyncio.sleep(60)
 
                     except Exception as e_mensual:
                         logger.error(f"Error generando informe automático en PDF para {user_id}: {e_mensual}", exc_info=True)
 
             # 4. Recordatorio habitual de comidas pendientes (mañana y tarde)
-            nombre_hoja_usuario = f"User_{user_id}"
-            sheet_usuario = sh.worksheet(nombre_hoja_usuario)
-            registros_comidas = sheet_usuario.get_all_records()
+            registros_comidas = obtener_registros_usuario(user_id)
 
             comidas_anteayer = set()
             comidas_ayer = set()
@@ -6119,9 +6123,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
         except Exception as e:
             logger.error(f"Error procesando usuario {user_id}: {e}")
-            if 'registrar_log_en_sheet' in globals():
-                await registrar_log_en_sheet(sh, f"Procesando User {user_id}", e)
-
+            
 # =============================================================================================================================================
 #                    FINAL                                    MENSAJES PROGRAMADOS                                        FINAL
 # =============================================================================================================================================
