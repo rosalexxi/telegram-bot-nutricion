@@ -469,6 +469,7 @@ def api_guardar_comida():
 #                    FINAL                                   PAGINA WEB                                     FINAL
 # =============================================================================================================================================
 
+
 # ========================================================================================================================================
 #                 INICIO                           GOOGLE SHEETS OPERACIONES  2026 09 05                          INICIO
 # =============================================================================================================================================
@@ -541,9 +542,9 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
                 "PESO" DOUBLE PRECISION,
                 "ALTURA" DOUBLE PRECISION,
                 "GENERO" TEXT,
-                ocupacion DOUBLE PRECISION,
-                mes TEXT UNIQUE,
-                fecha_actualizacion TEXT,
+                "OCUPACION" DOUBLE PRECISION,
+                "MES" TEXT,
+                "Fecha_Actualizacion" TEXT,
                 "Peso_ideal" DOUBLE PRECISION,
                 "Cumple" TEXT
             );
@@ -551,7 +552,7 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
 
     conn.commit()
     return conn, cur
-        
+            
 def get_gspread_client():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     if os.path.exists(GOOGLE_SHEETS_KEY_PATH):
@@ -615,70 +616,6 @@ def get_user_worksheet(user_id):
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 2. CONSULTAS Y DECORADORES DE USUARIO
 # ---------------------------------------------------------------------------------------------------------------------------------------------
-
-def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
-    conn = _obtener_conexion_db()
-    cur = conn.cursor()
-
-    if tipo_tabla == "comida":
-        cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                "Fecha" TEXT,
-                "Momento/Actividad" TEXT,
-                "Alimento/Detalle" TEXT,
-                "Peso (g)" DOUBLE PRECISION,
-                "Calorías (kcal)" DOUBLE PRECISION,
-                "Proteínas (g)" DOUBLE PRECISION,
-                "Grasas (g)" DOUBLE PRECISION,
-                "Hidratos (g)" DOUBLE PRECISION,
-                "Fibras (g)" DOUBLE PRECISION
-            );
-        """)
-    elif tipo_tabla == "comidas_precargadas":
-        cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                "Nombre" TEXT,
-                "Descripcion" TEXT,
-                "Peso" DOUBLE PRECISION,
-                "Calorias" DOUBLE PRECISION,
-                "Proteinas" DOUBLE PRECISION,
-                "Grasas" DOUBLE PRECISION,
-                "Carbohidratos" DOUBLE PRECISION,
-                "Fibras" DOUBLE PRECISION
-            );
-        """)
-    elif tipo_tabla == "presion":
-        cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                "Fecha_Hora" TEXT,
-                "Fecha_Dia" TEXT,
-                "Alta" DOUBLE PRECISION,
-                "Baja" DOUBLE PRECISION,
-                "Pulsaciones" DOUBLE PRECISION,
-                "Nota" TEXT
-            );
-        """)
-    elif tipo_tabla == "perfil":
-        cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS {tabla_nombre} (
-                id SERIAL PRIMARY KEY,
-                "EDAD" TEXT,
-                "PESO" DOUBLE PRECISION,
-                "ALTURA" DOUBLE PRECISION,
-                "GENERO" TEXT,
-                ocupacion DOUBLE PRECISION,
-                mes TEXT UNIQUE,
-                fecha_actualizacion TEXT,
-                "Peso_ideal" DOUBLE PRECISION,
-                "Cumple" TEXT
-            );
-        """)
-
-    conn.commit()
-    return conn, cur
     
 def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anterior_str, peso_fin_mes_override=None):
     """
@@ -2406,7 +2343,8 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
     informe_ia = ""
     max_intentos = 3
 
-    async def _llamar_ia_con_retry(p, tokens, temp, sys_p=None, mod_over=None, intentos_max=3):
+    # Corrección de la firma de la función interna para aceptar parámetros por posición o nombre sin romper
+    async def _llamar_ia_con_retry(p, tokens=300, temp=0.4, sys_p=None, mod_over=None, intentos_max=3):
         for it in range(1, intentos_max + 1):
             try:
                 res = await asyncio.to_thread(
@@ -2429,10 +2367,10 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
     for intento in range(1, max_intentos + 1):
         try:
             texto_generado = await _llamar_ia_con_retry(
-                prompt=prompt_ia, 
-                max_tokens=600, 
-                temperature=0.3, 
-                system_prompt=system_msg
+                p=prompt_ia, 
+                tokens=600, 
+                temp=0.3, 
+                sys_p=system_msg
             )
             
             if not texto_generado:
@@ -2442,10 +2380,10 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
             prompt_auditor_final = prompt_auditor_base.format(informe_candidato=texto_generado)
             
             veredicto = await _llamar_ia_con_retry(
-                prompt=prompt_auditor_final, 
-                max_tokens=100, 
-                temperature=0.1, 
-                modelo_override=modelo_rev
+                p=prompt_auditor_final, 
+                tokens=100, 
+                temp=0.1, 
+                mod_over=modelo_rev
             )
 
             if veredicto and "OK" in veredicto.strip().upper() and "RECHAZ" not in veredicto.strip().upper():
@@ -2464,10 +2402,10 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
             "para acompañarte paso a paso hacia tu objetivo de bienestar."
         )
 
-    # 3. Estimación orientativa de macronutrientes (valores positivos corregidos)
+    # 3. Estimación orientativa de macronutrientes (valores positivos)
     get_val = float(get_calorias) if get_calorias > 0 else 2000.0
     factor_prot = 1.5 if str(sexo).upper() in ['M', 'MASCULINO'] else 1.2
-    meta_cal = int(round(get_val * 0.85))  # Objetivo calórico saludable (déficit del 15%)
+    meta_cal = int(round(get_val * 0.85))
     meta_prot = int(round(peso_etapa * factor_prot))
     meta_gras = int(round((meta_cal * 0.25) / 9.0))
     meta_carb = int(round((meta_cal * 0.50) / 4.0))
@@ -2530,7 +2468,7 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
     pdf_buffer.seek(0)
     
     return informe_ia, pdf_buffer
-                
+                    
 async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuencias=None, prompt_condicional=None):
     """
     Función independiente para generar el informe mensual auditado usando la función centralizada.
@@ -3256,7 +3194,7 @@ async def ing_recibir_cumple(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     msg_espera = await update.message.reply_text(
         "✅ **¡Datos procesados!**\n\n"
-        "⏳ *Creando planillas en Google Sheets y redactando tu informe clínico inicial con IA...*",
+        "⏳ *Creando planillas y redactando tu informe inicial...*",
         parse_mode="Markdown"
     )
 
