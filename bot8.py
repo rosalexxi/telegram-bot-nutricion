@@ -2973,31 +2973,34 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg_espera.edit_text("⚠️ No hay información de comidas registradas.")
             return
 
-        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
-        ahora = pd.Timestamp.now().normalize()  # Inicio del día actual (00:00:00)
-        dia_semana = ahora.weekday()  # 0: Lunes, 1: Martes...
+        # Normalizamos la columna de fecha a objetos fecha puros (sin hora)
+        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.date
+        
+        hoy = pd.Timestamp.now().normalize().date()
+        dia_semana = pd.Timestamp.now().dayofweek  # 0: Lunes, 1: Martes...
 
         dias_espanol = {
             0: "Lunes", 1: "Martes", 2: "Miércoles", 
             3: "Jueves", 4: "Viernes", 5: "Sábado", 6: "Domingo"
         }
 
-        # Lunes: toma la semana anterior completa (desde el lunes hace 2 semanas hasta el domingo pasado)
+        # Lunes: toma la semana anterior completa (desde el lunes hasta el domingo pasado)
         if dia_semana == 0:
-            inicio_rango = ahora - pd.Timedelta(days=7)  # Lunes de la semana pasada
-            fin_rango = ahora - pd.Timedelta(seconds=1)    # Domingo pasado a las 23:59:59
+            inicio_rango = hoy - pd.Timedelta(days=7)  # Lunes de la semana pasada
+            fin_rango = hoy - pd.Timedelta(days=1)     # Domingo de la semana pasada
             etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
         else:
-            # Martes en adelante: Desde el lunes de esta semana hasta ayer a las 23:59:59
-            inicio_rango = ahora - pd.Timedelta(days=dia_semana)  # Lunes de esta semana
-            fin_rango = ahora - pd.Timedelta(seconds=1)             # Ayer a las 23:59:59
+            # Martes en adelante: Desde el lunes de esta semana hasta ayer
+            inicio_rango = hoy - pd.Timedelta(days=dia_semana)  # Lunes de esta semana
+            fin_rango = hoy - pd.Timedelta(days=1)                # Ayer
             nombre_dia_ayer = dias_espanol.get(dia_semana - 1, "")
             etiqueta_periodo = f"Semana Actual (Lunes a {nombre_dia_ayer})"
 
+        # Filtrado limpio utilizando fechas puras
         df_semana = df_datos[(df_datos['Fecha_dt'] >= inicio_rango) & (df_datos['Fecha_dt'] <= fin_rango)].copy()
 
         if df_semana.empty:
-            await msg_espera.edit_text("⚠️ No hay registros acumulados para los días transcurridos de esta semana.")
+            await msg_espera.edit_text("⚠️ No hay registros acumulados para los días transcurridos de este período.")
             return
 
         mes_target = inicio_rango.strftime("%Y-%m")
@@ -3021,7 +3024,7 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             df_presion = obtener_datos_presion_db(user_id) if 'obtener_datos_presion_db' in globals() else pd.DataFrame()
             if not df_presion.empty and 'Fecha_Dia' in df_presion.columns:
-                df_presion['Fecha_Dia_dt'] = pd.to_datetime(df_presion['Fecha_Dia'], errors='coerce')
+                df_presion['Fecha_Dia_dt'] = pd.to_datetime(df_presion['Fecha_Dia'], errors='coerce').dt.date
                 df_presion_semana = df_presion[
                     (df_presion['Fecha_Dia_dt'] >= inicio_rango) & 
                     (df_presion['Fecha_Dia_dt'] <= fin_rango)
