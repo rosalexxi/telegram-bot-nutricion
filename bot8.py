@@ -5,6 +5,7 @@
 #                                  https://github.com/rosalexxi/telegram-bot-nutricion
 #                                  https://dashboard.render.com/web/srv-d9lcifijnfac73a8q1eg/events
 #                                  https://supabase.com/dashboard/project/xsheilmjewqcvhmyqlnx/editor/17944?schema=public
+#                                  https://dashboard.uptimerobot.com/monitors
 # ==============================================================================================================================================
 
 import os
@@ -476,6 +477,110 @@ def api_guardar_comida():
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 1. CLIENTES Y CONEXIÓN BASE (VAN PRIMERO)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
+def obtener_especialidad_profesional(prof_id):
+    """Busca y retorna la especialidad del profesional usando Google Sheets (reutilizando _verificar_y_obtener_profesional o consulta directa)."""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws_prof = sh.worksheet("Profesionales")
+        recs_prof = ws_prof.get_all_records()
+        for rp in recs_prof:
+            id_p = str(rp.get("User ID", rp.get("user_id", ""))).split('.')[0].strip()
+            if id_p == prof_id:
+                return str(rp.get("Especialidad", rp.get("especialidad", "General"))).strip()
+    except Exception:
+        pass
+    return None
+
+def obtener_pacientes_por_medico(prof_id):
+    """Retorna la lista de pacientes activos asignados al profesional usando Google Sheets."""
+    pacientes = []
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws_usuarios = sh.worksheet("Usuarios")
+        records_usuarios = ws_usuarios.get_all_records()
+
+        for r in records_usuarios:
+            p_id = str(r.get("profesional", r.get("Profesional", ""))).split('.')[0].strip()
+            if p_id == prof_id:
+                u_id = str(r.get("User ID", r.get("user_id", ""))).split('.')[0].strip()
+                nombre = r.get("Nombre", r.get("nombre", "Sin Nombre"))
+                estado = r.get("Estado", r.get("estado", "Activo"))
+                if str(estado).lower() in ['activo', 'sí', 'si', 'true', '1']:
+                    pacientes.append({"user_id": u_id, "nombre": nombre})
+    except Exception:
+        pass
+    return pacientes
+
+def obtener_ultimo_peso_str(u_id):
+    """Obtiene el último registro de peso formateado de un paciente desde Google Sheets."""
+    peso_str = "S/D"
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws_perfil = get_or_create_worksheet(sh, f"Perfil_{u_id}")
+        recs_perfil = ws_perfil.get_all_records()
+        if recs_perfil:
+            ultimo_p = recs_perfil[-1]
+            p_val = parse_raw_val(ultimo_p.get("PESO", ultimo_p.get("peso", 0)))
+            if p_val > 0:
+                peso_str = f"{p_val / 1000:.1f} kg" if p_val > 300 else f"{p_val} kg"
+    except Exception:
+        pass
+    return peso_str
+
+def obtener_registros_presion(u_id):
+    """Obtiene todos los registros de presión utilizando funciones ya existentes o lectura directa."""
+    try:
+        df_presion = obtener_datos_presion_db(u_id)
+        if not df_presion.empty:
+            return df_presion.to_dict(orient="records")
+    except Exception:
+        pass
+    return []
+
+def obtener_ultima_presion_str(recs_presion_all):
+    """Extrae el texto de la última presión registrada a partir de una lista de registros."""
+    presion_str = "S/D"
+    try:
+        if recs_presion_all:
+            ult_pres = recs_presion_all[-1]
+            sys = ult_pres.get("Alta", ult_pres.get("Sistolica", ult_pres.get("sistólica", ult_pres.get("sistolica", ""))))
+            dia = ult_pres.get("Baja", ult_pres.get("Diastolica", ult_pres.get("diastólica", ult_pres.get("diastolica", ""))))
+            if sys and dia:
+                presion_str = f"{sys}/{dia} mmHg"
+    except Exception:
+        pass
+    return presion_str
+
+def obtener_promedio_calorias_mes_actual(u_id, ahora):
+    """Calcula el promedio de calorías del mes actual para un paciente utilizando la función de obtención de datos del usuario."""
+    calorias_str = "S/D"
+    try:
+        df_u = obtener_datos_usuario(u_id)
+        if not df_u.empty and 'Fecha' in df_u.columns:
+            mes_actual_str = ahora.strftime("%Y-%m")
+            df_u['Mes_Filtro'] = df_u['Fecha'].astype(str).str.slice(0, 7)
+            df_mes = df_u[df_u['Mes_Filtro'] == mes_actual_str]
+            if not df_mes.empty and 'Calorias' in df_mes.columns:
+                calorias_mes = [float(c) for c in df_mes['Calorias'] if float(c) > 0]
+                if calorias_mes:
+                    prom_cal = sum(calorias_mes) / len(calorias_mes)
+                    calorias_str = f"{round(prom_cal)} kcal/día"
+    except Exception:
+        pass
+    return calorias_str
+
+def obtener_ultimo_perfil_dict(u_id):
+    """Retorna el último diccionario de perfil disponible utilizando la función ya escrita obtener_perfil_usuario."""
+    try:
+        perfil = obtener_perfil_usuario(u_id)
+        if perfil:
+            return perfil
+    except Exception:
+        pass
+    return {}
 
 def obtener_todos_usuarios() -> list:
     """Función puente: Devuelve todos los registros de la pestaña 'Usuarios'."""
@@ -2869,7 +2974,7 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
-        ahora = pd.Timestamp.now()
+        ahora = pd.Timestamp.now().normalize()  # Inicio del día actual (00:00:00)
         dia_semana = ahora.weekday()  # 0: Lunes, 1: Martes...
 
         dias_espanol = {
@@ -2877,17 +2982,17 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             3: "Jueves", 4: "Viernes", 5: "Sábado", 6: "Domingo"
         }
 
-        # Lunes: toma la semana anterior completa (7 días)
+        # Lunes: toma la semana anterior completa (desde el lunes hace 2 semanas hasta el domingo pasado)
         if dia_semana == 0:
-            inicio_rango = ahora.floor('D') - pd.Timedelta(days=7)
-            fin_rango = ahora.floor('D') - pd.Timedelta(seconds=1)
+            inicio_rango = ahora - pd.Timedelta(days=7)  # Lunes de la semana pasada
+            fin_rango = ahora - pd.Timedelta(seconds=1)    # Domingo pasado a las 23:59:59
             etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
         else:
-            # Martes en adelante: Desde el lunes hasta el día anterior a las 23:59:59
-            inicio_rango = ahora.floor('D') - pd.Timedelta(days=dia_semana)
-            fin_rango = ahora.floor('D') - pd.Timedelta(seconds=1)
-            nombre_dia_actual = dias_espanol.get(dia_semana, "")
-            etiqueta_periodo = f"Semana Actual (Lunes a {nombre_dia_actual})"
+            # Martes en adelante: Desde el lunes de esta semana hasta ayer a las 23:59:59
+            inicio_rango = ahora - pd.Timedelta(days=dia_semana)  # Lunes de esta semana
+            fin_rango = ahora - pd.Timedelta(seconds=1)             # Ayer a las 23:59:59
+            nombre_dia_ayer = dias_espanol.get(dia_semana - 1, "")
+            etiqueta_periodo = f"Semana Actual (Lunes a {nombre_dia_ayer})"
 
         df_semana = df_datos[(df_datos['Fecha_dt'] >= inicio_rango) & (df_datos['Fecha_dt'] <= fin_rango)].copy()
 
@@ -2905,10 +3010,8 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for _, row in df_semana.iterrows():
                 momento_str = str(row.get('Momento', '')).strip().lower()
                 alimento_str = str(row.get('Alimento', '')).strip()
-                # Detectar filas de actividad (donde Caloria < 0 o Momento/Actividad indica ejercicio)
                 cal_val = float(row.get('Calorias', 0) or 0)
                 if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
-                    # Extraer el número inicial de minutos (ej: "45 caminata...")
                     match = re.match(r'^(\d+)', alimento_str)
                     if match:
                         minutos_totales_actividad += int(match.group(1))
@@ -3412,12 +3515,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "    `DESCRIPCION` manteniendo el peso\n"
         "    `DESCRIPCION,PESO` modificando ambos campos\n"
         "    `,PESO` manteniendo descripcion\n"
-        "• **Sin IA (Plantillas):**\n"
-        "    `DESAYUNO`: Una unidad\n"
-        "    `PIZZA (porcion),4`: 4 unidades\n"
-        "    `TORTA (fraccion x 100g),1.5`: 150 gramos\n"
+        "• **Sin IA Comidas precargadas y actividad fisica:**\n"
+        "    `*DESAYUNO`: menu completo\n"
+        "    `*PIZZA (porcion),4`: 4 porciones de pizza\n"
+        "    `*TORTA (fraccion x 100g),1.5`: 150 gramos de torta\n"
         "• **Actividad Física:** `# MINUTOS DESCRIPCION, CALORIAS`\n"
-        "    `# 45 min caminata, 250 cal`.\n\n"
+        "    `# 45 MINUTOS DETALLE, CALORIAS`: # 45 caminata, 250.\n\n"
         "📄 *Te adjuntamos el Manual de Usuario completo en formato PDF.*"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
@@ -4204,7 +4307,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"• Peso: `{peso:.1f}` kg\n"
                 f"• Altura: `{altura:.1f}` cm\n"
                 f"• Género: `{genero}`\n"
-                f"• Ocupación: `{ocupacion}`\n"
+                # f"• Ocupación: `{ocupacion}`\n"
                 f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
                 f"• **GET Estimado:** `{get_val:.0f} kcal/día`\n\n"
                 f"📌 **Para actualizar tu peso mensual:**\n"
@@ -4973,49 +5076,25 @@ async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYP
 # ======================================================================================================================================
 
 # =============================================================================================================================================
-#                INICIO                            COMANDO PACIENTES                                INICIO
+#                    INICIO                                    COMANDO PACIENTES                                       INICIO
 # =============================================================================================================================================
 
 async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Comando para que el profesional vea el listado de sus pacientes y genere un reporte PDF avanzado (hasta 6 meses)."""
+    prof_id = str(update.effective_user.id).strip()
+    
     msg_espera = await update.message.reply_text("⏳ **Buscando pacientes y procesando historial clínico (hasta 6 meses)...**", parse_mode="Markdown")
 
-    # Validación utilizando la función auxiliar existente
-    prof_id = await _verificar_y_obtener_profesional(update)
-    if not prof_id:
-        await msg_espera.edit_text("⛔ **Acceso denegado:** Este comando es exclusivo para profesionales registrados.", parse_mode="Markdown")
-        return
-
     try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        
-        # Obtener la especialidad del profesional desde la hoja 'Profesionales'
-        especialidad_prof = "General"
-        try:
-            ws_prof = sh.worksheet("Profesionales")
-            recs_prof = ws_prof.get_all_records()
-            for rp in recs_prof:
-                id_p = str(rp.get("User ID", rp.get("user_id", ""))).split('.')[0].strip()
-                if id_p == prof_id:
-                    especialidad_prof = str(rp.get("Especialidad", rp.get("especialidad", "General"))).strip()
-                    break
-        except Exception:
-            pass
+        # 1. Validar e identificar especialidad del profesional usando la capa de abstracción
+        especialidad_prof = obtener_especialidad_profesional(prof_id)
 
-        # Filtrar pacientes del médico
-        ws_usuarios = sh.worksheet("Usuarios")
-        records_usuarios = ws_usuarios.get_all_records()
+        if not especialidad_prof:
+            await msg_espera.edit_text("⛔ **Acceso denegado:** Este comando es exclusivo para profesionales registrados.", parse_mode="Markdown")
+            return
 
-        pacientes_del_medico = []
-        for r in records_usuarios:
-            p_id = str(r.get("profesional", r.get("Profesional", ""))).split('.')[0].strip()
-            if p_id == prof_id:
-                u_id = str(r.get("User ID", r.get("user_id", ""))).split('.')[0].strip()
-                nombre = r.get("Nombre", r.get("nombre", "Sin Nombre"))
-                estado = r.get("Estado", r.get("estado", "Activo"))
-                if estado.lower() in ['activo', 'sí', 'si', 'true', '1']:
-                    pacientes_del_medico.append({"user_id": u_id, "nombre": nombre})
+        # 2. Filtrar pacientes del médico usando la capa de abstracción
+        pacientes_del_medico = obtener_pacientes_por_medico(prof_id)
 
         if not pacientes_del_medico:
             await msg_espera.edit_text("ℹ️ No tenés pacientes activos asignados en este momento.", parse_mode="Markdown")
@@ -5034,57 +5113,15 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         texto_reporte = f"📋 **Listado de Pacientes Asignados**\n🩺 *Especialidad:* `{especialidad_prof}`\n\n"
         datos_para_pdf = []
 
-        nombres_hojas = [ws.title for ws in sh.worksheets()]
-
         for pac in pacientes_del_medico:
             u_id = pac["user_id"]
             nombre = pac["nombre"]
-            peso_str = "S/D"
-            presion_str = "S/D"
-            calorias_str = "S/D"
-
-            try:
-                ws_perfil = sh.worksheet(f"Perfil_{u_id}")
-                recs_perfil = ws_perfil.get_all_records()
-                if recs_perfil:
-                    ultimo_p = recs_perfil[-1]
-                    p_val = parse_raw_val(ultimo_p.get("PESO", ultimo_p.get("peso", 0)))
-                    if p_val > 0:
-                        peso_str = f"{p_val / 1000:.1f} kg" if p_val > 300 else f"{p_val} kg"
-            except Exception:
-                pass
-
-            # Búsqueda flexible de la hoja de Presión
-            recs_presion_all = []
-            hoja_presion_nombre = next((h for h in nombres_hojas if h.lower() in [f"presion_{u_id}".lower(), f"presión_{u_id}".lower()]), None)
-            if hoja_presion_nombre:
-                try:
-                    ws_p = sh.worksheet(hoja_presion_nombre)
-                    recs_presion_all = ws_p.get_all_records()
-                    if recs_presion_all:
-                        ult_pres = recs_presion_all[-1]
-                        sys = ult_pres.get("Alta", ult_pres.get("Sistolica", ult_pres.get("sistónica", ult_pres.get("sistolica", ""))))
-                        dia = ult_pres.get("Baja", ult_pres.get("Diastolica", ult_pres.get("diastólica", ult_pres.get("diastolica", ""))))
-                        if sys and dia:
-                            presion_str = f"{sys}/{dia} mmHg"
-                except Exception:
-                    pass
-
-            try:
-                ws_comidas = sh.worksheet(f"Comidas_{u_id}")
-                recs_comidas = ws_comidas.get_all_records()
-                calorias_mes = []
-                mes_actual_str = ahora.strftime("%Y-%m")
-                for c in recs_comidas:
-                    fecha_comida = str(c.get("Fecha", c.get("fecha", "")))
-                    if mes_actual_str in fecha_comida:
-                        cal = parse_raw_val(c.get("Calorias", c.get("calorias", 0)))
-                        if cal > 0: calorias_mes.append(cal)
-                if calorias_mes:
-                    prom_cal = sum(calorias_mes) / len(calorias_mes)
-                    calorias_str = f"{round(prom_cal)} kcal/día"
-            except Exception:
-                pass
+            
+            # Obtener datos resumidos actuales mediante funciones auxiliares
+            peso_str = obtener_ultimo_peso_str(u_id)
+            recs_presion_all = obtener_registros_presion(u_id)
+            presion_str = obtener_ultima_presion_str(recs_presion_all)
+            calorias_str = obtener_promedio_calorias_mes_actual(u_id, ahora)
 
             texto_reporte += (
                 f"👤 **{nombre}** (ID: `{u_id}`)\n"
@@ -5095,7 +5132,7 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Recopilar métricas históricas de hasta 6 meses
             historial_6m = []
-            perfil_dict = recs_perfil[-1] if 'recs_perfil' in locals() and recs_perfil else {}
+            perfil_dict = obtener_ultimo_perfil_dict(u_id)
 
             for m_str in meses_a_evaluar:
                 df_u = obtener_datos_usuario(u_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
@@ -5118,7 +5155,7 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for p in recs_presion_all:
                     f_pres = str(p.get("Fecha", p.get("fecha", p.get("Fecha_Hora", p.get("fecha_hora", "")))))
                     if m_str in f_pres:
-                        s = p.get("Alta", p.get("Sistolica", p.get("sistónica", p.get("sistolica", ""))))
+                        s = p.get("Alta", p.get("Sistolica", p.get("sistólica", p.get("sistolica", ""))))
                         d = p.get("Baja", p.get("Diastolica", p.get("diastólica", p.get("diastolica", ""))))
                         if s and d:
                             presiones_mes.append(f"{s}/{d}")
@@ -5140,7 +5177,7 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "historial": historial_6m
             })
 
-        # 4. Generación de PDF avanzado
+        # 4. Generación de PDF avanzado (ReportLab)
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
         styles = getSampleStyleSheet()
@@ -5198,7 +5235,7 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg_espera.edit_text(f"❌ Ocurrió un error al procesar el listado clínico: {e}")
 
 # =============================================================================================================================================
-#                    FINAL                                COMANDO PACIENTES MEDICO                                FINAL
+#                    FINAL                                    COMANDO PACIENTES                                 FINAL
 # =============================================================================================================================================
 
 # =============================================================================================================================================
@@ -5289,8 +5326,8 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 @requiere_registro
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Manejador del comando /resumen.
-    Muestra el menú de selección de mes solo si el peso del mes en curso está al día.
+    Manejador del comando /resumen[cite: 1].
+    Muestra el menú de selección de mes condicional según el día actual[cite: 1].
     """
     if not await _validar_peso_mes_actual(update, context):
         return
@@ -5298,12 +5335,21 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ahora = obtener_ahora_arg()
     mes_actual = ahora.strftime("%Y-%m")
     mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+    dia_actual = ahora.day
 
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual}")],
-        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
-        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
-    ])
+    # Del día 1 al 7: presenta solo mes anterior y otro mes[cite: 1].
+    # Del día 8 a fin de mes: presenta mes actual, mes anterior y otro mes[cite: 1].
+    if 1 <= dia_actual <= 7:
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
+            [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+        ])
+    else:
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual}")],
+            [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
+            [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+        ])
 
     await update.message.reply_text(
         "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", 
@@ -5320,7 +5366,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         ahora = obtener_ahora_arg()
         mes_actual_str = ahora.strftime("%Y-%m")
-        mes_anterior_str = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+        dia_actual = ahora.day
 
         mes_str = None
         if query and query.data:
@@ -5344,11 +5390,20 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
                 return
 
             elif cb_data == "resumen_volver_menu":
-                keyboard = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual_str}")],
-                    [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior_str}")],
-                    [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
-                ])
+                mes_anterior_str = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+                
+                if 1 <= dia_actual <= 7:
+                    keyboard = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior_str}")],
+                        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+                    ])
+                else:
+                    keyboard = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual_str}")],
+                        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior_str}")],
+                        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+                    ])
+
                 await query.edit_message_text(
                     "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", 
                     reply_markup=keyboard, 
@@ -5363,11 +5418,16 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             mes_str = context.args[0]
 
         if not mes_str:
-            # Si estamos entre el día 1 y el 7 inclusive, muestra por defecto el mes anterior
-            if ahora.day <= 7:
-                mes_str = mes_anterior_str
+            mes_str = mes_actual_str
+
+        # Si selecciona el mes actual del 1 al 7, no presenta ningún resumen y avisa[cite: 1]
+        if mes_str == mes_actual_str and 1 <= dia_actual <= 7:
+            msg = "⚠️ No se encuentra disponible el resumen del mes actual durante los primeros 7 días del mes."
+            if query:
+                await query.edit_message_text(msg, parse_mode="Markdown")
             else:
-                mes_str = mes_actual_str
+                await update.message.reply_text(msg, parse_mode="Markdown")
+            return
 
         if mes_str == mes_actual_str:
             if not await _validar_peso_mes_actual(update, context):
@@ -5445,7 +5505,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(msg_err)
                         
 # ======================================================================================================================================
-
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
@@ -5570,7 +5629,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(Spacer(1, 4))
     story.append(Paragraph("<b>Informe Nutricional:</b>", sub_style))
 
-    # Procesamiento seguro: Filtrado estricto para descartar tablas en markdown (con '|') provistas por la IA
     if isinstance(recomendacion, str) and recomendacion.strip():
         rec_limpia = recomendacion.strip().replace('""', '"')
         for bloque in rec_limpia.split('\n\n'):
@@ -5595,20 +5653,11 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     buffer.seek(0)
     return buffer
 
-# LOGICA DE SELECCIÓN DE PROMPT BASADA EN DIFERENCIA DE PESO (10% PRECEDENCIA)
 # ======================================================================================================================================
-
 def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
-    """
-    Determina la condición clínica en base al peso real vs peso objetivo/ideal:
-    1. Si la diferencia está entre -10% y +10%, se considera Mantenimiento (Estable).
-    2. Si el peso real es mayor al objetivo, es Descenso.
-    3. Si el peso real es menor al objetivo, es Ascenso.
-    """
     if peso_referencia and peso_referencia > 0:
         dif_relativa = (peso_actual - peso_referencia) / peso_referencia
         
-        # 1. Rango de tolerancia del 10% (Evaluado PRIMERO para evitar falsos positivos)
         if -0.10 <= dif_relativa <= 0.10:
             return (
                 "ESTADO: MANTENIMIENTO / ESTABLE\n"
@@ -5616,7 +5665,6 @@ def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
                 "El consumo calórico real y el ideal deben tender a la paridad. Analiza la estabilidad de los hábitos, la variedad de los grupos "
                 "de alimentos y la distribución armónica de los macronutrientes. No sugieras cambios drásticos de peso."
             )
-        # 2. Exceso de peso -> Descenso buscado
         elif peso_actual > peso_referencia:
             return (
                 "ESTADO: DESCENSO DE PESO\n"
@@ -5625,7 +5673,6 @@ def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
                 "o déficit involuntario ni recomiendes aumentar calorías para alcanzar el mantenimiento. Enfócate exclusivamente en la calidad nutricional, "
                 "saciedad y densidad de los alimentos consumidos dentro del marco de restricción."
             )
-        # 3. Falta de peso -> Ascenso / Superávit
         else:
             return (
                 "ESTADO: ASCENSO / GANANCIA DE PESO\n"
@@ -5634,7 +5681,6 @@ def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
                 "y carbohidratos de calidad, evitando alertar por un consumo calórico elevado."
             )
     else:
-        # Fallback predeterminado por seguridad
         return (
             "ESTADO: DESCENSO DE PESO\n"
             "Instrucción para la IA: Evalúa el informe priorizando la calidad de los nutrientes y hábitos saludables sin alterar los números duros ya calculados."
@@ -5656,6 +5702,16 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
 
         ahora = obtener_ahora_arg()
         mes_actual_str = ahora.strftime("%Y-%m")
+        dia_actual = ahora.day
+
+        # Protección adicional para la generación del PDF en los primeros 7 días del mes actual[cite: 1]
+        if mes_str == mes_actual_str and 1 <= dia_actual <= 7:
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text="⚠️ No se encuentra disponible el reporte en PDF del mes actual durante los primeros 7 días del mes.",
+                parse_mode="Markdown"
+            )
+            return
 
         if mes_str == mes_actual_str:
             if not await _validar_peso_mes_actual(update, context):
@@ -5692,12 +5748,10 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         m = calcular_metricas_mensuales(df_mes, perfil)
         conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
 
-        # Evaluación basada en pesos reales y de referencia para seleccionar el prompt correcto
         peso_actual_eval = float(m.get('peso_actual', 0))
         peso_referencia_eval = float(m.get('peso_referencia', 0))
         prompt_condicional = obtener_prompt_segun_objetivo_peso(peso_actual_eval, peso_referencia_eval)
 
-        # Generamos el análisis profundo con IA inyectando el prompt contextual correcto y usando GROQ_TEXTO actualizado
         informe_ia = await generar_informe_mensual_auditado(context, user_id, mes_str, m, conteo_frecuencias, prompt_condicional)
         
         if not informe_ia:
