@@ -513,6 +513,111 @@ def obtener_pacientes_por_medico(prof_id):
         pass
     return pacientes
 
+def obtener_especialidad_profesional(prof_id):
+    """Busca y retorna la especialidad del profesional usando Google Sheets (reutilizando _verificar_y_obtener_profesional o consulta directa)."""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws_prof = sh.worksheet("Profesionales")
+        recs_prof = ws_prof.get_all_records()
+        for rp in recs_prof:
+            id_p = str(rp.get("User ID", rp.get("user_id", ""))).split('.')[0].strip()
+            if id_p == prof_id:
+                return str(rp.get("Especialidad", rp.get("especialidad", "General"))).strip()
+    except Exception:
+        pass
+    return None
+
+def obtener_pacientes_por_medico(prof_id):
+    """Retorna la lista de pacientes activos asignados al profesional usando Google Sheets."""
+    pacientes = []
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws_usuarios = sh.worksheet("Usuarios")
+        records_usuarios = ws_usuarios.get_all_records()
+
+        for r in records_usuarios:
+            p_id = str(r.get("profesional", r.get("Profesional", ""))).split('.')[0].strip()
+            if p_id == prof_id:
+                u_id = str(r.get("User ID", r.get("user_id", ""))).split('.')[0].strip()
+                nombre = r.get("Nombre", r.get("nombre", "Sin Nombre"))
+                estado = r.get("Estado", r.get("estado", "Activo"))
+                if str(estado).lower() in ['activo', 'sí', 'si', 'true', '1']:
+                    pacientes.append({"user_id": u_id, "nombre": nombre})
+    except Exception:
+        pass
+    return pacientes
+
+def obtener_ultimo_peso_str(u_id):
+    """Obtiene el último registro de peso formateado de un paciente desde Google Sheets."""
+    peso_str = "S/D"
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws_perfil = get_or_create_worksheet(sh, f"Perfil_{u_id}")
+        recs_perfil = ws_perfil.get_all_records()
+        if recs_perfil:
+            ultimo_p = recs_perfil[-1]
+            p_val = parse_raw_val(ultimo_p.get("PESO", ultimo_p.get("peso", 0)))
+            if p_val > 0:
+                peso_str = f"{p_val / 1000:.1f} kg" if p_val > 300 else f"{p_val} kg"
+    except Exception:
+        pass
+    return peso_str
+
+def obtener_registros_presion(u_id):
+    """Obtiene todos los registros de presión utilizando funciones ya existentes o lectura directa."""
+    try:
+        df_presion = obtener_datos_presion_db(u_id)
+        if not df_presion.empty:
+            return df_presion.to_dict(orient="records")
+    except Exception:
+        pass
+    return []
+
+def obtener_ultima_presion_str(recs_presion_all):
+    """Extrae el texto de la última presión registrada a partir de una lista de registros."""
+    presion_str = "S/D"
+    try:
+        if recs_presion_all:
+            ult_pres = recs_presion_all[-1]
+            sys = ult_pres.get("Alta", ult_pres.get("Sistolica", ult_pres.get("sistólica", ult_pres.get("sistolica", ""))))
+            dia = ult_pres.get("Baja", ult_pres.get("Diastolica", ult_pres.get("diastólica", ult_pres.get("diastolica", ""))))
+            if sys and dia:
+                presion_str = f"{sys}/{dia} mmHg"
+    except Exception:
+        pass
+    return presion_str
+
+def obtener_promedio_calorias_mes_actual(u_id, ahora):
+    """Calcula el promedio de calorías del mes actual para un paciente utilizando la función de obtención de datos del usuario."""
+    calorias_str = "S/D"
+    try:
+        df_u = obtener_datos_usuario(u_id)
+        if not df_u.empty and 'Fecha' in df_u.columns:
+            mes_actual_str = ahora.strftime("%Y-%m")
+            df_u['Mes_Filtro'] = df_u['Fecha'].astype(str).str.slice(0, 7)
+            df_mes = df_u[df_u['Mes_Filtro'] == mes_actual_str]
+            if not df_mes.empty and 'Calorias' in df_mes.columns:
+                calorias_mes = [float(c) for c in df_mes['Calorias'] if float(c) > 0]
+                if calorias_mes:
+                    prom_cal = sum(calorias_mes) / len(calorias_mes)
+                    calorias_str = f"{round(prom_cal)} kcal/día"
+    except Exception:
+        pass
+    return calorias_str
+
+def obtener_ultimo_perfil_dict(u_id):
+    """Retorna el último diccionario de perfil disponible utilizando la función ya escrita obtener_perfil_usuario."""
+    try:
+        perfil = obtener_perfil_usuario(u_id)
+        if perfil:
+            return perfil
+    except Exception:
+        pass
+    return {}
+    
 def obtener_ultimo_peso_str(u_id):
     """Obtiene el último registro de peso formateado de un paciente desde Google Sheets."""
     peso_str = "S/D"
@@ -2957,7 +3062,7 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Manejador del comando /mensaje (semanal).
     Analiza los días transcurridos de la semana actual (o semana anterior si es lunes) en castellano,
-    agregando promedio de presión arterial, minutos totales de actividad y calorías de ejercicio.
+    utilizando la hora local de Argentina, agregando promedio de presión arterial, minutos totales de actividad y calorías.
     """
     # 1. Validación centralizada desde Auxiliares
     if not await _validar_peso_mes_actual(update=update, context=context):
@@ -2973,11 +3078,13 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg_espera.edit_text("⚠️ No hay información de comidas registradas.")
             return
 
-        # Normalizamos la columna de fecha a objetos fecha puros (sin hora)
         df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.date
-        
-        hoy = pd.Timestamp.now().normalize().date()
-        dia_semana = pd.Timestamp.now().dayofweek  # 0: Lunes, 1: Martes...
+
+        # Forzamos la zona horaria de Buenos Aires para evitar desfasajes con el servidor de la nube
+        tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
+        ahora_arg = datetime.now(tz_arg)
+        hoy = ahora_arg.date()
+        dia_semana = ahora_arg.weekday()  # 0: Lunes, 1: Martes...
 
         dias_espanol = {
             0: "Lunes", 1: "Martes", 2: "Miércoles", 
@@ -2986,17 +3093,17 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Lunes: toma la semana anterior completa (desde el lunes hasta el domingo pasado)
         if dia_semana == 0:
-            inicio_rango = hoy - pd.Timedelta(days=7)  # Lunes de la semana pasada
-            fin_rango = hoy - pd.Timedelta(days=1)     # Domingo de la semana pasada
+            inicio_rango = hoy - timedelta(days=7)  # Lunes de la semana pasada
+            fin_rango = hoy - timedelta(days=1)     # Domingo de la semana pasada
             etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
         else:
             # Martes en adelante: Desde el lunes de esta semana hasta ayer
-            inicio_rango = hoy - pd.Timedelta(days=dia_semana)  # Lunes de esta semana
-            fin_rango = hoy - pd.Timedelta(days=1)                # Ayer
+            inicio_rango = hoy - timedelta(days=dia_semana)  # Lunes de esta semana
+            fin_rango = hoy - timedelta(days=1)                # Ayer
             nombre_dia_ayer = dias_espanol.get(dia_semana - 1, "")
             etiqueta_periodo = f"Semana Actual (Lunes a {nombre_dia_ayer})"
 
-        # Filtrado limpio utilizando fechas puras
+        # Filtrado limpio utilizando fechas puras en hora local de Argentina
         df_semana = df_datos[(df_datos['Fecha_dt'] >= inicio_rango) & (df_datos['Fecha_dt'] <= fin_rango)].copy()
 
         if df_semana.empty:
@@ -5079,7 +5186,7 @@ async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYP
 # ======================================================================================================================================
 
 # =============================================================================================================================================
-#                    INICIO                                    COMANDO PACIENTES                                       INICIO
+# INICIO                            COMANDO PACIENTES                             INICIO 
 # =============================================================================================================================================
 
 async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -5238,7 +5345,7 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg_espera.edit_text(f"❌ Ocurrió un error al procesar el listado clínico: {e}")
 
 # =============================================================================================================================================
-#                    FINAL                                    COMANDO PACIENTES                                 FINAL
+# FINAL                                      COMANDO PACIENTES                           FINAL
 # =============================================================================================================================================
 
 # =============================================================================================================================================
