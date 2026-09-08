@@ -2153,7 +2153,7 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "tot_carb": tot_carb,
         "tot_fibr": tot_fibr
     }
-    
+        
 def obtener_categorias_diccionario(sh):
     """
     Lee la pestaña 'Categorias_Comida' y devuelve un diccionario {categoria: [lista_de_palabras_clave]}.
@@ -3079,118 +3079,6 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 # ======================================================================================================================================
 #                  FINAL                        INTERFAZ Y RENDER DE CONFIRMACIÓN                      FINAL
 # =====================================================================================================================================
-
-@requiere_registro
-async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Manejador del comando /mensaje (semanal).
-    Analiza los días transcurridos de la semana actual (o semana anterior si es lunes) en castellano,
-    utilizando la hora local de Argentina, agregando promedio de presión arterial, minutos totales de actividad y calorías.
-    """
-    # 1. Validación centralizada desde Auxiliares
-    if not await _validar_peso_mes_actual(update=update, context=context):
-        return
-
-    try:
-        user_id = update.effective_user.id
-        msg_espera = await update.message.reply_text("⏳ Procesando resumen nutricional...")
-
-        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
-
-        if df_datos.empty or 'Fecha' not in df_datos.columns:
-            await msg_espera.edit_text("⚠️ No hay información de comidas registradas.")
-            return
-
-        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.date
-
-        # Forzamos la zona horaria de Buenos Aires para evitar desfasajes con el servidor de la nube
-        tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
-        ahora_arg = datetime.now(tz_arg)
-        hoy = ahora_arg.date()
-        dia_semana = ahora_arg.weekday()  # 0: Lunes, 1: Martes...
-
-        dias_espanol = {
-            0: "Lunes", 1: "Martes", 2: "Miércoles", 
-            3: "Jueves", 4: "Viernes", 5: "Sábado", 6: "Domingo"
-        }
-
-        # Lunes: toma la semana anterior completa (desde el lunes hasta el domingo pasado)
-        if dia_semana == 0:
-            inicio_rango = hoy - timedelta(days=7)  # Lunes de la semana pasada
-            fin_rango = hoy - timedelta(days=1)     # Domingo de la semana pasada
-            etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
-        else:
-            # Martes en adelante: Desde el lunes de esta semana hasta ayer
-            inicio_rango = hoy - timedelta(days=dia_semana)  # Lunes de esta semana
-            fin_rango = hoy - timedelta(days=1)                # Ayer
-            nombre_dia_ayer = dias_espanol.get(dia_semana - 1, "")
-            etiqueta_periodo = f"Semana Actual (Lunes a {nombre_dia_ayer})"
-
-        # Filtrado limpio utilizando fechas puras en hora local de Argentina
-        df_semana = df_datos[(df_datos['Fecha_dt'] >= inicio_rango) & (df_datos['Fecha_dt'] <= fin_rango)].copy()
-
-        if df_semana.empty:
-            await msg_espera.edit_text("⚠️ No hay registros acumulados para los días transcurridos de este período.")
-            return
-
-        mes_target = inicio_rango.strftime("%Y-%m")
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
-        m = calcular_metricas_mensuales(df_semana, perfil) if 'calcular_metricas_mensuales' in globals() else {}
-
-        # --- CÁLCULO DE MINUTOS DE ACTIVIDAD Y CALORÍAS GASTADAS ---
-        minutos_totales_actividad = 0
-        if 'Momento' in df_semana.columns and 'Alimento' in df_semana.columns:
-            for _, row in df_semana.iterrows():
-                momento_str = str(row.get('Momento', '')).strip().lower()
-                alimento_str = str(row.get('Alimento', '')).strip()
-                cal_val = float(row.get('Calorias', 0) or 0)
-                if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
-                    match = re.match(r'^(\d+)', alimento_str)
-                    if match:
-                        minutos_totales_actividad += int(match.group(1))
-
-        # --- CÁLCULO DE PROMEDIO DE PRESIÓN ARTERIAL EN EL RANGO ---
-        prom_alta, prom_baja = None, None
-        try:
-            df_presion = obtener_datos_presion_db(user_id) if 'obtener_datos_presion_db' in globals() else pd.DataFrame()
-            if not df_presion.empty and 'Fecha_Dia' in df_presion.columns:
-                df_presion['Fecha_Dia_dt'] = pd.to_datetime(df_presion['Fecha_Dia'], errors='coerce').dt.date
-                df_presion_semana = df_presion[
-                    (df_presion['Fecha_Dia_dt'] >= inicio_rango) & 
-                    (df_presion['Fecha_Dia_dt'] <= fin_rango)
-                ]
-                if not df_presion_semana.empty:
-                    prom_alta = round(df_presion_semana['Alta'].mean())
-                    prom_baja = round(df_presion_semana['Baja'].mean())
-        except Exception as e_presion:
-            logger.error(f"Error al calcular presión semanal: {e_presion}")
-
-        # Construcción del texto de salida enriquecido (Cambiado a Máximo)
-        txt = (
-            f"📅 **Resumen Nutricional Semanal:**\n"
-            f"ℹ️ *{etiqueta_periodo}*\n\n"
-            f"• **Promedio Calorías:** `{m.get('prom_cal', 0)} kcal` / Máximo: `{m.get('ideal_cal', 0)} kcal`\n"
-            f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Máximo: `{m.get('ideal_prot', 0)} g`\n"
-            f"• **Grasas:** `{m.get('prom_gras', 0)} g` / Máximo: `{m.get('ideal_gras', 0)} g`\n"
-            f"• **Carbohidratos:** `{m.get('prom_carb', 0)} g` / Máximo: `{m.get('ideal_carb', 0)} g`\n"
-            f"• **Fibras:** `{m.get('prom_fibr', 0)} g` / Máximo: `{m.get('ideal_fibr', 0)} g`\n"
-        )
-
-        if prom_alta is not None and prom_baja is not None:
-            txt += f"• **Presión Arterial Promedio:** `{prom_alta}/{prom_baja} mmHg`\n"
-
-        txt += (
-            f"• **Actividad Física:** `{minutos_totales_actividad} minutos` totales\n"
-            f"• **Calorías Quemadas (Promedio):** `{m.get('prom_quem', 0)} kcal/día`\n"
-            f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`"
-        )  
-
-        await msg_espera.edit_text(txt, parse_mode="Markdown")
-
-    except Exception as e:
-        logger.error(f"Error en cmd_mensaje: {e}")
-        if 'msg_espera' in locals():
-            await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
             
 # =====================================================================================================================================
 #                       INICIO                  COMANDO INGRESO (ALTA DE USUARIO)                            INICIO
@@ -3612,6 +3500,126 @@ conv_handler_ingreso = ConversationHandler(
 
 # =====================================================================================================================================
 #                FINAL                        COMANDO INGRESO (ALTA DE USUARIO)               FINAL
+# ======================================================================================================================================
+
+# ======================================================================================================================================
+#                 INICIO                            COMANDO SEMANA                                  INICIO   DB OK
+# ======================================================================================================================================
+
+@requiere_registro
+async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Manejador del comando /mensaje (semanal).
+    Analiza los días transcurridos de la semana actual (o semana anterior si es lunes) en castellano,
+    utilizando la hora local de Argentina, agregando promedio de presión arterial, minutos totales de actividad y calorías.
+    """
+    # 1. Validación centralizada desde Auxiliares
+    if not await _validar_peso_mes_actual(update=update, context=context):
+        return
+
+    try:
+        user_id = update.effective_user.id
+        msg_espera = await update.message.reply_text("⏳ Procesando resumen nutricional...")
+
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+
+        if df_datos.empty or 'Fecha' not in df_datos.columns:
+            await msg_espera.edit_text("⚠️ No hay información de comidas registradas.")
+            return
+
+        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.date
+
+        # Forzamos la zona horaria de Buenos Aires para evitar desfasajes con el servidor de la nube
+        tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
+        ahora_arg = datetime.now(tz_arg)
+        hoy = ahora_arg.date()
+        dia_semana = ahora_arg.weekday()  # 0: Lunes, 1: Martes...
+
+        dias_espanol = {
+            0: "Lunes", 1: "Martes", 2: "Miércoles", 
+            3: "Jueves", 4: "Viernes", 5: "Sábado", 6: "Domingo"
+        }
+
+        # Lunes: toma la semana anterior completa (desde el lunes hasta el domingo pasado)
+        if dia_semana == 0:
+            inicio_rango = hoy - timedelta(days=7)  # Lunes de la semana pasada
+            fin_rango = hoy - timedelta(days=1)     # Domingo de la semana pasada
+            etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
+        else:
+            # Martes en adelante: Desde el lunes de esta semana hasta ayer
+            inicio_rango = hoy - timedelta(days=dia_semana)  # Lunes de esta semana
+            fin_rango = hoy - timedelta(days=1)                # Ayer
+            nombre_dia_ayer = dias_espanol.get(dia_semana - 1, "")
+            etiqueta_periodo = f"Semana Actual (Lunes a {nombre_dia_ayer})"
+
+        # Filtrado limpio utilizando fechas puras en hora local de Argentina
+        df_semana = df_datos[(df_datos['Fecha_dt'] >= inicio_rango) & (df_datos['Fecha_dt'] <= fin_rango)].copy()
+
+        if df_semana.empty:
+            await msg_espera.edit_text("⚠️ No hay registros acumulados para los días transcurridos de este período.")
+            return
+
+        mes_target = inicio_rango.strftime("%Y-%m")
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
+        m = calcular_metricas_mensuales(df_semana, perfil) if 'calcular_metricas_mensuales' in globals() else {}
+
+        # --- CÁLCULO DE MINUTOS DE ACTIVIDAD Y CALORÍAS GASTADAS ---
+        minutos_totales_actividad = 0
+        if 'Momento' in df_semana.columns and 'Alimento' in df_semana.columns:
+            for _, row in df_semana.iterrows():
+                momento_str = str(row.get('Momento', '')).strip().lower()
+                alimento_str = str(row.get('Alimento', '')).strip()
+                cal_val = float(row.get('Calorias', 0) or 0)
+                if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
+                    match = re.match(r'^(\d+)', alimento_str)
+                    if match:
+                        minutos_totales_actividad += int(match.group(1))
+
+        # --- CÁLCULO DE PROMEDIO DE PRESIÓN ARTERIAL EN EL RANGO ---
+        prom_alta, prom_baja = None, None
+        try:
+            df_presion = obtener_datos_presion_db(user_id) if 'obtener_datos_presion_db' in globals() else pd.DataFrame()
+            if not df_presion.empty and 'Fecha_Dia' in df_presion.columns:
+                df_presion['Fecha_Dia_dt'] = pd.to_datetime(df_presion['Fecha_Dia'], errors='coerce').dt.date
+                df_presion_semana = df_presion[
+                    (df_presion['Fecha_Dia_dt'] >= inicio_rango) & 
+                    (df_presion['Fecha_Dia_dt'] <= fin_rango)
+                ]
+                if not df_presion_semana.empty:
+                    prom_alta = round(df_presion_semana['Alta'].mean())
+                    prom_baja = round(df_presion_semana['Baja'].mean())
+        except Exception as e_presion:
+            logger.error(f"Error al calcular presión semanal: {e_presion}")
+
+        # Construcción del texto de salida enriquecido (Cambiado a Máximo)
+        txt = (
+            f"📅 **Resumen Nutricional Semanal:**\n"
+            f"ℹ️ *{etiqueta_periodo}*\n\n"
+            f"• **Promedio Calorías:** `{m.get('prom_cal', 0)} kcal` / Máximo: `{m.get('ideal_cal', 0)} kcal`\n"
+            f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Máximo: `{m.get('ideal_prot', 0)} g`\n"
+            f"• **Grasas:** `{m.get('prom_gras', 0)} g` / Máximo: `{m.get('ideal_gras', 0)} g`\n"
+            f"• **Carbohidratos:** `{m.get('prom_carb', 0)} g` / Máximo: `{m.get('ideal_carb', 0)} g`\n"
+            f"• **Fibras:** `{m.get('prom_fibr', 0)} g` / Máximo: `{m.get('ideal_fibr', 0)} g`\n"
+        )
+
+        if prom_alta is not None and prom_baja is not None:
+            txt += f"• **Presión Arterial Promedio:** `{prom_alta}/{prom_baja} mmHg`\n"
+
+        txt += (
+            f"• **Actividad Física:** `{minutos_totales_actividad} minutos` totales\n"
+            f"• **Calorías Quemadas (Promedio):** `{m.get('prom_quem', 0)} kcal/día`\n"
+            f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`"
+        )
+
+        await msg_espera.edit_text(txt, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Error en cmd_mensaje: {e}")
+        if 'msg_espera' in locals():
+            await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
+            
+# ======================================================================================================================================
+#                      FINAL                        COMANDO SEMANA                                          FINAL
 # ======================================================================================================================================
 
 #========================================================================================================================================
@@ -5632,7 +5640,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.callback_query.edit_message_text(msg_err)
         else:
             await update.message.reply_text(msg_err)
-                                                
+                                                            
 # ======================================================================================================================================
 
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
