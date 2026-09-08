@@ -1936,6 +1936,39 @@ def obtener_momento_y_fecha_auto():
 # 2. CÁLCULOS BIOMÉTRICOS Y MÉTRICAS
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 
+def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
+    if peso_referencia and peso_referencia > 0:
+        dif_relativa = (peso_actual - peso_referencia) / peso_referencia
+        
+        if -0.10 <= dif_relativa <= 0.10:
+            return (
+                "ESTADO: MANTENIMIENTO / ESTABLE\n"
+                "Instrucción para la IA: El usuario se encuentra dentro del rango de tolerancia del 10% respecto a su peso objetivo. "
+                "El consumo calórico real y el ideal deben tender a la paridad. Analiza la estabilidad de los hábitos, la variedad de los grupos "
+                "de alimentos y la distribución armónica de los macronutrientes. No sugieras cambios drásticos de peso."
+            )
+        elif peso_actual > peso_referencia:
+            return (
+                "ESTADO: DESCENSO DE PESO\n"
+                "Instrucción para la IA: El usuario se encuentra en un régimen de descenso de peso con un déficit calórico deliberado. "
+                "Una ingesta calórica menor al gasto ideal es el comportamiento esperado y correcto. No señales la diferencia calórica como un error "
+                "o déficit involuntario ni recomiendes aumentar calorías para alcanzar el mantenimiento. Enfócate exclusivamente en la calidad nutricional, "
+                "saciedad y densidad de los alimentos consumidos dentro del marco de restricción."
+            )
+        else:
+            return (
+                "ESTADO: ASCENSO / GANANCIA DE PESO\n"
+                "Instrucción para la IA: El usuario se encuentra en un régimen de ganancia o ascenso de peso mediante un superávit calórico controlado. "
+                "Una ingesta superior al gasto base es el comportamiento pretendido. Evalúa que el aporte extra de nutrientes esté respaldado por proteínas "
+                "y carbohidratos de calidad, evitando alertar por un consumo calórico elevado."
+            )
+    else:
+        return (
+            "ESTADO: DESCENSO DE PESO\n"
+            "Instrucción para la IA: Evalúa el informe priorizando la calidad de los nutrientes y hábitos saludables sin alterar los números duros ya calculados."
+        )
+
+
 def calcular_contextura(sexo: str, altura_cm: float, muneca_cm: float) -> str:
     """Calcula la contextura física según la relación Altura / Muñeca."""
     if muneca_cm <= 0: return "Mediana"
@@ -2056,33 +2089,27 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
     ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
 
-    # Peso de referencia (solo usado para definir las metas ideales de macros)
+    # Peso de referencia para la primera etapa (75% actual + 25% ideal)
     peso_referencia = (peso_actual * 0.75) + (peso_ideal * 0.25)
 
-    # 5. GASTO BASE REAL: Se calcula sobre el PESO ACTUAL REAL del organismo
+    # 5. GASTO BASE REAL: Se calcula sobre el PESO ACTUAL REAL del organismo (para balance y déficit real)
     _, get_real = calcular_tmb_y_get(
         peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
     )
 
-    # 6. GASTO META: Se calcula sobre el peso ponderado para fijar los objetivos de consumo
+    # 6. GASTO MÁXIMO (META): Se calcula sobre el PESO DE REFERENCIA de la etapa para fijar los topes de consumo orientados al descenso
     _, get_meta = calcular_tmb_y_get(
         peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
     )
 
     # --- CÁLCULO CORREGIDO DE DÉFICIT Y CAMBIO DE PESO ---
-    # Gasto Total = GET Real (peso actual) + Ejercicio registrado
     gasto_diario_total = get_real + prom_quem
-
-    # Balance diario: Consumidas menos Gastadas
-    # Ej: Si consume 2282 y gasta 2683, balance_diario = -401 kcal (Déficit de 401)
     balance_diario = prom_cons - gasto_diario_total
-
-    # Cambio de peso: Balance negativo representa descenso (-kg)
     cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
     deficit_diario_real = -balance_diario
     # ----------------------------------------------------
 
-    # 7. Definición de Objetivos Ideales (Metas)
+    # 7. Definición de Objetivos Máximos (Topes para descenso)
     gen_clean = genero.lower()
     if gen_clean in ["femenino", "f", "mujer", "female"]:
         factor_proteina = 1.2
@@ -2126,7 +2153,7 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "tot_carb": tot_carb,
         "tot_fibr": tot_fibr
     }
-
+    
 def obtener_categorias_diccionario(sh):
     """
     Lee la pestaña 'Categorias_Comida' y devuelve un diccionario {categoria: [lista_de_palabras_clave]}.
@@ -3053,10 +3080,6 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 #                  FINAL                        INTERFAZ Y RENDER DE CONFIRMACIÓN                      FINAL
 # =====================================================================================================================================
 
-# ======================================================================================================================================
-#                 INICIO                            COMANDO SEMANA                                  INICIO   DB OK
-# ======================================================================================================================================
-
 @requiere_registro
 async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -3142,15 +3165,15 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e_presion:
             logger.error(f"Error al calcular presión semanal: {e_presion}")
 
-        # Construcción del texto de salida enriquecido
+        # Construcción del texto de salida enriquecido (Cambiado a Máximo)
         txt = (
             f"📅 **Resumen Nutricional Semanal:**\n"
             f"ℹ️ *{etiqueta_periodo}*\n\n"
-            f"• **Promedio Calorías:** `{m.get('prom_cal', 0)} kcal` / Meta: `{m.get('ideal_cal', 0)} kcal`\n"
-            f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Meta: `{m.get('ideal_prot', 0)} g`\n"
-            f"• **Grasas:** `{m.get('prom_gras', 0)} g` / Meta: `{m.get('ideal_gras', 0)} g`\n"
-            f"• **Carbohidratos:** `{m.get('prom_carb', 0)} g` / Meta: `{m.get('ideal_carb', 0)} g`\n"
-            f"• **Fibras:** `{m.get('prom_fibr', 0)} g` / Meta: `{m.get('ideal_fibr', 0)} g`\n"
+            f"• **Promedio Calorías:** `{m.get('prom_cal', 0)} kcal` / Máximo: `{m.get('ideal_cal', 0)} kcal`\n"
+            f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Máximo: `{m.get('ideal_prot', 0)} g`\n"
+            f"• **Grasas:** `{m.get('prom_gras', 0)} g` / Máximo: `{m.get('ideal_gras', 0)} g`\n"
+            f"• **Carbohidratos:** `{m.get('prom_carb', 0)} g` / Máximo: `{m.get('ideal_carb', 0)} g`\n"
+            f"• **Fibras:** `{m.get('prom_fibr', 0)} g` / Máximo: `{m.get('ideal_fibr', 0)} g`\n"
         )
 
         if prom_alta is not None and prom_baja is not None:
@@ -3160,7 +3183,7 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"• **Actividad Física:** `{minutos_totales_actividad} minutos` totales\n"
             f"• **Calorías Quemadas (Promedio):** `{m.get('prom_quem', 0)} kcal/día`\n"
             f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`"
-        )
+        )  
 
         await msg_espera.edit_text(txt, parse_mode="Markdown")
 
@@ -3168,11 +3191,7 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error en cmd_mensaje: {e}")
         if 'msg_espera' in locals():
             await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
-
-# ======================================================================================================================================
-#                      FINAL                        COMANDO SEMANA                                          FINAL
-# ======================================================================================================================================
-
+            
 # =====================================================================================================================================
 #                       INICIO                  COMANDO INGRESO (ALTA DE USUARIO)                            INICIO
 # ======================================================================================================================================
@@ -5586,7 +5605,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"• Consumidas: `{_fmt(m.get('prom_cal', 0))} kcal` | Quemadas: `{_fmt(m.get('prom_quem', 0))} kcal`\n"
             f"• Balance Neto: `{_fmt(m.get('prom_bal_neto', 0))} kcal/día`\n"
             f"• Variación Est. de Peso: {texto_variacion_peso} ({m.get('dias_registrados', 0)} días)\n\n"
-            f"📈 **Promedios vs. Objetivos:**\n"
+            f"📈 **Promedios vs. Máximos Permitidos:**\n"
             f"• Calorías: `{_fmt(m.get('prom_cal', 0))}` / `{_fmt(m.get('ideal_cal', 0))} kcal`\n"
             f"• Proteínas: `{_fmt(m.get('prom_prot', 0))}` / `{_fmt(m.get('ideal_prot', 0))} g`\n"
             f"• Grasas: `{_fmt(m.get('prom_gras', 0))}` / `{_fmt(m.get('ideal_gras', 0))} g`\n"
@@ -5613,8 +5632,9 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.callback_query.edit_message_text(msg_err)
         else:
             await update.message.reply_text(msg_err)
-                        
+                                                
 # ======================================================================================================================================
+
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
@@ -5706,14 +5726,14 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(t1)
 
     story.append(PageBreak())
-    story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes</b>", title_style))
+    story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes (Máximos Permitidos)</b>", title_style))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=6))
 
     perfil_dict = perfil if isinstance(perfil, dict) else {}
     m = calcular_metricas_mensuales(df_mes, perfil_dict)
 
     table_comp = [
-        [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Valor Ideal</b>", header_style)],
+        [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Máximo Permitido</b>", header_style)],
         [Paragraph("Calorías", body_style), Paragraph(f"{m.get('prom_cal', 0)} kcal", body_style), Paragraph(f"{int(round(m.get('ideal_cal', 0)))} kcal", body_style)],
         [Paragraph("Proteínas", body_style), Paragraph(f"{m.get('prom_prot', 0)} g", body_style), Paragraph(f"{int(round(m.get('ideal_prot', 0)))} g", body_style)],
         [Paragraph("Grasas", body_style), Paragraph(f"{m.get('prom_gras', 0)} g", body_style), Paragraph(f"{int(round(m.get('ideal_gras', 0)))} g", body_style)],
@@ -5762,39 +5782,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     doc.build(story)
     buffer.seek(0)
     return buffer
-
-# ======================================================================================================================================
-def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
-    if peso_referencia and peso_referencia > 0:
-        dif_relativa = (peso_actual - peso_referencia) / peso_referencia
-        
-        if -0.10 <= dif_relativa <= 0.10:
-            return (
-                "ESTADO: MANTENIMIENTO / ESTABLE\n"
-                "Instrucción para la IA: El usuario se encuentra dentro del rango de tolerancia del 10% respecto a su peso objetivo. "
-                "El consumo calórico real y el ideal deben tender a la paridad. Analiza la estabilidad de los hábitos, la variedad de los grupos "
-                "de alimentos y la distribución armónica de los macronutrientes. No sugieras cambios drásticos de peso."
-            )
-        elif peso_actual > peso_referencia:
-            return (
-                "ESTADO: DESCENSO DE PESO\n"
-                "Instrucción para la IA: El usuario se encuentra en un régimen de descenso de peso con un déficit calórico deliberado. "
-                "Una ingesta calórica menor al gasto ideal es el comportamiento esperado y correcto. No señales la diferencia calórica como un error "
-                "o déficit involuntario ni recomiendes aumentar calorías para alcanzar el mantenimiento. Enfócate exclusivamente en la calidad nutricional, "
-                "saciedad y densidad de los alimentos consumidos dentro del marco de restricción."
-            )
-        else:
-            return (
-                "ESTADO: ASCENSO / GANANCIA DE PESO\n"
-                "Instrucción para la IA: El usuario se encuentra en un régimen de ganancia o ascenso de peso mediante un superávit calórico controlado. "
-                "Una ingesta superior al gasto base es el comportamiento pretendido. Evalúa que el aporte extra de nutrientes esté respaldado por proteínas "
-                "y carbohidratos de calidad, evitando alertar por un consumo calórico elevado."
-            )
-    else:
-        return (
-            "ESTADO: DESCENSO DE PESO\n"
-            "Instrucción para la IA: Evalúa el informe priorizando la calidad de los nutrientes y hábitos saludables sin alterar los números duros ya calculados."
-        )
 
 # ======================================================================================================================================
 
