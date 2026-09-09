@@ -3502,6 +3502,8 @@ conv_handler_ingreso = ConversationHandler(
 #                FINAL                        COMANDO INGRESO (ALTA DE USUARIO)               FINAL
 # ======================================================================================================================================
 
+
+
 # ======================================================================================================================================
 #                 INICIO                            COMANDO SEMANA                                  INICIO   DB OK
 # ======================================================================================================================================
@@ -3592,16 +3594,15 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Error al calcular presión semanal: {e_presion}")
 
         # Construcción del texto de salida enriquecido (Cambiado a Máximo)
-        txt = (
-            f"📅 **Resumen Nutricional Semanal:**\n"
-            f"ℹ️ *{etiqueta_periodo}*\n\n"
-            f"• **Promedio Calorías:** `{m.get('prom_cal', 0)} kcal` / Máximo: `{m.get('ideal_cal', 0)} kcal`\n"
-            f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Máximo: `{m.get('ideal_prot', 0)} g`\n"
-            f"• **Grasas:** `{m.get('prom_gras', 0)} g` / Máximo: `{m.get('ideal_gras', 0)} g`\n"
-            f"• **Carbohidratos:** `{m.get('prom_carb', 0)} g` / Máximo: `{m.get('ideal_carb', 0)} g`\n"
-            f"• **Fibras:** `{m.get('prom_fibr', 0)} g` / Máximo: `{m.get('ideal_fibr', 0)} g`\n"
-        )
-
+		txt = (
+        		f"📅 **Resumen Nutricional Semanal:**\n"
+        		f"ℹ️ *{etiqueta_periodo}*\n\n"
+        		f"• **Promedio Calorías:** `{m.get('prom_cal', 0)} kcal` / Máximo: `{m.get('ideal_cal', 0)} kcal`\n"
+        		f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Máximo: `{m.get('ideal_prot', 0)} g`\n"
+        		f"• **Grasas:** `{m.get('prom_gras', 0)} g` / Máximo: `{m.get('ideal_gras', 0)} g`\n"
+        		f"• **Carbohidratos:** `{m.get('prom_carb', 0)} g` / Máximo: `{m.get('ideal_carb', 0)} g`\n"
+        		f"• **Fibras:** `{m.get('prom_fibr', 0)} g` / Máximo: `{m.get('ideal_fibr', 0)} g`\n"
+    		)
         if prom_alta is not None and prom_baja is not None:
             txt += f"• **Presión Arterial Promedio:** `{prom_alta}/{prom_baja} mmHg`\n"
 
@@ -6161,6 +6162,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                                 )
 
                                 recomendacion = await asyncio.to_thread(obtener_recomendacion_ia, prompt_semana)
+                                recomendacion = await obtener_recomendacion_ia(prompt_semana, es_semanal=True)
 
                                 txt = (
                                     f"📅 **Informe Nutricional Semanal con IA:**\n"
