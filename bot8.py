@@ -2660,6 +2660,69 @@ def analizar_frecuencia_alimentos_mes(df_mes, cat_dict, col_integrales=None, col
 #                INICIO                        FUNCIONES IA GROQ                                      INICIO
 # ======================================================================================================================================
 
+async def generar_recomendacion_mensual_para_pdf(user_id: int, mes_str: str, df_mes, perfil: dict, m: dict, context=None) -> str:
+    """
+    Función centralizada que encapsula toda la lógica de IA para el reporte mensual en PDF:
+    calcula frecuencias, evalúa el objetivo de peso y ejecuta la auditoría del informe.
+    """
+    try:
+        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
+
+        peso_actual_eval = float(m.get('peso_actual', 0))
+        peso_referencia_eval = float(m.get('peso_referencia', 0))
+        prompt_condicional = obtener_prompt_segun_objetivo_peso(peso_actual_eval, peso_referencia_eval) if 'obtener_prompt_segun_objetivo_peso' in globals() else None
+
+        informe_ia = await generar_informe_mensual_auditado(
+            context=context, 
+            user_id=user_id, 
+            mes_str=mes_str, 
+            m=m, 
+            frecuencias=conteo_frecuencias, 
+            prompt_condicional=prompt_condicional
+        )
+        
+        if not informe_ia:
+            informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA.</b>"
+
+        return (
+            informe_ia
+            .replace("<br>", "<br/>")
+            .replace("<BR>", "<br/>")
+        )
+    except Exception as e:
+        logger.error(f"Error en generar_recomendacion_mensual_para_pdf para {user_id}: {e}")
+        return "<b>⚠️ Error al compilar la recomendación de IA para el reporte.</b>"
+        
+async def generar_recomendacion_semanal_ia(m: dict, etiqueta_periodo: str) -> str:
+    """
+    Genera un análisis semanal mediante IA evaluando los promedios reales frente a los rangos saludables,
+    evitando falsas alarmas si los valores se encuentran dentro de la franja óptima.
+    """
+    prompt_semana = (
+        f"Actúa como un nutricionista clínico experto, constructivo y equilibrado. "
+        f"Analiza la evolución nutricional de la {etiqueta_periodo} basándote en los promedios reales frente a los rangos saludables:\n\n"
+        f"DATOS DEL PERÍODO:\n"
+        f"- Días evaluados: {m.get('dias_registrados', 0)}\n"
+        f"- Calorías consumidas: {m.get('prom_cal', 0)} kcal/día (Rango saludable: {m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal)\n"
+        f"- Proteínas: {m.get('prom_prot', 0)} g/día (Rango saludable: {m.get('prot_min', 0)} - {m.get('prot_max', 0)} g)\n"
+        f"- Grasas: {m.get('prom_gras', 0)} g/día (Rango saludable: {m.get('gras_min', 0)} - {m.get('gras_max', 0)} g)\n"
+        f"- Carbohidratos: {m.get('prom_carb', 0)} g/día (Rango saludable: {m.get('carb_min', 0)} - {m.get('carb_max', 0)} g)\n"
+        f"- Fibra: {m.get('prom_fibr', 0)} g/día (Mínimo recomendado: {m.get('fibr_min', 0)} g)\n\n"
+        f"INSTRUCCIONES CLAVE:\n"
+        f"1. Si un valor se encuentra dentro del rango saludable, considéralo un comportamiento correcto y equilibrado; no lo señales como un error ni exijas correcciones drásticas en ese aspecto.\n"
+        f"2. Concéntrate exclusivamente en desvíos significativos fuera de los rangos (por ejemplo, si la fibra o algún nutriente clave está muy por debajo del mínimo).\n"
+        f"3. Proporciona una devolución clara, motivadora y recomendaciones breves y prácticas para optimizar los hábitos en la semana entrante."
+    )
+    
+    try:
+        recomendacion = await obtener_recomendacion_ia(prompt_semana, es_semanal=True)
+        if recomendacion and recomendacion.strip():
+            return recomendacion
+    except Exception as e:
+        logger.error(f"Error al generar recomendación semanal con IA: {e}")
+        
+    return "⚠️ Análisis nutricional no disponible temporalmente."
+    
 def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4, system_prompt: str = None, modelo_override: str = None) -> str:
     """Función centralizada para consultas a la API de Groq."""
     try:
@@ -2697,8 +2760,8 @@ def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float 
 
 async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.BytesIO]:
     """
-    Genera el informe inicial de bienvenida con IA adaptado al perfil,
-    aplicando una auditoría simplificada y compilando el PDF con metas saludables.
+    Genera el informe inicial de bienvenida con IA adaptado al perfil y desvío de peso,
+    aplicando auditoría de calidad y compilando el PDF con metas saludables para la etapa 1.
     """
     nombre = datos_usuario.get('nombre', 'Paciente')
     edad = datos_usuario.get('edad', 0)
@@ -2711,33 +2774,44 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
     tmb = datos_usuario.get('tmb', 0)
     get_calorias = datos_usuario.get('get', 2000)
 
-    # 1. Construcción del prompt clínico y empático
+    # 1. Análisis del desvío porcentual para orientar el criterio clínico de la IA
+    dif_pct = ((peso - peso_ideal) / peso_ideal * 100) if peso_ideal > 0 else 0.0
+
+    if dif_pct > 20:
+        contexto_situacion = "El paciente presenta un sobrepeso considerable, por lo que el enfoque debe ser muy gradual, paciente y centrado en la adopción de hábitos sostenibles a largo plazo sin restricciones drásticas."
+    elif dif_pct >= 8:
+        contexto_situacion = "El paciente presenta un sobrepeso moderado (en torno al 10% por encima de su referencia de bienestar), ideal para estructurar un cambio de hábitos enfocado en porciones y constancia."
+    elif dif_pct >= -5:
+        contexto_situacion = "El paciente se encuentra en un rango de peso cercano a su meta o en zona de equilibrio, por lo que el foco estará en la optimización de la calidad nutricional y el mantenimiento."
+    else:
+        contexto_situacion = "El paciente presenta un peso corporal por debajo de su referencia teórica, por lo que el enfoque será de nutrición equilibrada y fortalecimiento saludable."
+
+    # 2. Construcción del prompt clínico (restringiendo mención de números/kilos en las recomendaciones)
     prompt_ia = (
-        f"Actúa como un médico nutricionista experto y muy empático. Perfil del paciente:\n"
-        f"- Nombre: {nombre}, Edad: {edad} años, Sexo: {sexo}\n"
-        f"- Altura: {altura} cm, Peso Actual: {peso} kg, Peso Ideal: {peso_ideal} kg\n"
-        f"- Objetivo 1ra Etapa (Ponderado prudente): {peso_etapa} kg\n\n"
+        f"Actúa como un médico nutricionista experto y muy empático. Contexto del paciente:\n"
+        f"- Situación general: {contexto_situacion}\n\n"
         f"Redacta un informe breve, cálido y motivador de bienvenida que incluya:\n"
-        f"1. Una explicación empática sobre por qué avanzamos paso a paso hacia la meta intermedia ({peso_etapa} kg) priorizando la salud sostenible.\n"
-        f"2. Recomendaciones generales y amables sobre el equilibrio en la alimentación diaria.\n"
-        f"3. Pautas generales de actividad física (caminatas suaves) e hidratación.\n"
-        f"REQUISITO ESTRICTO: Escribe de forma fluida, profesional y completa. Cierra obligatoriamente con un punto final y no dejes ninguna oración inconclusa."
+        f"1. Una explicación empática y motivadora sobre por qué avanzamos paso a paso hacia nuestra primera meta intermedia, destacando que lo importante es el proceso y la salud sostenible.\n"
+        f"2. Recomendaciones generales y amables sobre el manejo de la alimentación diaria orientada a un equilibrio energético saludable, SIN MENCIONAR NÚMEROS, NI KILOS, NI GRAMOS, NI CALORÍAS en el texto de los consejos.\n"
+        f"3. Pautas generales de actividad física complementaria (caminatas suaves, movilidad) y hábitos de hidratación.\n"
+        f"REQUISITO ESTRICTO: Mantén un tono sumamente humano, profesional, constructivo y generalizado. No des cifras de peso ni metas numéricas específicas en las recomendaciones. Cierra con un punto final y completa todas las ideas."
     )
     
     system_msg = "Eres un nutricionista clínico profesional, empático y motivador."
-    
-    # 2. Auditoría simplificada para evitar bloqueos innecesarios
     prompt_auditor_base = (
-        f"Actúa como un supervisor médico de calidad. "
-        f"Revisa el siguiente informe de bienvenida:\n\n"
-        f"--- INFORME ---\n{{informe_candidato}}\n----------------\n\n"
-        f"Instrucción: Si el texto está completo, bien redactado y no tiene oraciones cortadas o truncadas al final, responde únicamente con la palabra 'OK'."
+        f"Actúa como un médico supervisor estricto y auditor de calidad. "
+        f"Revisa el siguiente informe nutricional de bienvenida:\n\n"
+        f"--- INFORME A EVALUAR ---\n{{informe_candidato}}\n-------------------------\n\n"
+        f"Criterios de rechazo:\n"
+        f"1. Si incluye números, kilos o calorías dentro de las recomendaciones del texto.\n"
+        f"2. Si hay oraciones cortadas o truncadas al final.\n"
+        f"Si el informe cumple perfectamente con todo, responde únicamente con la palabra 'OK'."
     )
 
     informe_ia = ""
     max_intentos = 3
 
-    async def _llamar_ia_con_retry(p, tokens=300, temp=0.4, sys_p=None, mod_over=None, intentos_max=3):
+    async def _llamar_ia_con_retry(p, tokens, temp, sys_p=None, mod_over=None, intentos_max=3):
         for it in range(1, intentos_max + 1):
             try:
                 res = await asyncio.to_thread(
@@ -2760,10 +2834,10 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
     for intento in range(1, max_intentos + 1):
         try:
             texto_generado = await _llamar_ia_con_retry(
-                p=prompt_ia, 
-                tokens=600, 
-                temp=0.3, 
-                sys_p=system_msg
+                prompt=prompt_ia, 
+                max_tokens=600, 
+                temperature=0.3, 
+                system_prompt=system_msg
             )
             
             if not texto_generado:
@@ -2773,26 +2847,21 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
             prompt_auditor_final = prompt_auditor_base.format(informe_candidato=texto_generado)
             
             veredicto = await _llamar_ia_con_retry(
-                p=prompt_auditor_final, 
-                tokens=50, 
-                temp=0.1, 
-                mod_over=modelo_rev
+                prompt=prompt_auditor_final, 
+                max_tokens=100, 
+                temperature=0.1, 
+                modelo_override=modelo_rev
             )
 
-            # Si el revisor aprueba o responde OK, aceptamos el texto de inmediato
-            if veredicto and "OK" in veredicto.strip().upper():
+            if veredicto and "OK" in veredicto.strip().upper() and "RECHAZ" not in veredicto.strip().upper():
                 informe_ia = texto_generado
                 break
             else:
-                # Si el revisor tarda o falla por estricto, en el último intento nos quedamos con el texto generado igual
-                if intento == max_intentos:
-                    informe_ia = texto_generado
-                logger.warning(f"🔄 Revisor ajustó el informe en el intento {intento}, reintentando...")
+                logger.warning(f"🔄 Revisor rechazó el informe inicial en el intento {intento}.")
 
         except Exception as err:
             logger.error(f"❌ Error en ciclo de informe inicial (Intento {intento}): {err}")
 
-    # Fallback seguro absoluto si todo fallara
     if not informe_ia:
         informe_ia = (
             f"Hola {nombre}, te damos la bienvenida a tu plan nutricional personalizado. "
@@ -2800,10 +2869,10 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
             "para acompañarte paso a paso hacia tu objetivo de bienestar."
         )
 
-    # 3. Estimación orientativa de macronutrientes para el PDF
+    # 3. Estimación orientativa de macronutrientes (valores positivos corregidos)
     get_val = float(get_calorias) if get_calorias > 0 else 2000.0
     factor_prot = 1.5 if str(sexo).upper() in ['M', 'MASCULINO'] else 1.2
-    meta_cal = int(round(get_val * 0.85))
+    meta_cal = int(round(get_val * 0.85))  # Objetivo calórico saludable (déficit del 15%)
     meta_prot = int(round(peso_etapa * factor_prot))
     meta_gras = int(round((meta_cal * 0.25) / 9.0))
     meta_carb = int(round((meta_cal * 0.50) / 4.0))
@@ -2866,7 +2935,7 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
     pdf_buffer.seek(0)
     
     return informe_ia, pdf_buffer
-                    
+                
 async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuencias=None, prompt_condicional=None):
     """
     Función independiente para generar el informe mensual auditado usando la función centralizada.
@@ -3007,69 +3076,6 @@ async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False)
         return res.replace("##", "").replace("###", "").strip()
         
     return "⚠️ No se pudo obtener el análisis nutricional en este momento."
-
-def analizar_con_groq(prompt_text):
-    if not client_ai:
-        raise Exception("GROQ_API_KEY no está configurada correctamente.")
-    
-    system_prompt = (
-        "Sos un nutricionista experto. Analizá el texto ingresado. "
-        "Si el texto incluye varios alimentos o porciones, desglosalos individualmente. "
-        "Estimá de forma lógica los pesos en gramos y nutrientes si no están explícitos. "
-        "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
-        "{\n"
-        '  "items": [\n'
-        '    {"alimento": "nombre", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
-        "  ],\n"
-        '  "tipo": "Comida"\n'
-        "}"
-    )
-
-    response = client_ai.chat.completions.create(
-        model=GROQ_TEXTO,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt_text}
-        ],
-        temperature=0.1,
-        response_format={"type": "json_object"}
-    )
-    return json.loads(response.choices[0].message.content)
-    
-def analizar_imagen_con_groq(base64_image, user_caption=""):
-    if not client_ai:
-        raise Exception("GROQ_API_KEY no está configurada correctamente.")
-    
-    base_prompt = (
-        "Analizá esta imagen de comida/plato. "
-        "Identificá los alimentos, estimá sus pesos en gramos y nutrientes. "
-        "Si el usuario incluye una nota o aclaración, utilízala de manera estricta para definir "
-        "el tipo exacto de alimento y método de cocción. "
-        "Respondé ÚNICAMENTE en formato JSON con la clave 'items' conteniendo "
-        "alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras."
-    )
-    
-    if user_caption.strip():
-        prompt = f"{base_prompt}\n\nAclaración obligatoria del usuario sobre la foto: {user_caption.strip()}"
-    else:
-        prompt = base_prompt
-
-    response = client_ai.chat.completions.create(
-        model=GROQ_FOTO,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                ]
-            }
-        ],
-        temperature=0.1,
-        response_format={"type": "json_object"}
-    )
-    return json.loads(response.choices[0].message.content)
-
 
 # =====================================================================================================================================
 #                FINAL                        FUNCIONES IA GROQ                                      FINAL
