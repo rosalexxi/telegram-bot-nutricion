@@ -1860,12 +1860,8 @@ def extraer_val(texto: str) -> float:
 # =======================================================================================================================================
 
 # =============================================================================================================================================
-#                       INICIO                     FUNCIONES AUXILIARES Y FORMATO                                   INICIO  
+#              INICIO                     1 FUNCIONES DATOS Y FECHAS                           INICIO
 # =============================================================================================================================================
-
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-# 1. PARSEO DE DATOS Y FECHAS (VAN PRIMERO POR SER UTILIZADOS EN OTRAS FUNCIONES)
-# ---------------------------------------------------------------------------------------------------------------------------------------------
 
 def obtener_codigo_unico(ws, codigo_base):
     """
@@ -1932,9 +1928,13 @@ def obtener_momento_y_fecha_auto():
         
     return fecha_obj.strftime("%Y-%m-%d"), momento
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-# 2. CÁLCULOS BIOMÉTRICOS Y MÉTRICAS
-# ---------------------------------------------------------------------------------------------------------------------------------------------
+# =============================================================================================================================================
+#              FINAL                     1 FUNCIONES DATOS Y FECHAS                           FINAL
+# =============================================================================================================================================
+
+# =============================================================================================================================================
+#              INICIO                     2 FUNCIONES BIOMETRICAS                           INICIO
+# =============================================================================================================================================
 
 def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
     if peso_referencia and peso_referencia > 0:
@@ -2044,7 +2044,7 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero: str = "masculino", 
     return round(tmb, 2), round(get, 2)
         
 def calcular_metricas_mensuales(df_mes, perfil_dict):
-    """Procesa todos los cálculos mensuales garantizando consistencia y exactitud metabólica."""
+    """Procesa todos los cálculos mensuales garantizando consistencia y exactitud metabólica con rangos (Mínimo y Máximo)."""
     dias_registrados = df_mes['Fecha'].nunique() if (df_mes is not None and not df_mes.empty) else 1
     if dias_registrados == 0:
         dias_registrados = 1
@@ -2092,36 +2092,50 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     # Peso de referencia para la primera etapa (75% actual + 25% ideal)
     peso_referencia = (peso_actual * 0.75) + (peso_ideal * 0.25)
 
-    # 5. GASTO BASE REAL: Se calcula sobre el PESO ACTUAL REAL del organismo (para balance y déficit real)
+    # 5. GASTO BASE REAL y GASTO MÁXIMO (TECHO)
     _, get_real = calcular_tmb_y_get(
         peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
     )
-
-    # 6. GASTO MÁXIMO (META): Se calcula sobre el PESO DE REFERENCIA de la etapa para fijar los topes de consumo orientados al descenso
     _, get_meta = calcular_tmb_y_get(
         peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
     )
 
-    # --- CÁLCULO CORREGIDO DE DÉFICIT Y CAMBIO DE PESO ---
+    # --- CÁLCULO DE DÉFICIT Y CAMBIO DE PESO ---
     gasto_diario_total = get_real + prom_quem
     balance_diario = prom_cons - gasto_diario_total
     cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
     deficit_diario_real = -balance_diario
     # ----------------------------------------------------
 
-    # 7. Definición de Objetivos Máximos (Topes para descenso)
+    # 7. Definición de Rangos Saludables (Mínimo y Máximo) para Descenso
     gen_clean = genero.lower()
     if gen_clean in ["femenino", "f", "mujer", "female"]:
-        factor_proteina = 1.2
-        ideal_fibr = 25
+        factor_proteina_min = 1.0
+        factor_proteina_max = 1.2
+        fibr_min = 25
     else:
-        factor_proteina = 1.5
-        ideal_fibr = 30
+        factor_proteina_min = 1.2
+        factor_proteina_max = 1.5
+        fibr_min = 30
 
-    ideal_cal = int(round(get_meta))
-    ideal_prot = int(round(peso_referencia * factor_proteina))
-    ideal_gras = int(round((get_meta * 0.25) / 9.0))
-    ideal_carb = int(round((get_meta * 0.50) / 4.0))
+    # Calorías: Máximo es el GET del peso de referencia; Mínimo es un déficit seguro (ej. 600 kcal menos, con piso de 1500 kcal)
+    cal_max = int(round(get_meta))
+    cal_min = max(1500, int(round(cal_max - 600)))
+
+    # Proteínas (Rango)
+    prot_min = int(round(peso_referencia * factor_proteina_min))
+    prot_max = int(round(peso_referencia * factor_proteina_max))
+
+    # Grasas (Rango basado en el rango calórico)
+    gras_min = int(round((cal_min * 0.20) / 9.0))
+    gras_max = int(round((cal_max * 0.30) / 9.0))
+
+    # Carbohidratos (Rango)
+    carb_min = int(round((cal_min * 0.40) / 4.0))
+    carb_max = int(round((cal_max * 0.55) / 4.0))
+
+    # Fibras (Mínimo recomendado)
+    fibr_min_val = fibr_min
 
     return {
         "dias_registrados": dias_registrados,
@@ -2132,11 +2146,19 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "prom_gras": prom_gras,
         "prom_carb": prom_carb,
         "prom_fibr": prom_fibr,
-        "ideal_cal": ideal_cal,
-        "ideal_prot": ideal_prot,
-        "ideal_gras": ideal_gras,
-        "ideal_carb": ideal_carb,
-        "ideal_fibr": ideal_fibr,
+        # Rangos Saludables (Mínimo y Máximo)
+        "cal_min": cal_min, "cal_max": cal_max,
+        "prot_min": prot_min, "prot_max": prot_max,
+        "gras_min": gras_min, "gras_max": gras_max,
+        "carb_min": carb_min, "carb_max": carb_max,
+        "fibr_min": fibr_min_val,
+        # Compatibilidad con variables antiguas
+        "ideal_cal": cal_max,
+        "ideal_prot": prot_max,
+        "ideal_gras": gras_max,
+        "ideal_carb": carb_max,
+        "ideal_fibr": fibr_min_val,
+        # Resto de variables biométricas y de estado
         "peso_actual": round(float(peso_actual), 1),
         "peso_ideal": round(float(peso_ideal), 1),
         "peso_referencia": round(float(peso_referencia), 1),
@@ -2153,7 +2175,90 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "tot_carb": tot_carb,
         "tot_fibr": tot_fibr
     }
-        
+    
+async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.DEFAULT_TYPE = None, user_id: int = None) -> bool:
+    """
+    Verifica si el usuario registró su peso en el mes en curso.
+    - Si NO lo registró: envía un aviso genérico y retorna False.
+    - Si LO registró: retorna True.
+    Acepta invocaciones por Update (comandos/botón) o por user_id directo (Jobs automáticos).
+    """
+    uid = user_id or (update.effective_user.id if update else None)
+    if not uid:
+        return False
+
+    try:
+        ultimo_registro = obtener_ultimo_peso(uid) if 'obtener_ultimo_peso' in globals() else None
+    except Exception as e:
+        if 'log_error' in globals():
+            await log_error("validar_peso_mes_actual", e, user_id=uid)
+        ultimo_registro = None
+
+    peso_valido = False
+
+    if ultimo_registro:
+        fecha_val = (
+            ultimo_registro.get("fecha") or 
+            ultimo_registro.get("Ultimo Mes Peso") or 
+            ultimo_registro.get("MES") or 
+            ""
+        )
+        fecha_str = str(fecha_val).strip()
+
+        if fecha_str:
+            ahora = obtener_ahora_arg() if 'obtener_ahora_arg' in globals() else datetime.now()
+            
+            formatos = [
+                "%d/%m/%Y", "%Y-%m-%d", "%d/%m/%y",
+                "%Y-%m", "%m/%Y", "%Y-%m-%d %H:%M:%S",
+                "%d/%m/%Y %H:%M:%S", "%Y-%m-%d %H:%M"
+            ]
+
+            fecha_dt = None
+            for fmt in formatos:
+                try:
+                    fecha_dt = datetime.strptime(fecha_str, fmt)
+                    break
+                except ValueError:
+                    continue
+
+            if fecha_dt:
+                if fecha_dt.year == ahora.year and fecha_dt.month == ahora.month:
+                    peso_valido = True
+            else:
+                mes_str_iso = ahora.strftime("%Y-%m")
+                mes_str_lat = ahora.strftime("%m/%Y")
+                if mes_str_iso in fecha_str or mes_str_lat in fecha_str:
+                    peso_valido = True
+
+    if not peso_valido:
+        msg_generico = (
+            "⚠️ **Actualización de peso requerida:**\n\n"
+            "Para procesar tu solicitud y generar los informes (semanales y mensuales), "
+            "es necesario que cargues tu peso correspondiente al mes en curso.\n\n"
+            "Por favor, actualizalo desde el menú `/perfil` (Opción PESO)."
+        )
+
+        if update and update.callback_query:
+            await update.callback_query.answer()
+            await update.callback_query.message.reply_text(msg_generico, parse_mode="Markdown")
+        elif update and update.message:
+            await update.message.reply_text(msg_generico, parse_mode="Markdown")
+        elif context and uid:
+            await context.bot.send_message(chat_id=uid, text=msg_generico, parse_mode="Markdown")
+
+        return False
+
+    return True
+# =============================================================================================================================================
+#              FINAL                     2 FUNCIONES BIOMETRICAS                           FINAL
+# =============================================================================================================================================
+
+# =============================================================================================================================================
+#              INICIO                     3 FUNCIONES COMIDAS                           INICIO
+# =============================================================================================================================================
+
+
 def obtener_categorias_diccionario(sh):
     """
     Lee la pestaña 'Categorias_Comida' y devuelve un diccionario {categoria: [lista_de_palabras_clave]}.
@@ -2230,10 +2335,14 @@ def analizar_frecuencia_alimentos_mes(df_mes, cat_dict, col_integrales=None, col
     except Exception as e:
         print(f"Error analizando frecuencias de alimentos: {e}")
         return {}
-        
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-# 4. FUNCIONES DE LOGGING Y COMPONENTES DE INTERFAZ TELEGRAM
-# ---------------------------------------------------------------------------------------------------------------------------------------------
+
+# =============================================================================================================================================
+#              FINAL                     3 FUNCIONES COMIDAS                           FINAL
+# =============================================================================================================================================
+
+# =============================================================================================================================================
+#              INICIO                     4 FUNCIONES LOOGING Y TELEGRAM                           INICIO
+# =============================================================================================================================================
 
 async def _verificar_y_obtener_profesional(update: Update) -> str:
     """
@@ -2466,88 +2575,86 @@ async def procesar_y_enviar_informe_mensualPANTALLA(context, user_id: int, chat_
     except Exception as e:
         logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}", exc_info=True)
         return False
-        
-#                                          VALIDACIÓN CENTRALIZADA DE PESO
-# =============================================================================================================================================
-
-async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.DEFAULT_TYPE = None, user_id: int = None) -> bool:
+def obtener_categorias_diccionario(sh):
     """
-    Verifica si el usuario registró su peso en el mes en curso.
-    - Si NO lo registró: envía un aviso genérico y retorna False.
-    - Si LO registró: retorna True.
-    Acepta invocaciones por Update (comandos/botón) o por user_id directo (Jobs automáticos).
+    Lee la pestaña 'Categorias_Comida' y devuelve un diccionario {categoria: [lista_de_palabras_clave]}.
     """
-    uid = user_id or (update.effective_user.id if update else None)
-    if not uid:
-        return False
-
     try:
-        ultimo_registro = obtener_ultimo_peso(uid) if 'obtener_ultimo_peso' in globals() else None
+        ws = get_or_create_worksheet(sh, "Categorias_Comida")
+        records = ws.get_all_records()
+        if not records:
+            return {}
+        
+        df_cat = pd.DataFrame(records)
+        cat_dict = {}
+        for col in df_cat.columns:
+            cat_nombre = str(col).strip().lower()
+            # Filtra valores no vacíos
+            palabras = [str(x).strip().lower() for x in df_cat[col].dropna().tolist() if str(x).strip()]
+            if palabras:
+                cat_dict[cat_nombre] = palabras
+        return cat_dict
     except Exception as e:
-        if 'log_error' in globals():
-            await log_error("validar_peso_mes_actual", e, user_id=uid)
-        ultimo_registro = None
+        print(f"Error al leer Categorias_Comida: {e}")
+        return {}
 
-    peso_valido = False
+def calcular_porcentajes_harinas(frecuencias):
+    key_int = next((k for k in frecuencias.keys() if 'integral' in k), None)
+    key_ref = next((k for k in frecuencias.keys() if 'refinada' in k or 'blanca' in k), None)
 
-    if ultimo_registro:
-        fecha_val = (
-            ultimo_registro.get("fecha") or 
-            ultimo_registro.get("Ultimo Mes Peso") or 
-            ultimo_registro.get("MES") or 
-            ""
-        )
-        fecha_str = str(fecha_val).strip()
-
-        if fecha_str:
-            ahora = obtener_ahora_arg() if 'obtener_ahora_arg' in globals() else datetime.now()
-            
-            formatos = [
-                "%d/%m/%Y", "%Y-%m-%d", "%d/%m/%y",
-                "%Y-%m", "%m/%Y", "%Y-%m-%d %H:%M:%S",
-                "%d/%m/%Y %H:%M:%S", "%Y-%m-%d %H:%M"
-            ]
-
-            fecha_dt = None
-            for fmt in formatos:
-                try:
-                    fecha_dt = datetime.strptime(fecha_str, fmt)
-                    break
-                except ValueError:
-                    continue
-
-            if fecha_dt:
-                if fecha_dt.year == ahora.year and fecha_dt.month == ahora.month:
-                    peso_valido = True
-            else:
-                mes_str_iso = ahora.strftime("%Y-%m")
-                mes_str_lat = ahora.strftime("%m/%Y")
-                if mes_str_iso in fecha_str or mes_str_lat in fecha_str:
-                    peso_valido = True
-
-    if not peso_valido:
-        msg_generico = (
-            "⚠️ **Actualización de peso requerida:**\n\n"
-            "Para procesar tu solicitud y generar los informes (semanales y mensuales), "
-            "es necesario que cargues tu peso correspondiente al mes en curso.\n\n"
-            "Por favor, actualizalo desde el menú `/perfil` (Opción PESO)."
-        )
-
-        if update and update.callback_query:
-            await update.callback_query.answer()
-            await update.callback_query.message.reply_text(msg_generico, parse_mode="Markdown")
-        elif update and update.message:
-            await update.message.reply_text(msg_generico, parse_mode="Markdown")
-        elif context and uid:
-            await context.bot.send_message(chat_id=uid, text=msg_generico, parse_mode="Markdown")
-
-        return False
-
-    return True
+    total_integrales = frecuencias.get(key_int, 0) if key_int else 0
+    total_refinadas = frecuencias.get(key_ref, 0) if key_ref else 0
+    total_harinas = total_integrales + total_refinadas
     
-# =====================================================================================================================================
-#                FINAL                        FUNCIONES AUXILIARES Y FORMATO                                      FINAL
-# ======================================================================================================================================
+    if total_harinas > 0:
+        porc_int = round((total_integrales / total_harinas) * 100)
+        porc_ref = round((total_refinadas / total_harinas) * 100)
+    else:
+        porc_int, porc_ref = 0, 0
+        
+    return porc_int, porc_ref
+    
+def analizar_frecuencia_alimentos_mes(df_mes, cat_dict, col_integrales=None, col_refinadas=None, otras_categorias=None):
+    try:
+        if otras_categorias is None:
+            otras_categorias = {}
+            
+        # Inicializar el diccionario de contadores con las claves originales
+        frecuencias = {cat: 0 for cat in cat_dict.keys()}
+
+        # Procesamiento celda por celda manteniendo la lógica de protección integral
+        for _, row in df_mes.iterrows():
+            texto_celda = str(row.get('Alimento', '')).strip().lower()
+            if not texto_celda:
+                continue
+
+            # 1. Evaluar primero si es integral
+            es_integral = any(p in texto_celda for p in (col_integrales or ['integral', 'salvado', 'centeno', 'avena']))
+            
+            if es_integral:
+                for cat_key in cat_dict.keys():
+                    if 'integral' in cat_key:
+                        frecuencias[cat_key] += 1
+            else:
+                # 2. Si no es integral, evaluar si cae en refinadas/blancas
+                if col_refinadas and any(p in texto_celda for p in col_refinadas):
+                    for cat_key in cat_dict.keys():
+                        if 'refinada' in cat_key or 'blanca' in cat_key:
+                            frecuencias[cat_key] += 1
+
+            # 3. Evaluar el resto de las categorías complementarias
+            for cat_nombre, palabras in otras_categorias.items():
+                if any(p in texto_celda for p in palabras):
+                    frecuencias[cat_nombre] += 1
+
+        return frecuencias
+    except Exception as e:
+        print(f"Error analizando frecuencias de alimentos: {e}")
+        return {}
+        
+# =============================================================================================================================================
+#              FINAL                         4 FUNCIONES LOOGING Y TELEGRAM                           FINAL
+# =============================================================================================================================================
 
 # =====================================================================================================================================
 #                INICIO                        FUNCIONES IA GROQ                                      INICIO
@@ -3502,8 +3609,6 @@ conv_handler_ingreso = ConversationHandler(
 #                FINAL                        COMANDO INGRESO (ALTA DE USUARIO)               FINAL
 # ======================================================================================================================================
 
-
-
 # ======================================================================================================================================
 #                 INICIO                            COMANDO SEMANA                                  INICIO   DB OK
 # ======================================================================================================================================
@@ -3513,7 +3618,7 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Manejador del comando /mensaje (semanal).
     Analiza los días transcurridos de la semana actual (o semana anterior si es lunes) en castellano,
-    utilizando la hora local de Argentina, agregando promedio de presión arterial, minutos totales de actividad y calorías.
+    utilizando la hora local de Argentina, agregando promedio de presión arterial, minutos totales de actividad, rangos y análisis de IA.
     """
     # 1. Validación centralizada desde Auxiliares
     if not await _validar_peso_mes_actual(update=update, context=context):
@@ -3521,7 +3626,7 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         user_id = update.effective_user.id
-        msg_espera = await update.message.reply_text("⏳ Procesando resumen nutricional...")
+        msg_espera = await update.message.reply_text("⏳ Procesando resumen nutricional y análisis de IA...")
 
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
 
@@ -3593,15 +3698,18 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e_presion:
             logger.error(f"Error al calcular presión semanal: {e_presion}")
 
-        # Construcción del texto de salida enriquecido (Cambiado a Máximo)
+        # Llamada a la nueva función centralizada de IA con rangos saludables
+        recomendacion_ia = await generar_recomendacion_semanal_ia(m, etiqueta_periodo)
+
+        # Construcción del texto de salida enriquecido con rangos y devolución de IA
         txt = (
             f"📅 **Resumen Nutricional Semanal:**\n"
             f"ℹ️ *{etiqueta_periodo}*\n\n"
-            f"• **Promedio Calorías:** `{m.get('prom_cal', 0)} kcal` / Máximo: `{m.get('ideal_cal', 0)} kcal`\n"
-            f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Máximo: `{m.get('ideal_prot', 0)} g`\n"
-            f"• **Grasas:** `{m.get('prom_gras', 0)} g` / Máximo: `{m.get('ideal_gras', 0)} g`\n"
-            f"• **Carbohidratos:** `{m.get('prom_carb', 0)} g` / Máximo: `{m.get('ideal_carb', 0)} g`\n"
-            f"• **Fibras:** `{m.get('prom_fibr', 0)} g` / Máximo: `{m.get('ideal_fibr', 0)} g`\n"
+            f"• **Promedio Calorías:** `{m.get('prom_cal', 0)} kcal` / Rango: `{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal`\n"
+            f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
+            f"• **Grasas:** `{m.get('prom_gras', 0)} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
+            f"• **Carbohidratos:** `{m.get('prom_carb', 0)} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
+            f"• **Fibras:** `{m.get('prom_fibr', 0)} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
         )
         if prom_alta is not None and prom_baja is not None:
             txt += f"• **Presión Arterial Promedio:** `{prom_alta}/{prom_baja} mmHg`\n"
@@ -3609,7 +3717,9 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         txt += (
             f"• **Actividad Física:** `{minutos_totales_actividad} minutos` totales\n"
             f"• **Calorías Quemadas (Promedio):** `{m.get('prom_quem', 0)} kcal/día`\n"
-            f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`"
+            f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`\n\n"
+            f"🤖 **Evaluación del Especialista:**\n"
+            f"{recomendacion_ia}"
         )
 
         await msg_espera.edit_text(txt, parse_mode="Markdown")
@@ -3618,6 +3728,7 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error en cmd_mensaje: {e}")
         if 'msg_espera' in locals():
             await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")            
+
 # ======================================================================================================================================
 #                      FINAL                        COMANDO SEMANA                                          FINAL
 # ======================================================================================================================================
@@ -5452,19 +5563,19 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
         logger.error(f"Error en cmd_enviar_informe_actual: {e}", exc_info=True)
         await update.message.reply_text("⚠️ Ocurrió un error al procesar la solicitud del informe PDF.")
 
-# =============================================================================================================================================
+# ==========================================================================================================================================
 #                    FINAL                             COMANDO INFORME MEDICO                                FINAL  
-# =============================================================================================================================================
+# ==========================================================================================================================================
 
-# ==============================================================================================================================================
+# ==========================================================================================================================================
 #               INICIO                           COMANDO RESUMEN Y GENERACIÓN DE PDF                        INICIO DB OK
-# ==============================================================================================================================================
+# ==========================================================================================================================================
 
 @requiere_registro
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Manejador del comando /resumen[cite: 1].
-    Muestra el menú de selección de mes condicional según el día actual[cite: 1].
+    Manejador del comando /resumen.
+    Muestra el menú de selección de mes condicional según el día actual.
     """
     if not await _validar_peso_mes_actual(update, context):
         return
@@ -5474,8 +5585,6 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
     dia_actual = ahora.day
 
-    # Del día 1 al 7: presenta solo mes anterior y otro mes[cite: 1].
-    # Del día 8 a fin de mes: presenta mes actual, mes anterior y otro mes[cite: 1].
     if 1 <= dia_actual <= 7:
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
@@ -5557,7 +5666,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not mes_str:
             mes_str = mes_actual_str
 
-        # Si selecciona el mes actual del 1 al 7, no presenta ningún resumen y avisa[cite: 1]
         if mes_str == mes_actual_str and 1 <= dia_actual <= 7:
             msg = "⚠️ No se encuentra disponible el resumen del mes actual durante los primeros 7 días del mes."
             if query:
@@ -5613,12 +5721,12 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"• Consumidas: `{_fmt(m.get('prom_cal', 0))} kcal` | Quemadas: `{_fmt(m.get('prom_quem', 0))} kcal`\n"
             f"• Balance Neto: `{_fmt(m.get('prom_bal_neto', 0))} kcal/día`\n"
             f"• Variación Est. de Peso: {texto_variacion_peso} ({m.get('dias_registrados', 0)} días)\n\n"
-            f"📈 **Promedios vs. Máximos Permitidos:**\n"
-            f"• Calorías: `{_fmt(m.get('prom_cal', 0))}` / `{_fmt(m.get('ideal_cal', 0))} kcal`\n"
-            f"• Proteínas: `{_fmt(m.get('prom_prot', 0))}` / `{_fmt(m.get('ideal_prot', 0))} g`\n"
-            f"• Grasas: `{_fmt(m.get('prom_gras', 0))}` / `{_fmt(m.get('ideal_gras', 0))} g`\n"
-            f"• Carbs: `{_fmt(m.get('prom_carb', 0))}` / `{_fmt(m.get('ideal_carb', 0))} g`\n"
-            f"• Fibras: `{_fmt(m.get('prom_fibr', 0))}` / `{_fmt(m.get('ideal_fibr', 0))} g`\n\n"
+            f"📈 **Promedios vs. Rangos Saludables:**\n"
+            f"• Calorías: `{_fmt(m.get('prom_cal', 0))}` / Rango: `{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal`\n"
+            f"• Proteínas: `{_fmt(m.get('prom_prot', 0))}` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
+            f"• Grasas: `{_fmt(m.get('prom_gras', 0))}` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
+            f"• Carbs: `{_fmt(m.get('prom_carb', 0))}` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
+            f"• Fibras: `{_fmt(m.get('prom_fibr', 0))}` / Mínimo: `{m.get('fibr_min', 0)} g`\n\n"
             f"📌 Resumen calculado con éxito"
         )
         
@@ -5640,8 +5748,8 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.callback_query.edit_message_text(msg_err)
         else:
             await update.message.reply_text(msg_err)
-                                                            
-# ======================================================================================================================================
+            
+#======================================================================================================================================
 
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
     buffer = io.BytesIO()
@@ -5734,19 +5842,19 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(t1)
 
     story.append(PageBreak())
-    story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes (Máximos Permitidos)</b>", title_style))
+    story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes (Rangos Saludables)</b>", title_style))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=6))
 
     perfil_dict = perfil if isinstance(perfil, dict) else {}
     m = calcular_metricas_mensuales(df_mes, perfil_dict)
 
     table_comp = [
-        [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Máximo Permitido</b>", header_style)],
-        [Paragraph("Calorías", body_style), Paragraph(f"{m.get('prom_cal', 0)} kcal", body_style), Paragraph(f"{int(round(m.get('ideal_cal', 0)))} kcal", body_style)],
-        [Paragraph("Proteínas", body_style), Paragraph(f"{m.get('prom_prot', 0)} g", body_style), Paragraph(f"{int(round(m.get('ideal_prot', 0)))} g", body_style)],
-        [Paragraph("Grasas", body_style), Paragraph(f"{m.get('prom_gras', 0)} g", body_style), Paragraph(f"{int(round(m.get('ideal_gras', 0)))} g", body_style)],
-        [Paragraph("Carbohidratos", body_style), Paragraph(f"{m.get('prom_carb', 0)} g", body_style), Paragraph(f"{int(round(m.get('ideal_carb', 0)))} g", body_style)],
-        [Paragraph("Fibras", body_style), Paragraph(f"{m.get('prom_fibr', 0)} g", body_style), Paragraph(f"{int(round(m.get('ideal_fibr', 0)))} g", body_style)]
+        [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Rango / Mínimo Saludable</b>", header_style)],
+        [Paragraph("Calorías", body_style), Paragraph(f"{m.get('prom_cal', 0)} kcal", body_style), Paragraph(f"{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal", body_style)],
+        [Paragraph("Proteínas", body_style), Paragraph(f"{m.get('prom_prot', 0)} g", body_style), Paragraph(f"{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g", body_style)],
+        [Paragraph("Grasas", body_style), Paragraph(f"{m.get('prom_gras', 0)} g", body_style), Paragraph(f"{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g", body_style)],
+        [Paragraph("Carbohidratos", body_style), Paragraph(f"{m.get('prom_carb', 0)} g", body_style), Paragraph(f"{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g", body_style)],
+        [Paragraph("Fibras", body_style), Paragraph(f"{m.get('prom_fibr', 0)} g", body_style), Paragraph(f"Mínimo {m.get('fibr_min', 0)} g", body_style)]
     ]
     t_comp = Table(table_comp, colWidths=[150, 185, 185])
     t_comp.setStyle(TableStyle([
@@ -5790,7 +5898,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     doc.build(story)
     buffer.seek(0)
     return buffer
-
 # ======================================================================================================================================
 
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -5809,7 +5916,6 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         mes_actual_str = ahora.strftime("%Y-%m")
         dia_actual = ahora.day
 
-        # Protección adicional para la generación del PDF en los primeros 7 días del mes actual[cite: 1]
         if mes_str == mes_actual_str and 1 <= dia_actual <= 7:
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
@@ -5851,22 +5957,9 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
 
         m = calcular_metricas_mensuales(df_mes, perfil)
-        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
 
-        peso_actual_eval = float(m.get('peso_actual', 0))
-        peso_referencia_eval = float(m.get('peso_referencia', 0))
-        prompt_condicional = obtener_prompt_segun_objetivo_peso(peso_actual_eval, peso_referencia_eval)
-
-        informe_ia = await generar_informe_mensual_auditado(context, user_id, mes_str, m, conteo_frecuencias, prompt_condicional)
-        
-        if not informe_ia:
-            informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA.</b>"
-
-        recomendacion_pdf = (
-            informe_ia
-            .replace("<br>", "<br/>")
-            .replace("<BR>", "<br/>")
-        )
+        # Delegamos toda la lógica de IA a la función centralizada
+        recomendacion_pdf = await generar_recomendacion_mensual_para_pdf(user_id, mes_str, df_mes, perfil, m, context)
 
         pdf_buffer = await asyncio.to_thread(
             generar_pdf_resumen_bytes,
@@ -5892,11 +5985,12 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text=f"⚠️ Error al procesar la descarga del PDF: {e}"
-        )
-                
+        )                
 # ======================================================================================================================================
 #                   FINAL                                COMANDO RESUMEN                                           FINAL
 # ======================================================================================================================================
+
+
 
 # ======================================================================================================================================
 #                INICIO                               MENSAJES PROGRAMADOS                          INICIO  
