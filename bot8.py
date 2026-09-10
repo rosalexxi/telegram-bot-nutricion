@@ -991,8 +991,7 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anteri
     except Exception as e:
         logger.error(f"Error al calcular factor limpio del mes anterior para User {user_id}: {e}")
         return None
-                        
-        
+                                
 def obtener_perfil_usuario(user_id, mes_target=None):
     try:
         gc = get_gspread_client()
@@ -1225,7 +1224,22 @@ def requiere_registro(func):
         return await func(update, context, *args, **kwargs)
     return wrapper
     
-    
+def eliminar_registro_por_id(user_id, item_id):
+    """
+    Función puente: borra el registro de Google Sheets usando el identificador de fila.
+    Cuando pases a Supabase, esta misma función se reescribirá para hacer un DELETE por ID de base de datos.
+    """
+    try:
+        fila_idx = int(item_id)
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = sh.worksheet(f"User_{user_id}")
+        ws.delete_rows(fila_idx)
+        return True
+    except Exception as e:
+        print(f"Error al eliminar registro en Google Sheets para el usuario {user_id}: {e}")
+        return False
+            
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # 1. FUNCIÓN DE CONEXIÓN Y CREACIÓN DE TABLAS (CON LOS NOMBRES EXACTOS DEL EXCEL)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
@@ -1664,6 +1678,7 @@ def obtener_datos_usuario_supa(user_id):
         
         # Mapeo de columnas idéntico al que hace la función original de Sheets
         col_map = {
+            'id': 'id_registro',
             'Fecha': 'Fecha',
             'Momento/Actividad': 'Momento',
             'Alimento/Detalle': 'Alimento',
@@ -2657,7 +2672,7 @@ def analizar_frecuencia_alimentos_mes(df_mes, cat_dict, col_integrales=None, col
 # =============================================================================================================================================
 
 # =====================================================================================================================================
-#                INICIO                        FUNCIONES IA GROQ                                      INICIO
+#                INICIO                        5 FUNCIONES IA GROQ                                      INICIO
 # ======================================================================================================================================
 
 async def generar_recomendacion_mensual_para_pdf(user_id: int, mes_str: str, df_mes, perfil: dict, m: dict, context=None) -> str:
@@ -3144,7 +3159,7 @@ def analizar_imagen_con_groq(base64_image, user_caption=""):
 # ======================================================================================================================================
 
 # ======================================================================================================================================
-#                  INICIO                        INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO  DB OK
+#                  INICIO               INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO
 # ======================================================================================================================================
 
 async def render_confirmation_screen(msg_or_query, context):
@@ -5248,9 +5263,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 #                FINAL                           MANEJADOR MENU                     FINAL
 #===================================================================================================================================
 	
-# =====================================================================================================================================
+#=====================================================================================================================================
 #                INICIO                               COMANDO ELIMINAR                          INICIO  
-# ======================================================================================================================================
+#======================================================================================================================================
 
 async def actualizar_menu_filtro_eliminacion(query, context):
     f = context.user_data.get('del_filtro_fecha')
@@ -5274,14 +5289,12 @@ async def mostrar_registros_para_eliminar(query, user_id, context):
     fecha = context.user_data.get('del_filtro_fecha')
     momento = context.user_data.get('del_filtro_momento')
     
-    # Lectura directa desde Google Sheets
     df = obtener_datos_usuario(user_id)
     
     if df.empty:
-        await query.edit_message_text("❌ No tenés registros cargados en tu planilla.")
+        await query.edit_message_text("❌ No tenés registros cargados.")
         return
 
-    # Filtramos por Fecha y Momento exacto
     df_filtrado = df[(df['Fecha'] == fecha) & (df['Momento'].str.strip().str.lower() == momento.lower())]
 
     if df_filtrado.empty:
@@ -5301,9 +5314,10 @@ async def mostrar_registros_para_eliminar(query, user_id, context):
         calorias = row.get('Calorias', 0)
         txt += f"• **{alimento}** ({calorias:.0f} kcal)\n"
         
-        # El índice real en la hoja de Google Sheets (fila 1 = encabezados, filas de datos empiezan en 2)
+        # Extraemos el identificador que preparó la función de lectura (id_registro)
+        item_id = row.get('id_registro', idx)
         keyboard_buttons.append([
-            InlineKeyboardButton(f"❌ Borrar: {str(alimento)[:20]}...", callback_data=f"ejecutar_del_fila_{idx+2}")
+            InlineKeyboardButton(f"❌ Borrar: {str(alimento)[:20]}...", callback_data=f"ejecutar_del_item_{item_id}")
         ])
 
     keyboard_buttons.append([InlineKeyboardButton("🔙 Volver", callback_data="del_reg_volver")])
@@ -5315,7 +5329,6 @@ async def mostrar_registros_para_eliminar(query, user_id, context):
     )
 
 async def manejar_callback_eliminacion(query, user_id, data, context):
-    """Manejador lógico para los callbacks del menú de eliminación."""
     if data == "del_reg_hoy":
         context.user_data['del_filtro_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
         await actualizar_menu_filtro_eliminacion(query, context)
@@ -5335,20 +5348,16 @@ async def manejar_callback_eliminacion(query, user_id, data, context):
     elif data == "del_reg_mostrar" or data == "del_reg_volver":
         await mostrar_registros_para_eliminar(query, user_id, context)
 
-    elif data.startswith("ejecutar_del_fila_"):
-        fila_idx = int(data.replace("ejecutar_del_fila_", ""))
+    elif data.startswith("ejecutar_del_item_"):
+        item_id = data.replace("ejecutar_del_item_", "")
         
-        # Eliminación directa en la planilla de Google Sheets
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws = sh.worksheet(f"User_{user_id}")
-        ws.delete_rows(fila_idx)
+        # Invocamos la función puente en lugar de interactuar con Google Sheets
+        eliminar_registro_por_id(user_id, item_id)
         
-        await query.answer("✅ Registro eliminado correctamente de la planilla.")
+        await query.answer("✅ Registro eliminado correctamente.")
         await mostrar_registros_para_eliminar(query, user_id, context)
 
 async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Paso 1: Solicita al usuario el día y momento del registro que desea eliminar."""
     keyboard = [
         [
             InlineKeyboardButton("📅 Hoy", callback_data="del_reg_hoy"),
@@ -5369,7 +5378,6 @@ async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYP
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Inicializamos valores temporales en user_data
     context.user_data['del_filtro_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
     context.user_data['del_filtro_momento'] = "Almuerzo"
 
@@ -5381,7 +5389,7 @@ async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
-
+    
 # =====================================================================================================================================
 #                FINAL                               COMANDO ELIMINAR                              FINAL
 # ======================================================================================================================================
