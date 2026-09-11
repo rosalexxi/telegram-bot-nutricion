@@ -2026,35 +2026,19 @@ def eliminar_registro_por_id(user_id, item_id):
 
 
 def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
-    """Guarda los registros de ingesta alimentaria de forma dual en Google Sheets y Supabase."""
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    ws = get_or_create_worksheet(sh, f"User_{user_id}")
-
-    rows = []
-    for item in items:
-        rows.append([
-            str(fecha),
-            str(momento),
-            item.get("alimento", item.get("Alimento/Detalle", "Desconocido")),
-            to_sheet_int(item.get("peso", item.get("Peso (g)", 0))),
-            to_sheet_int(item.get("calorias", item.get("Calorías (kcal)", 0))),
-            to_sheet_int(item.get("proteinas", item.get("Proteínas (g)", 0))),
-            to_sheet_int(item.get("grasas", item.get("Grasas (g)", 0))),
-            to_sheet_int(item.get("carbohidratos", item.get("hidratos", item.get("Hidratos (g)", 0)))),
-            to_sheet_int(item.get("fibras", item.get("Fibras (g)", 0)))
-        ])
-    if rows:
-        ws.append_rows(rows)
-
-    # 🗄️ Espejo simultáneo en Supabase con depuración activa
+    """
+    Función operativa definitiva: Guarda los registros de ingesta alimentaria 
+    EXCLUSIVAMENTE en Supabase, sin depender de Google Sheets ni ocultar errores.
+    """
+    tabla_nombre = f"User_{user_id}"
+    
+    # 1. Aseguramos la conexión y que la tabla exista con la estructura exacta
+    conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
+    
     try:
-        tabla_nombre = f"user_{user_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
-        
         for item in items:
             query = f"""
-                INSERT INTO {tabla_nombre} ("Fecha", "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)")
+                INSERT INTO "{tabla_nombre}" ("Fecha", "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)")
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             valores = (
@@ -2071,14 +2055,17 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
             cur.execute(query, valores)
             
         conn.commit()
+    except Exception as e:
+        conn.rollback()
+        # 🚨 Si hay un error en Supabase, ahora SÍ se detendrá o imprimirá claramente en la consola de Render
+        print(f"🚨 ERROR CRÍTICO EN SUPABASE PARA {tabla_nombre}: {e}")
+        logger.error(f"Error al insertar en Supabase ({tabla_nombre}): {e}")
+        raise e  # Esto fuerza a que el bot sepa que falló en lugar de dar un falso positivo
+    finally:
         cur.close()
         conn.close()
-    except Exception as e:
-        # 🚨 Imprime el error exacto en la consola de Render para descubrir el motivo del fallo
-        print(f"🚨 ERROR REAL EN SUPABASE: {e}")
-        logger.error(f"Error interno al duplicar ingesta en Supabase (User_{user_id}): {e}")
-        
-def guardar_comida_precargada_db(user_id, fila):
+               
+        def guardar_comida_precargada_db(user_id, fila):
     """Guarda las comidas precargadas de forma dual en Google Sheets y Supabase."""
     ws = get_user_worksheet(user_id)
     codigo_original = fila.get('Nombre', fila.get('nombre', ''))
