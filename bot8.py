@@ -6790,6 +6790,133 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 # =============================================================================================================================================
 
 # =============================================================================================================================================
+#                    INICIO            FUNCION CONEXION Y MIGRACION DINAMICA SUPABASE            INICIO  
+# =============================================================================================================================================
+
+def _obtener_conexion_db_migrar():
+    """Obtiene la conexión a la base de datos PostgreSQL de Supabase usando DATABASE_URL."""
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise ValueError("La variable de entorno DATABASE_URL no está configurada.")
+    return psycopg2.connect(database_url)
+
+def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
+    """
+    Crea la tabla en Supabase de forma dinámica utilizando exactamente los nombres 
+    de las columnas del DataFrame (respetando mayúsculas, minúsculas y espacios).
+    """
+    conn = _obtener_conexion_db_migrar()
+    cur = conn.cursor()
+
+    if df_muestra is not None:
+        columnas_sql = []
+        for col in df_muestra.columns:
+            # Determinamos el tipo de dato SQL basándonos en si la columna es numérica o texto
+            sample_val = df_muestra[col].dropna()
+            if not sample_val.empty and pd.api.types.is_numeric_dtype(sample_val):
+                tipo_sql = "DOUBLE PRECISION"
+            else:
+                tipo_sql = "TEXT"
+            
+            # Usamos comillas dobles para forzar a PostgreSQL a respetar mayúsculas, minúsculas y espacios exactos
+            columnas_sql.append(f'"{str(col).strip()}" {tipo_sql}')
+
+        definicion_columnas = ", \n    ".join(columnas_sql)
+        
+        query_create = f"""
+            CREATE TABLE IF NOT EXISTS "{tabla_nombre}" (
+                id SERIAL PRIMARY KEY,
+                {definicion_columnas}
+            );
+        """
+        cur.execute(query_create)
+
+    conn.commit()
+    return conn, cur
+
+async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Comando temporal (/start) para migrar todo el Excel de Google Sheets a Supabase
+    respetando estrictamente los nombres de hojas, tablas y columnas.
+    """
+    try:
+        await update.message.reply_text("🔄 Iniciando migración masiva y exacta del Excel a Supabase...", parse_mode="Markdown")
+        
+        # Conexión a Google Sheets usando tus variables de entorno globales
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        creds = Credentials.from_service_account_file(GOOGLE_SHEETS_KEY_PATH, scopes=scope)
+        gc = gspread.authorize(creds)
+        sh = gc.open(SPREADSHEET_NAME)
+        
+        hojas = sh.worksheets()
+        reporte = []
+
+        for ws in hojas:
+            nombre_hoja_original = ws.title
+            nombre_tabla = nombre_hoja_original.strip()
+            
+            registros = ws.get_all_records()
+            if not registros:
+                reporte.append(f"⚠️ Hoja *{nombre_hoja_original}*: Omitida por estar vacía.")
+                continue
+
+            df = pd.DataFrame(registros)
+            # Limpiamos espacios en blanco en los bordes de los nombres de columnas
+            df.columns = [str(c).strip() for c in df.columns]
+
+            try:
+                # Asegura la creación de la tabla en Supabase con la estructura exacta de la hoja
+                conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df)
+            except Exception as e:
+                reporte.append(f"❌ Tabla *{nombre_tabla}*: Error al crear tabla ({e}).")
+                continue
+
+            filas_insertadas = 0
+            try:
+                columnas = list(df.columns)
+                cols_sql = ', '.join([f'"{c}"' for c in columnas])
+                placeholders = ', '.join(['%s'] * len(columnas))
+                
+                query_insert = f"""
+                    INSERT INTO "{nombre_tabla}" ({cols_sql})
+                    VALUES ({placeholders})
+                """
+
+                for _, row in df.iterrows():
+                    valores = []
+                    for col in columnas:
+                        val = row[col]
+                        if pd.isna(val):
+                            val = None
+                        elif isinstance(val, (pd.Timestamp, datetime, date)):
+                            val = str(val)
+                        valores.append(val)
+
+                    cur.execute(query_insert, tuple(valores))
+                    filas_insertadas += 1
+
+                conn.commit()
+                reporte.append(f"✅ Tabla *{nombre_tabla}*: {filas_insertadas} registros migrados con éxito.")
+
+            except Exception as inner_e:
+                conn.rollback()
+                reporte.append(f"❌ Tabla *{nombre_tabla}*: Error en inserción de filas ({inner_e}).")
+            finally:
+                cur.close()
+                conn.close()
+
+        mensaje_final = "📊 **Resultado de la Migración Completa a Supabase:**\n\n" + "\n".join(reporte)
+        await update.message.reply_text(mensaje_final, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Error crítico en cmd_start (migración): {e}", exc_info=True)
+        await update.message.reply_text(f"⚠️ Ocurrió un error grave durante la migración: {e}")
+
+# =============================================================================================================================================
+#                    FINAL             FUNCION CONEXION Y MIGRACION DINAMICA SUPABASE            FINAL  
+# =============================================================================================================================================
+
+# =============================================================================================================================================
 #                    INICIO                                     MAIN EXECUTION                                  INICIO  
 # =============================================================================================================================================
 
@@ -6853,6 +6980,7 @@ def main():
     app_bot.add_handler(CommandHandler("eliminar", cmd_eliminar_ingesta))
     app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
     app_bot.add_handler(CommandHandler(["ingreso", "nuevo"], cmd_nueva_cuenta))
+    app_bot.add_handler(CommandHandler(["migrar", "nuevo"], cmd_migrar))
     
 
     # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
