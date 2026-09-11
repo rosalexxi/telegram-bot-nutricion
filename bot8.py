@@ -4133,7 +4133,6 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ======================================================================================================================================
 #                      FINAL                        COMANDO SEMANA                                          FINAL
 # ======================================================================================================================================
-
 #========================================================================================================================================
 #                     INICIO                         COMANDO START                          INICIO  2026 09 05
 # =========================================================================================================================================
@@ -4151,25 +4150,25 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  `  /presi 120,80` (Solo presión)\n"
         "  `  /presi AAAA-MM` Promedio mensual y PDF.\n"
         "• `/diario`: Ingestas del día detalle nutricional y PDF.\n"
-        "• `/semanal`: Estadística semanal (calorías,fibras,etc).\n"
+        "• `/semanal`: Estadística semanal (calorías, fibras, etc).\n"
         "• `/mensual`: Reporte con estimación de peso y PDF.\n"
         "• `/perfil`: Consulta de datos biométricos.\n"
         "• `/peso`: `/peso 90` Actualiza el peso del mes.\n"
         "• `/eliminar`: Borra ingestas seleccionando dia.\n"
-        "• `/comidas`: Listado predetecargadas y PDF.\n"
+        "• `/comidas`: Listado predeterminadas y PDF.\n"
         "• `/receta`: Calculadora Web para registrar comidas.\n\n"
         "📌 **Métodos de Registro:**\n"
-        "• **Con IA:** Texto libre 🎤Notas de voz 📸Fotos de platos.\n"
-        "• **Modificación parcial:** Editar por item y reenvio a la IA\n"
+        "• **Con IA:** Texto libre, 🎤 Notas de voz, 📸 Fotos de platos.\n"
+        "• **Modificación parcial:** Editar por item y reenvío a la IA\n"
         "    `DESCRIPCION` manteniendo el peso\n"
         "    `DESCRIPCION,PESO` modificando ambos campos\n"
-        "    `,PESO` manteniendo descripcion\n"
-        "• **Sin IA Comidas precargadas y actividad fisica:**\n"
-        "    `*DESAYUNO`: menu completo\n"
+        "    `,PESO` manteniendo descripción\n"
+        "• **Sin IA:** Comidas precargadas y actividad física:\n"
+        "    `*DESAYUNO`: menú completo\n"
         "    `*PIZZA (porcion),4`: 4 porciones de pizza\n"
         "    `*TORTA (fraccion x 100g),1.5`: 150 g de torta\n"
-        "• **Actividad Física:** `# Minutos,Descrip,Calorias`\n"
-        "    `# 45 min, caminata en cinta, 250 cal.\n\n"
+        "• **Actividad Física:** `# Minutos, Descrip, Calorías`\n"
+        "    `# 45 min, caminata en cinta, 250 cal`.\n\n"
         "📄 *Te adjuntamos el Manual de Usuario completo en formato PDF.*"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
