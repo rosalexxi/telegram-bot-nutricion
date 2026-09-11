@@ -2065,7 +2065,7 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
         cur.close()
         conn.close()
                
-        def guardar_comida_precargada_db(user_id, fila):
+def guardar_comida_precargada_db(user_id, fila):
     """Guarda las comidas precargadas de forma dual en Google Sheets y Supabase."""
     ws = get_user_worksheet(user_id)
     codigo_original = fila.get('Nombre', fila.get('nombre', ''))
