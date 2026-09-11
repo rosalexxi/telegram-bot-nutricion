@@ -25,8 +25,6 @@ import pandas as pd
 import gspread
 import html  
 
-
-
 from typing import Dict, Tuple, List, Optional, Any            
 from urllib.parse import urlparse 
 from datetime import datetime, date, timedelta, time
@@ -4153,15 +4151,15 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  `  /presi 120,80` (Solo presión)\n"
         "  `  /presi AAAA-MM` Promedio mensual y PDF.\n"
         "• `/diario`: Ingestas del día detalle nutricional y PDF.\n"
-        "• `/semanal`: Estadística semanal (calorías, proteínas, etc).\n"
+        "• `/semanal`: Estadística semanal (calorías,fibras,etc).\n"
         "• `/mensual`: Reporte con estimación de peso y PDF.\n"
         "• `/perfil`: Consulta de datos biométricos.\n"
         "• `/peso`: `/peso 90` Actualiza el peso del mes.\n"
-        "• `/eliminar`: Borra ingestas o actividades seleccionando el dia.\n"
-        "• `/comidas`: Listado de comidas predetecargadas y PDF.\n"
+        "• `/eliminar`: Borra ingestas seleccionando dia.\n"
+        "• `/comidas`: Listado predetecargadas y PDF.\n"
         "• `/receta`: Calculadora Web para registrar comidas.\n\n"
         "📌 **Métodos de Registro:**\n"
-        "• **Con IA:** Texto libre, Notas de voz 🎤 o Fotos de platos 📸.\n"
+        "• **Con IA:** Texto libre 🎤Notas de voz 📸Fotos de platos.\n"
         "• **Modificación parcial:** Editar por item y reenvio a la IA\n"
         "    `DESCRIPCION` manteniendo el peso\n"
         "    `DESCRIPCION,PESO` modificando ambos campos\n"
@@ -4169,9 +4167,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• **Sin IA Comidas precargadas y actividad fisica:**\n"
         "    `*DESAYUNO`: menu completo\n"
         "    `*PIZZA (porcion),4`: 4 porciones de pizza\n"
-        "    `*TORTA (fraccion x 100g),1.5`: 150 gramos de torta\n"
-        "• **Actividad Física:** `# MINUTOS DESCRIPCION, CALORIAS`\n"
-        "    `# 45 MINUTOS DETALLE, CALORIAS`: # 45 caminata, 250.\n\n"
+        "    `*TORTA (fraccion x 100g),1.5`: 150 g de torta\n"
+        "• **Actividad Física:** `# Minutos,Descrip,Calorias`\n"
+        "    `# 45 min, caminata en cinta, 250 cal.\n\n"
         "📄 *Te adjuntamos el Manual de Usuario completo en formato PDF.*"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
@@ -5468,10 +5466,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #===================================================================================================================================
 	
 #====================================================================================================================================
-#                INICIO                           MANEJADOR MENU                           INICIO
+#                INICIO                           MANEJADOR HANDLE MENU                           INICIO
 #===================================================================================================================================
 	
-
 @requiere_registro
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -5583,6 +5580,55 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     elif data.startswith("descargar_pdf_presion_"):
         mes_str = data.replace("descargar_pdf_presion_", "")
         await generar_y_enviar_pdf_presion(query, user_id, mes_str, context)
+
+    # 🆕 NUEVO: Captura el click en el botón de la botonera de pacientes para enviar el informe médico
+    elif data.startswith("enviar_inf_"):
+        target_user_id = int(data.replace("enviar_inf_", ""))
+        chat_id_actual = query.message.chat_id
+
+        ahora_arg = obtener_ahora_arg()
+        if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
+            ahora_arg = ahora_arg.replace(tzinfo=None)
+        
+        mes_actual_str = ahora_arg.strftime("%Y-%m")
+        mes_anterior_str = (ahora_arg.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+        
+        if ahora_arg.day <= 7:
+            mes_target_str = mes_anterior_str
+        else:
+            mes_target_str = mes_actual_str
+
+        await query.edit_message_text(
+            f"⏳ Compilando informe PDF del período `{mes_target_str}` para el paciente (`{target_user_id}`)...",
+            parse_mode="Markdown"
+        )
+
+        async def tarea_segundo_plano():
+            try:
+                exito = await procesar_y_enviar_informe_mensual(
+                    context=context,
+                    user_id=target_user_id,
+                    mes_target=mes_target_str,
+                    es_automatico_15=False,
+                    forzar_envio=True,
+                    chat_destino=target_user_id
+                )
+                if not exito:
+                    await context.bot.send_message(
+                        chat_id=chat_id_actual,
+                        text=f"❌ No se pudo generar el PDF para el paciente `{target_user_id}`. Verificá si tiene registros cargados.",
+                        parse_mode="Markdown"
+                    )
+                else:
+                    await context.bot.send_message(
+                        chat_id=chat_id_actual,
+                        text=f"✅ Informe PDF del período `{mes_target_str}` enviado exitosamente al paciente (`{target_user_id}`).",
+                        parse_mode="Markdown"
+                    )
+            except Exception as e:
+                logger.error(f"Error en tarea en segundo plano de PDF para {target_user_id}: {e}", exc_info=True)
+
+        asyncio.create_task(tarea_segundo_plano())
 
 #====================================================================================================================================
 #                FINAL                           MANEJADOR MENU                     FINAL
@@ -5882,82 +5928,50 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                     FINAL                                      COMANDO PACIENTES                           FINAL
 # =============================================================================================================================================
 
+
 # =============================================================================================================================================
 #                    INICIO                                COMANDO INFORME MEDICO                                INICIO  
 # =============================================================================================================================================
 
 async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Comando para que el médico fuerce la generación y envío del informe en PDF.
-    Uso: /informe [user_id] [mes (opcional YYYY-MM)]
+    Comando para que el profesional seleccione un paciente de su lista y envíe el informe PDF.
+    Uso: /informe
     """
     try:
-        args = context.args
-        user_id_actual = update.effective_user.id
-        chat_id_actual = update.effective_chat.id
+        # 1. Validar que quien ejecuta sea un profesional registrado
+        # (Nota: cuando pases a Supabase, cambiá esto por _verificar_y_obtener_profesional_SUPA)
+        prof_id = await _verificar_y_obtener_profesional(update)
+        if not prof_id:
+            await update.message.reply_text("⛔ No tenés permisos para ejecutar este comando o no estás registrado como profesional.")
+            return
 
-        if args and len(args) > 0:
-            try:
-                target_user_id = int(args[0])
-            except ValueError:
-                await update.message.reply_text("⚠️ El ID de usuario debe ser un número válido.\nEjemplo: `/informe 123456789`", parse_mode="Markdown")
-                return
-        else:
-            target_user_id = user_id_actual
-
-        ahora_arg = obtener_ahora_arg()
-        if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
-            ahora_arg = ahora_arg.replace(tzinfo=None)
+        # 2. Obtener la lista de pacientes activos asignados a este profesional
+        # (Nota: cuando pases a Supabase, cambiá esto por obtener_pacientes_por_medico_SUPA)
+        pacientes = obtener_pacientes_por_medico(prof_id)
         
-        mes_actual_str = ahora_arg.strftime("%Y-%m")
-        mes_anterior_str = (ahora_arg.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+        if not pacientes:
+            await update.message.reply_text("📋 No tenés pacientes activos asignados en este momento.")
+            return
 
-        # Si el médico especificó un mes por parámetro, se respeta.
-        # Si no lo especificó, evalúa el día: si está entre el 1 y el 7, toma por defecto el mes anterior.
-        if args and len(args) > 1:
-            mes_target_str = args[1]
-        else:
-            if ahora_arg.day <= 7:
-                mes_target_str = mes_anterior_str
-            else:
-                mes_target_str = mes_actual_str
+        # 3. Construir la botonera interactiva con cada paciente
+        keyboard = []
+        for pac in pacientes:
+            # Cada botón guarda la acción 'enviar_inf_' y el user_id del paciente
+            callback_data = f"enviar_inf_{pac['user_id']}"
+            keyboard.append([InlineKeyboardButton(f"👤 {pac['nombre']}", callback_data=callback_data)])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
-            f"⏳ Compilando informe PDF del período `{mes_target_str}` para el usuario `{target_user_id}`...",
-            parse_mode="Markdown"
+            "📊 **Generación de Informe Médico**\nSeleccioná el paciente al que deseas enviarle el informe del período:",
+            parse_mode="Markdown",
+            reply_markup=reply_markup
         )
-
-        async def tarea_segundo_plano():
-            try:
-                # Se fuerza que el chat de destino sea siempre el propietario del informe (el paciente)
-                exito = await procesar_y_enviar_informe_mensual(
-                    context=context,
-                    user_id=target_user_id,
-                    mes_target=mes_target_str,
-                    es_automatico_15=False,
-                    forzar_envio=True,
-                    chat_destino=target_user_id
-                )
-                if not exito:
-                    await context.bot.send_message(
-                        chat_id=chat_id_actual,
-                        text=f"❌ No se pudo generar el PDF para el usuario `{target_user_id}`. Verificá si tiene registros cargados.",
-                        parse_mode="Markdown"
-                    )
-                else:
-                    await context.bot.send_message(
-                        chat_id=chat_id_actual,
-                        text=f"✅ Informe PDF del período `{mes_target_str}` enviado exitosamente al paciente (`{target_user_id}`).",
-                        parse_mode="Markdown"
-                    )
-            except Exception as e:
-                logger.error(f"Error en tarea en segundo plano de PDF para {target_user_id}: {e}", exc_info=True)
-
-        asyncio.create_task(tarea_segundo_plano())
 
     except Exception as e:
         logger.error(f"Error en cmd_enviar_informe_actual: {e}", exc_info=True)
-        await update.message.reply_text("⚠️ Ocurrió un error al procesar la solicitud del informe PDF.")
+        await update.message.reply_text("⚠️ Ocurrió un error al procesar la solicitud del informe.")
 
 # ==========================================================================================================================================
 #                    FINAL                             COMANDO INFORME MEDICO                                FINAL  
