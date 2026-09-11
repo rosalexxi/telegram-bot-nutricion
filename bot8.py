@@ -1983,9 +1983,9 @@ def actualizar_estado_usuario(user_id: str, nuevo_estado: str):
 
     # Espejo en Supabase
     try:
-        conn, cur = _asegurar_tabla_y_conectar("usuarios", tipo_tabla="usuarios")
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
         cur.execute("""
-            UPDATE usuarios
+            UPDATE "Usuarios"
             SET "Estado" = %s
             WHERE "User ID" = %s
         """, (str(nuevo_estado), str(user_id)))
@@ -1994,7 +1994,6 @@ def actualizar_estado_usuario(user_id: str, nuevo_estado: str):
         conn.close()
     except Exception as e:
         logger.error(f"Error al actualizar estado en Supabase para {user_id}: {e}")
-
 
 def eliminar_registro_por_id(user_id, item_id):
     """
@@ -2010,11 +2009,11 @@ def eliminar_registro_por_id(user_id, item_id):
     except Exception as e:
         print(f"Error al eliminar registro en Google Sheets para el usuario {user_id}: {e}")
 
-    # Espejo en Supabase (asumiendo que item_id o un identificador único permite el borrado)
+    # Espejo en Supabase
     try:
-        tabla_nombre = f"user_{user_id}"
+        tabla_nombre = f"User_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
-        cur.execute(f"DELETE FROM {tabla_nombre} WHERE id = %s", (int(item_id),))
+        cur.execute(f'DELETE FROM "{tabla_nombre}" WHERE id = %s', (int(item_id),))
         conn.commit()
         cur.close()
         conn.close()
@@ -2081,7 +2080,7 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
     except Exception as e:
         print(f"🚨 ERROR REAL EN SUPABASE: {e}")
         logger.error(f"Error interno al duplicar ingesta en Supabase (User_{user_id}): {e}")
-                       
+                
 def guardar_comida_precargada_db(user_id, fila):
     """Guarda las comidas precargadas de forma dual en Google Sheets y Supabase."""
     ws = get_user_worksheet(user_id)
@@ -2102,7 +2101,7 @@ def guardar_comida_precargada_db(user_id, fila):
     ws.append_row(nueva_fila)
 
     try:
-        tabla_nombre = f"comidas_{user_id}"
+        tabla_nombre = f"Comidas_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
 
         p_val = float(fila.get('Peso', fila.get('peso', 0)))
@@ -2113,7 +2112,7 @@ def guardar_comida_precargada_db(user_id, fila):
         f_val = float(fila.get('Fibras', fila.get('fibras', 0)))
 
         query = f"""
-            INSERT INTO {tabla_nombre} ("Nombre", "Descripcion", "Peso", "Calorias", "Proteinas", "Grasas", "Carbohidratos", "Fibras")
+            INSERT INTO "{tabla_nombre}" ("Nombre", "Descripcion", "Peso", "Calorias", "Proteinas", "Grasas", "Carbohidratos", "Fibras")
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """
         valores = (
@@ -2135,7 +2134,6 @@ def guardar_comida_precargada_db(user_id, fila):
     
     return codigo_unico
 
-
 def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
     """Guarda los registros de presión arterial de forma dual en Google Sheets y Supabase."""
     gc = get_gspread_client()
@@ -2155,11 +2153,11 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
     ])
 
     try:
-        tabla_nombre = f"presion_{user_id}"
+        tabla_nombre = f"Presion_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="presion")
 
         query = f"""
-            INSERT INTO {tabla_nombre} ("Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota")
+            INSERT INTO "{tabla_nombre}" ("Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota")
             VALUES (%s, %s, %s, %s, %s, %s)
         """
         valores = (
@@ -2176,7 +2174,6 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
         conn.close()
     except Exception as e:
         logger.error(f"Error interno al grabar Presión en Supabase (Presion_{user_id}): {e}")
-
 
 def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     """Guarda y actualiza los datos del perfil y peso del usuario de forma dual en Google Sheets y Supabase."""
@@ -2296,10 +2293,10 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
 
     # Espejo y creación automática de tabla en Supabase
     try:
-        tabla_nombre = f"perfil_{user_id}"
+        tabla_nombre = f"Perfil_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
         
-        cur.execute(f'SELECT id FROM {tabla_nombre} WHERE "MES" = %s', (str(mes),))
+        cur.execute(f'SELECT id FROM "{tabla_nombre}" WHERE "MES" = %s', (str(mes),))
         fila_supa = cur.fetchone()
         
         peso_real = float(peso)
@@ -2307,7 +2304,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         
         if fila_supa:
             cur.execute(f"""
-                UPDATE {tabla_nombre}
+                UPDATE "{tabla_nombre}"
                 SET "PESO" = %s, "Fecha_Actualizacion" = %s
                 WHERE "MES" = %s
             """, (peso_real, ahora.strftime("%Y-%m-%d %H:%M:%S"), str(mes)))
@@ -2317,7 +2314,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
             ocupacion_val = (ocupacion_calculada / 1000.0) if ocupacion_calculada > 100 else ocupacion_calculada
             
             cur.execute(f"""
-                INSERT INTO {tabla_nombre} ("EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
+                INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 str(edad_raw) if 'edad_raw' in locals() else "64",
@@ -2334,7 +2331,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         cur.close()
         conn.close()
     except Exception as e:
-        logger.error(f"Error al duplicar perfil en Supabase (perfil_{user_id}): {e}")
+        logger.error(f"Error al duplicar perfil en Supabase (Perfil_{user_id}): {e}")
 
 # =============================================================================================================================================
 #              FINAL                           7 FUNCIONES GUARDAR                 FINAL
@@ -6805,130 +6802,48 @@ def _obtener_conexion_db_migrar():
         raise ValueError("La variable de entorno DATABASE_URL no está configurada.")
     return psycopg2.connect(database_url)
 
-def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
+def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
     """
-    Crea o asegura la tabla en Supabase utilizando la estructura exacta 
-    definida en las planillas (dinámica para usuarios o fija para globales).
+    Crea la tabla en Supabase de forma dinámica utilizando exactamente los nombres 
+    de las columnas del DataFrame (respetando mayúsculas, minúsculas y espacios).
     """
-    conn = _obtener_conexion_db()
+    conn = _obtener_conexion_db_migrar()
     cur = conn.cursor()
 
-    if tipo_tabla == "comida":
-        # Tabla dinámica por usuario: user_<user_id>
-        cur.execute(f"""
+    if df_muestra is not None:
+        columnas_sql = []
+        for col in df_muestra.columns:
+            # Determinamos el tipo de dato SQL basándonos en si la columna es numérica o texto
+            sample_val = df_muestra[col].dropna()
+            if not sample_val.empty and pd.api.types.is_numeric_dtype(sample_val):
+                tipo_sql = "DOUBLE PRECISION"
+            else:
+                tipo_sql = "TEXT"
+            
+            # Usamos comillas dobles para forzar a PostgreSQL a respetar mayúsculas, minúsculas y espacios exactos
+            columnas_sql.append(f'"{str(col).strip()}" {tipo_sql}')
+
+        definicion_columnas = ", \n    ".join(columnas_sql)
+        
+        query_create = f"""
             CREATE TABLE IF NOT EXISTS "{tabla_nombre}" (
                 id SERIAL PRIMARY KEY,
-                "Fecha" TEXT,
-                "Momento/Actividad" TEXT,
-                "Alimento/Detalle" TEXT,
-                "Peso (g)" DOUBLE PRECISION,
-                "Calorías (kcal)" DOUBLE PRECISION,
-                "Proteínas (g)" DOUBLE PRECISION,
-                "Grasas (g)" DOUBLE PRECISION,
-                "Hidratos (g)" DOUBLE PRECISION,
-                "Fibras (g)" DOUBLE PRECISION
+                {definicion_columnas}
             );
-        """)
-    elif tipo_tabla == "perfil":
-        # Tabla dinámica por perfil de usuario: Perfil_<user_id>
-        cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS "{tabla_nombre}" (
-                id SERIAL PRIMARY KEY,
-                "EDAD" TEXT,
-                "PESO" DOUBLE PRECISION,
-                "ALTURA" DOUBLE PRECISION,
-                "GENERO" TEXT,
-                "ocupacion" DOUBLE PRECISION,
-                "MES" TEXT,
-                "Fecha_Actualizacion" TEXT,
-                "Peso_ideal" DOUBLE PRECISION,
-                "Cumple" TEXT
-            );
-        """)
-    elif tipo_tabla == "presion":
-        # Tabla dinámica por presión de usuario: Presion_<user_id>
-        cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS "{tabla_nombre}" (
-                id SERIAL PRIMARY KEY,
-                "Fecha_Hora" TEXT,
-                "Fecha_Dia" TEXT,
-                "Alta" DOUBLE PRECISION,
-                "Baja" DOUBLE PRECISION,
-                "Pulsaciones" DOUBLE PRECISION,
-                "Nota" TEXT
-            );
-        """)
-    elif tipo_tabla == "comidas_precargadas":
-        # Tabla dinámica de comidas del usuario: Comidas_<user_id>
-        cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS "{tabla_nombre}" (
-                id SERIAL PRIMARY KEY,
-                "Nombre" TEXT,
-                "Descripcion" TEXT,
-                "Peso" DOUBLE PRECISION,
-                "Calorias" DOUBLE PRECISION,
-                "Proteinas" DOUBLE PRECISION,
-                "Grasas" DOUBLE PRECISION,
-                "Carbohidratos" DOUBLE PRECISION,
-                "Fibras" DOUBLE PRECISION
-            );
-        """)
-    elif tipo_tabla == "usuarios":
-        # Tabla global de usuarios
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS "Usuarios" (
-                id SERIAL PRIMARY KEY,
-                "User ID" TEXT UNIQUE,
-                "Nombre" TEXT,
-                "Estado" INTEGER,
-                "Ultimo Mes Peso" TEXT,
-                "Notificaciones" TEXT,
-                "Fecha Alta" TEXT,
-                "Sexo" TEXT,
-                "Altura" DOUBLE PRECISION,
-                "muneca" DOUBLE PRECISION,
-                "ocupacion" DOUBLE PRECISION,
-                "cumple" TEXT,
-                "profesional" TEXT
-            );
-        """)
-    elif tipo_tabla == "categorias_comida":
-        # Tabla global de categorías
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS "Categorias_Comida" (
-                id SERIAL PRIMARY KEY,
-                "Carne Vacuna" TEXT,
-                "Pollo" TEXT,
-                "Cerdo" TEXT,
-                "Pescado" TEXT,
-                "Lacteos" TEXT,
-                "Verduras" TEXT,
-                "Frutas" TEXT,
-                "Harinas Refinadas" TEXT,
-                "Harinas Integrales" TEXT
-            );
-        """)
-    elif tipo_tabla == "profesionales":
-        # Tabla global de profesionales
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS "Profesionales" (
-                id SERIAL PRIMARY KEY,
-                "User ID" TEXT,
-                "Nombre" TEXT,
-                "Especialidad" TEXT
-            );
-        """)
+        """
+        cur.execute(query_create)
 
     conn.commit()
     return conn, cur
-    
+
 async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando temporal para migrar el archivo Excel local (Registro_Nutricional_Bot.xlsx) 
-    hacia Supabase respetando estrictamente los nombres de hojas y columnas.
+    hacia Supabase respetando estrictamente los nombres de hojas y columnas, 
+    y dividiendo por 1000 los valores numéricos correspondientes.
     """
     try:
-        await update.message.reply_text("🔄 Leyendo Excel local y preparando la migración a Supabase...", parse_mode="Markdown")
+        await update.message.reply_text("🔄 Leyendo Excel local y preparando la migración a Supabase (con valores divididos por 1000)...", parse_mode="Markdown")
         
         excel_path = 'Registro_Nutricional_Bot.xlsx'
         if not os.path.exists(excel_path):
@@ -6950,7 +6865,7 @@ async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
             df.columns = [str(c).strip() for c in df.columns]
 
             try:
-                # Creamos la tabla y conectamos usando tu función existente
+                # Creamos la tabla y conectamos usando la función de migración
                 conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df)
             except Exception as e:
                 reporte.append(f"❌ Tabla *{nombre_tabla}*: Error al crear tabla ({e}).")
@@ -6975,6 +6890,10 @@ async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             val = None
                         elif isinstance(val, (pd.Timestamp, datetime, date)):
                             val = str(val)
+                        elif isinstance(val, (int, float)):
+                            # Si el valor numérico es mayor a 1000 (formato multiplicado de la planilla), lo dividimos por 1000
+                            if val > 1000:
+                                val = float(val) / 1000.0
                         valores.append(val)
 
                     cur.execute(query_insert, tuple(valores))
@@ -6996,7 +6915,7 @@ async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error crítico en migración local: {e}", exc_info=True)
         await update.message.reply_text(f"⚠️ Error general en la migración: {e}")
-        
+                
 # =============================================================================================================================================
 #                    FINAL             FUNCION CONEXION Y MIGRACION DINAMICA SUPABASE            FINAL  
 # =============================================================================================================================================
