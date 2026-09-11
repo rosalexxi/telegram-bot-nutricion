@@ -1898,7 +1898,7 @@ def obtener_pacientes_por_medico_SUPA(prof_id):
 # ======================================================================================================================================
 #                    INICIO                  FUNCIONES LECTURA PROFESIONALES                     INICIO
 # =======================================================================================================================================
-`
+
 async def _verificar_y_obtener_profesional(update: Update) -> str:
     """Valida que quien ejecuta el comando sea un profesional registrado."""
     prof_id = str(update.effective_user.id).strip()
