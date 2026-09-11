@@ -468,7 +468,6 @@ def api_guardar_comida():
 #                    FINAL                                   PAGINA WEB                                     FINAL
 # =============================================================================================================================================
 
-
 # =============================================================================================================================================
 #              INICIO                     1 FUNCIONES DATOS Y FECHAS                           INICIO
 # =============================================================================================================================================
@@ -628,7 +627,7 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
     conn.commit()
     return conn, cur
 
-def get_gspread_client():
+def get_gspread_client_SUPA():
     """
     Equivalente Supa: Como no usamos Google Sheets, esta función retorna la conexión activa 
     o un conector simulado para mantener la compatibilidad con llamadas que esperaban el cliente.
@@ -636,7 +635,7 @@ def get_gspread_client():
     return _obtener_conexion_db()
 
 
-def get_or_create_worksheet(spreadsheet, title):
+def get_or_create_worksheet_SUPA(spreadsheet, title):
     """
     Equivalente Supa: En lugar de buscar una pestaña en un Excel, 
     identifica el tipo de tabla dinámicamente según el título (ej: 'User_', 'Presion_', 'Perfil_', 'Plantillas_Comidas') 
@@ -658,7 +657,7 @@ def get_or_create_worksheet(spreadsheet, title):
     return conn, cur
 
 
-def get_user_worksheet(user_id):
+def get_user_worksheet_SUPA(user_id):
     """
     Equivalente Supa: Asegura y conecta directamente con la tabla de comidas precargadas 
     del usuario en Supabase (equivalente a la pestaña dinámica 'Comidas_<user_id>').
@@ -666,6 +665,73 @@ def get_user_worksheet(user_id):
     tabla_nombre = f"comidas_{user_id}"
     conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
     return conn, cur
+
+# =============================================================================================================================================
+#              FINAL                              CONEXION BASE SUPA                      FINAL
+# =============================================================================================================================================
+
+# ========================================================================================================================================
+#                 INICIO                             GOOGLE SHEETS                       INICIO
+# =============================================================================================================================================
+                
+def get_gspread_client():
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    if os.path.exists(GOOGLE_SHEETS_KEY_PATH):
+        creds = Credentials.from_service_account_file(GOOGLE_SHEETS_KEY_PATH, scopes=scopes)
+    else:
+        creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+        if creds_json:
+            info = json.loads(creds_json)
+            creds = Credentials.from_service_account_info(info, scopes=scopes)
+        else:
+            raise Exception("No se encontraron credenciales de Google Sheets.")
+    return gspread.authorize(creds)
+
+def get_or_create_worksheet(spreadsheet, title):
+    try:
+        return spreadsheet.worksheet(title)
+    except gspread.WorksheetNotFound:
+        if title.startswith("User_"):
+            ws = spreadsheet.add_worksheet(title=title, rows="1000", cols="10")
+            ws.append_row(["Fecha", "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)"])
+            return ws
+        elif title.startswith("Presion_"):
+            ws = spreadsheet.add_worksheet(title=title, rows="500", cols="6")
+            ws.append_row(["Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota"])
+            return ws
+        elif title.startswith("Perfil_"):
+            ws = spreadsheet.add_worksheet(title=title, rows="100", cols="7")
+            ws.append_row(["EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "MES", "Fecha_Actualizacion"])
+            return ws
+        elif title == "Plantillas_Comidas":
+            ws = spreadsheet.add_worksheet(title=title, rows="100", cols="8")
+            ws.append_row(["Nombre", "Descripcion", "Peso", "Calorias", "Proteinas", "Grasas", "Carbohidratos", "Fibras"])
+            return ws
+        else:
+            return spreadsheet.add_worksheet(title=title, rows="200", cols="10")
+
+def get_user_worksheet(user_id):
+    """Obtiene o crea una pestaña dinámica 'Comidas_<user_id>' dentro de la planilla."""
+    gc = get_gspread_client()
+    sh = gc.open(SPREADSHEET_NAME)
+    
+    sheet_name = f"Comidas_{user_id}"
+    ws = get_or_create_worksheet(sh, sheet_name)
+    
+    if not ws.get_all_values():
+        ws.append_row([
+            "Código / Nombre", 
+            "Descripción", 
+            "Peso (g x1000)", 
+            "Calorías (x1000)", 
+            "Proteínas (g x1000)", 
+            "Grasas (g x1000)", 
+            "Carbohidratos (g x1000)", 
+            "Fibras (g x1000)"
+        ])
+        
+    return ws
+
 
 # ========================================================================================================================================
 #                 FINAL                            2 FUNCIONES CONEXIONES                       FINAL
@@ -676,6 +742,66 @@ def get_user_worksheet(user_id):
 # =============================================================================================================================================
                                 
 def requiere_registro(func):
+    """Decorador que valida que el user_id exista y esté activo."""
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        user_id = str(update.effective_user.id).strip()
+        encontrado = False
+        esta_activo = True
+
+        mensaje_no_registrado = (
+            "⚠️ **¡Aún no estás registrado!**\n\n"
+            "Para poder utilizar este comando y acceder a tu plan nutricional, "
+            "primero necesitás darte de alta en el sistema.\n\n"
+            "👉 Usá el comando `/ingreso` o `/nuevo` para crear tu ficha en un par de pasos."
+        )
+        mensaje_deshabilitado = "❌ **Su usuario ha sido deshabilitado debido a inactividad o baja del sistema, contáctese con el administrador del bot.**"
+
+        try:
+            gc = get_gspread_client()
+            sh = gc.open(SPREADSHEET_NAME)
+            ws_usuarios = sh.worksheet("Usuarios")
+            records = ws_usuarios.get_all_records()
+
+            for r in records:
+                id_hoja = str(r.get("User ID", r.get("user_id", ""))).split('.')[0].strip()
+                if id_hoja == user_id:
+                    encontrado = True
+                    estado_val = str(r.get("Estado", r.get("estado", "0"))).strip().lower()
+                    if estado_val in ['baja', 'suspendido', '3']:
+                        esta_activo = False
+                    break
+        except Exception as e:
+            print(f"Error al verificar registro y estado en Usuarios: {e}")
+
+        if not encontrado:
+            if update.message:
+                await update.message.reply_text(mensaje_no_registrado, parse_mode="Markdown")
+            elif update.callback_query:
+                await update.callback_query.answer("⚠️ Registro requerido", show_alert=True)
+                await update.callback_query.message.reply_text(mensaje_no_registrado, parse_mode="Markdown")
+            return
+
+        if not esta_activo:
+            if update.message:
+                await update.message.reply_text(mensaje_deshabilitado, parse_mode="Markdown")
+            elif update.callback_query:
+                await update.callback_query.answer("⚠️ Usuario deshabilitado", show_alert=True)
+                await update.callback_query.message.reply_text(mensaje_deshabilitado, parse_mode="Markdown")
+            return
+
+        return await func(update, context, *args, **kwargs)
+    return wrapper
+
+# =============================================================================================================================================
+#              FINAL                               DECORADOR REQUIERE REGISTRO                           FINAL
+# ============================================================================================================================================
+
+# =============================================================================================================================================
+#              INICIO                     DECORADOR REQUIERE REGISTRO (SUPABASE _SUPA)                   INICIO
+# ==========================================================================================================================================
+
+def requiere_registro_SUPA(func):
     """Decorador que valida que el user_id exista y esté activo consultando directamente en Supabase."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
@@ -740,7 +866,7 @@ def requiere_registro(func):
 #              INICIO                     4 FUNCIONES BIOMETRIA Y PRESION                       INICIO
 # =============================================================================================================================================
 
-def obtener_datos_usuario(user_id):
+def obtener_datos_usuario_supa(user_id):
     """Versión para Supabase de obtener_datos_usuario."""
     try:
         tabla_nombre = f"user_{user_id}"
@@ -787,7 +913,7 @@ def obtener_datos_usuario(user_id):
         print(f"Error al obtener datos de Supabase para el usuario {user_id}: {e}")
         return pd.DataFrame()       
 
-def obtener_ultimo_peso_str(u_id):
+def obtener_ultimo_peso_str_SUPA(u_id):
     """Obtiene el último registro de peso formateado de un paciente desde Supabase."""
     peso_str = "S/D"
     try:
@@ -814,10 +940,10 @@ def obtener_ultimo_peso_str(u_id):
     return peso_str
 
 
-def obtener_registros_presion(u_id):
+def obtener_registros_presion_SUPA(u_id):
     """Obtiene todos los registros de presión utilizando la función de lectura de Supabase."""
     try:
-        df_presion = obtener_datos_presion_db(u_id)
+        df_presion = obtener_datos_presion_db_supa(u_id)
         if not df_presion.empty:
             return df_presion.to_dict(orient="records")
     except Exception as e:
@@ -825,7 +951,7 @@ def obtener_registros_presion(u_id):
     return []
 
 
-def obtener_ultima_presion_str(recs_presion_all):
+def obtener_ultima_presion_str_SUPA(recs_presion_all):
     """Extrae el texto de la última presión registrada a partir de una lista de registros (compatible con Supabase)."""
     presion_str = "S/D"
     try:
@@ -839,7 +965,7 @@ def obtener_ultima_presion_str(recs_presion_all):
         logger.error(f"Error al formatear última presión: {e}")
     return presion_str
 
-def obtener_perfil_usuario(user_id, mes_target=None):
+def obtener_perfil_usuario_SUPA(user_id, mes_target=None):
     """
     Versión adaptada con sufijo _SUPA para obtener el perfil biométrico del usuario 
     desde la tabla de Supabase, manteniendo los mismos argumentos y estructura de salida.
@@ -930,7 +1056,7 @@ def obtener_perfil_usuario(user_id, mes_target=None):
         print(f"Error obteniendo perfil de Supabase (_SUPA) para el usuario {user_id}: {e}")
         return None
 
-def obtener_datos_presion_db(user_id):
+def obtener_datos_presion_db_SUPA(user_id):
     """
     Versión adaptada con sufijo _SUPA para obtener los registros de presión arterial 
     desde la tabla de Supabase, manteniendo los mismos argumentos y estructura de DataFrame.
@@ -967,7 +1093,7 @@ def obtener_datos_presion_db(user_id):
         return pd.DataFrame()
         
 
-def obtener_ultimo_peso(user_id: int) -> dict:
+def obtener_ultimo_peso_SUPA(user_id: int) -> dict:
     """
     Versión adaptada con sufijo _SUPA para buscar el último registro de peso o fecha del usuario 
     en la tabla 'usuarios' de Supabase, manteniendo la misma estructura de retorno.
@@ -995,11 +1121,11 @@ def obtener_ultimo_peso(user_id: int) -> dict:
         logger.error(f"Error en obtener_ultimo_peso_SUPA para User {user_id}: {e}")
         return None
 
-def obtener_promedio_calorias_mes_actual(u_id, ahora):
+def obtener_promedio_calorias_mes_actual_SUPA(u_id, ahora):
     """Calcula el promedio de calorías del mes actual para un paciente utilizando la función de Supabase."""
     calorias_str = "S/D"
     try:
-        df_u = obtener_datos_usuario(u_id)
+        df_u = obtener_datos_usuario_supa(u_id)
         if not df_u.empty and 'Fecha' in df_u.columns:
             mes_actual_str = ahora.strftime("%Y-%m")
             df_u['Mes_Filtro'] = df_u['Fecha'].astype(str).str.slice(0, 7)
@@ -1013,23 +1139,23 @@ def obtener_promedio_calorias_mes_actual(u_id, ahora):
         logger.error(f"Error en obtener_promedio_calorias_mes_actual_SUPA para {u_id}: {e}")
     return calorias_str
 
-def obtener_ultimo_perfil_dict(u_id):
+def obtener_ultimo_perfil_dict_SUPA(u_id):
     """Retorna el último diccionario de perfil disponible utilizando la función de Supabase."""
     try:
-        perfil = obtener_perfil_usuario(u_id)
+        perfil = obtener_perfil_usuario_supa(u_id)
         if perfil:
             return perfil
     except Exception as e:
         logger.error(f"Error en obtener_ultimo_perfil_dict_SUPA para {u_id}: {e}")
     return {}
   
-def _calcular_y_actualizar_factor_mes_anterior(user_id, mes_anterior_str, peso_fin_mes_override=None):
+def _calcular_y_actualizar_factor_mes_anterior_SUPA(user_id, mes_anterior_str, peso_fin_mes_override=None):
     """
     Versión adaptada con sufijo _SUPA para calcular el factor del mes anterior utilizando Supabase, 
     extrayendo los promedios reales y actualizando el registro en la base de datos PostgreSQL.
     """
     try:
-        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        df_datos = obtener_datos_usuario_supa(user_id) if 'obtener_datos_usuario_supa' in globals() else pd.DataFrame()
         if df_datos.empty or 'Fecha' not in df_datos.columns:
             return None
 
@@ -1047,7 +1173,7 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, mes_anterior_str, peso_f
         ingesta_diaria = tot_cons_mes / dias_registrados
         ejercicio_diario = tot_quem_mes / dias_registrados
 
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_anterior_str) if 'obtener_perfil_usuario' in globals() else {}
+        perfil = obtener_perfil_usuario_supa(user_id, mes_target=mes_anterior_str) if 'obtener_perfil_usuario_supa' in globals() else {}
         
         peso_actual = float(perfil.get('Peso', perfil.get('peso', 108.5)))
         if peso_actual > 1000: peso_actual /= 1000.0
@@ -1133,7 +1259,7 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, mes_anterior_str, peso_f
         logger.error(f"Error al calcular factor limpio del mes anterior en Supabase para User {user_id}: {e}")
         return None
        
-def obtener_todos_usuarios() -> list:
+def obtener_todos_usuarios_SUPA() -> list:
     """Devuelve todos los registros de la tabla 'usuarios' desde Supabase."""
     try:
         conn, cur = _asegurar_tabla_y_conectar("usuarios", tipo_tabla="usuarios")
@@ -1168,7 +1294,7 @@ def obtener_todos_usuarios() -> list:
         logger.error(f"Error al obtener usuarios de Supabase (_SUPA): {e}")
         return []
 
-def obtener_registros_usuario(user_id: str) -> list:
+def obtener_registros_usuario_SUPA(user_id: str) -> list:
     """Devuelve los registros de ingesta de la tabla individual del usuario en Supabase."""
     try:
         tabla_nombre = f"user_{user_id}"
@@ -1203,6 +1329,357 @@ def obtener_registros_usuario(user_id: str) -> list:
         return []
            
 # =============================================================================================================================================
+#              FINAL                      BLOQUE LECTURA BIOMÉTRICA Y PRESIÓN (SUPABASE _SUPA)                        FINAL
+# =============================================================================================================================================
+
+# =============================================================================================================================================
+#              INICIO                     BLOQUE ORIGINAL DE LECTURA BIOMÉTRICA Y PRESIÓN (GOOGLE SHEETS)         INICIO
+# =============================================================================================================================================
+
+def obtener_datos_usuario(user_id):
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = get_or_create_worksheet(sh, f"User_{user_id}")
+        records = ws.get_all_records()
+        if not records:
+            return pd.DataFrame()
+        
+        df = pd.DataFrame(records)
+        col_map = {}
+        for c in df.columns:
+            c_lower = str(c).lower()
+            if 'fecha' in c_lower: col_map[c] = 'Fecha'
+            elif 'momento' in c_lower or 'actividad' in c_lower: col_map[c] = 'Momento'
+            elif 'alimento' in c_lower or 'detalle' in c_lower: col_map[c] = 'Alimento'
+            elif 'peso' in c_lower: col_map[c] = 'Peso'
+            elif 'calor' in c_lower: col_map[c] = 'Calorias'
+            elif 'prote' in c_lower: col_map[c] = 'Proteinas'
+            elif 'grasa' in c_lower: col_map[c] = 'Grasas'
+            elif 'hidrat' in c_lower or 'carbo' in c_lower: col_map[c] = 'Carbohidratos'
+            elif 'fibra' in c_lower: col_map[c] = 'Fibras'
+
+        df = df.rename(columns=col_map)
+        if "Fecha" in df.columns and not df.empty:
+            df['Fecha'] = df['Fecha'].astype(str).str.strip()
+            for col in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras']:
+                if col in df.columns:
+                    df[col] = df[col].apply(parse_float_from_sheets)
+                else:
+                    df[col] = 0.0
+        return df
+    except Exception as e:
+        print(f"Error al obtener datos del usuario {user_id}: {e}")
+        return pd.DataFrame()
+
+def obtener_perfil_usuario(user_id, mes_target=None):
+    """
+    Función original que lee el perfil biométrico del usuario desde Google Sheets, 
+    buscando por mes específico o tomando el último disponible y normalizando las claves[cite: 3].
+    """
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
+        records = ws.get_all_records()
+        if not records:
+            return None
+        
+        perfil_raw = None
+        if mes_target:
+            target_clean = str(mes_target).strip()
+            for r in records:
+                m_val = str(r.get('MES', r.get('Mes', r.get('mes', '')))).strip()
+                if m_val.startswith(target_clean):
+                    perfil_raw = r
+                    break
+        
+        if not perfil_raw:
+            perfil_raw = records[-1]
+        
+        perfil = {}
+        peso_hallado = None
+
+        for k, v in perfil_raw.items():
+            k_upper = str(k).strip().upper()
+            if k_upper == 'EDAD':
+                val = parse_float_from_sheets(v)
+                val_norm = val / 1000.0 if val > 1000 else val
+                perfil['Edad'] = val_norm
+                perfil['edad'] = val_norm
+            elif k_upper == 'PESO':
+                val = parse_float_from_sheets(v)
+                val_norm = val / 1000.0 if val > 1000 else val
+                peso_hallado = val_norm
+                perfil['Peso'] = val_norm
+                perfil['peso'] = val_norm
+                perfil['peso_actual'] = val_norm
+            elif k_upper == 'ALTURA':
+                val = parse_float_from_sheets(v)
+                val_norm = val / 1000.0 if val > 1000 else val
+                perfil['Altura'] = val_norm
+                perfil['altura'] = val_norm
+            elif k_upper in ['PESO_IDEAL', 'PESO IDEAL']:
+                val = parse_float_from_sheets(v)
+                val_norm = val / 1000.0 if val > 1000 else val
+                perfil['Peso_ideal'] = val_norm
+                perfil['peso_ideal'] = val_norm
+            elif k_upper in ['GENERO', 'SEXO']:
+                perfil['Sexo'] = str(v).strip()
+                perfil['genero'] = str(v).strip()
+            elif k_upper == 'OCUPACION':
+                val = parse_float_from_sheets(v)
+                val_norm = (val / 1000.0) if val > 1000 else val
+                factor_final = val_norm if val_norm > 0 else 1.375
+                perfil['Ocupacion'] = factor_final
+                perfil['ocupacion'] = factor_final
+                perfil['factor_actividad'] = factor_final
+            elif k_upper == 'MES':
+                perfil['Mes'] = str(v).strip()
+                perfil['mes'] = str(v).strip()
+
+        perfil['peso_pendiente'] = (peso_hallado is None or peso_hallado <= 0)
+        return perfil
+    except Exception as e:
+        print(f"Error obteniendo perfil del usuario {user_id}: {e}")
+        return None
+
+def obtener_datos_presion_db(user_id):
+    """
+    Función original que obtiene los registros de presión arterial desde Google Sheets, 
+    normalizando valores numéricos y escalas[cite: 3].
+    """
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = get_or_create_worksheet(sh, f"Presion_{user_id}")
+        records = ws.get_all_records()
+        if not records:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(records)
+        for col in ['Alta', 'Baja', 'Pulsaciones']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                if (df[col] > 1000).any():
+                    df[col] = df[col] / 1000.0
+
+        if 'Fecha_Dia' in df.columns:
+            df['Fecha_Dia'] = df['Fecha_Dia'].astype(str).str.strip()
+
+        if 'Nota' not in df.columns:
+            df['Nota'] = ""
+
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+def obtener_ultimo_peso_str(u_id):
+    """Obtiene el último registro de peso formateado de un paciente desde Google Sheets."""
+    peso_str = "S/D"
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws_perfil = get_or_create_worksheet(sh, f"Perfil_{u_id}")
+        recs_perfil = ws_perfil.get_all_records()
+        if recs_perfil:
+            ultimo_p = recs_perfil[-1]
+            p_val = parse_raw_val(ultimo_p.get("PESO", ultimo_p.get("peso", 0)))
+            if p_val > 0:
+                peso_str = f"{p_val / 1000:.1f} kg" if p_val > 300 else f"{p_val} kg"
+    except Exception:
+        pass
+    return peso_str
+
+def obtener_registros_presion(u_id):
+    """Obtiene todos los registros de presión utilizando funciones ya existentes."""
+    try:
+        df_presion = obtener_datos_presion_db(u_id)
+        if not df_presion.empty:
+            return df_presion.to_dict(orient="records")
+    except Exception:
+        pass
+    return []
+
+def obtener_ultima_presion_str(recs_presion_all):
+    """Extrae el texto de la última presión registrada a partir de una lista de registros."""
+    presion_str = "S/D"
+    try:
+        if recs_presion_all:
+            ult_pres = recs_presion_all[-1]
+            sys = ult_pres.get("Alta", ult_pres.get("Sistolica", ult_pres.get("sistólica", ult_pres.get("sistolica", ""))))
+            dia = ult_pres.get("Baja", ult_pres.get("Diastolica", ult_pres.get("diastólica", ult_pres.get("diastolica", ""))))
+            if sys and dia:
+                presion_str = f"{sys}/{dia} mmHg"
+    except Exception:
+        pass
+    return presion_str
+
+def obtener_ultimo_peso(user_id: int) -> dict:
+    """Busca el último registro de peso del usuario en la pestaña 'Usuarios'."""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        sheet_usuarios = sh.worksheet("Usuarios")
+        registros = sheet_usuarios.get_all_records()
+
+        for u in registros:
+            raw_id = u.get("User ID")
+            if raw_id and str(raw_id).strip() == str(user_id).strip():
+                fecha_peso = u.get("Ultimo Mes Peso") or u.get("MES") or u.get("fecha")
+                if fecha_peso:
+                    return {"fecha": str(fecha_peso).strip()}
+                    
+        return None
+    except Exception as e:
+        logger.error(f"Error en obtener_ultimo_peso para User {user_id}: {e}")
+        return None
+
+def obtener_promedio_calorias_mes_actual(u_id, ahora):
+    """Calcula el promedio de calorías del mes actual para un paciente."""
+    calorias_str = "S/D"
+    try:
+        df_u = obtener_datos_usuario(u_id)
+        if not df_u.empty and 'Fecha' in df_u.columns:
+            mes_actual_str = ahora.strftime("%Y-%m")
+            df_u['Mes_Filtro'] = df_u['Fecha'].astype(str).str.slice(0, 7)
+            df_mes = df_u[df_u['Mes_Filtro'] == mes_actual_str]
+            if not df_mes.empty and 'Calorias' in df_mes.columns:
+                calorias_mes = [float(c) for c in df_mes['Calorias'] if float(c) > 0]
+                if calorias_mes:
+                    prom_cal = sum(calorias_mes) / len(calorias_mes)
+                    calorias_str = f"{round(prom_cal)} kcal/día"
+    except Exception:
+        pass
+    return calorias_str
+
+def obtener_ultimo_perfil_dict(u_id):
+    """Retorna el último diccionario de perfil disponible."""
+    try:
+        perfil = obtener_perfil_usuario(u_id)
+        if perfil:
+            return perfil
+    except Exception:
+        pass
+    return {}
+    
+def _calcular_y_actualizar_factor_mes_anterior(user_id, sheet_perfil, mes_anterior_str, peso_fin_mes_override=None):
+    """Calcula el factor del mes anterior extrayendo los promedios reales y actualiza perfil."""
+    try:
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        if df_datos.empty or 'Fecha' not in df_datos.columns:
+            return None
+
+        df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_anterior_str)].copy()
+        if df_mes.empty:
+            return None
+
+        dias_registrados = df_mes['Fecha'].nunique()
+        if dias_registrados == 0:
+            dias_registrados = 1
+
+        tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
+        tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in df_mes.columns else 0.0
+
+        ingesta_diaria = tot_cons_mes / dias_registrados
+        ejercicio_diario = tot_quem_mes / dias_registrados
+
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_anterior_str) if 'obtener_perfil_usuario' in globals() else {}
+        
+        peso_actual = float(perfil.get('Peso', perfil.get('peso', 108400)))
+        if peso_actual > 1000: peso_actual /= 1000.0
+        
+        altura = float(perfil.get('Altura', perfil.get('altura', 167000)))
+        if altura > 1000: altura /= 1000.0
+        
+        edad = int(perfil.get('Edad', perfil.get('edad', 64)))
+        genero = str(perfil.get('GENERO', perfil.get('genero', 'M'))).strip()
+
+        tmb_pura, _ = calcular_tmb_y_get(
+            peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=1.0
+        )
+        if tmb_pura <= 0:
+            tmb_pura = 1813.0
+
+        delta_peso = 0.0
+        try:
+            if sheet_perfil is not None:
+                records_p = sheet_perfil.get_all_records()
+                pesos_por_mes = {}
+                for r in records_p:
+                    m_val = str(r.get('MES', r.get('Mes', ''))).strip()
+                    p_val = r.get('PESO', r.get('Peso', 0))
+                    if m_val and p_val:
+                        try:
+                            p_num = float(str(p_val).replace(',', '.'))
+                            if p_num > 1000: p_num /= 1000.0
+                            pesos_por_mes[m_val] = p_num
+                        except ValueError:
+                            pass
+                
+                meses_ordenados = sorted(pesos_por_mes.keys())
+                if mes_anterior_str in meses_ordenados:
+                    peso_inicio_mes = pesos_por_mes[mes_anterior_str]
+                    
+                    if peso_fin_mes_override is not None:
+                        peso_fin_mes = float(peso_fin_mes_override)
+                        if peso_fin_mes > 1000: peso_fin_mes /= 1000.0
+                        delta_peso = peso_fin_mes - peso_inicio_mes
+                    else:
+                        idx_actual = meses_ordenados.index(mes_anterior_str)
+                        if idx_actual + 1 < len(meses_ordenados):
+                            mes_siguiente = meses_ordenados[idx_actual + 1]
+                            peso_fin_mes = pesos_por_mes[mes_siguiente]
+                            delta_peso = peso_fin_mes - peso_inicio_mes
+                        else:
+                            delta_peso = 0.0
+        except Exception as e_delta:
+            logger.error(f"Error calculando delta de peso dinámico para User {user_id}: {e_delta}")
+            delta_peso = 0.0
+
+        gasto_diario_total = ingesta_diaria - ((delta_peso * 7700.0) / dias_registrados)
+        factor_limpio = (gasto_diario_total - ejercicio_diario) / tmb_pura
+        
+        factor_limpio = max(1.20, min(1.85, factor_limpio))
+        ocupacion_sheet = int(round(factor_limpio * 1000))
+
+        try:
+            if sheet_perfil is not None:
+                cell = sheet_perfil.find(str(mes_anterior_str), in_column=6)
+                if cell:
+                    fila_encontrada = cell.row
+                    sheet_perfil.update_cell(fila_encontrada, 5, ocupacion_sheet)
+        except Exception as sheet_err:
+            logger.error(f"No se pudo escribir el factor en la hoja: {sheet_err}")
+
+        return factor_limpio
+
+    except Exception as e:
+        logger.error(f"Error al calcular factor limpio del mes anterior para User {user_id}: {e}")
+        return None
+
+def obtener_todos_usuarios() -> list:
+    """Devuelve todos los registros de la pestaña 'Usuarios'."""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws_usuarios = sh.worksheet("Usuarios")
+        return ws_usuarios.get_all_records()
+    except Exception as e:
+        logger.error(f"Error al obtener usuarios: {e}")
+        return []
+
+def obtener_registros_usuario(user_id: str) -> list:
+    """Devuelve los registros de ingesta de la solapa individual del usuario."""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws_u = sh.worksheet(f"User_{user_id}")
+        return ws_u.get_all_records()
+    except Exception:
+        return []
+        
+# =============================================================================================================================================
 #              FINAL                      4  FUNCIONES BIOMETRIA Y PRESION            FINAL
 # =============================================================================================================================================
 
@@ -1210,7 +1687,7 @@ def obtener_registros_usuario(user_id: str) -> list:
 #              INICIO                     5  FUNCIONES LECTURA COMIDAS                         INICIO
 # =============================================================================================================================================
 
-def obtener_comidas_usuario(user_id):
+def obtener_comidas_usuario_SUPA(user_id):
     """
     Versión adaptada con sufijo _SUPA para leer las comidas precargadas del usuario 
     directamente desde la base de datos de Supabase, manteniendo los mismos argumentos y estructura de salida.
@@ -1251,7 +1728,7 @@ def obtener_comidas_usuario(user_id):
         logger.error(f"Error al obtener comidas de Supabase (_SUPA): {e}")
         return []
 
-def obtener_codigo_unico(tabla_nombre, codigo_base):
+def obtener_codigo_unico_SUPA(tabla_nombre, codigo_base):
     """
     Versión adaptada con sufijo _SUPA para verificar los códigos existentes en la Columna "Nombre" 
     de la tabla de Supabase recibida por parámetro y asignar un sufijo numérico incremental si ya existe.
@@ -1280,7 +1757,60 @@ def obtener_codigo_unico(tabla_nombre, codigo_base):
         i += 1
         mientras_repetido = f"{codigo_limpio}{i}"
         
-    return mientras_repetido    
+    return mientras_repetido
+    
+# =============================================================================================================================================
+#              FINAL                      BLOQUE LECTURA DE COMIDAS (SUPABASE _SUPA)                        FINAL
+# =============================================================================================================================================
+
+# =============================================================================================================================================
+#              INICIO                     BLOQUE ORIGINAL DE LECTURA DE COMIDAS (GOOGLE SHEETS)                     INICIO
+# =============================================================================================================================================
+
+def obtener_comidas_usuario(user_id):
+    """
+    Función original que lee las comidas precargadas del usuario desde Google Sheets, 
+    normalizando claves y aplicando la conversión de valores mediante parse_float_from_sheets[cite: 4].
+    """
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = get_or_create_worksheet(sh, f"Comidas_{user_id}")
+        records = ws.get_all_records()
+        
+        for p in records:
+            p['Nombre'] = p.get('Código / Nombre') or p.get('Nombre') or ''
+            p['Descripcion'] = p.get('Descripción') or p.get('Descripcion') or p.get('Momento', '')
+            
+            for k in ['Peso', 'Calorias', 'Proteinas', 'Grasas', 'Carbohidratos', 'Fibras', 
+                      'Peso (g x1000)', 'Calorías (x1000)', 'Proteínas (g x1000)', 
+                      'Grasas (g x1000)', 'Carbohidratos (g x1000)', 'Fibras (g x1000)']:
+                if k in p:
+                    p[k] = parse_float_from_sheets(p[k])
+                    
+        return records
+    except Exception as e:
+        logger.error(f"Error al obtener comidas: {e}")
+        return []
+
+def obtener_codigo_unico(ws, codigo_base):
+    """
+    Lee los códigos existentes en la Columna A de la hoja recibida por parámetro
+    y asigna un sufijo numérico incremental si el código ya existe.
+    """
+    codigos_existentes = set(ws.col_values(1))
+    codigo_limpio = str(codigo_base).strip().upper()
+    
+    if codigo_limpio not in codigos_existentes:
+        return codigo_limpio
+
+    i = 1
+    mientras_repetido = f"{codigo_limpio}{i}"
+    while mientras_repetido in codigos_existentes:
+        i += 1
+        mientras_repetido = f"{codigo_limpio}{i}"
+        
+    return mientras_repetido
 
 # =============================================================================================================================================
 #              FINAL                         5  FUNCIONES LECTURA COMIDAS                     FINAL
@@ -1290,7 +1820,7 @@ def obtener_codigo_unico(tabla_nombre, codigo_base):
 #                    INICIO                  6 FUNCIONES LECTURA PROFESIONALES         INICIO
 # =======================================================================================================================================
 
-async def _verificar_y_obtener_profesional(update: Update) -> str:
+async def _verificar_y_obtener_profesional_SUPA(update: Update) -> str:
     """Valida que quien ejecuta el comando sea un profesional registrado utilizando Supabase."""
     prof_id = str(update.effective_user.id).strip()
     try:
@@ -1312,7 +1842,7 @@ async def _verificar_y_obtener_profesional(update: Update) -> str:
         logger.error(f"Error en _verificar_y_obtener_profesional_SUPA: {e}")
     return None
     
-def obtener_especialidad_profesional(prof_id):
+def obtener_especialidad_profesional_SUPA(prof_id):
     """Busca y retorna la especialidad del profesional usando Supabase."""
     try:
         conn, cur = _asegurar_tabla_y_conectar("profesionales", tipo_tabla="usuarios")
@@ -1333,7 +1863,7 @@ def obtener_especialidad_profesional(prof_id):
         logger.error(f"Error en obtener_especialidad_profesional_SUPA para {prof_id}: {e}")
     return None
 
-def obtener_pacientes_por_medico(prof_id):
+def obtener_pacientes_por_medico_SUPA(prof_id):
     """Retorna la lista de pacientes activos asignados al profesional usando Supabase."""
     pacientes = []
     try:
@@ -1357,6 +1887,66 @@ def obtener_pacientes_por_medico(prof_id):
                     pacientes.append({"user_id": u_id, "nombre": nombre})
     except Exception as e:
         logger.error(f"Error en obtener_pacientes_por_medico_SUPA para {prof_id}: {e}")
+    return pacientes
+
+# ======================================================================================================================================
+#                    FINAL                    FUNCIONES LECTURA PROFESIONALES (SUPABASE _SUPA)      FINAL
+# =======================================================================================================================================
+
+# ======================================================================================================================================
+#                    INICIO                  FUNCIONES LECTURA PROFESIONALES                     INICIO
+# =======================================================================================================================================
+
+async def _verificar_y_obtener_profesional(update: Update) -> str:
+    """Valida que quien ejecuta el comando sea un profesional registrado."""
+    prof_id = str(update.effective_user.id).strip()
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws_prof = sh.worksheet("Profesionales")
+        recs_prof = ws_prof.get_all_records()
+        for rp in recs_prof:
+            id_p = str(rp.get("User ID", rp.get("user_id", ""))).split('.')[0].strip()
+            if id_p == prof_id:
+                return prof_id
+    except Exception:
+        pass
+    return None
+    
+def obtener_especialidad_profesional(prof_id):
+    """Busca y retorna la especialidad del profesional usando Google Sheets."""
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws_prof = sh.worksheet("Profesionales")
+        recs_prof = ws_prof.get_all_records()
+        for rp in recs_prof:
+            id_p = str(rp.get("User ID", rp.get("user_id", ""))).split('.')[0].strip()
+            if id_p == prof_id:
+                return str(rp.get("Especialidad", rp.get("especialidad", "General"))).strip()
+    except Exception:
+        pass
+    return None
+
+def obtener_pacientes_por_medico(prof_id):
+    """Retorna la lista de pacientes activos asignados al profesional."""
+    pacientes = []
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws_usuarios = sh.worksheet("Usuarios")
+        records_usuarios = ws_usuarios.get_all_records()
+
+        for r in records_usuarios:
+            p_id = str(r.get("profesional", r.get("Profesional", ""))).split('.')[0].strip()
+            if p_id == prof_id:
+                u_id = str(r.get("User ID", r.get("user_id", ""))).split('.')[0].strip()
+                nombre = r.get("Nombre", r.get("nombre", "Sin Nombre"))
+                estado = r.get("Estado", r.get("estado", "Activo"))
+                if str(estado).lower() in ['activo', 'sí', 'si', 'true', '1']:
+                    pacientes.append({"user_id": u_id, "nombre": nombre})
+    except Exception:
+        pass
     return pacientes
 
 # ======================================================================================================================================
@@ -1405,6 +1995,7 @@ def actualizar_estado_usuario(user_id: str, nuevo_estado: str):
     except Exception as e:
         logger.error(f"Error al actualizar estado en Supabase para {user_id}: {e}")
 
+
 def eliminar_registro_por_id(user_id, item_id):
     """
     Función dual: borra el registro de Google Sheets usando el identificador de fila 
@@ -1432,6 +2023,7 @@ def eliminar_registro_por_id(user_id, item_id):
         return False
 
     return True
+
 
 def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
     """Guarda los registros de ingesta alimentaria de forma dual en Google Sheets y Supabase."""
@@ -1539,6 +2131,7 @@ def guardar_comida_precargada_db(user_id, fila):
     
     return codigo_unico
 
+
 def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
     """Guarda los registros de presión arterial de forma dual en Google Sheets y Supabase."""
     gc = get_gspread_client()
@@ -1579,6 +2172,7 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
         conn.close()
     except Exception as e:
         logger.error(f"Error interno al grabar Presión en Supabase (Presion_{user_id}): {e}")
+
 
 def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     """Guarda y actualiza los datos del perfil y peso del usuario de forma dual en Google Sheets y Supabase."""
@@ -1743,7 +2337,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
 # =============================================================================================================================================
 
 # =============================================================================================================================================
-#              INICIO                       10  FUNCIONES DATOS Y FECHAS                           INICIO
+#              INICIO                     8    FUNCIONES DATOS Y FECHAS                           INICIO
 # =============================================================================================================================================
 
 def parse_raw_val(val):
@@ -1803,11 +2397,11 @@ def extraer_val(texto: str) -> float:
     return 0.0
 
 # =============================================================================================================================================
-#              FINAL                     10 FUNCIONES DATOS Y FECHAS                           FINAL
+#              FINAL                     8 FUNCIONES DATOS Y FECHAS                           FINAL
 # =============================================================================================================================================
 
 # =============================================================================================================================================
-#              INICIO                     11 FUNCIONES BIOMETRICAS                           INICIO
+#              INICIO                     9 FUNCIONES BIOMETRICAS                           INICIO
 # =============================================================================================================================================
 
 def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
@@ -2125,11 +2719,11 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
 
     return True
 # =============================================================================================================================================
-#              FINAL                     11 FUNCIONES BIOMETRICAS                           FINAL
+#              FINAL                     9 FUNCIONES BIOMETRICAS                           FINAL
 # =============================================================================================================================================
 
 # =============================================================================================================================================
-#              INICIO                     12 FUNCIONES COMIDAS                           INICIO
+#              INICIO                     10 FUNCIONES COMIDAS                           INICIO
 # =============================================================================================================================================
 
 def calcular_porcentajes_harinas(frecuencias):
@@ -2187,11 +2781,11 @@ def analizar_frecuencia_alimentos_mes(df_mes, cat_dict, col_integrales=None, col
         return {}
 
 # =============================================================================================================================================
-#              FINAL                        12 FUNCIONES COMIDAS                           FINAL
+#              FINAL                     10 FUNCIONES COMIDAS                           FINAL
 # =============================================================================================================================================
 
 # =============================================================================================================================================
-#              INICIO             13 FUNCIONES LOOGING Y TELEGRAM                           INICIO
+#              INICIO                     11 FUNCIONES LOOGING Y TELEGRAM                           INICIO
 # =============================================================================================================================================
 
 async def enviar_mensaje_largo(context, chat_id, texto, parse_mode="HTML"):
@@ -2398,11 +2992,11 @@ def analizar_frecuencia_alimentos_mes(df_mes, cat_dict, col_integrales=None, col
         return {}
         
 # =============================================================================================================================================
-#              FINAL                         13 FUNCIONES LOOGING Y TELEGRAM                           FINAL
+#              FINAL                         11 FUNCIONES LOOGING Y TELEGRAM                           FINAL
 # =============================================================================================================================================
 
 # =====================================================================================================================================
-#                INICIO                       14 FUNCIONES IA GROQ                                      INICIO
+#                INICIO                       12 FUNCIONES IA GROQ                                      INICIO
 # ======================================================================================================================================
 
 async def generar_recomendacion_mensual_para_pdf(user_id: int, mes_str: str, df_mes, perfil: dict, m: dict, context=None) -> str:
@@ -2885,7 +3479,7 @@ def analizar_imagen_con_groq(base64_image, user_caption=""):
     return json.loads(response.choices[0].message.content)
 
 # =====================================================================================================================================
-#                FINAL                        14  FUNCIONES IA GROQ                                      FINAL
+#                FINAL                        12  FUNCIONES IA GROQ                                      FINAL
 # ======================================================================================================================================
 
 # ======================================================================================================================================
@@ -4435,8 +5029,8 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
 def buscar_comida_precargada_exacta(user_id, texto_codigo):
     """
-    Busca de forma estricta un código/nombre de comida ÚNICAMENTE en la tabla de Supabase 'comidas_<user_id>'.
-    Recibe y procesa los valores directamente en su escala real (float).
+    Busca de forma estricta un código/nombre de comida ÚNICAMENTE en la pestaña 'Comidas_<user_id>'.
+    Si NO la encuentra, devuelve None.
     """
     codigo_buscado = texto_codigo.strip().upper()
     comidas_usuario = obtener_comidas_usuario(user_id)
@@ -4444,20 +5038,28 @@ def buscar_comida_precargada_exacta(user_id, texto_codigo):
     for item in comidas_usuario:
         nombre_item = str(item.get('Nombre') or item.get('Código / Nombre') or '').strip().upper()
         if nombre_item == codigo_buscado:
-            # Al leer directamente de Supabase, los valores ya son decimales estándar (float)
+            peso_raw = item.get('Peso (g x1000)', item.get('Peso', 0))
+            cal_raw = item.get('Calorías (x1000)', item.get('Calorias', 0))
+            prot_raw = item.get('Proteínas (g x1000)', item.get('Proteinas', 0))
+            gras_raw = item.get('Grasas (x1000)', item.get('Grasas', 0))
+            carb_raw = item.get('Carbohidratos (x1000)', item.get('Carbohidratos', 0))
+            fibr_raw = item.get('Fibras (x1000)', item.get('Fibras', 0))
+
+            factor = 1000.0 if peso_raw > 5000 or cal_raw > 5000 else 1.0
+
             return {
                 "nombre": item.get('Nombre') or item.get('Código / Nombre'),
                 "descripcion": item.get('Descripción') or item.get('Descripcion') or '',
-                "peso": float(item.get('Peso', 0)),
-                "calorias": float(item.get('Calorias', 0)),
-                "proteinas": float(item.get('Proteinas', 0)),
-                "grasas": float(item.get('Grasas', 0)),
-                "carbohidratos": float(item.get('Carbohidratos', 0)),
-                "fibras": float(item.get('Fibras', 0))
+                "peso": float(peso_raw) / factor,
+                "calorias": float(cal_raw) / factor,
+                "proteinas": float(prot_raw) / factor,
+                "grasas": float(gras_raw) / factor,
+                "carbohidratos": float(carb_raw) / factor,
+                "fibras": float(fibr_raw) / factor
             }
 
     return None
-    
+
 def generar_pdf_comidas_bytes(plantillas):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
