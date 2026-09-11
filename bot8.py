@@ -6801,40 +6801,123 @@ def _obtener_conexion_db_migrar():
         raise ValueError("La variable de entorno DATABASE_URL no está configurada.")
     return psycopg2.connect(database_url)
 
-def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
+def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
     """
-    Crea la tabla en Supabase de forma dinámica utilizando exactamente los nombres 
-    de las columnas del DataFrame (respetando mayúsculas, minúsculas y espacios).
+    Crea o asegura la tabla en Supabase utilizando la estructura exacta 
+    definida en las planillas (dinámica para usuarios o fija para globales).
     """
-    conn = _obtener_conexion_db_migrar()
+    conn = _obtener_conexion_db()
     cur = conn.cursor()
 
-    if df_muestra is not None:
-        columnas_sql = []
-        for col in df_muestra.columns:
-            # Determinamos el tipo de dato SQL basándonos en si la columna es numérica o texto
-            sample_val = df_muestra[col].dropna()
-            if not sample_val.empty and pd.api.types.is_numeric_dtype(sample_val):
-                tipo_sql = "DOUBLE PRECISION"
-            else:
-                tipo_sql = "TEXT"
-            
-            # Usamos comillas dobles para forzar a PostgreSQL a respetar mayúsculas, minúsculas y espacios exactos
-            columnas_sql.append(f'"{str(col).strip()}" {tipo_sql}')
-
-        definicion_columnas = ", \n    ".join(columnas_sql)
-        
-        query_create = f"""
+    if tipo_tabla == "comida":
+        # Tabla dinámica por usuario: user_<user_id>
+        cur.execute(f"""
             CREATE TABLE IF NOT EXISTS "{tabla_nombre}" (
                 id SERIAL PRIMARY KEY,
-                {definicion_columnas}
+                "Fecha" TEXT,
+                "Momento/Actividad" TEXT,
+                "Alimento/Detalle" TEXT,
+                "Peso (g)" DOUBLE PRECISION,
+                "Calorías (kcal)" DOUBLE PRECISION,
+                "Proteínas (g)" DOUBLE PRECISION,
+                "Grasas (g)" DOUBLE PRECISION,
+                "Hidratos (g)" DOUBLE PRECISION,
+                "Fibras (g)" DOUBLE PRECISION
             );
-        """
-        cur.execute(query_create)
+        """)
+    elif tipo_tabla == "perfil":
+        # Tabla dinámica por perfil de usuario: Perfil_<user_id>
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS "{tabla_nombre}" (
+                id SERIAL PRIMARY KEY,
+                "EDAD" TEXT,
+                "PESO" DOUBLE PRECISION,
+                "ALTURA" DOUBLE PRECISION,
+                "GENERO" TEXT,
+                "ocupacion" DOUBLE PRECISION,
+                "MES" TEXT,
+                "Fecha_Actualizacion" TEXT,
+                "Peso_ideal" DOUBLE PRECISION,
+                "Cumple" TEXT
+            );
+        """)
+    elif tipo_tabla == "presion":
+        # Tabla dinámica por presión de usuario: Presion_<user_id>
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS "{tabla_nombre}" (
+                id SERIAL PRIMARY KEY,
+                "Fecha_Hora" TEXT,
+                "Fecha_Dia" TEXT,
+                "Alta" DOUBLE PRECISION,
+                "Baja" DOUBLE PRECISION,
+                "Pulsaciones" DOUBLE PRECISION,
+                "Nota" TEXT
+            );
+        """)
+    elif tipo_tabla == "comidas_precargadas":
+        # Tabla dinámica de comidas del usuario: Comidas_<user_id>
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS "{tabla_nombre}" (
+                id SERIAL PRIMARY KEY,
+                "Nombre" TEXT,
+                "Descripcion" TEXT,
+                "Peso" DOUBLE PRECISION,
+                "Calorias" DOUBLE PRECISION,
+                "Proteinas" DOUBLE PRECISION,
+                "Grasas" DOUBLE PRECISION,
+                "Carbohidratos" DOUBLE PRECISION,
+                "Fibras" DOUBLE PRECISION
+            );
+        """)
+    elif tipo_tabla == "usuarios":
+        # Tabla global de usuarios
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS "Usuarios" (
+                id SERIAL PRIMARY KEY,
+                "User ID" TEXT UNIQUE,
+                "Nombre" TEXT,
+                "Estado" INTEGER,
+                "Ultimo Mes Peso" TEXT,
+                "Notificaciones" TEXT,
+                "Fecha Alta" TEXT,
+                "Sexo" TEXT,
+                "Altura" DOUBLE PRECISION,
+                "muneca" DOUBLE PRECISION,
+                "ocupacion" DOUBLE PRECISION,
+                "cumple" TEXT,
+                "profesional" TEXT
+            );
+        """)
+    elif tipo_tabla == "categorias_comida":
+        # Tabla global de categorías
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS "Categorias_Comida" (
+                id SERIAL PRIMARY KEY,
+                "Carne Vacuna" TEXT,
+                "Pollo" TEXT,
+                "Cerdo" TEXT,
+                "Pescado" TEXT,
+                "Lacteos" TEXT,
+                "Verduras" TEXT,
+                "Frutas" TEXT,
+                "Harinas Refinadas" TEXT,
+                "Harinas Integrales" TEXT
+            );
+        """)
+    elif tipo_tabla == "profesionales":
+        # Tabla global de profesionales
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS "Profesionales" (
+                id SERIAL PRIMARY KEY,
+                "User ID" TEXT,
+                "Nombre" TEXT,
+                "Especialidad" TEXT
+            );
+        """)
 
     conn.commit()
     return conn, cur
-
+    
 async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando temporal para migrar el archivo Excel local (Registro_Nutricional_Bot.xlsx) 
