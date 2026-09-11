@@ -6834,7 +6834,7 @@ def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
     conn.commit()
     return conn, cur
 
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando temporal para migrar el archivo Excel local (Registro_Nutricional_Bot.xlsx) 
     hacia Supabase respetando estrictamente los nombres de hojas y columnas.
@@ -6863,7 +6863,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             try:
                 # Creamos la tabla y conectamos usando tu función existente
-                conn, cur = _asegurar_tabla_y_conectar(nombre_tabla, df_muestra=df)
+                conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df)
             except Exception as e:
                 reporte.append(f"❌ Tabla *{nombre_tabla}*: Error al crear tabla ({e}).")
                 continue
