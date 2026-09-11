@@ -6834,39 +6834,36 @@ def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
     conn.commit()
     return conn, cur
 
-async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Comando temporal (/start) para migrar todo el Excel de Google Sheets a Supabase
-    respetando estrictamente los nombres de hojas, tablas y columnas.
+    Comando temporal para migrar el archivo Excel local (Registro_Nutricional_Bot.xlsx) 
+    hacia Supabase respetando estrictamente los nombres de hojas y columnas.
     """
     try:
-        await update.message.reply_text("🔄 Iniciando migración masiva y exacta del Excel a Supabase...", parse_mode="Markdown")
+        await update.message.reply_text("🔄 Leyendo Excel local y preparando la migración a Supabase...", parse_mode="Markdown")
         
-        # Conexión a Google Sheets usando tus variables de entorno globales
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds = Credentials.from_service_account_file(GOOGLE_SHEETS_KEY_PATH, scopes=scope)
-        gc = gspread.authorize(creds)
-        sh = gc.open(SPREADSHEET_NAME)
-        
-        hojas = sh.worksheets()
+        excel_path = 'Registro_Nutricional_Bot.xlsx'
+        if not os.path.exists(excel_path):
+            await update.message.reply_text(f"❌ No se encontró el archivo `{excel_path}` en el directorio del bot.", parse_mode="Markdown")
+            return
+
+        xls = pd.ExcelFile(excel_path)
         reporte = []
 
-        for ws in hojas:
-            nombre_hoja_original = ws.title
-            nombre_tabla = nombre_hoja_original.strip()
+        for nombre_hoja in xls.sheet_names:
+            nombre_tabla = nombre_hoja.strip()
+            df = pd.read_excel(xls, sheet_name=nombre_hoja)
             
-            registros = ws.get_all_records()
-            if not registros:
-                reporte.append(f"⚠️ Hoja *{nombre_hoja_original}*: Omitida por estar vacía.")
+            if df.empty:
+                reporte.append(f"⚠️ Hoja *{nombre_hoja}*: Omitida (vacía).")
                 continue
 
-            df = pd.DataFrame(registros)
             # Limpiamos espacios en blanco en los bordes de los nombres de columnas
             df.columns = [str(c).strip() for c in df.columns]
 
             try:
-                # Asegura la creación de la tabla en Supabase con la estructura exacta de la hoja
-                conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df)
+                # Creamos la tabla y conectamos usando tu función existente
+                conn, cur = _asegurar_tabla_y_conectar(nombre_tabla, df_muestra=df)
             except Exception as e:
                 reporte.append(f"❌ Tabla *{nombre_tabla}*: Error al crear tabla ({e}).")
                 continue
@@ -6896,22 +6893,22 @@ async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     filas_insertadas += 1
 
                 conn.commit()
-                reporte.append(f"✅ Tabla *{nombre_tabla}*: {filas_insertadas} registros migrados con éxito.")
+                reporte.append(f"✅ Tabla *{nombre_tabla}*: {filas_insertadas} registros migrados.")
 
             except Exception as inner_e:
                 conn.rollback()
-                reporte.append(f"❌ Tabla *{nombre_tabla}*: Error en inserción de filas ({inner_e}).")
+                reporte.append(f"❌ Tabla *{nombre_tabla}*: Error en inserción ({inner_e}).")
             finally:
                 cur.close()
                 conn.close()
 
-        mensaje_final = "📊 **Resultado de la Migración Completa a Supabase:**\n\n" + "\n".join(reporte)
+        mensaje_final = "📊 **Resultado de la Migración del Excel:**\n\n" + "\n".join(reporte)
         await update.message.reply_text(mensaje_final, parse_mode="Markdown")
 
     except Exception as e:
-        logger.error(f"Error crítico en cmd_start (migración): {e}", exc_info=True)
-        await update.message.reply_text(f"⚠️ Ocurrió un error grave durante la migración: {e}")
-
+        logger.error(f"Error crítico en migración local: {e}", exc_info=True)
+        await update.message.reply_text(f"⚠️ Error general en la migración: {e}")
+        
 # =============================================================================================================================================
 #                    FINAL             FUNCION CONEXION Y MIGRACION DINAMICA SUPABASE            FINAL  
 # =============================================================================================================================================
