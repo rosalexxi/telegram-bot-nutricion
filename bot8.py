@@ -23,7 +23,11 @@ import sys
 import pytz
 import pandas as pd
 import gspread
-import html  
+import html
+import cv2
+import numpy as np
+import base64
+import requests  
 
 from typing import Dict, Tuple, List, Optional, Any            
 from urllib.parse import urlparse 
@@ -4704,6 +4708,131 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                  FINAL                                       COMANDO RECETA                                        FINAL
 # =========================================================================================================================================
 
+#====================================================================================================================================
+#                INICIO                             COMANDO BARRA                       INICIO
+#===================================================================================================================================
+
+def consultar_codigo_barras(barcode: str) -> dict | bool:
+    """
+    Consulta la API pública de Open Food Facts utilizando un código de barras.
+    
+    Args:
+        barcode (str): El código de barras escaneado (EAN/UPC).
+        
+    Returns:
+        dict: Diccionario con los datos estandarizados del alimento si se encuentra.
+        bool: False si el producto no existe o hay un error de conexión, 
+              permitiendo continuar con el flujo normal de ingesta.
+    """
+    url = f"https://world.openfoodfacts.org/api/v2/product/{barcode.strip()}.json"
+    
+    # Es obligatorio y una buena práctica enviar un User-Agent identificando a tu bot
+    headers = {
+        "User-Agent": "BotNutricionTelegram/1.0 (contacto@tudominio.com)"
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=5)
+        
+        if response.status_code != 200:
+            return False
+            
+        data = response.json()
+        
+        # Verificamos si el producto fue encontrado en la base de datos (status == 1)
+        if data.get("status") != 1:
+            return False
+            
+        product = data.get("product", {})
+        nutriments = product.get("nutriments", {})
+        
+        # Nombre comercial o genérico del producto
+        nombre_alimento = (
+            product.get("product_name_es") or 
+            product.get("product_name") or 
+            "Producto desconocido"
+        )
+        
+        marca = product.get("brands", "")
+        if marca:
+            nombre_alimento = f"{nombre_alimento} ({marca})"
+
+        # Valores nutricionales por 100g / 100ml proporcionados por la base de datos
+        # (Open Food Facts estandariza los valores principales en 'nutriments')
+        calorias = float(nutriments.get("energy-kcal_100g", nutriments.get("energy-kcal", 0.0) or 0.0))
+        proteinas = float(nutriments.get("proteins_100g", 0.0) or 0.0))
+        grasas = float(nutriments.get("fat_100g", 0.0) or 0.0))
+        carbohidratos = float(nutriments.get("carbohydrates_100g", 0.0) or 0.0))
+        fibras = float(nutriments.get("fiber_100g", 0.0) or 0.0))
+
+        return {
+            "alimento": nombre_alimento,
+            "peso": 100.0,  # Base de referencia estándar por 100g
+            "calorias": calorias,
+            "proteinas": proteinas,
+            "grasas": grasas,
+            "carbohidratos": carbohidratos,
+            "fibras": fibras,
+            "fuente": "Open Food Facts"
+        }
+        
+    except Exception as e:
+        logging.error(f"⚠️ Error al consultar el código de barras {barcode}: {e}")
+        return False
+
+async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
+    chat_id = message_obj.chat_id
+    msg_espera = await message_obj.reply_text("🔍 Buscando código de barras en la base de datos...")
+    
+    try:
+        # Consultar la API (asumiendo que ya tienes definida 'consultar_codigo_barras')
+        resultado_api = consultar_codigo_barras(barcode_text)
+        
+        if resultado_api:
+            # LO ENCONTRÓ: Presenta en pantalla para confirmar/modificar
+            data = {
+                "items": [resultado_api],
+                "tipo": "Comida"
+            }
+            await msg_espera.delete()
+            msg_menu = await message_obj.reply_text("📋 Producto encontrado por código de barras:")
+            context.user_data['last_menu_msg_id'] = msg_menu.message_id
+            context.user_data['pending_items'] = data["items"]
+            context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+            await render_confirmation_screen(msg_menu, context)
+        else:
+            # NO LO ENCONTRÓ: Cartel con la novedad
+            await msg_espera.edit_text("⚠️ Código de barras no encontrado en la base de datos. Intentá ingresarlo como texto o foto.")
+            
+    except Exception as e:
+        await msg_espera.edit_text(f"❌ Error al consultar el código: {e}")
+        
+@requiere_registro
+async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    
+    # Obtener los argumentos que pasaron después del comando (ej: /barra 7790895000123)
+    args = context.args
+    
+    if not args:
+        # Modo interactivo: El usuario escribió solo /barra
+        msg_solic = await update.message.reply_text(
+            "⌨️ Por favor, ingresá o pegá los números del código de barras:",
+            parse_mode="Markdown"
+        )
+        context.user_data['awaiting_barcode_input'] = True
+        context.user_data['msg_solicitud_barcode_id'] = msg_solic.message_id
+        return
+
+    # Modo directo: /barra <codigo>
+    barcode_text = args[0].strip()
+    await procesar_codigo_ingresado(update.message, context, barcode_text)
+	
+#====================================================================================================================================
+#                FINAL                              COMANDO BARRA                             FINAL
+#===================================================================================================================================
+	
 # ======================================================================================================================================
 #                   INICIO                                    COMANDO DIARIO                                    INICIO  DB OK
 # =====================================================================================================================================
@@ -6984,6 +7113,7 @@ def main():
     app_bot.add_handler(CommandHandler("eliminar", cmd_eliminar_ingesta))
     app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
     app_bot.add_handler(CommandHandler(["ingreso", "nuevo"], cmd_nueva_cuenta))
+    app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
     app_bot.add_handler(CommandHandler(["migrar", "nuevo"], cmd_migrar))
     
 
