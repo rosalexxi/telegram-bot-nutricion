@@ -4663,7 +4663,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
         
         detector = cv2.barcode.BarcodeDetector()
-        retval, decoded_info, decoded_type, points = detector.detectAndDecode(img)
+        
+        # Captura segura compatible con diferentes versiones de OpenCV (3 o 4 valores de retorno)
+        resultado_detector = detector.detectAndDecode(img)
+        if len(resultado_detector) == 4:
+            retval, decoded_info, decoded_type, points = resultado_detector
+        else:
+            retval, decoded_info, points = resultado_detector
         
         if retval and decoded_info and decoded_info[0].strip():
             # ES UN CÓDIGO DE BARRAS
@@ -4671,20 +4677,32 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             resultado_api = consultar_codigo_barras(barcode_text)
             
             if resultado_api:
-                # LO ENCONTRÓ: Presenta en pantalla para confirmar/modificar
-                data = {
-                    "items": [resultado_api],
-                    "tipo": "Comida"
+                # Adaptamos el ítem con formato visual y base de datos
+                item_procesado = {
+                    "alimento": f"{resultado_api['alimento']} §",
+                    "alimento_display": resultado_api['alimento'],
+                    "peso": resultado_api['peso'],
+                    "calorias": resultado_api['calorias'],
+                    "proteinas": resultado_api['proteinas'],
+                    "grasas": resultado_api['grasas'],
+                    "carbohidratos": resultado_api['carbohidratos'],
+                    "fibras": resultado_api['fibras'],
+                    "fuente": "Open Food Facts"
                 }
+
+                # Obtenemos fecha y momento automático según la hora
+                fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
+
                 await msg.delete()
                 msg_menu = await update.message.reply_text("📋 Producto encontrado por código de barras:")
                 context.user_data['last_menu_msg_id'] = msg_menu.message_id
-                context.user_data['pending_items'] = data["items"]
-                context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+                context.user_data['pending_items'] = [item_procesado]
+                context.user_data['pending_fecha'] = fecha_auto
+                context.user_data['pending_momento'] = momento_auto
                 await render_confirmation_screen(msg_menu, context)
                 return
             else:
-                # NO LO ENCONTRÓ EN LA BASE DE DATOS: Cartel con la novedad y FIN (no va a la IA)
+                # NO LO ENCONTRÓ EN LA BASE DE DATOS
                 await msg.edit_text("⚠️ Código de barras no encontrado en la base de datos.")
                 return
         else:
@@ -4695,7 +4713,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar imagen: {e}")
-
+        
 @requiere_registro
 async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
