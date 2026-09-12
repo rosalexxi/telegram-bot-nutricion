@@ -4648,6 +4648,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
 
 @requiere_registro
+@requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
     try:
@@ -4668,12 +4669,32 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             retval, decoded_info, decoded_type, points = detector.detectAndDecode(img)
         except ValueError:
-            retval, decoded_info, points = detector.detectAndDecode(img)
-            decoded_type = None
-        
-        if retval and decoded_info and decoded_info[0].strip():
-            # ES UN CÓDIGO DE BARRAS
-            barcode_text = decoded_info[0].strip()
+            try:
+                retval, decoded_info, points = detector.detectAndDecode(img)
+            except Exception:
+                retval, decoded_info = False, None
+
+        # Convertir de forma segura el resultado de OpenCV a booleano de Python
+        is_detected = False
+        try:
+            if isinstance(retval, np.ndarray):
+                is_detected = bool(retval.any())
+            else:
+                is_detected = bool(retval)
+        except Exception:
+            is_detected = False
+
+        # Extraer el texto del código de forma segura si existe
+        barcode_text = None
+        if is_detected and decoded_info is not None:
+            if isinstance(decoded_info, (list, tuple, np.ndarray)) and len(decoded_info) > 0:
+                if decoded_info[0]:
+                    barcode_text = str(decoded_info[0]).strip()
+            elif isinstance(decoded_info, str) and decoded_info.strip():
+                barcode_text = decoded_info.strip()
+
+        if barcode_text:
+            # ES UN CÓDIGO DE BARRAS VÁLIDO
             resultado_api = consultar_codigo_barras(barcode_text)
             
             if resultado_api:
@@ -4713,7 +4734,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar imagen: {e}")
-        
+                
 @requiere_registro
 async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
