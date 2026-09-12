@@ -4785,23 +4785,34 @@ async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
     msg_espera = await message_obj.reply_text("🔍 Buscando código de barras en la base de datos...")
     
     try:
-        # Consultar la API (asumiendo que ya tienes definida 'consultar_codigo_barras')
         resultado_api = consultar_codigo_barras(barcode_text)
         
         if resultado_api:
-            # LO ENCONTRÓ: Presenta en pantalla para confirmar/modificar
-            data = {
-                "items": [resultado_api],
-                "tipo": "Comida"
+            item_procesado = {
+                "alimento": f"{resultado_api['alimento']} §",
+                "alimento_display": resultado_api['alimento'],
+                "peso": resultado_api['peso'],
+                "calorias": resultado_api['calorias'],
+                "proteinas": resultado_api['proteinas'],
+                "grasas": resultado_api['grasas'],
+                "carbohidratos": resultado_api['carbohidratos'],
+                "fibras": resultado_api['fibras'],
+                "fuente": "Open Food Facts"
             }
+
+            # Usamos tu función existente para obtener fecha y momento automático
+            fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
+
             await msg_espera.delete()
             msg_menu = await message_obj.reply_text("📋 Producto encontrado por código de barras:")
+            
             context.user_data['last_menu_msg_id'] = msg_menu.message_id
-            context.user_data['pending_items'] = data["items"]
-            context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+            context.user_data['pending_items'] = [item_procesado]
+            context.user_data['pending_fecha'] = fecha_auto
+            context.user_data['pending_momento'] = momento_auto
+                
             await render_confirmation_screen(msg_menu, context)
         else:
-            # NO LO ENCONTRÓ: Cartel con la novedad
             await msg_espera.edit_text("⚠️ Código de barras no encontrado en la base de datos. Intentá ingresarlo como texto o foto.")
             
     except Exception as e:
