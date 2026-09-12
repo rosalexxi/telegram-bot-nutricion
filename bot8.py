@@ -4726,7 +4726,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             else:
                 # NO LO ENCONTRÓ EN LA BASE DE DATOS
-                await msg.edit_text("⚠️ Código de barras no encontrado en la base de datos.")
+                await msg.edit_text(f"⚠️ Código de barras `{barcode_text}` no encontrado en la base de datos.", parse_mode="Markdown")
                 return
         else:
             # NO ES CÓDIGO DE BARRAS: Va directo a la IA
