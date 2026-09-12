@@ -28,6 +28,7 @@ import cv2
 import numpy as np
 import base64
 import requests
+from __future__ import annotations
 
 from typing import Dict, Tuple, List, Optional, Any            
 from urllib.parse import urlparse 
@@ -56,9 +57,9 @@ logger = logging.getLogger(__name__)
 
 # Definición de franjas horarias (sin tildes)
 FRANJAS_COMIDAS = {
-    "Desayuno": (8, 10),
-    "Almuerzo": (12, 15),
-    "Merienda": (17, 19),
+    "Desayuno": (8, 11),
+    "Almuerzo": (11, 16),
+    "Merienda": (16, 20),
     "Cena": (20, 24)
 }
 
@@ -470,70 +471,6 @@ def api_guardar_comida():
 
 # =============================================================================================================================================
 #                    FINAL                                   PAGINA WEB                                     FINAL
-# =============================================================================================================================================
-
-# =============================================================================================================================================
-#              INICIO                     1 FUNCIONES DATOS Y FECHAS                           INICIO
-# =============================================================================================================================================
-
-def parse_raw_val(val):
-    if val is None or val == "":
-        return 0.0
-    if isinstance(val, (int, float)):
-        return float(val)
-    val_str = str(val).strip().replace(',', '.')
-    try:
-        return float(val_str)
-    except ValueError:
-        return 0.0
-
-def to_sheet_int(val):
-    num = parse_raw_val(val)
-    return int(round(num * 1000))
-
-def parse_float_from_sheets(val):
-    num = parse_raw_val(val)
-    return num / 1000.0
-
-def obtener_ahora_arg():
-    return datetime.now(ARG_TZ)
-    
-def obtener_momento_y_fecha_auto():
-    ahora = obtener_ahora_arg()
-    hora = ahora.time()
-    fecha_obj = ahora.date()
-    
-    if time(0, 0) <= hora < time(2, 0):
-        fecha_obj = fecha_obj - timedelta(days=1)
-        momento = "Cena"
-    elif time(2, 0) <= hora < time(10, 0):
-        momento = "Desayuno"
-    elif time(10, 0) <= hora < time(13, 0):
-        momento = "Colación"
-    elif time(13, 0) <= hora < time(15, 0):
-        momento = "Almuerzo"
-    elif time(15, 0) <= hora < time(17, 0):
-        momento = "Colación"
-    elif time(17, 0) <= hora < time(20, 0):
-        momento = "Merienda"
-    else:
-        momento = "Cena"
-        
-    return fecha_obj.strftime("%Y-%m-%d"), momento
-
-def extraer_val(texto: str) -> float:
-    if not texto:
-        return 0.0
-    coincidencia = re.search(r'(\d+(?:[.,]\d+)?)', str(texto))
-    if coincidencia:
-        try:
-            return float(coincidencia.group(1).replace(',', '.'))
-        except ValueError:
-            return 0.0
-    return 0.0
-
-# =============================================================================================================================================
-#              FINAL                     1 FUNCIONES DATOS Y FECHAS                           FINAL
 # =============================================================================================================================================
 
 # =============================================================================================================================================
@@ -1767,18 +1704,14 @@ def obtener_momento_y_fecha_auto():
     hora = ahora.time()
     fecha_obj = ahora.date()
     
-    if time(0, 0) <= hora < time(2, 0):
+    if time(0, 0) <= hora < time(4, 0):
         fecha_obj = fecha_obj - timedelta(days=1)
         momento = "Cena"
-    elif time(2, 0) <= hora < time(10, 0):
+    elif time(4, 0) <= hora < time(11, 0):
         momento = "Desayuno"
-    elif time(10, 0) <= hora < time(13, 0):
-        momento = "Colación"
-    elif time(13, 0) <= hora < time(15, 0):
+    elif time(11, 0) <= hora < time(16, 0):
         momento = "Almuerzo"
-    elif time(15, 0) <= hora < time(17, 0):
-        momento = "Colación"
-    elif time(17, 0) <= hora < time(20, 0):
+    elif time(16, 0) <= hora < time(20, 0):
         momento = "Merienda"
     else:
         momento = "Cena"
@@ -2228,10 +2161,10 @@ def consultar_codigo_barras(barcode: str) -> dict | bool:
         # Valores nutricionales por 100g / 100ml proporcionados por la base de datos
         # (Open Food Facts estandariza los valores principales en 'nutriments')
         calorias = float(nutriments.get("energy-kcal_100g", nutriments.get("energy-kcal", 0.0) or 0.0))
-        proteinas = float(nutriments.get("proteins_100g", 0.0) or 0.0))
-        grasas = float(nutriments.get("fat_100g", 0.0) or 0.0))
-        carbohidratos = float(nutriments.get("carbohydrates_100g", 0.0) or 0.0))
-        fibras = float(nutriments.get("fiber_100g", 0.0) or 0.0))
+        proteinas = float(nutriments.get("proteins_100g", 0.0) or 0.0)
+        grasas = float(nutriments.get("fat_100g", 0.0) or 0.0)
+        carbohidratos = float(nutriments.get("carbohydrates_100g", 0.0) or 0.0)
+        fibras = float(nutriments.get("fiber_100g", 0.0) or 0.0)
 
         return {
             "alimento": nombre_alimento,
@@ -2247,10 +2180,11 @@ def consultar_codigo_barras(barcode: str) -> dict | bool:
     except Exception as e:
         logging.error(f"⚠️ Error al consultar el código de barras {barcode}: {e}")
         return False
+
         
 def procesar_foto_codigo_barras(base64_image: str) -> dict | bool:
     """
-    YA NO SE UTILIZA REEMPLAZADA POR ANALISIS IA Recibe una imagen en base64, intenta detectar un código de barras utilizando OpenCV,
+    Recibe una imagen en base64, intenta detectar un código de barras utilizando OpenCV,
     y si lo encuentra, consulta la API de Open Food Facts.
     
     Retorna:
@@ -2287,7 +2221,6 @@ def procesar_foto_codigo_barras(base64_image: str) -> dict | bool:
         # retorna False para que el sistema caiga en el análisis de IA por foto.
         return False
         
-
 # =============================================================================================================================================
 #              FINAL                        12 FUNCIONES COMIDAS                           FINAL
 # =============================================================================================================================================
