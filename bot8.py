@@ -4648,7 +4648,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
 
 @requiere_registro
-@requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
     try:
@@ -4674,22 +4673,25 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 retval, decoded_info = False, None
 
-        # Convertir de forma segura el resultado de OpenCV a booleano de Python
-        is_detected = False
+        # Validación segura del arreglo devuelto por OpenCV
+        has_barcode = False
         try:
             if isinstance(retval, np.ndarray):
-                is_detected = bool(retval.any())
+                has_barcode = bool(retval.any())
             else:
-                is_detected = bool(retval)
+                has_barcode = bool(retval)
         except Exception:
-            is_detected = False
+            has_barcode = False
 
-        # Extraer el texto del código de forma segura si existe
+        # Extraer el texto del código de forma segura
         barcode_text = None
-        if is_detected and decoded_info is not None:
-            if isinstance(decoded_info, (list, tuple, np.ndarray)) and len(decoded_info) > 0:
+        if has_barcode and decoded_info is not None:
+            if isinstance(decoded_info, (list, tuple)) and len(decoded_info) > 0:
                 if decoded_info[0]:
                     barcode_text = str(decoded_info[0]).strip()
+            elif isinstance(decoded_info, np.ndarray):
+                if decoded_info.size > 0 and decoded_info.item(0):
+                    barcode_text = str(decoded_info.item(0)).strip()
             elif isinstance(decoded_info, str) and decoded_info.strip():
                 barcode_text = decoded_info.strip()
 
