@@ -4709,7 +4709,7 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================================================================================================================================
 
 #====================================================================================================================================
-#                INICIO                             COMANDO BARRA                       INICIO
+#                INICIO                             COMANDO BARRA                                 INICIO
 #===================================================================================================================================
 
 def consultar_codigo_barras(barcode: str) -> dict | bool:
@@ -4760,10 +4760,10 @@ def consultar_codigo_barras(barcode: str) -> dict | bool:
         # Valores nutricionales por 100g / 100ml proporcionados por la base de datos
         # (Open Food Facts estandariza los valores principales en 'nutriments')
         calorias = float(nutriments.get("energy-kcal_100g", nutriments.get("energy-kcal", 0.0) or 0.0))
-        proteinas = float(nutriments.get("proteins_100g", 0.0) or 0.0))
-        grasas = float(nutriments.get("fat_100g", 0.0) or 0.0))
-        carbohidratos = float(nutriments.get("carbohydrates_100g", 0.0) or 0.0))
-        fibras = float(nutriments.get("fiber_100g", 0.0) or 0.0))
+        proteinas = float(nutriments.get("proteins_100g", 0.0) or 0.0)
+        grasas = float(nutriments.get("fat_100g", 0.0) or 0.0)
+        carbohidratos = float(nutriments.get("carbohydrates_100g", 0.0) or 0.0)
+        fibras = float(nutriments.get("fiber_100g", 0.0) or 0.0)
 
         return {
             "alimento": nombre_alimento,
@@ -4828,9 +4828,9 @@ async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Modo directo: /barra <codigo>
     barcode_text = args[0].strip()
     await procesar_codigo_ingresado(update.message, context, barcode_text)
-	
+    
 #====================================================================================================================================
-#                FINAL                              COMANDO BARRA                             FINAL
+#                FINAL                      COMANDO BARRA                            FINAL
 #===================================================================================================================================
 	
 # ======================================================================================================================================
