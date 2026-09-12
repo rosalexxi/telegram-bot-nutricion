@@ -4664,12 +4664,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         detector = cv2.barcode.BarcodeDetector()
         
-        # Captura segura compatible con diferentes versiones de OpenCV (3 o 4 valores de retorno)
-        resultado_detector = detector.detectAndDecode(img)
-        if len(resultado_detector) == 4:
-            retval, decoded_info, decoded_type, points = resultado_detector
-        else:
-            retval, decoded_info, points = resultado_detector
+        # Desempaquetado seguro adaptado a cualquier versión de OpenCV
+        try:
+            retval, decoded_info, decoded_type, points = detector.detectAndDecode(img)
+        except ValueError:
+            retval, decoded_info, points = detector.detectAndDecode(img)
+            decoded_type = None
         
         if retval and decoded_info and decoded_info[0].strip():
             # ES UN CÓDIGO DE BARRAS
