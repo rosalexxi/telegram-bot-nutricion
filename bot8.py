@@ -3479,6 +3479,7 @@ def analizar_imagen_con_groq(base64_image, user_caption=""):
             }
         ],
         temperature=0.1,
+        max_tokens=600,
         response_format={"type": "json_object"}
     )
     return json.loads(response.choices[0].message.content)
