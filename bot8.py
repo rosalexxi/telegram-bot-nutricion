@@ -28,7 +28,6 @@ import cv2
 import numpy as np
 import base64
 import requests
-from __future__ import annotations
 
 from typing import Dict, Tuple, List, Optional, Any            
 from urllib.parse import urlparse 
