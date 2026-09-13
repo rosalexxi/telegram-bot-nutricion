@@ -34,7 +34,7 @@ from datetime import datetime, date, timedelta, time
 from google.oauth2.service_account import Credentials
 from groq import Groq
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, send_from_directory
 from functools import wraps
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -326,7 +326,6 @@ function copiarFilaExcel() {
     const fila = document.getElementById('filaExcel');
     if (!fila) return;
     const celdas = Array.from(fila.querySelectorAll('td')).map(td => td.innerText);
-    // CORREGIDO: Se cambia '\\t' por '\t' para que el portapapeles inserte tabuladores reales en Excel
     const textoCopiable = celdas.join('\t');
 
     navigator.clipboard.writeText(textoCopiable).then(() => {
@@ -346,6 +345,15 @@ def vista_calculadora():
     """Renderiza la calculadora de recetas como única página principal, recibiendo el user_id por URL."""
     user_id = request.args.get('user_id', '')
     return render_template_string(HTML_CALCULADORA_RECETAS, user_id=user_id)
+
+
+@app.route('/manual.pdf', methods=['GET'])
+def servir_manual_pdf():
+    """Sirve el manual en PDF directamente desde el directorio actual de Render."""
+    try:
+        return send_from_directory(directory=os.getcwd(), path='manual.pdf', as_attachment=True)
+    except Exception as e:
+        return jsonify({"error": "No se encontró el archivo manual.pdf en el servidor."}), 404
 
 
 @app.route('/api/calcular-receta', methods=['POST'])
@@ -472,20 +480,6 @@ def api_guardar_comida():
 # =============================================================================================================================================
 #                    FINAL                                   PAGINA WEB                                     FINAL
 # =============================================================================================================================================
-
-def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero, actividad):
-    tmb = 10 * peso_actual + 6.25 * (altura_cm * 100 if altura_cm < 3 else altura_cm) - 5 * edad
-    tmb += 5 if str(genero).upper() == 'M' else -161
-    return tmb, tmb * actividad
-
-def obtener_ahora_arg():
-    import pytz
-    tz = pytz.timezone('America/Argentina/Buenos_Aires')
-    return datetime.now(tz)
-
-# =====================================================================================================================================
-#              FINAL                                  PAGINA WEB (CALCULADORA UNICA)                        FINAL
-# ======================================================================================================================================
 
 # =============================================================================================================================================
 #              INICIO                                   FUNCIONES SUPABASE                           INICIO
@@ -6297,6 +6291,7 @@ def main():
     app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
     app_bot.add_handler(CommandHandler(["ingreso", "nuevo"], cmd_nueva_cuenta))
     app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
+    app_bot.add_handler(CommandHandler(["guia",], cmd_))
     app_bot.add_handler(CommandHandler(["migrar", "nuevo"], cmd_migrar))
     
 
