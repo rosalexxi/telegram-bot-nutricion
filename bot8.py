@@ -4199,7 +4199,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
                 f"• **GET Estimado:** `{get_val:.0f} kcal/día`\n\n"
                 f"📌 **Para actualizar tu peso mensual:**\n"
-                f"`/peso 82.5` o `/perfil 82.5`"
+                f"`/peso 82.5`"
             )
         else:
             txt = f"👤 **Perfil no registrado para este mes.** Podés cargar tu peso ejecutando:\n`/peso 82.5`"
@@ -5281,9 +5281,8 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Envía un botón interactivo y enlace con el user_id apuntando directamente
     a la página principal (calculadora) para ingresar la comida precargada.
-    """[cite: 1]
+    """
     user_id = update.effective_user.id
-    # URL apuntando a la raíz ya que ahora la calculadora es la única página
     web_app_url = f"https://telegram-bot-nutricion.onrender.com/?user_id={user_id}"
     
     keyboard = InlineKeyboardMarkup([
@@ -5296,8 +5295,7 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     await update.message.reply_text(mensaje, reply_markup=keyboard, parse_mode="Markdown")
-
-
+    
 #                      INICIO                               COMANDO COMIDAS PRECARGADAS                              INICIO  DB OK
 # =======================================================================================================================================
 
