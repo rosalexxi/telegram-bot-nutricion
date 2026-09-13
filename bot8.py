@@ -474,9 +474,50 @@ def api_guardar_comida():
 #                    FINAL                                   PAGINA WEB                                     FINAL
 # =============================================================================================================================================
 
-# =============================================================================================================================================
-#              INICIO                                   FUNCIONES SUPABASE                           INICIO
-# =============================================================================================================================================
+
+import os
+import logging
+from functools import wraps
+from datetime import datetime, date
+import pandas as pd
+import psycopg2
+from telegram import Update
+from telegram.ext import ContextTypes
+
+# Configuración básica de logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Funciones auxiliares
+def parse_raw_val(val):
+    try:
+        return float(str(val).replace(',', '.'))
+    except (ValueError, TypeError):
+        return 0.0
+
+def parse_float_from_sheets(val):
+    try:
+        num = float(str(val).replace(',', '.'))
+        return num / 1000.0 if num > 1000 else num
+    except (ValueError, TypeError):
+        return 0.0
+
+def to_sheet_int(val):
+    try:
+        return int(float(str(val).replace(',', '.')))
+    except (ValueError, TypeError):
+        return 0
+
+def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero, actividad):
+    tmb = 10 * peso_actual + 6.25 * (altura_cm * 100 if altura_cm < 3 else altura_cm) - 5 * edad
+    tmb += 5 if str(genero).upper() == 'M' else -161
+    return tmb, tmb * actividad
+
+def obtener_ahora_arg():
+    import pytz
+    tz = pytz.timezone('America/Argentina/Buenos_Aires')
+    return datetime.now(tz)
+
 # =============================================================================================================================================
 #              INICIO                                   FUNCIONES SUPABASE                           INICIO
 # =============================================================================================================================================
@@ -503,7 +544,6 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
     conn = _obtener_conexion_db()
     cur = conn.cursor()
 
-    # Buscar si la tabla ya existe sin importar si está en mayúsculas o minúsculas en Supabase
     cur.execute("""
         SELECT table_name 
         FROM information_schema.tables 
@@ -513,9 +553,9 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
     row = cur.fetchone()
 
     if row:
-        tabla_real = row[0]  # Usa el nombre exacto tal como está guardado en la BD
+        tabla_real = row[0]
     else:
-        tabla_real = tabla_nombre  # Si no existe, usa el nombre solicitado para crearla
+        tabla_real = tabla_nombre
 
         if tipo_tabla == "comida":
             cur.execute(f"""
@@ -617,6 +657,22 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
             """)
         conn.commit()
 
+    return conn, cur
+
+def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
+    """Función auxiliar para migración que recrea la tabla limpia."""
+    conn = _obtener_conexion_db()
+    cur = conn.cursor()
+    cur.execute(f'DROP TABLE IF EXISTS "{tabla_nombre}" CASCADE;')
+    conn.commit()
+    
+    if df_muestra is not None and not df_muestra.empty:
+        cols_def = []
+        for col in df_muestra.columns:
+            cols_def.append(f'"{col}" TEXT')
+        cols_sql = ", ".join(cols_def)
+        cur.execute(f'CREATE TABLE "{tabla_nombre}" (id SERIAL PRIMARY KEY, {cols_sql});')
+        conn.commit()
     return conn, cur
 
 #              INICIO                           3  FUNCIONES DECORADOR                          INICIO
@@ -727,31 +783,32 @@ def obtener_datos_usuario(user_id):
         print(f"Error al obtener datos de Supabase para el usuario {user_id}: {e}")
         return pd.DataFrame()       
 
-def obtener_ultimo_peso(user_id: int) -> dict:
+def obtener_ultimo_peso_str(u_id):
+    peso_str = "S/D"
     try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        # CORREGIDO: En la tabla "Usuarios" la columna correcta según el Excel es "Ultimo Mes Peso"
-        query = """
-            SELECT "User ID", "Ultimo Mes Peso", "Notificaciones"
-            FROM "Usuarios"
+        tabla_nombre = f"Perfil_{u_id}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+        
+        query = f"""
+            SELECT "PESO"
+            FROM "{tabla_nombre}"
+            ORDER BY id ASC
         """
         cur.execute(query)
         filas = cur.fetchall()
         cur.close()
         conn.close()
-
-        for fila in filas:
-            raw_id = fila[0]
-            if raw_id and str(raw_id).split('.')[0].strip() == str(user_id).strip():
-                fecha_peso = fila[1]
-                if fecha_peso:
-                    return {"fecha": str(fecha_peso).strip()}
-                    
-        return None
-    except Exception as e:
-        logger.error(f"Error en obtener_ultimo_peso para User {user_id}: {e}")
-        return None
         
+        if filas:
+            ultimo_p_val = filas[-1][0]
+            p_val = parse_raw_val(ultimo_p_val)
+            if p_val > 0:
+                peso_str = f"{p_val / 1000:.1f} kg" if p_val > 300 else f"{p_val} kg"
+    except Exception as e:
+        logger.error(f"Error al obtener último peso en Supabase para {u_id}: {e}")
+    return peso_str
+
+
 def obtener_registros_presion(u_id):
     try:
         df_presion = obtener_datos_presion_db(u_id)
@@ -899,7 +956,7 @@ def obtener_ultimo_peso(user_id: int) -> dict:
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
         query = """
-            SELECT "User ID", "MES", "Notificaciones"
+            SELECT "User ID", "Ultimo Mes Peso", "Notificaciones"
             FROM "Usuarios"
         """
         cur.execute(query)
@@ -909,7 +966,7 @@ def obtener_ultimo_peso(user_id: int) -> dict:
 
         for fila in filas:
             raw_id = fila[0]
-            if raw_id and str(raw_id).strip() == str(user_id).strip():
+            if raw_id and str(raw_id).split('.')[0].strip() == str(user_id).strip():
                 fecha_peso = fila[1]
                 if fecha_peso:
                     return {"fecha": str(fecha_peso).strip()}
@@ -1623,14 +1680,16 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     except Exception as e:
         logger.error(f"Error al duplicar perfil en Supabase (Perfil_{user_id}): {e}")
 
+#              INICIO                         FUNCIONES MIGRAR                           INICIO
+# =============================================================================================================================================
+
 async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando temporal para migrar el archivo Excel local (Registro_Nutricional_Bot.xlsx) 
-    hacia Supabase borrando las tablas previas, dividiendo los valores numéricos por 1000 
-    y reflejando exactamente el estado actual de tu Excel.
+    hacia Supabase limpiando las fechas a formato YYYY-MM-DD y escalando las métricas numéricas.
     """
     try:
-        await update.message.reply_text("🔄 Reiniciando tablas, procesando valores numéricos y migrando el Excel a Supabase...", parse_mode="Markdown")
+        await update.message.reply_text("🔄 Reiniciando tablas, limpiando fechas y migrando el Excel a Supabase...", parse_mode="Markdown")
         
         excel_path = 'Registro_Nutricional_Bot.xlsx'
         if not os.path.exists(excel_path):
@@ -1640,6 +1699,17 @@ async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         xls = pd.ExcelFile(excel_path)
         reporte = []
 
+        columnas_a_escalar = {
+            "Peso (g)", "Peso", "PESO", "Peso_ideal",
+            "Calorías (kcal)", "Calorias",
+            "Proteínas (g)", "Proteinas",
+            "Grasas (g)", "Grasas",
+            "Hidratos (g)", "Carbohidratos",
+            "Fibras (g)", "Fibras",
+            "EDAD", "ALTURA", "ocupacion", "muneca",
+            "Alta", "Baja", "Pulsaciones"
+        }
+
         for nombre_hoja in xls.sheet_names:
             nombre_tabla = nombre_hoja.strip()
             df = pd.read_excel(xls, sheet_name=nombre_hoja)
@@ -1648,11 +1718,9 @@ async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reporte.append(f"⚠️ Hoja *{nombre_hoja}*: Omitida (vacía).")
                 continue
 
-            # Limpiamos espacios en blanco en los bordes de los nombres de columnas
             df.columns = [str(c).strip() for c in df.columns]
 
             try:
-                # Recrea la tabla limpia desde cero usando la función modificada
                 conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df)
             except Exception as e:
                 reporte.append(f"❌ Tabla *{nombre_tabla}*: Error al recrear tabla ({e}).")
@@ -1676,9 +1744,15 @@ async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if pd.isna(val):
                             val = None
                         elif isinstance(val, (pd.Timestamp, datetime, date)):
-                            val = str(val)
-                        elif isinstance(val, (int, float)):
-                            # Se divide el valor numérico por 1000 antes de enviarlo
+                            val = pd.to_datetime(val).strftime("%Y-%m-%d")
+                        elif isinstance(val, str) and ("/" in val or "-" in val) and len(val) >= 10:
+                            try:
+                                dt_parsed = pd.to_datetime(val)
+                                if not pd.isna(dt_parsed):
+                                    val = dt_parsed.strftime("%Y-%m-%d")
+                            except Exception:
+                                pass
+                        elif isinstance(val, (int, float)) and col in columnas_a_escalar:
                             val = val / 1000.0
                         valores.append(val)
 
@@ -1686,7 +1760,7 @@ async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     filas_insertadas += 1
 
                 conn.commit()
-                reporte.append(f"✅ Tabla *{nombre_tabla}*: {filas_insertadas} registros migrados (reemplazada por completo).")
+                reporte.append(f"✅ Tabla *{nombre_tabla}*: {filas_insertadas} registros migrados con fechas limpias.")
 
             except Exception as inner_e:
                 conn.rollback()
@@ -1695,7 +1769,7 @@ async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 cur.close()
                 conn.close()
 
-        mensaje_final = "📊 **Resultado de la Migración Completa (Reemplazo Total):**\n\n" + "\n".join(reporte)
+        mensaje_final = "📊 **Resultado de la Migración:**\n\n" + "\n".join(reporte)
         await update.message.reply_text(mensaje_final, parse_mode="Markdown")
 
     except Exception as e:
@@ -1705,6 +1779,7 @@ async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =============================================================================================================================================
 #              FINAL                            FUNCIONES SUPABASE                 FINAL
 # =============================================================================================================================================
+
 # =============================================================================================================================================
 #              INICIO                         FUNCIONES AUXILIARES                           INICIO
 # =============================================================================================================================================
