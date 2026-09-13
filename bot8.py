@@ -727,32 +727,31 @@ def obtener_datos_usuario(user_id):
         print(f"Error al obtener datos de Supabase para el usuario {user_id}: {e}")
         return pd.DataFrame()       
 
-def obtener_ultimo_peso_str(u_id):
-    peso_str = "S/D"
+def obtener_ultimo_peso(user_id: int) -> dict:
     try:
-        tabla_nombre = f"Perfil_{u_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
-        
-        query = f"""
-            SELECT "PESO"
-            FROM "{tabla_nombre}"
-            ORDER BY id ASC
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        # CORREGIDO: En la tabla "Usuarios" la columna correcta según el Excel es "Ultimo Mes Peso"
+        query = """
+            SELECT "User ID", "Ultimo Mes Peso", "Notificaciones"
+            FROM "Usuarios"
         """
         cur.execute(query)
         filas = cur.fetchall()
         cur.close()
         conn.close()
-        
-        if filas:
-            ultimo_p_val = filas[-1][0]
-            p_val = parse_raw_val(ultimo_p_val)
-            if p_val > 0:
-                peso_str = f"{p_val / 1000:.1f} kg" if p_val > 300 else f"{p_val} kg"
+
+        for fila in filas:
+            raw_id = fila[0]
+            if raw_id and str(raw_id).split('.')[0].strip() == str(user_id).strip():
+                fecha_peso = fila[1]
+                if fecha_peso:
+                    return {"fecha": str(fecha_peso).strip()}
+                    
+        return None
     except Exception as e:
-        logger.error(f"Error al obtener último peso en Supabase para {u_id}: {e}")
-    return peso_str
-
-
+        logger.error(f"Error en obtener_ultimo_peso para User {user_id}: {e}")
+        return None
+        
 def obtener_registros_presion(u_id):
     try:
         df_presion = obtener_datos_presion_db(u_id)
@@ -1982,6 +1981,8 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "tot_fibr": tot_fibr
     }
     
+from datetime import datetime
+
 async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.DEFAULT_TYPE = None, user_id: int = None) -> bool:
     uid = user_id or (update.effective_user.id if update else None)
     if not uid:
@@ -1998,9 +1999,9 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
 
     if ultimo_registro:
         fecha_val = (
-            ultimo_registro.get("fecha") or 
-            ultimo_registro.get("Ultimo Mes Peso") or 
-            ultimo_registro.get("MES") or 
+            ultimo_registro.get("fecha") or  
+            ultimo_registro.get("Ultimo Mes Peso") or  
+            ultimo_registro.get("MES") or  
             ""
         )
         fecha_str = str(fecha_val).strip()
@@ -2030,27 +2031,9 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
                 mes_str_lat = ahora.strftime("%m/%Y")
                 if mes_str_iso in fecha_str or mes_str_lat in fecha_str:
                     peso_valido = True
-
-    if not peso_valido:
-        msg_generico = (
-            "⚠️ **Actualización de peso requerida:**\n\n"
-            "Para procesar tu solicitud y generar los informes (semanales y mensuales), "
-            "es necesario que cargues tu peso correspondiente al mes en curso.\n\n"
-            "Por favor, actualizalo desde el menú `/perfil` (Opción PESO)."
-        )
-
-        if update and update.callback_query:
-            await update.callback_query.answer()
-            await update.callback_query.message.reply_text(msg_generico, parse_mode="Markdown")
-        elif update and update.message:
-            await update.message.reply_text(msg_generico, parse_mode="Markdown")
-        elif context and uid:
-            await context.bot.send_message(chat_id=uid, text=msg_generico, parse_mode="Markdown")
-
-        return False
-
-    return True
-
+                    
+    return peso_valido
+    
 #              INICIO                     12 FUNCIONES COMIDAS                           INICIO
 # =============================================================================================================================================
 
