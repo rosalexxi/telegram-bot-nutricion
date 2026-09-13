@@ -477,6 +477,9 @@ def api_guardar_comida():
 # =============================================================================================================================================
 #              INICIO                                   FUNCIONES SUPABASE                           INICIO
 # =============================================================================================================================================
+# =============================================================================================================================================
+#              INICIO                                   FUNCIONES SUPABASE                           INICIO
+# =============================================================================================================================================
 
 #              INICIO                           2  FUNCIONES CONEXIONES                            INICIO
 # =============================================================================================================================================
@@ -1620,136 +1623,18 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         conn.close()
     except Exception as e:
         logger.error(f"Error al duplicar perfil en Supabase (Perfil_{user_id}): {e}")
-        
-#                    INICIO            FUNCION CONEXION Y MIGRACION DINAMICA SUPABASE            INICIO  
-# =============================================================================================================================================
 
-def _obtener_conexion_db_migrar():
-    """Obtiene la conexión a la base de datos PostgreSQL de Supabase usando DATABASE_URL."""
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise ValueError("La variable de entorno DATABASE_URL no está configurada.")
-    return psycopg2.connect(database_url)
-
-def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
-    """
-    Elimina la tabla si ya existe y la vuelve a crear en Supabase de forma dinámica 
-    utilizando exactamente los nombres de las columnas del DataFrame.
-    """
-    conn = _obtener_conexion_db_migrar()
-    cur = conn.cursor()
-
-    if df_muestra is not None:
-        # Borra la tabla anterior por completo si ya existía para empezar de cero
-        cur.execute(f'DROP TABLE IF EXISTS "{tabla_nombre}" CASCADE;')
-
-        columnas_sql = []
-        for col in df_muestra.columns:
-            # Determinamos el tipo de dato SQL basándonos en si la columna es numérica o texto
-            sample_val = df_muestra[col].dropna()
-            if not sample_val.empty and pd.api.types.is_numeric_dtype(sample_val):
-                tipo_sql = "DOUBLE PRECISION"
-            else:
-                tipo_sql = "TEXT"
-            
-            # Usamos comillas dobles para forzar a PostgreSQL a respetar mayúsculas, minúsculas y espacios exactos
-            columnas_sql.append(f'"{str(col).strip()}" {tipo_sql}')
-
-        definicion_columnas = ", \n    ".join(columnas_sql)
-        
-        query_create = f"""
-            CREATE TABLE IF NOT EXISTS "{tabla_nombre}" (
-                id SERIAL PRIMARY KEY,
-                {definicion_columnas}
-            );
-        """
-        cur.execute(query_create)
-
-    conn.commit()
-    return conn, cur
-
-async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Comando temporal para migrar el archivo Excel local (Registro_Nutricional_Bot.xlsx) 
-    hacia Supabase borrando las tablas previas, dividiendo los valores numéricos por 1000 
-    y reflejando exactamente el estado actual de tu Excel.
-    """
-    try:
-        await update.message.reply_text("🔄 Reiniciando tablas, procesando valores numéricos y migrando el Excel a Supabase...", parse_mode="Markdown")
-        
-        excel_path = 'Registro_Nutricional_Bot.xlsx'
-        if not os.path.exists(excel_path):
-            await update.message.reply_text(f"❌ No se encontró el archivo `{excel_path}` en el directorio del bot.", parse_mode="Markdown")
-            return
-
-        xls = pd.ExcelFile(excel_path)
-        reporte = []
-
-        for nombre_hoja in xls.sheet_names:
-            nombre_tabla = nombre_hoja.strip()
-            df = pd.read_excel(xls, sheet_name=nombre_hoja)
-            
-            if df.empty:
-                reporte.append(f"⚠️ Hoja *{nombre_hoja}*: Omitida (vacía).")
-                continue
-
-            # Limpiamos espacios en blanco en los bordes de los nombres de columnas
-            df.columns = [str(c).strip() for c in df.columns]
-
-            try:
-                # Recrea la tabla limpia desde cero usando la función modificada
-                conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df)
-            except Exception as e:
-                reporte.append(f"❌ Tabla *{nombre_tabla}*: Error al recrear tabla ({e}).")
-                continue
-
-            filas_insertadas = 0
-            try:
-                columnas = list(df.columns)
-                cols_sql = ', '.join([f'"{c}"' for c in columnas])
-                placeholders = ', '.join(['%s'] * len(columnas))
-                
-                query_insert = f"""
-                    INSERT INTO "{nombre_tabla}" ({cols_sql})
-                    VALUES ({placeholders})
-                """
-
-                for _, row in df.iterrows():
-                    valores = []
-                    for col in columnas:
-                        val = row[col]
-                        if pd.isna(val):
-                            val = None
-                        elif isinstance(val, (pd.Timestamp, datetime, date)):
-                            val = str(val)
-                        elif isinstance(val, (int, float)):
-                            # Se divide el valor numérico por 1000 antes de enviarlo
-                            val = val / 1000.0
-                        valores.append(val)
-
-                    cur.execute(query_insert, tuple(valores))
-                    filas_insertadas += 1
-
-                conn.commit()
-                reporte.append(f"✅ Tabla *{nombre_tabla}*: {filas_insertadas} registros migrados (reemplazada por completo).")
-
-            except Exception as inner_e:
-                conn.rollback()
-                reporte.append(f"❌ Tabla *{nombre_tabla}*: Error en inserción ({inner_e}).")
-            finally:
-                cur.close()
-                conn.close()
-
-        mensaje_final = "📊 **Resultado de la Migración Completa (Reemplazo Total):**\n\n" + "\n".join(reporte)
-        await update.message.reply_text(mensaje_final, parse_mode="Markdown")
-
-    except Exception as e:
-        logger.error(f"Error crítico en migración local: {e}", exc_info=True)
-        await update.message.reply_text(f"⚠️ Error general en la migración: {e}")
-        
 # =============================================================================================================================================
 #              FINAL                            FUNCIONES SUPABASE                 FINAL
 # =============================================================================================================================================
+
+
+
+
+
+
+
+
 
 # =============================================================================================================================================
 #              INICIO                         FUNCIONES AUXILIARES                           INICIO
