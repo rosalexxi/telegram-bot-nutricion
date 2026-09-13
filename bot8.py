@@ -6291,7 +6291,7 @@ def main():
     app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
     app_bot.add_handler(CommandHandler(["ingreso", "nuevo"], cmd_nueva_cuenta))
     app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
-    app_bot.add_handler(CommandHandler(["guia",], cmd_))
+    app_bot.add_handler(CommandHandler(["guia",], cmd_guia))
     app_bot.add_handler(CommandHandler(["migrar", "nuevo"], cmd_migrar))
     
 
