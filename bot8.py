@@ -1,5 +1,4 @@
 
-
 # =============================================================================================================================================
 #                                 INICIO                                   CABECERA 2026 09 05                                    INICIO
 #                                  https://github.com/rosalexxi/telegram-bot-nutricion
@@ -474,40 +473,6 @@ def api_guardar_comida():
 #                    FINAL                                   PAGINA WEB                                     FINAL
 # =============================================================================================================================================
 
-
-import os
-import logging
-from functools import wraps
-from datetime import datetime, date
-import pandas as pd
-import psycopg2
-from telegram import Update
-from telegram.ext import ContextTypes
-
-# Configuración básica de logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Funciones auxiliares
-def parse_raw_val(val):
-    try:
-        return float(str(val).replace(',', '.'))
-    except (ValueError, TypeError):
-        return 0.0
-
-def parse_float_from_sheets(val):
-    try:
-        num = float(str(val).replace(',', '.'))
-        return num / 1000.0 if num > 1000 else num
-    except (ValueError, TypeError):
-        return 0.0
-
-def to_sheet_int(val):
-    try:
-        return int(float(str(val).replace(',', '.')))
-    except (ValueError, TypeError):
-        return 0
-
 def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero, actividad):
     tmb = 10 * peso_actual + 6.25 * (altura_cm * 100 if altura_cm < 3 else altura_cm) - 5 * edad
     tmb += 5 if str(genero).upper() == 'M' else -161
@@ -518,9 +483,74 @@ def obtener_ahora_arg():
     tz = pytz.timezone('America/Argentina/Buenos_Aires')
     return datetime.now(tz)
 
+# =====================================================================================================================================
+#              FINAL                                  PAGINA WEB (CALCULADORA UNICA)                        FINAL
+# ======================================================================================================================================
+
 # =============================================================================================================================================
 #              INICIO                                   FUNCIONES SUPABASE                           INICIO
 # =============================================================================================================================================
+
+#                 INICIO                           1  GOOGLE SHEETS                       INICIO
+# =============================================================================================================================================
+                
+def get_gspread_client():
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    if os.path.exists(GOOGLE_SHEETS_KEY_PATH):
+        creds = Credentials.from_service_account_file(GOOGLE_SHEETS_KEY_PATH, scopes=scopes)
+    else:
+        creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+        if creds_json:
+            info = json.loads(creds_json)
+            creds = Credentials.from_service_account_info(info, scopes=scopes)
+        else:
+            raise Exception("No se encontraron credenciales de Google Sheets.")
+    return gspread.authorize(creds)
+
+def get_or_create_worksheet(spreadsheet, title):
+    try:
+        return spreadsheet.worksheet(title)
+    except gspread.WorksheetNotFound:
+        if title.startswith("User_"):
+            ws = spreadsheet.add_worksheet(title=title, rows="1000", cols="10")
+            ws.append_row(["Fecha", "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)"])
+            return ws
+        elif title.startswith("Presion_"):
+            ws = spreadsheet.add_worksheet(title=title, rows="500", cols="6")
+            ws.append_row(["Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota"])
+            return ws
+        elif title.startswith("Perfil_"):
+            ws = spreadsheet.add_worksheet(title=title, rows="100", cols="7")
+            ws.append_row(["EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "MES", "Fecha_Actualizacion"])
+            return ws
+        elif title == "Plantillas_Comidas":
+            ws = spreadsheet.add_worksheet(title=title, rows="100", cols="8")
+            ws.append_row(["Nombre", "Descripcion", "Peso", "Calorias", "Proteinas", "Grasas", "Carbohidratos", "Fibras"])
+            return ws
+        else:
+            return spreadsheet.add_worksheet(title=title, rows="200", cols="10")
+
+def get_user_worksheet(user_id):
+    """Obtiene o crea una pestaña dinámica 'Comidas_<user_id>' dentro de la planilla."""
+    gc = get_gspread_client()
+    sh = gc.open(SPREADSHEET_NAME)
+    
+    sheet_name = f"Comidas_{user_id}"
+    ws = get_or_create_worksheet(sh, sheet_name)
+    
+    if not ws.get_all_values():
+        ws.append_row([
+            "Código / Nombre", 
+            "Descripción", 
+            "Peso (g x1000)", 
+            "Calorías (x1000)", 
+            "Proteínas (g x1000)", 
+            "Grasas (g x1000)", 
+            "Carbohidratos (g x1000)", 
+            "Fibras (g x1000)"
+        ])
+        
+    return ws
 
 #              INICIO                           2  FUNCIONES CONEXIONES                            INICIO
 # =============================================================================================================================================
@@ -2376,6 +2406,11 @@ def obtener_categorias_diccionario(sh):
         print(f"Error al leer Categorias_Comida: {e}")
         return {}
         
+# =====================================================================================================================================
+#                FINAL                          FUNCIONES AUXILIARES                                     FINAL
+# ======================================================================================================================================
+
+# ======================================================================================================================================
 #                INICIO                       14 FUNCIONES IA GROQ                                      INICIO
 # ======================================================================================================================================
 
@@ -2871,11 +2906,11 @@ def detectar_codigo_con_groq(base64_image: str) -> dict:
         return {"tiene_codigo": False, "codigo": ""}
             
 # =====================================================================================================================================
-#                FINAL                          FUNCIONES AUXILIARES                                     FINAL
+#                FINAL                          FUNCIONES IA GROQ                                     FINAL
 # ======================================================================================================================================
 
 # ======================================================================================================================================
-#                  INICIO               FUNCIONES CONFIRMACION Y MENU                     INICIO
+#                  INICIO               COMANDOS CONFIRMACION Y MENU                     INICIO
 # ======================================================================================================================================
 
 #                  INICIO               INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO
@@ -3597,13 +3632,13 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/semanal`: Estadística semanal (calorías, fibras, etc).\n"
         "• `/mensual`: Reporte con estimación de peso y PDF.\n"
         "• `/perfil`: Consulta de datos biométricos.\n"
-        "• `/peso`: `/peso 90` Actualiza el peso del mes.\n"
+        "• `/peso`: Actualiza el peso del mes `/peso 90`.\n"
         "• `/eliminar`: Borra ingestas seleccionando dia.\n"
-        "• `/barra`: `/barra Número` ingreso x codigo de barras.\n"
+        "• `/barra`: ingreso x codigo de barras `/barra Número`.\n"
         "• `/comidas`: Listado predeterminadas y PDF.\n"
         "• `/receta`: Calculadora Web para registrar comidas.\n\n"
         "📌 **Métodos de Registro:**\n"
-        "• **Con IA:** Texto libre, 🎤 Notas de voz, 📸 Fotos de platos.\n"
+        "• **Con IA:** Texto, 🎤 Notas de voz, 📸 Fotos .\n"
         "• **Modificación parcial:** Editar por item y reenvío a la IA\n"
         "    `DESCRIPCION` manteniendo el peso\n"
         "    `DESCRIPCION,PESO` modificando ambos campos\n"
