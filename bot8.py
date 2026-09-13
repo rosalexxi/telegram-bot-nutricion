@@ -3643,17 +3643,15 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "    `*TORTA (fraccion x 100g),1.5`: 150 g de torta\n"
         "• **Actividad Física:** `# Minutos, Descrip, Calorías`\n"
         "    `# 45 min, caminata en cinta, 250 cal`.\n\n"
-        "📄 *Te adjuntamos el Manual de Usuario completo en formato PDF.*"
+        "📄 *Descargá nuestro Manual Integral de Usuario completo desde el botón de abajo.*"
     )
-    await update.message.reply_text(msg, parse_mode="Markdown")
     
-    # Generación y envío del documento PDF mejorado
-    pdf_buf = generar_pdf_instrucciones_bytes()
-    await context.bot.send_document(
-        chat_id=update.effective_chat.id,
-        document=pdf_buf,
-        filename="Manual_Bot_Nutricional.pdf"
-    )
+    # Botón con enlace web directo al PDF grande alojado en el servidor HTTP
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📚 Descargar Manual Integral (PDF)", url="https://telegram-bot-nutricion.onrender.com/manual.pdf")]
+    ])
+    
+    await update.message.reply_text(msg, reply_markup=keyboard, parse_mode="Markdown")
 
 def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     buffer = io.BytesIO()
@@ -3973,6 +3971,15 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     doc.build(story)
     buffer.seek(0)
     return buffer
+    
+async def cmd_guia(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando /guia para generar y enviar la guía interactiva detallada en PDF."""
+    pdf_buf = generar_pdf_instrucciones_bytes()
+    await context.bot.send_document(
+        chat_id=update.effective_chat.id,
+        document=pdf_buf,
+        filename="Manual_Bot_Nutricional.pdf"
+    )
 
 #                   INICIO                            COMANDO PRESION                                   INICIO  DB OK
 # ======================================================================================================================================
