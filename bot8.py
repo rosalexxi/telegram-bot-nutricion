@@ -2404,7 +2404,7 @@ def obtener_categorias_diccionario(sh):
 #                FINAL                          FUNCIONES AUXILIARES                                     FINAL
 # ======================================================================================================================================
 
-# ======================================================================================================================================
+# ======================================================================================================================================       
 #                INICIO                       14 FUNCIONES IA GROQ                                      INICIO
 # ======================================================================================================================================
 
@@ -2810,18 +2810,35 @@ def analizar_con_groq(prompt_text):
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
     
-    system_prompt = (
-        "Sos un nutricionista experto. Analizá el texto ingresado. "
-        "Si el texto incluye varios alimentos o porciones, desglosalos individualmente. "
-        "Estimá de forma lógica los pesos en gramos y nutrientes si no están explícitos. "
-        "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
-        "{\n"
-        '  "items": [\n'
-        '    {"alimento": "nombre", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
-        "  ],\n"
-        '  "tipo": "Comida"\n'
-        "}"
-    )
+    es_actividad = any(w in prompt_text.lower() for w in ['min', 'minutos', 'caminata', 'yoga', 'aquagym', 'entrenamiento', 'ejercicio', 'clase', 'bicicleta', 'nadar', 'gimnasia'])
+
+    if es_actividad:
+        system_prompt = (
+            "Sos un preparador físico y especialista en nutrición. "
+            "El usuario ingresó una actividad física o ejercicio. "
+            "REGLA OBLIGATORIA 1: El campo 'alimento' DEBE empezar estrictamente con el número de minutos seguido de 'min' (ej: '50 min - Caminata a velocidad moderada'). "
+            "REGLA OBLIGATORIA 2: Calculá un estimativo lógico de calorías gastadas según la actividad (valor positivo). "
+            "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
+            "{\n"
+            '  "items": [\n'
+            '    {"alimento": "50 min - Actividad", "peso": 0.0, "calorias": 200.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
+            "  ],\n"
+            '  "tipo": "Actividad"\n'
+            "}"
+        )
+    else:
+        system_prompt = (
+            "Sos un nutricionista experto. Analizá el texto ingresado. "
+            "Si el texto incluye varios alimentos o porciones, desglosalos individualmente. "
+            "Estimá de forma lógica los pesos en gramos y nutrientes si no están explícitos. "
+            "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
+            "{\n"
+            '  "items": [\n'
+            '    {"alimento": "nombre", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
+            "  ],\n"
+            '  "tipo": "Comida"\n'
+            "}"
+        )
 
     response = client_ai.chat.completions.create(
         model=globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile"),
@@ -2904,7 +2921,7 @@ def detectar_codigo_con_groq(base64_image: str) -> dict:
 # ======================================================================================================================================
 
 # ======================================================================================================================================
-#                  INICIO               COMANDOS CONFIRMACION Y MENU                     INICIO
+#                  INICIO               FUNCIONES CONFIRMACION Y MENU                     INICIO
 # ======================================================================================================================================
 
 #                  INICIO               INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO
@@ -3059,8 +3076,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         idx = int(data.replace("edit_item_", "")) - 1
         context.user_data['awaiting_edit_item_val'] = True
         context.user_data['editing_item_idx'] = idx
-        await query.message.reply_text("✏️ Ingresá la nueva descripción o peso para este ítem:")
-
+        
+        momento_actual = context.user_data.get('pending_momento', 'Comida')
+        
+        if momento_actual == 'Actividad':
+            await query.message.reply_text(
+                "✏️ Ingresá la corrección de la actividad (ej: descripción nueva o separando con coma las calorías exactas de tu reloj, ej: `Caminata fuerte, 220`):",
+                parse_mode="Markdown"
+            )
+        else:
+            await query.message.reply_text("✏️ Ingresá la nueva descripción o peso para este alimento:")
+            
     elif data.startswith("del_item_"):
         idx = int(data.replace("del_item_", "")) - 1
         items = context.user_data.get('pending_items', [])
@@ -3106,10 +3132,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == "diario_ayer":
         fecha = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
         await mostrar_diario_fecha(query, user_id, fecha)
-
-    elif data.startswith("resumen_mes_20"):
-        mes_str = data.replace("resumen_mes_", "")
-        await mostrar_resumen_mes(query, user_id, mes_str)
 
     elif data.startswith("resumen_mes_20"):
         mes_str = data.replace("resumen_mes_", "")
@@ -5306,7 +5328,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 # =============================================================================================================================================
 
 # ==================================================================================================================================
-#                    INICIO                                    COMANDOS COMIDAS                                   INCIO  DB OK
+#                    INICIO                                    COMANDOS COMIDAS Y COMANDOS ACTIVIDAD                                   INCIO  DB OK
 # ==================================================================================================================================
 
 #                    INICIO                                    COMANDO RECETAS                                   INCIO  DB OK
@@ -5601,6 +5623,67 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not raw_text:
         return
 
+    # Captura el texto cuando el usuario eligió ingresar actividad por texto tras tocar /actividad
+    if context.user_data.get('awaiting_activity_text'):
+        texto_actividad = raw_text.strip()
+        
+        msg_solic = context.user_data.pop('msg_solicitud_activity_id', None)
+        if msg_solic:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
+            except Exception:
+                pass
+
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
+        context.user_data['awaiting_activity_text'] = False
+        msg_espera = await update.message.reply_text("🏃 Analizando actividad y calculando calorías según tus datos...")
+
+        try:
+            perfil_biometrico = obtener_datos_biometricos_usuario(user_id) # Ajustar según tu función de BD
+            
+            prompt_ia = (
+                f"El usuario realizó una actividad física. Analiza la descripción y calcula las calorías gastadas "
+                f"utilizando estrictamente su perfil biométrico: {perfil_biometrico}.\n"
+                f"REGLA OBLIGATORIA 1: El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de 'min' y una descripción clara (ej: '50 min - Caminata a velocidad moderada').\n"
+                f"REGLA OBLIGATORIA 2: El campo 'calorias' debe ser un número positivo que luego transformaremos en negativo.\n"
+                f"Descripción del usuario: '{texto_actividad}'\n"
+                f"Devolvé un JSON con los campos 'alimento' y 'calorias'."
+            )
+
+            resultado_ia = analizar_con_groq(prompt_ia)
+            kcal_estimadas = float(resultado_ia.get('calorias', 0))
+            descripcion_formateada = str(resultado_ia.get('alimento', texto_actividad))
+            
+            calorias_finales = -abs(kcal_estimadas) # Negativo para restar
+
+            item_actividad = {
+                "alimento": descripcion_formateada,
+                "peso": 0,
+                "calorias": calorias_finales,
+                "proteinas": 0,
+                "grasas": 0,
+                "carbohidratos": 0,
+                "fibras": 0
+            }
+
+            context.user_data['pending_items'] = [item_actividad]
+            context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+            context.user_data['pending_momento'] = 'Actividad'
+
+            await msg_espera.delete()
+            msg_menu = await update.message.reply_text("📋 Actividad analizada:")
+            context.user_data['last_menu_msg_id'] = msg_menu.message_id
+            await render_confirmation_screen(msg_menu, context)
+            return
+
+        except Exception as e:
+            await msg_espera.edit_text(f"❌ Error al procesar la actividad: {e}")
+            return
+
     if context.user_data.get('awaiting_barcode_input'):
         barcode_ingresado = raw_text.strip()
         
@@ -5708,41 +5791,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
             context.user_data['msg_solicitud_fecha_id'] = msg_err.message_id
             return
-
-    if raw_text.startswith('#'):
-        contenido = raw_text[1:].strip()
-        
-        if ',' in contenido:
-            partes = contenido.rsplit(',', 1)
-            descripcion = partes[0].strip()
-            try:
-                kcal_ingresadas = float(re.sub(r'[^\d.]', '', partes[1].replace(',', '.')))
-            except ValueError:
-                kcal_ingresadas = 0.0
-        else:
-            descripcion = contenido
-            kcal_ingresadas = 0.0
-
-        calorias_finales = -abs(kcal_ingresadas) 
-
-        item_actividad = {
-            "alimento": descripcion,
-            "peso": 0,
-            "calorias": calorias_finales,
-            "proteinas": 0,
-            "grasas": 0,
-            "carbohidratos": 0,
-            "fibras": 0
-        }
-
-        context.user_data['pending_items'] = [item_actividad]
-        context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
-        context.user_data['pending_momento'] = 'Actividad'
-
-        msg = await update.message.reply_text("🏃 Registrando actividad...")
-        context.user_data['last_menu_msg_id'] = msg.message_id
-        await render_confirmation_screen(msg, context)
-        return
 
     if context.user_data.get('awaiting_edit_item_val'):
         idx = context.user_data.get('editing_item_idx')
@@ -6018,7 +6066,52 @@ async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
+
+#                INICIO                               COMANDOS ACTIVIDAD                             FINAL
+# ======================================================================================================================================
+
+@requiere_registro
+async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [
+            InlineKeyboardButton("⌨️ Ingresar Texto", callback_data="act_tipo_texto"),
+            InlineKeyboardButton("🎙️ Enviar Audio", callback_data="act_tipo_audio")
+        ],
+        [InlineKeyboardButton("❌ Cancelar", callback_data="act_cancelar")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
+    await update.message.reply_text(
+        "🏃 **Registro de Actividad Física**\n\n"
+        "¿Cómo querés ingresar tu ejercicio?",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+async def manejar_callback_actividad(query, user_id, data, context):
+    if data == "act_tipo_texto":
+        context.user_data['awaiting_activity_text'] = True
+        msg_solic = await query.message.reply_text(
+            "⌨️ Escribí la actividad (Ej: `50 minutos de caminata a velocidad moderada` o `aquagym 45 min liviano`):",
+            parse_mode="Markdown"
+        )
+        context.user_data['msg_solicitud_activity_id'] = msg_solic.message_id
+        await query.answer()
+
+    elif data == "act_tipo_audio":
+        context.user_data['awaiting_activity_voice'] = True
+        await query.message.reply_text(
+            "🎙️ Enviá una nota de voz describiendo tu actividad física.",
+            parse_mode="Markdown"
+        )
+        await query.answer()
+
+    elif data == "act_cancelar":
+        context.user_data.pop('awaiting_activity_text', None)
+        context.user_data.pop('awaiting_activity_voice', None)
+        await query.edit_message_text("❌ Registro de actividad cancelado.")
+        await query.answer()
+
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA                             FINAL
 # ======================================================================================================================================
@@ -6296,16 +6389,19 @@ def main():
     app_bot.add_handler(CommandHandler(["receta", "planilla"], cmd_cargar_receta))
     app_bot.add_handler(CommandHandler("eliminar", cmd_eliminar_ingesta))
     app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
+    app_bot.add_handler(CommandHandler("guia", cmd_guia))
     app_bot.add_handler(CommandHandler(["ingreso", "nuevo"], cmd_nueva_cuenta))
     app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
-    app_bot.add_handler(CommandHandler(["guia",], cmd_guia))
     app_bot.add_handler(CommandHandler(["migrar", "nuevo"], cmd_migrar))
-    
-
+    app_bot.add_handler(CommandHandler(["actividad", "ejercicio", "a"], cmd_actividad))
+      
     # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
     app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
     app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
     
+    # 🆕 Enrutador específico para los botones del comando de actividad (act_)
+    app_bot.add_handler(CallbackQueryHandler(manejar_callback_actividad, pattern="^act_"))
+
     # --- HANDLERS DE MENSAJES Y CONSULTAS ---
     app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
@@ -6325,6 +6421,7 @@ if __name__ == "__main__":
 # =============================================================================================================================================
 #                                                   FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
+
 
 
 
