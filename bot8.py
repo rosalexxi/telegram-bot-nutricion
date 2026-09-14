@@ -51,6 +51,12 @@ from telegram.ext import (
     ConversationHandler
 )
 
+import warnings
+from telegram.warnings import PTBUserWarning
+
+# Esto evita que la advertencia del ConversationHandler detenga el despliegue en Render
+warnings.filterwarnings("ignore", category=PTBUserWarning)
+
 logger = logging.getLogger(__name__)
 
 # Definición de franjas horarias (sin tildes)
