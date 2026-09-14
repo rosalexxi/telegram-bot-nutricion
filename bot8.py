@@ -109,8 +109,8 @@ else:
 app = Flask(__name__)
 
 def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 
 # =====================================================================================================================================
@@ -6609,14 +6609,20 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 
 def main():
     try:
-        # Inicia el servidor Web Flask en un hilo independiente
-        threading.Thread(target=run_flask, daemon=True).start()
+        # 1. Inicia el servidor Web Flask primero y de forma prioritaria
+        print("Iniciando servidor Flask para abrir el puerto de Render...")
+        flask_thread = threading.Thread(target=run_flask, daemon=True)
+        flask_thread.start()
+        
+        # Pausa breve de 1 segundo para asegurar que Render detecte el puerto abierto
+        import time as t
+        t.sleep(1)
 
         if not TELEGRAM_TOKEN:
             print("❌ TELEGRAM_BOT_TOKEN no configurado.")
             return
 
-        # Construcción de la aplicación del bot de Telegram
+        # 2. Construcción de la aplicación del bot de Telegram
         app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
         job_queue = app_bot.job_queue
         tz = pytz.timezone('America/Argentina/Buenos_Aires')
@@ -6635,12 +6641,10 @@ def main():
                 name="recordatorio_comidas_tarde"
             )
         else:
-            print("⚠️ Advertencia: job_queue no está disponible. Verifique que 'python-telegram-bot[job-queue]' esté instalado.")
+            print("⚠️ Advertencia: job_queue no está disponible.")
 
-        # --- HANDLER CONVERSACIONAL (ALTA Y REGISTRO DE NUEVO USUARIO) ---
+        # --- HANDLERS ---
         app_bot.add_handler(conv_handler_ingreso)
-
-        # --- HANDLERS DE COMANDOS ---
         app_bot.add_handler(CommandHandler(["pacientes"], cmd_pacientes))
         app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
         app_bot.add_handler(CommandHandler(["comidas", "comida"], cmd_comidas))
@@ -6654,28 +6658,19 @@ def main():
         app_bot.add_handler(CommandHandler("eliminar", cmd_eliminar_ingesta))
         app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
         app_bot.add_handler(CommandHandler("guia", cmd_guia))
-        
-        # Comando exclusivo para el factor de actividad por reloj inteligente
         app_bot.add_handler(CommandHandler(["factor", "fac"], cmd_factor_handler))
-        
         app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
         app_bot.add_handler(CommandHandler("migrar", cmd_migrar))
         app_bot.add_handler(CommandHandler(["actividad", "ejercicio", "a"], cmd_actividad))
 
-        # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
-        
-        # Enrutador específico para los botones del comando de actividad (act_)
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_actividad, pattern="^act_"))
 
-        # --- HANDLERS DE MENSAJES Y CONSULTAS ---
         app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
         app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        
-        # Callback genérico (debe ir al final de los CallbackQueryHandler)
         app_bot.add_handler(CallbackQueryHandler(handle_callback_query))
 
         print("🤖 Bot Nutricional iniciado correctamente en Telegram con tareas programadas...")
