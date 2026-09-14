@@ -6561,11 +6561,11 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
         await update.message.reply_text("⚠️ Ocurrió un error al procesar la solicitud del informe.")
 
 # ==========================================================================================================================================
-#                    FINAL                             COMANDOS PROFESIONALES                               FINAL  
+#                    FINAL                      COMANDOS PROFESIONALES                               FINAL  
 # ==========================================================================================================================================
 
 # ==========================================================================================================================================
-#                    FINAL                                     MAIN                               FINAL  
+#                    INICIO                                MAIN                                      INICIO  
 # ==========================================================================================================================================
 
 async def job_recordatorio_manana(context):
@@ -6590,27 +6590,28 @@ def main():
         print("❌ TELEGRAM_BOT_TOKEN no configurado.")
         return
 
-    # Construcción de la aplicación del bot de Telegram
-    app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    job_queue = app_bot.job_queue
-    tz = pytz.timezone('America/Argentina/Buenos_Aires')
+    try:
+        # Construcción de la aplicación del bot de Telegram
+        app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+        job_queue = app_bot.job_queue
+        tz = pytz.timezone('America/Argentina/Buenos_Aires')
 
-    # Configuración de notificaciones automáticas diarias
-    if job_queue is not None:
-        job_queue.run_daily(
-            job_recordatorio_manana, 
-            time=time(hour=9, minute=0, second=0, tzinfo=tz),
-            name="recordatorio_comidas_manana"
-        )
+        # Configuración de notificaciones automáticas diarias
+        if job_queue is not None:
+            job_queue.run_daily(
+                job_recordatorio_manana, 
+                time=time(hour=9, minute=0, second=0, tzinfo=tz),
+                name="recordatorio_comidas_manana"
+            )
 
-        job_queue.run_daily(
-            job_recordatorio_tarde, 
-            time=time(hour=18, minute=0, second=0, tzinfo=tz),
-            name="recordatorio_comidas_tarde"
-        )
-    else:
-        print("⚠️ Advertencia: job_queue no está disponible. Verifique que 'python-telegram-bot[job-queue]' esté instalado.")
-   
+            job_queue.run_daily(
+                job_recordatorio_tarde, 
+                time=time(hour=18, minute=0, second=0, tzinfo=tz),
+                name="recordatorio_comidas_tarde"
+            )
+        else:
+            print("⚠️ Advertencia: job_queue no está disponible. Verifique que 'python-telegram-bot[job-queue]' esté instalado.")
+       
         # --- HANDLER CONVERSACIONAL (ALTA Y REGISTRO DE NUEVO USUARIO) ---
         app_bot.add_handler(conv_handler_ingreso)
 
