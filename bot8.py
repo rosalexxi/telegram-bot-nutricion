@@ -51,6 +51,11 @@ from telegram.ext import (
     ConversationHandler
 )
 
+import warnings
+from telegram.warnings import PTBUserWarning
+
+# Ignorar la advertencia estricta del ConversationHandler para que no detenga el despliegue en Render
+warnings.filterwarnings("ignore", category=PTBUserWarning)
 logger = logging.getLogger(__name__)
 
 # Definición de franjas horarias (sin tildes)
@@ -3689,7 +3694,6 @@ conv_handler_ingreso = ConversationHandler(
         ING_CUMPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cumple)],
     },
     fallbacks=[CommandHandler('cancelar', ing_cancelar)],
-    per_message=True
 )
 
 #                     INICIO                         COMANDO START                          INICIO  2026 09 05
