@@ -5578,8 +5578,14 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
             resultado_ia = analizar_con_groq(prompt_ia)
-            kcal_estimadas = float(resultado_ia.get('calorias', 0))
-            descripcion_formateada = str(resultado_ia.get('alimento', transcription))
+            items_ia = resultado_ia.get('items', [])
+            if items_ia:
+                kcal_estimadas = float(items_ia[0].get('calorias', 0))
+                descripcion_formateada = str(items_ia[0].get('alimento', transcription))
+            else:
+                kcal_estimadas = 0.0
+                descripcion_formateada = transcription
+
             calorias_finales = -abs(kcal_estimadas)
 
             item_actividad = {
@@ -5752,8 +5758,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
             resultado_ia = analizar_con_groq(prompt_ia)
-            kcal_estimadas = float(resultado_ia.get('calorias', 0))
-            descripcion_formateada = str(resultado_ia.get('alimento', texto_actividad))
+            items_ia = resultado_ia.get('items', [])
+            if items_ia:
+                kcal_estimadas = float(items_ia[0].get('calorias', 0))
+                descripcion_formateada = str(items_ia[0].get('alimento', texto_actividad))
+            else:
+                kcal_estimadas = 0.0
+                descripcion_formateada = texto_actividad
             
             calorias_finales = -abs(kcal_estimadas) # Negativo para restar
 
