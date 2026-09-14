@@ -3714,7 +3714,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/eliminar`: Borra ingestas seleccionando el día.\n"
         "• `/actividad`: Ingresa actividad física con IA.\n"
         "• `/barra`: Ingresa por código de barras (`/barra Número`).\n"
-        "• `/factor`: Actualiza el factor de actividad mediante reloj inteligente (`/factor 2150`).\n"
+        "• `/GET`: Actualiza GET por medio del reloj inteligente.\n"
         "• `/comidas`: Planilla de comidas precargadas y PDF.\n"
         "• `/receta`: Calculadora Web para registrar comidas.\n\n"
         "📌 **Métodos de Registro:**\n"
@@ -3896,8 +3896,8 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("<b>Actividad física:</b> Carga actividad física por medio de voz o texto consultando a la IA. El formato es MINUTOS ACTIVIDAD INTENSIDAD.", body_style)
         ],
         [
-            Paragraph("<b>/factor</b>", code_style), 
-            Paragraph("<b>Factor de actividad:</b> Actualiza el factor de actividad mediante el registro de calorías base de 24 horas de un reloj inteligente (ejemplo: <code>/factor 2150</code>).", body_style)
+            Paragraph("<b>/GET</b>", code_style), 
+            Paragraph("<b>Gasto Energetico Total:</b> Actualiza el GET mediante el registro de calorías base de 24 horas de un reloj inteligente para actualizar el factor de actividad (ejemplo: <code>/GET 2150</code>).", body_style)
         ],
         [
             Paragraph("<b>/receta</b>", code_style), 
@@ -6631,7 +6631,7 @@ def main():
         app_bot.add_handler(CommandHandler("guia", cmd_guia))
         
         # Comando exclusivo para el factor de actividad por reloj inteligente
-        app_bot.add_handler(CommandHandler(["factor", "fac"], cmd_factor_handler))
+        app_bot.add_handler(CommandHandler(["factor", "get", "GET"], cmd_factor_handler))
         
         app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
         app_bot.add_handler(CommandHandler("migrar", cmd_migrar))
