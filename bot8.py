@@ -54,6 +54,17 @@ from telegram.ext import (
 import warnings
 from telegram.warnings import PTBUserWarning
 
+import sys
+import traceback
+
+def handle_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    print("CRITICAL ERROR EN LA CARGA DEL ARCHIVO:", file=sys.stderr)
+    traceback.print_exception(exc_type, exc_value, exc_traceback, file=sys.stderr)
+
+sys.excepthook = handle_exception
 # Esto evita que la advertencia del ConversationHandler detenga el despliegue en Render
 warnings.filterwarnings("ignore", category=PTBUserWarning)
 
