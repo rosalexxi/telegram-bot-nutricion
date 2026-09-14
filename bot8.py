@@ -2920,6 +2920,13 @@ def detectar_codigo_con_groq(base64_image: str) -> dict:
 #                FINAL                          FUNCIONES IA GROQ                                     FINAL
 # ======================================================================================================================================
 
+import asyncio
+from datetime import timedelta
+import logging
+import pandas as pd
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import ContextTypes
+
 # ======================================================================================================================================
 #                  INICIO               FUNCIONES CONFIRMACION Y MENU                     INICIO
 # ======================================================================================================================================
@@ -3032,6 +3039,29 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 
     await render_confirmation_screen(msg_obj, context)
 
+async def manejar_callback_actividad(query, user_id, data, context):
+    if data == "act_tipo_texto":
+        context.user_data['awaiting_activity_text'] = True
+        msg_solic = await query.message.reply_text(
+            "⌨️ Escribí la actividad (Ej: `50 minutos de caminata a velocidad moderada` o `aquagym 45 min liviano`):",
+            parse_mode="Markdown"
+        )
+        context.user_data['msg_solicitud_activity_id'] = msg_solic.message_id
+        await query.answer()
+
+    elif data == "act_tipo_audio":
+        context.user_data['awaiting_activity_voice'] = True
+        await query.message.reply_text(
+            "🎙️ Enviá una nota de voz describiendo tu actividad física.",
+            parse_mode="Markdown"
+        )
+        await query.answer()
+
+    elif data == "act_cancelar":
+        context.user_data.pop('awaiting_activity_text', None)
+        context.user_data.pop('awaiting_activity_voice', None)
+        await query.edit_message_text("❌ Registro de actividad cancelado.")
+
 #                INICIO                           MANEJADOR HANDLE MENU                         INICIO
 # ======================================================================================================================================
 	
@@ -3043,6 +3073,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = query.from_user.id
 
     context.user_data['last_menu_msg_id'] = query.message.message_id
+
+    # Interceptor exclusivo para los botones del menú de actividad
+    if data.startswith("act_"):
+        await manejar_callback_actividad(query, user_id, data, context)
+        return
 
     # 🆕 Interceptor exclusivo para los botones del menú de eliminación
     if data.startswith(("del_reg_", "del_mom_", "ejecutar_del_fila_")):
@@ -3650,6 +3685,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/perfil`: Consulta de datos biométricos.\n"
         "• `/peso`: Actualiza el peso del mes `/peso 90`.\n"
         "• `/eliminar`: Borra ingestas seleccionando dia.\n"
+        "• `/actividad`: Ingresar actividad fisica con IA.\n"
         "• `/barra`: ingreso x codigo de barras `/barra Número`.\n"
         "• `/comidas`: Listado predeterminadas y PDF.\n"
         "• `/receta`: Calculadora Web para registrar comidas.\n\n"
@@ -3662,9 +3698,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• **Sin IA:** Comidas precargadas y actividad física:\n"
         "    `*DESAYUNO`: menú completo\n"
         "    `*PIZZA (porcion),4`: 4 porciones de pizza\n"
-        "    `*TORTA (fraccion x 100g),1.5`: 150 g de torta\n"
-        "• **Actividad Física:** `# Minutos, Descrip, Calorías`\n"
-        "    `# 45 min, caminata en cinta, 250 cal`.\n\n"
+        "    `*TORTA (fraccion x 100g),1.5`: 150 g de torta\n\n"
         "📄 *Descargá nuestro Manual Integral de Usuario completo desde el botón de abajo.*"
     )
     
@@ -6110,8 +6144,7 @@ async def manejar_callback_actividad(query, user_id, data, context):
         context.user_data.pop('awaiting_activity_text', None)
         context.user_data.pop('awaiting_activity_voice', None)
         await query.edit_message_text("❌ Registro de actividad cancelado.")
-        await query.answer()
-
+        
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA                             FINAL
 # ======================================================================================================================================
