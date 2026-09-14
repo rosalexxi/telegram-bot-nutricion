@@ -51,23 +51,6 @@ from telegram.ext import (
     ConversationHandler
 )
 
-import warnings
-from telegram.warnings import PTBUserWarning
-
-import sys
-import traceback
-
-def handle_exception(exc_type, exc_value, exc_traceback):
-    if issubclass(exc_type, KeyboardInterrupt):
-        sys.__excepthook__(exc_type, exc_value, exc_traceback)
-        return
-    print("CRITICAL ERROR EN LA CARGA DEL ARCHIVO:", file=sys.stderr)
-    traceback.print_exception(exc_type, exc_value, exc_traceback, file=sys.stderr)
-
-sys.excepthook = handle_exception
-# Esto evita que la advertencia del ConversationHandler detenga el despliegue en Render
-warnings.filterwarnings("ignore", category=PTBUserWarning)
-
 logger = logging.getLogger(__name__)
 
 # Definición de franjas horarias (sin tildes)
@@ -109,8 +92,8 @@ else:
 app = Flask(__name__)
 
 def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
 
 
 # =====================================================================================================================================
@@ -2972,7 +2955,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 # ======================================================================================================================================
-#                  INICIO               COMANDOS CONFIRMACION Y MENU                     INICIO
+#                  INICIO               COMANDOS CONFIRMACION COMANDOS MENU                     INICIO
 # ======================================================================================================================================
 
 #                  INICIO               INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO
@@ -3284,7 +3267,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         asyncio.create_task(tarea_segundo_plano())
 
 # ======================================================================================================================================
-#                FINAL                           FUNCIONES CONFIRMACION Y MENU                     FINAL
+#                FINAL                           FUNCIONES CONFIRMACION FUNCIONES MENU                     FINAL
 # ======================================================================================================================================
 
 # =====================================================================================================================================
@@ -3705,7 +3688,7 @@ conv_handler_ingreso = ConversationHandler(
         ING_OCUPACION: [CallbackQueryHandler(ing_recibir_ocupacion, pattern="^ocup_")],
         ING_CUMPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cumple)],
     },
-    fallbacks=[CommandHandler('cancelar', ing_cancelar)],
+    fallbacks=[CommandHandler('cancelar', ing_cancelar)]
 )
 
 #                     INICIO                         COMANDO START                          INICIO  2026 09 05
@@ -4348,6 +4331,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Error al consultar perfil: {e}")
         await update.message.reply_text(f"⚠️ Ocurrió un error al leer tu perfil: {e}", parse_mode="Markdown")
 
+# ======================================================================================================================================
 #                       INICIO                  COMANDO FACTOR DE ACTIVIDAD (RELOJ)                    INICIO
 # ======================================================================================================================================
 
@@ -5528,7 +5512,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 # =============================================================================================================================================
 
 # ==================================================================================================================================
-#                    INICIO                 COMANDOS COMIDAS Y COMANDOS ACTIVIDAD                                   INCIO  DB OK
+#                    INICIO                 COMANDOS COMIDAS COMANDOS ACTIVIDAD                                   INCIO  DB OK
 # ==================================================================================================================================
 
 #                    INICIO                                    COMANDO RECETAS                                   INCIO  DB OK
@@ -6388,10 +6372,8 @@ async def manejar_callback_actividad(update: Update, context: ContextTypes.DEFAU
         await query.answer()
         
 # =====================================================================================================================================
-#                FINAL                               COMANDOS COMIDA                             FINAL
+#                FINAL                               FUNCIONES COMIDA FUNCIONES ACTIVIDAD                            FINAL
 # ======================================================================================================================================
-
-
 
 # =============================================================================================================================================
 #                INICIO                            COMANDOS PROFESIONALES                             INICIO 
@@ -6603,84 +6585,85 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 #                    FINAL                             COMANDOS PROFESIONALES                               FINAL  
 # ==========================================================================================================================================
 
-# =============================================================================================================================================
-#                    INICIO                                     MAIN EXECUTION                                  INICIO  
-# =============================================================================================================================================
+# ==========================================================================================================================================
+#                    FINAL                                     MAIN                               FINAL  
+# ==========================================================================================================================================
+
 
 def main():
-    try:
-        # 1. Inicia el servidor Web Flask primero y de forma prioritaria
-        print("Iniciando servidor Flask para abrir el puerto de Render...")
-        flask_thread = threading.Thread(target=run_flask, daemon=True)
-        flask_thread.start()
-        
-        # Pausa breve de 1 segundo para asegurar que Render detecte el puerto abierto
-        import time as t
-        t.sleep(1)
+    # Inicia el servidor Web Flask en un hilo independiente
+    threading.Thread(target=run_flask, daemon=True).start()
 
-        if not TELEGRAM_TOKEN:
-            print("❌ TELEGRAM_BOT_TOKEN no configurado.")
-            return
+    if not TELEGRAM_TOKEN:
+        print("❌ TELEGRAM_BOT_TOKEN no configurado.")
+        return
 
-        # 2. Construcción de la aplicación del bot de Telegram
-        app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-        job_queue = app_bot.job_queue
-        tz = pytz.timezone('America/Argentina/Buenos_Aires')
+    # Construcción de la aplicación del bot de Telegram
+    app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    job_queue = app_bot.job_queue
+    tz = pytz.timezone('America/Argentina/Buenos_Aires')
 
-        # Configuración de notificaciones automáticas diarias
-        if job_queue is not None:
-            job_queue.run_daily(
-                job_recordatorio_manana, 
-                time=time(hour=9, minute=0, second=0, tzinfo=tz),
-                name="recordatorio_comidas_manana"
-            )
+    # Configuración de notificaciones automáticas diarias
+    if job_queue is not None:
+        job_queue.run_daily(
+            job_recordatorio_manana, 
+            time=time(hour=9, minute=0, second=0, tzinfo=tz),
+            name="recordatorio_comidas_manana"
+        )
 
-            job_queue.run_daily(
-                job_recordatorio_tarde, 
-                time=time(hour=18, minute=0, second=0, tzinfo=tz),
-                name="recordatorio_comidas_tarde"
-            )
-        else:
-            print("⚠️ Advertencia: job_queue no está disponible.")
+        job_queue.run_daily(
+            job_recordatorio_tarde, 
+            time=time(hour=18, minute=0, second=0, tzinfo=tz),
+            name="recordatorio_comidas_tarde"
+        )
+    else:
+        print("⚠️ Advertencia: job_queue no está disponible. Verifique que 'python-telegram-bot[job-queue]' esté instalado.")
 
-        # --- HANDLERS ---
-        app_bot.add_handler(conv_handler_ingreso)
-        app_bot.add_handler(CommandHandler(["pacientes"], cmd_pacientes))
-        app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
-        app_bot.add_handler(CommandHandler(["comidas", "comida"], cmd_comidas))
-        app_bot.add_handler(CommandHandler(["perfil"], cmd_perfil))
-        app_bot.add_handler(CommandHandler(["peso"], cmd_perfil))
-        app_bot.add_handler(CommandHandler(["presion", "presi", "presio"], cmd_presion_handler))  
-        app_bot.add_handler(CommandHandler(["diario", "dia", "d"], cmd_diario))
-        app_bot.add_handler(CommandHandler(["resumen", "mes", "mensual", "m"], cmd_resumen))
-        app_bot.add_handler(CommandHandler(["mensaje", "semana", "semanal", "s"], cmd_mensaje))
-        app_bot.add_handler(CommandHandler(["receta", "planilla"], cmd_cargar_receta))
-        app_bot.add_handler(CommandHandler("eliminar", cmd_eliminar_ingesta))
-        app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
-        app_bot.add_handler(CommandHandler("guia", cmd_guia))
-        app_bot.add_handler(CommandHandler(["factor", "fac"], cmd_factor_handler))
-        app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
-        app_bot.add_handler(CommandHandler("migrar", cmd_migrar))
-        app_bot.add_handler(CommandHandler(["actividad", "ejercicio", "a"], cmd_actividad))
+    # --- HANDLER CONVERSACIONAL (ALTA Y REGISTRO DE NUEVO USUARIO) ---
+    app_bot.add_handler(conv_handler_ingreso)
 
-        app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
-        app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
-        app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
-        app_bot.add_handler(CallbackQueryHandler(manejar_callback_actividad, pattern="^act_"))
+    # --- HANDLERS DE COMANDOS ---
+    app_bot.add_handler(CommandHandler(["pacientes"], cmd_pacientes))
+    app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
+    app_bot.add_handler(CommandHandler(["comidas", "comida"], cmd_comidas))
+    app_bot.add_handler(CommandHandler(["perfil"], cmd_perfil))
+    app_bot.add_handler(CommandHandler(["peso"], cmd_perfil))
+    app_bot.add_handler(CommandHandler(["presion", "presi", "presio"], cmd_presion_handler))  
+    app_bot.add_handler(CommandHandler(["diario", "dia", "d"], cmd_diario))
+    app_bot.add_handler(CommandHandler(["resumen", "mes", "mensual", "m"], cmd_resumen))
+    app_bot.add_handler(CommandHandler(["mensaje", "semana", "semanal", "s"], cmd_mensaje))
+    app_bot.add_handler(CommandHandler(["receta", "planilla"], cmd_cargar_receta))
+    app_bot.add_handler(CommandHandler("eliminar", cmd_eliminar_ingesta))
+    app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
+    app_bot.add_handler(CommandHandler("guia", cmd_guia))
+    
+    # 🔗 Comando exclusivo para el factor de actividad por reloj inteligente
+    app_bot.add_handler(CommandHandler(["factor", "fac"], cmd_factor_handler))
+    
+    app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
+    app_bot.add_handler(CommandHandler("migrar", cmd_migrar))
+    app_bot.add_handler(CommandHandler(["actividad", "ejercicio", "a"], cmd_actividad))
 
-        app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
-        app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        app_bot.add_handler(CallbackQueryHandler(handle_callback_query))
+    # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
+    app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
+    app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
+    app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
+    
+    # Enrutador específico para los botones del comando de actividad (act_)
+    app_bot.add_handler(CallbackQueryHandler(manejar_callback_actividad, pattern="^act_"))
 
-        print("🤖 Bot Nutricional iniciado correctamente en Telegram con tareas programadas...")
-        
-        # Inicio del bot en loop de eventos asíncrono
-        app_bot.run_polling(drop_pending_updates=True)
+    # --- HANDLERS DE MENSAJES Y CONSULTAS ---
+    app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Callback genérico (debe ir al final de los CallbackQueryHandler)
+    app_bot.add_handler(CallbackQueryHandler(handle_callback_query))
 
-    except Exception as e:
-        logger.critical(f"❌ Error crítico al iniciar el bot en main(): {e}", exc_info=True)
-        raise e
+    print("🤖 Bot Nutricional iniciado correctamente en Telegram con tareas programadas...")
+    
+    # Inicio del bot en loop de eventos asíncrono
+    app_bot.run_polling(drop_pending_updates=True)
 
 # =============================================================================================================================================
 #                                                   FINAL MAIN EXECUTION                                                    FINAL
