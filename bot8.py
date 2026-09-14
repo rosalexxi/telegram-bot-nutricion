@@ -2152,12 +2152,35 @@ def calcular_porcentajes_harinas(frecuencias):
         
     return porc_int, porc_ref
     
-def analizar_frecuencia_alimentos_mes(df_mes, cat_dict, col_integrales=None, col_refinadas=None, otras_categorias=None):
+def analizar_frecuencia_alimentos_mes(df_o_user_id, cat_dict_o_mes=None, col_integrales=None, col_refinadas=None, otras_categorias=None):
     try:
-        if otras_categorias is None:
+        # Compatibilidad dual: si el primer argumento es un user_id (int) y el segundo un mes (str)
+        if isinstance(df_o_user_id, (int, str)) and isinstance(cat_dict_o_mes, str) and not isinstance(df_o_user_id, pd.DataFrame):
+            user_id = int(df_o_user_id)
+            mes_str = cat_dict_o_mes
+            
+            df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+            if df_datos.empty or 'Fecha' not in df_datos.columns:
+                return {}
+                
+            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
+            inicio_periodo = pd.Timestamp(f"{mes_str}-01").normalize()
+            fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
+            
+            df_mes = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
+            if df_mes.empty:
+                return {}
+                
+            # Categorías por defecto si no se pasan
+            cat_dict = {'harinas_integrales': ['integral', 'salvado'], 'harinas_refinadas': ['blanca', 'refinada']}
+        else:
+            df_mes = df_o_user_id
+            cat_dict = cat_dict_o_mes if isinstance(cat_dict_o_mes, dict) else {}
+
+        if other_cat := otras_categorias is None:
             otras_categorias = {}
             
-        frecuencias = {cat: 0 for cat in cat_dict.keys()}
+        frecuencias = {cat: 0 for cat in cat_dict.keys()} if cat_dict else {}
 
         for _, row in df_mes.iterrows():
             texto_celda = str(row.get('Alimento', '')).strip().lower()
@@ -2167,24 +2190,26 @@ def analizar_frecuencia_alimentos_mes(df_mes, cat_dict, col_integrales=None, col
             es_integral = any(p in texto_celda for p in (col_integrales or ['integral', 'salvado', 'centeno', 'avena']))
             
             if es_integral:
-                for cat_key in cat_dict.keys():
+                for cat_key in frecuencias.keys():
                     if 'integral' in cat_key:
                         frecuencias[cat_key] += 1
             else:
                 if col_refinadas and any(p in texto_celda for p in col_refinadas):
-                    for cat_key in cat_dict.keys():
+                    for cat_key in frecuencias.keys():
                         if 'refinada' in cat_key or 'blanca' in cat_key:
                             frecuencias[cat_key] += 1
 
             for cat_nombre, palabras in otras_categorias.items():
                 if any(p in texto_celda for p in palabras):
+                    if cat_nombre not in frecuencias:
+                        frecuencias[cat_nombre] = 0
                     frecuencias[cat_nombre] += 1
 
         return frecuencias
     except Exception as e:
         print(f"Error analizando frecuencias de alimentos: {e}")
         return {}
-
+        
 def consultar_codigo_barras(barcode: str) -> dict | bool:
     url = f"https://world.openfoodfacts.org/api/v2/product/{barcode.strip()}.json"
     
@@ -2403,6 +2428,8 @@ def obtener_categorias_diccionario(sh):
 # =====================================================================================================================================
 #                FINAL                          FUNCIONES AUXILIARES                                     FINAL
 # ======================================================================================================================================
+
+
 
 # ======================================================================================================================================       
 #                INICIO                       14 FUNCIONES IA GROQ                                      INICIO
@@ -3864,6 +3891,10 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("<code>/peso PESO</code> Actualiza el peso registrado para el mes en curso.", body_style)
         ],
         [
+            Paragraph("<b>/actividad</b>", code_style), 
+            Paragraph("<code>/actividad </code> Cargar actividad fisica consultando la IA.", body_style)
+        ],
+        [
             Paragraph("<b>/receta</b>", code_style), 
             Paragraph("Acceso directo a la <i>Calculadora Nutricional Web</i> para cargar recetas complejas o combinaciones de alimentos en la planilla personal.", body_style)
         ],
@@ -3942,13 +3973,6 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("• <code>*DESAYUNO,1</code> Ingresa 1 unidad de la comida seleccionada.<br/>"
                       "• <code>*PIZZA,4</code> Registra 4 porciones de la plantilla.<br/>"
                       "• <code>*TORTA,3</code> Ingresa 3 porciones (si la receta base fue cargada en fracciones de 100g, equivale a 300g).", body_style)
-        ],
-        [
-            Paragraph("<b>Actividad Física</b>", body_style),
-            Paragraph("<code># MINUTOS DESCRIPCION, CALORIAS</code>", code_style),
-            Paragraph("• <code># 45 minutos caminata al aire libre, 250 calorias</code><br/>"
-                      "• <code># 60 minutos aquagym, 450 calorias</code><br/>"
-                      "Graba directamente el tiempo y el gasto calórico en la planilla.", body_style)
         ],
         [
             Paragraph("<b>Código de barras</b>", body_style),
@@ -5362,7 +5386,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 # =============================================================================================================================================
 
 # ==================================================================================================================================
-#                    INICIO                        COMANDOS COMIDAS Y COMANDOS ACTIVIDAD                                   INCIO  DB OK
+#                    INICIO                 COMANDOS COMIDAS Y COMANDOS ACTIVIDAD                                   INCIO  DB OK
 # ==================================================================================================================================
 
 #                    INICIO                                    COMANDO RECETAS                                   INCIO  DB OK
@@ -5543,7 +5567,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['awaiting_activity_voice'] = False
             user_id = update.effective_user.id
             
-            perfil_biometrico = obtener_datos_biometricos_usuario(user_id) if 'obtener_datos_biometricos_usuario' in globals() else ""
+            perfil_biometrico = obtener_perfil_usuario(user_id)
             
             prompt_ia = (
                 f"El usuario realizó una actividad física descrita por voz. Transcripción: '{transcription}'. "
@@ -5716,7 +5740,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_espera = await update.message.reply_text("🏃 Analizando actividad y calculando calorías según tus datos...")
 
         try:
-            perfil_biometrico = obtener_datos_biometricos_usuario(user_id) # Ajustar según tu función de BD
+            perfil_biometrico = obtener_perfil_usuario(user_id)
             
             prompt_ia = (
                 f"El usuario realizó una actividad física. Analiza la descripción y calcula las calorías gastadas "
