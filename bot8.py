@@ -3712,9 +3712,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/perfil`: Consulta de datos biométricos.\n"
         "• `/peso`: Actualiza el peso del mes (`/peso 90`).\n"
         "• `/eliminar`: Borra ingestas seleccionando el día.\n"
-        "• `/actividad`: Ingresar actividad física con IA.\n"
-        "• `/barra`: Ingreso por código de barras (`/barra Número`).\n"
-        "• `/comidas`: Listado de predeterminadas y PDF.\n"
+        "• `/actividad`: Ingresa actividad física con IA.\n"
+        "• `/barra`: Ingresa por código de barras (`/barra Número`).\n"
+        "• `/factor`: Actualiza el factor de actividad mediante reloj inteligente (`/factor 2150`).\n"
+        "• `/comidas`: Planilla de comidas precargadas y PDF.\n"
         "• `/receta`: Calculadora Web para registrar comidas.\n\n"
         "📌 **Métodos de Registro:**\n"
         "• **Con IA:** Texto, 🎤 Notas de voz, 📸 Fotos.\n"
@@ -3871,7 +3872,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>/diario</b>", code_style), 
-            Paragraph("<b>Resumen de comidas y actividad diario:</b> Permite seleccionar el día de consulta. Muestra por pantalla los consumos del día y descarga el PDF detallado con todas las ingestas.", body_style)
+            Paragraph("<b>Resumen diario:</b> Permite seleccionar el día de consulta. Muestra por pantalla los consumos del día y descarga el PDF detallado con todas las ingestas.", body_style)
         ],
         [
             Paragraph("<b>/semana</b>", code_style), 
@@ -3892,7 +3893,11 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>/actividad</b>", code_style), 
-            Paragraph("<b>Actividad física:</b> Cargar actividad física por medio de voz o texto consultando a la IA. El formato es MINUTOS ACTIVIDAD INTENSIDAD.", body_style)
+            Paragraph("<b>Actividad física:</b> Carga actividad física por medio de voz o texto consultando a la IA. El formato es MINUTOS ACTIVIDAD INTENSIDAD.", body_style)
+        ],
+        [
+            Paragraph("<b>/factor</b>", code_style), 
+            Paragraph("<b>Factor de actividad:</b> Actualiza el factor de actividad mediante el registro de calorías base de 24 horas de un reloj inteligente (ejemplo: <code>/factor 2150</code>).", body_style)
         ],
         [
             Paragraph("<b>/receta</b>", code_style), 
@@ -3979,7 +3984,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("<b>Código de barras</b>", body_style),
             Paragraph("<code>/barra NUMERO</code>", code_style),
             Paragraph("• <code>/barra 7790742363107</code><br/>"
-                      "Ingresar el número ENA del código de barras del producto y confirmar la ingesta.", body_style)
+                      "Ingresá el número ENA del código de barras del producto y confirmá la ingesta.", body_style)
         ]
     ]
 
@@ -4124,10 +4129,10 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not raw_text:
         await update.message.reply_text(
             "Ingresá o consultá un mes usando /presi. Ejemplos:\n\n"
-            "• /presi 120,80,70, después de caminar\n"
-            "• /presi 120,80,70\n"
-            "• /presi 120,80\n"
-            "• /presi 2026-08", 
+            "• `/presi 120,80,70, después de caminar`\n"
+            "• `/presi 120,80,70`\n"
+            "• `/presi 120,80`\n"
+            "• `/presi 2026-08`", 
             parse_mode="Markdown"
         )
         return
@@ -4325,6 +4330,126 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Error al consultar perfil: {e}")
         await update.message.reply_text(f"⚠️ Ocurrió un error al leer tu perfil: {e}", parse_mode="Markdown")
+
+# ======================================================================================================================================
+#                       INICIO                  COMANDO FACTOR DE ACTIVIDAD (RELOJ)                    INICIO
+# ======================================================================================================================================
+
+@requiere_registro
+async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    # Limpia el comando /factor o /fac
+    raw_text = re.sub(r'^/(factor|fac)\w*(@\w+)?', '', update.message.text, flags=re.IGNORECASE).strip()
+
+    if not raw_text:
+        await update.message.reply_text(
+            "Ingresá las calorías totales que registró tu reloj en 24 horas. Ejemplo:\n\n"
+            "• `/factor 2150`", 
+            parse_mode="Markdown"
+        )
+        return
+
+    try:
+        calorias_reloj = float(raw_text.replace(',', '.'))
+        if not (1000 <= calorias_reloj <= 6000):
+            await update.message.reply_text("⚠️ Ingresá un valor de calorías realista (entre 1000 y 6000 kcal).", parse_mode="Markdown")
+            return
+
+        ahora = obtener_ahora_arg()
+        mes_actual = ahora.strftime("%Y-%m")
+
+        # Obtener el perfil actual del mes
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
+        if not perfil:
+            await update.message.reply_text("❌ No se encontró tu perfil activo para este mes. Registrá tu peso primero con `/peso`.", parse_mode="Markdown")
+            return
+
+        peso = parse_raw_val(perfil.get('PESO', perfil.get('Peso', 70)))
+        altura = parse_raw_val(perfil.get('ALTURA', perfil.get('Altura', 170)))
+        edad = parse_raw_val(perfil.get('EDAD', perfil.get('Edad', 40)))
+        genero = str(perfil.get('GENERO', perfil.get('Genero', 'masculino')))
+
+        # Factor anterior registrado
+        factor_anterior_raw = parse_raw_val(perfil.get('OCUPACION', perfil.get('Ocupacion', 1375)))
+        factor_anterior = factor_anterior_raw / 1000.0 if factor_anterior_raw > 10 else factor_anterior_raw
+
+        # Calcular TMB base (reutilizando la función existente)
+        tmb, _ = calcular_tmb_y_get(peso, altura, edad, genero, actividad=1375)
+        
+        if tmb <= 0:
+            await update.message.reply_text("❌ Error al calcular la TMB base.", parse_mode="Markdown")
+            return
+
+        # Cálculo matemático del nuevo factor
+        nuevo_factor = round(calorias_reloj / tmb, 3)
+        ocupacion_valor = int(round(nuevo_factor * 1000))
+
+        # Almacenar de forma temporal en context.user_data sin alterar estructuras externas
+        context.user_data['temp_nuevo_factor'] = ocupacion_valor
+
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Confirmar y Guardar", callback_data="confirmar_factor_si"),
+                InlineKeyboardButton("❌ Cancelar", callback_data="confirmar_factor_no")
+            ]
+        ])
+
+        msg_texto = (
+            f"📊 **Validación de Factor de Actividad (Reloj):**\n\n"
+            f"• Calorías reportadas del reloj: `{calorias_reloj:.0f} kcal`\n"
+            f"• TMB Base estimada: `{tmb:.0f} kcal`\n\n"
+            f"• **Factor anterior:** `{factor_anterior:.3f}`\n"
+            f"• **Nuevo factor calculado:** `{nuevo_factor:.3f}`\n\n"
+            f"¿Deseás actualizar tu perfil con este nuevo valor?"
+        )
+
+        await update.message.reply_text(msg_texto, reply_markup=keyboard, parse_mode="Markdown")
+
+    except ValueError:
+        await update.message.reply_text("❌ Formato incorrecto. Ingresá un número válido. Ejemplo: `/factor 2150`", parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error al previsualizar /factor para {user_id}: {e}")
+        await update.message.reply_text(f"⚠️ Ocurrió un error al procesar la solicitud: {e}", parse_mode="Markdown")
+
+
+async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    data = query.data
+
+    if data == "confirmar_factor_no":
+        context.user_data.pop('temp_nuevo_factor', None)
+        await query.edit_message_text("🚫 Operación cancelada. No se modificó tu factor de actividad.", parse_mode="Markdown")
+        return
+
+    if data == "confirmar_factor_si":
+        nuevo_factor_val = context.user_data.get('temp_nuevo_factor')
+        
+        if not nuevo_factor_val:
+            await query.edit_message_text("⚠️ Los datos temporales expiraron. Por favor, volvé a enviar el comando `/factor`.", parse_mode="Markdown")
+            return
+
+        ahora = obtener_ahora_arg()
+        mes_actual = ahora.strftime("%Y-%m")
+
+        try:
+            guardar_ocupacion_db(user_id, nuevo_factor_val, mes_actual)
+            
+            factor_decimal = nuevo_factor_val / 1000.0
+            await query.edit_message_text(
+                f"✅ **¡Factor de actividad actualizado con éxito!**\n\n"
+                f"• Nuevo Factor NAF asignado: `{factor_decimal:.3f}`\n"
+                f"• Período actualizado: `{mes_actual}`",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"Error al guardar el factor confirmado para {user_id}: {e}")
+            await query.edit_message_text(f"⚠️ Ocurrió un error al guardar en la planilla: {e}", parse_mode="Markdown")
+        
+        context.user_data.pop('temp_nuevo_factor', None)
 
 # ======================================================================================================================================
 #                       FINAL                                       COMANDOS INGRESOS                                      FINAL
@@ -6460,23 +6585,10 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 #                    FINAL                             COMANDOS PROFESIONALES                               FINAL  
 # ==========================================================================================================================================
 
-# =============================================================================================================================================
-#                    INICIO                                     MAIN EXECUTION                                  INICIO  
-# =============================================================================================================================================
+# ==========================================================================================================================================
+#                    FINAL                                     MAIN                               FINAL  
+# ==========================================================================================================================================
 
-async def job_recordatorio_manana(context):
-    """Tarea programada para el recordatorio matutino con protección contra fallas."""
-    try:
-        await ejecutar_recordatorio_comidas(context, momento='manana')
-    except Exception as e:
-        logger.error(f"❌ Error en job_recordatorio_manana: {e}")
-
-async def job_recordatorio_tarde(context):
-    """Tarea programada para el recordatorio vespertino con protección contra fallas."""
-    try:
-        await ejecutar_recordatorio_comidas(context, momento='tarde')
-    except Exception as e:
-        logger.error(f"❌ Error en job_recordatorio_tarde: {e}")
 
 def main():
     # Inicia el servidor Web Flask en un hilo independiente
@@ -6511,11 +6623,11 @@ def main():
     app_bot.add_handler(conv_handler_ingreso)
 
     # --- HANDLERS DE COMANDOS ---
-    	
     app_bot.add_handler(CommandHandler(["pacientes"], cmd_pacientes))
-    app_bot.add_handler(CommandHandler(["start","inicio"], cmd_start))
+    app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
     app_bot.add_handler(CommandHandler(["comidas", "comida"], cmd_comidas))
-    app_bot.add_handler(CommandHandler(["perfil", "peso"], cmd_perfil))
+    app_bot.add_handler(CommandHandler(["perfil"], cmd_perfil))
+    app_bot.add_handler(CommandHandler(["peso"], cmd_perfil))
     app_bot.add_handler(CommandHandler(["presion", "presi", "presio"], cmd_presion_handler))  
     app_bot.add_handler(CommandHandler(["diario", "dia", "d"], cmd_diario))
     app_bot.add_handler(CommandHandler(["resumen", "mes", "mensual", "m"], cmd_resumen))
@@ -6524,16 +6636,20 @@ def main():
     app_bot.add_handler(CommandHandler("eliminar", cmd_eliminar_ingesta))
     app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
     app_bot.add_handler(CommandHandler("guia", cmd_guia))
-    app_bot.add_handler(CommandHandler(["ingreso", "nuevo"], cmd_nueva_cuenta))
+    
+    # 🔗 Comando exclusivo para el factor de actividad por reloj inteligente
+    app_bot.add_handler(CommandHandler(["factor", "fac"], cmd_factor_handler))
+    
     app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
-    app_bot.add_handler(CommandHandler(["migrar", "nuevo"], cmd_migrar))
+    app_bot.add_handler(CommandHandler("migrar", cmd_migrar))
     app_bot.add_handler(CommandHandler(["actividad", "ejercicio", "a"], cmd_actividad))
-      
+
     # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
+    app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
     app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
     app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
     
-    # 🆕 Enrutador específico para los botones del comando de actividad (act_)
+    # Enrutador específico para los botones del comando de actividad (act_)
     app_bot.add_handler(CallbackQueryHandler(manejar_callback_actividad, pattern="^act_"))
 
     # --- HANDLERS DE MENSAJES Y CONSULTAS ---
@@ -6548,9 +6664,6 @@ def main():
     
     # Inicio del bot en loop de eventos asíncrono
     app_bot.run_polling(drop_pending_updates=True)
-
-if __name__ == "__main__":
-    main()
 
 # =============================================================================================================================================
 #                                                   FINAL MAIN EXECUTION                                                    FINAL
