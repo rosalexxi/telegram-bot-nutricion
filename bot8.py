@@ -1966,6 +1966,28 @@ def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero: str = "masculino", 
         
 def calcular_metricas_mensuales(df_mes, perfil_dict):
     """Procesa todos los cálculos mensuales garantizando consistencia y exactitud metabólica con rangos (Mínimo y Máximo)."""
+    
+    # Encapsulado: Filtramos internamente el DataFrame para excluir días incompletos del cálculo mensual
+    if df_mes is not None and not df_mes.empty and 'Fecha' in df_mes.columns:
+        todas_comidas = {"Desayuno", "Almuerzo", "Merienda", "Cena"}
+        comidas_principales = {"Almuerzo", "Cena"}
+        dias_validos_filtrados = []
+        
+        for fecha, grupo in df_mes.groupby('Fecha'):
+            comidas_del_dia = [
+                str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() 
+                for _, r in grupo.iterrows()
+                if str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() in todas_comidas
+            ]
+            
+            total_comidas = len(comidas_del_dia)
+            tiene_principal = any(c in comidas_principales for c in comidas_del_dia)
+            
+            if total_comidas >= 2 and tiene_principal:
+                dias_validos_filtrados.append(fecha)
+                
+        df_mes = df_mes[df_mes['Fecha'].isin(dias_validos_filtrados)]
+
     dias_registrados = df_mes['Fecha'].nunique() if (df_mes is not None and not df_mes.empty) else 1
     if dias_registrados == 0:
         dias_registrados = 1
@@ -2079,9 +2101,7 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "tot_carb": tot_carb,
         "tot_fibr": tot_fibr
     }
-    
-from datetime import datetime
-
+        
 async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.DEFAULT_TYPE = None, user_id: int = None) -> bool:
     uid = user_id or (update.effective_user.id if update else None)
     if not uid:
@@ -5224,6 +5244,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
     str_anteayer = anteayer.strftime("%Y-%m-%d")
 
     todas_comidas = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
+    comidas_principales = {"Almuerzo", "Cena"}
     
     es_lunes_manana = (hoy.weekday() == 0 and momento == 'manana')
     es_martes_manana = (hoy.weekday() == 1 and momento == 'manana')
@@ -5266,13 +5287,18 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
                 while current_d <= fin_semana_pasada:
                     str_d = current_d.strftime("%Y-%m-%d")
-                    comidas_dia = sum(
-                        1 for r in registros_u 
+                    
+                    comidas_del_dia = [
+                        str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() 
+                        for r in registros_u 
                         if str(r.get("Fecha", "")).strip() == str_d 
                         and str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() in todas_comidas
-                    )
+                    ]
                     
-                    if comidas_dia >= 2:
+                    total_comidas = len(comidas_del_dia)
+                    tiene_principal = any(c in comidas_principales for c in comidas_del_dia)
+                    
+                    if total_comidas >= 2 and tiene_principal:
                         dias_validos_count += 1
                     else:
                         dias_incompletos.append(str_d)
@@ -5306,7 +5332,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                             chat_id=user_id,
                             text=(
                                 f"⚠️ **Aviso de Ingesta Incompleta (Semana Pasada)**\n\n"
-                                f"Notamos que la semana pasada no se completaron los registros mínimos de comidas ({dias_str}). "
+                                f"Notamos que la semana pasada no se completaron los registros mínimos de comidas con al menos una comida principal ({dias_str}). "
                                 f"Acumulás una advertencia (Estado actual: {actual_puntos}/3).\n"
                                 f"Recordá que al llegar a 3 semanas consecutivas sin registrar, el usuario quedará suspendido."
                             ),
@@ -5335,12 +5361,18 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                 curr = inicio_semana_pasada
                 while curr <= fin_semana_pasada:
                     str_c = curr.strftime("%Y-%m-%d")
-                    c_count = sum(
-                        1 for r in registros_u 
+                    
+                    comidas_del_dia = [
+                        str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() 
+                        for r in registros_u 
                         if str(r.get("Fecha", "")).strip() == str_c 
                         and str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() in todas_comidas
-                    )
-                    if c_count >= 2:
+                    ]
+                    
+                    total_comidas = len(comidas_del_dia)
+                    tiene_principal = any(c in comidas_principales for c in comidas_del_dia)
+                    
+                    if total_comidas >= 2 and tiene_principal:
                         dias_validos_count += 1
                     else:
                         dias_faltantes_detalle.append(str_c)
@@ -5415,7 +5447,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                         chat_id=int(user_id),
                         text=(
                             f"⚠️ **No se pudo emitir el resumen semanal**\n\n"
-                            f"Motivo: Faltó registrar las ingestas correspondientes o el peso mensual obligatorio. "
+                            f"Motivo: Faltó registrar las ingestas correspondientes (se requieren al menos 2 comidas diarias con al menos una principal: Almuerzo o Cena) o el peso mensual obligatorio. "
                             f"Se detectaron registros insuficientes en los siguientes días: `{faltas_str}`.\n"
                             f"Ingresá tus comidas pendientes para retomar la normalidad en los próximos reportes."
                         ),
@@ -5504,8 +5536,8 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                 logger.info(f"Recordatorio de comidas ({momento}) enviado a {user_id}")
 
         except Exception as e:
-            logger.error(f"Error procesando usuario {user_id}: {e}")
-            
+            logger.error(f"Error procesando usuario {user_id}: {e}")                        
+
 # =============================================================================================================================================
 #                    FINAL                                    COMANDOS INFORMES                                        FINAL
 # =============================================================================================================================================
