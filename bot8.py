@@ -2955,7 +2955,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 # ======================================================================================================================================
-#                  INICIO               COMANDOS CONFIRMACION Y MENU                     INICIO
+#                  INICIO               COMANDOS CONFIRMACION COMANDOS MENU                     INICIO
 # ======================================================================================================================================
 
 #                  INICIO               INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO
@@ -3267,7 +3267,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         asyncio.create_task(tarea_segundo_plano())
 
 # ======================================================================================================================================
-#                FINAL                           FUNCIONES CONFIRMACION Y MENU                     FINAL
+#                FINAL                           FUNCIONES CONFIRMACION FUNCIONES MENU                     FINAL
 # ======================================================================================================================================
 
 # =====================================================================================================================================
@@ -3571,7 +3571,7 @@ async def ing_recibir_muneca(update: Update, context: ContextTypes.DEFAULT_TYPE)
         [InlineKeyboardButton("Moderado ", callback_data="ocup_1550")],
         [InlineKeyboardButton("Intenso / Trabajo Físico ", callback_data="ocup_1725")]
     ])
-    await update.message.reply_text("Seleccioná tu **nivel de actividad u ocupación habitual. Sin considerar ejercicios , que se contabilizan por separado**:", reply_markup=keyboard, parse_mode="Markdown")
+    await update.message.reply_text("Seleccioná tu **nivel de actividad u ocupación habitual. Sin considerar ejercicios, que se contabilizan por separado**:", reply_markup=keyboard, parse_mode="Markdown")
     return ING_OCUPACION
 
 async def ing_recibir_ocupacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3699,39 +3699,39 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 **¡Bienvenido a tu Bot Nutricional Personalizado!**\n\n"
         "Guía rápida de comandos e ingestas disponibles:\n\n"
         "📌 **Comandos Principales:**\n"
-        "• `/inicio`: Resumen de los comando y PDF del manual.\n"
+        "• `/inicio`: Resumen de los comandos y PDF del manual.\n"
         "• `/nuevo`: Apertura de cuenta ingresando los datos.\n"
         "• `/presi`: Registro y consulta de presión arterial.\n"
         "  `  /presi 120,80,70,nota` (Completo)\n"
         "  `  /presi 120,80,70` (Sin nota)\n"
         "  `  /presi 120,80` (Solo presión)\n"
         "  `  /presi AAAA-MM` Promedio mensual y PDF.\n"
-        "• `/diario`: Ingestas del día detalle nutricional y PDF.\n"
-        "• `/semanal`: Estadística semanal (calorías, fibras, etc).\n"
+        "• `/diario`: Ingestas del día, detalle nutricional y PDF.\n"
+        "• `/semanal`: Estadística semanal (calorías, fibras, etc.).\n"
         "• `/mensual`: Reporte con estimación de peso y PDF.\n"
         "• `/perfil`: Consulta de datos biométricos.\n"
-        "• `/peso`: Actualiza el peso del mes `/peso 90`.\n"
-        "• `/eliminar`: Borra ingestas seleccionando dia.\n"
-        "• `/actividad`: Ingresar actividad fisica con IA.\n"
-        "• `/barra`: ingreso x codigo de barras `/barra Número`.\n"
-        "• `/comidas`: Listado predeterminadas y PDF.\n"
+        "• `/peso`: Actualiza el peso del mes (`/peso 90`).\n"
+        "• `/eliminar`: Borra ingestas seleccionando el día.\n"
+        "• `/actividad`: Ingresar actividad física con IA.\n"
+        "• `/barra`: Ingreso por código de barras (`/barra Número`).\n"
+        "• `/comidas`: Listado de predeterminadas y PDF.\n"
         "• `/receta`: Calculadora Web para registrar comidas.\n\n"
         "📌 **Métodos de Registro:**\n"
-        "• **Con IA:** Texto, 🎤 Notas de voz, 📸 Fotos .\n"
-        "• **Modificación parcial:** Editar por item y reenvío a la IA\n"
+        "• **Con IA:** Texto, 🎤 Notas de voz, 📸 Fotos.\n"
+        "• **Modificación parcial:** Editar por ítem y reenvío a la IA\n"
         "    `DESCRIPCION` manteniendo el peso\n"
         "    `DESCRIPCION,PESO` modificando ambos campos\n"
-        "    `,PESO` manteniendo descripción\n"
+        "    `,PESO` manteniendo la descripción\n"
         "• **Sin IA:** Comidas precargadas y actividad física:\n"
         "    `*DESAYUNO`: menú completo\n"
-        "    `*PIZZA (porcion),4`: 4 porciones de pizza\n"
-        "    `*TORTA (fraccion x 100g),1.5`: 150 g de torta\n\n"
+        "    `*PIZZA (porción),4`: 4 porciones de pizza\n"
+        "    `*TORTA (fracción x 100g),1.5`: 150 g de torta\n\n"
         "📄 *Descargá nuestro Manual Integral de Usuario completo desde el botón de abajo.*"
     )
     
     # Botón con enlace web directo al PDF grande alojado en el servidor HTTP
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📚 Descargar Manual Integral (PDF)", url="https://telegram-bot-nutricion.onrender.com/manual.pdf")]
+        [InlineKeyboardButton("📚 Descargar Manual Integral (PDF)", url="https://telegram-bot-nutricional.onrender.com/manual.pdf")]
     ])
     
     await update.message.reply_text(msg, reply_markup=keyboard, parse_mode="Markdown")
@@ -3789,9 +3789,9 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 
     story = []
 
-    # --- ENCABEZADO PRINCIPAL ---
+    # --- ENCABEZADO PRINCIPAL (Sin emojis para evitar errores de renderizado en PDF) ---
     header_content = [
-        [Paragraph("🤖 GUÍA INTERACTIVA DEL BOT NUTRICIONAL", title_style)],
+        [Paragraph("GUÍA INTERACTIVA DEL BOT NUTRICIONAL", title_style)],
         [Paragraph("MANUAL INTEGRAL DE USUARIO • ASISTENTE PERSONAL INTELIGENTE", subtitle_style)]
     ]
     t_header = Table(header_content, colWidths=[540])
@@ -3816,7 +3816,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("Presenta la guía rápida con opción de descargar este manual en formato PDF.", body_style)
         ],
         [
-            Paragraph("<b>/ingreso</b><br/>/nuevo<br/>/alta<br/>/registrar<br/>/nuevo_usuario", code_style), 
+            Paragraph("<b>/ingreso</b>", code_style), 
             Paragraph("<b>Comando de Inicio de Registro:</b> Permite iniciar el proceso de apertura de cuenta y creación de ficha nutricional paso a paso.", body_style)
         ],
         [
@@ -3833,7 +3833,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>Sexo Biológico</b>", code_style), 
-            Paragraph("<b>Selección por Botón:</b> Elegir entre Masculino (👨) o Femenino (👩) mediante el teclado interactivo para los cálculos antropométricos.", body_style)
+            Paragraph("<b>Selección por Botón:</b> Elegir entre Masculino (M) o Femenino (F) mediante el teclado interactivo para los cálculos antropométricos.", body_style)
         ],
         [
             Paragraph("<b>Altura</b>", code_style), 
@@ -3861,7 +3861,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>/comidas</b>", code_style), 
-            Paragraph("Visualiza el listado de comidas predeterminadas guardadas en tu planilla personal y descarga la plantilla en PDF.", body_style)
+            Paragraph("<b>Planilla de comidas:</b> Visualiza el listado de comidas predeterminadas guardadas en tu planilla personal y descarga la plantilla en PDF.", body_style)
         ],
         [
             Paragraph("<b>/presi</b>", code_style), 
@@ -3871,38 +3871,39 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>/diario</b>", code_style), 
-            Paragraph("Permite seleccionar el día de consulta. Muestra por pantalla los consumos del día y descarga el PDF detallado con todas las ingestas.", body_style)
+            Paragraph("<b>Resumen de comidas y actividad diario:</b> Permite seleccionar el día de consulta. Muestra por pantalla los consumos del día y descarga el PDF detallado con todas las ingestas.", body_style)
         ],
         [
             Paragraph("<b>/semana</b>", code_style), 
-            Paragraph("Estadística de la semana mostrando el resumen de calorías, proteínas, actividad física y macronutrientes.<br/>"
+            Paragraph("<b>Promedio semanal:</b> Estadística de la semana mostrando el resumen de calorías, proteínas, actividad física y macronutrientes.<br/>"
                       "El corte se realiza de lunes a domingo. Los lunes muestra la semana cerrada; de martes a domingo muestra la semana en curso.", body_style)
         ],
         [
             Paragraph("<b>/mes</b>", code_style), 
-            Paragraph("Selección del mes de consulta. Presenta reporte mensual, resumen calórico, estimación de cambio de peso, tabla de macronutrientes y descarga de informe diario completo.", body_style)
+            Paragraph("<b>Resumen mensual:</b> Selección del mes de consulta. Presenta reporte mensual, resumen calórico, estimación de cambio de peso, tabla de macronutrientes y descarga de informe diario completo.", body_style)
         ],
         [
             Paragraph("<b>/perfil</b>", code_style), 
-            Paragraph("<code>/perfil</code> Muestra los datos biométricos corporales cargados en el sistema.", body_style)
+            Paragraph("<b>Datos biométricos:</b> Muestra los datos biométricos corporales cargados en el sistema.", body_style)
         ],
         [
             Paragraph("<b>/peso</b>", code_style), 
-            Paragraph("<code>/peso PESO</code> Actualiza el peso registrado para el mes en curso.", body_style)
+            Paragraph("<b>Actualización del peso:</b> Actualiza el peso registrado para el mes en curso.", body_style)
         ],
         [
             Paragraph("<b>/actividad</b>", code_style), 
-            Paragraph("<code>/actividad </code> Cargar actividad fisica consultando la IA.", body_style)
+            Paragraph("<b>Actividad física:</b> Cargar actividad física por medio de voz o texto consultando a la IA. El formato es MINUTOS ACTIVIDAD INTENSIDAD.", body_style)
         ],
         [
             Paragraph("<b>/receta</b>", code_style), 
-            Paragraph("Acceso directo a la <i>Calculadora Nutricional Web</i> para cargar recetas complejas o combinaciones de alimentos en la planilla personal.", body_style)
+            Paragraph("<b>Calculadora nutricional:</b> Acceso directo a la <i>Calculadora Nutricional Web</i> para cargar recetas complejas o combinaciones de alimentos en la planilla personal.", body_style)
         ],
         [
             Paragraph("<b>Atajos</b>", code_style), 
             Paragraph("<b>• /diario:</b> <code>/d</code><br/>"
                       "<b>• /semanal:</b> <code>/s</code><br/>"
-                      "<b>• /mensual:</b> <code>/m</code>", body_style)
+                      "<b>• /mensual:</b> <code>/m</code><br/>"
+                      "<b>• /actividad:</b> <code>/a</code>", body_style)
         ],
     ]
 
@@ -3933,16 +3934,16 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     
     registro_ia_data = [
         [
-            Paragraph("<b>💬 Texto Libre:</b> Escribí tus alimentos de forma natural detallando porciones (Ej: <i>'2 huevos revueltos con 1 tostada integral y café'</i>).", body_style)
+            Paragraph("<b>Texto Libre:</b> Escribí tus alimentos de forma natural detallando porciones (Ej: <i>'2 huevos revueltos con 1 tostada integral y café'</i>).", body_style)
         ],
         [
-            Paragraph("<b>🎤 Notas de Voz:</b> Dictá tu ingesta en una nota de voz; la IA convertirá el audio a texto y procesará los datos nutricionales.", body_style)
+            Paragraph("<b>Notas de Voz:</b> Dictá tu ingesta en una nota de voz; la IA convertirá el audio a texto y procesará los datos nutricionales.", body_style)
         ],
         [
-            Paragraph("<b>📸 Fotografías de Galería / Cámara:</b> Envía una foto del codigo de barras del producto o del plato con o sin descripción aclaratoria (Ej: <i>'Milanesa casera de pollo al horno 200 g'</i>).", body_style)
+            Paragraph("<b>Fotografías de Galería / Cámara:</b> Envía una foto del código de barras del producto o del plato con o sin descripción aclaratoria (Ej: <i>'Milanesa casera de pollo al horno 200 g'</i>).", body_style)
         ],
         [
-            Paragraph("<b>⚙️ Proceso de Edición y Confirmación:</b><br/>"
+            Paragraph("<b>Proceso de Edición y Confirmación:</b><br/>"
                       "• <b>Momento:</b> Desayuno, Almuerzo, Merienda o Cena.<br/>"
                       "• <b>Edición parcial:</b> Seleccioná ítem por ítem enviando una <i>nueva descripción</i> (mantiene peso) o <i>descripción y peso</i> (recalcula completo).<br/>"
                       "• <b>Fecha y Guardado:</b> Confirmá la fecha del consumo para asentar en tu planilla.", body_style)
@@ -3976,9 +3977,9 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>Código de barras</b>", body_style),
-            Paragraph("<code> /barra NUMERO</code>", code_style),
-            Paragraph("• <code>/barra 7790742363107 <br/>"
-                      "Ingresar el NUMERO ENA del codigo de barras del producto y confirmar la ingesta.", body_style)
+            Paragraph("<code>/barra NUMERO</code>", code_style),
+            Paragraph("• <code>/barra 7790742363107</code><br/>"
+                      "Ingresar el número ENA del código de barras del producto y confirmar la ingesta.", body_style)
         ]
     ]
 
@@ -4006,7 +4007,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     story.append(KeepTogether([
         Paragraph("3. Calculadora Nutricional Web (/receta)", section_style),
         Paragraph("Permite cargar recetas elaboradas o combinaciones de alimentos habituales directamente en tu planilla personal.", body_style),
-        Paragraph("• <code>*Código/Nombre:</code> Código identificatorio para buscar la receta cargada en la planilla utilizando * .<br/>"
+        Paragraph("• <code>*Código/Nombre:</code> Código identificatorio para buscar la receta cargada en la planilla utilizando *.<br/>"
                   "• <code>*Descripción:</code> Descripción de la receta o detalle de los componentes de una ingesta guardada.<br/>"
                   "• <code>*Criterio:</code> Criterio a utilizar si la receta fue cargada en fracciones de 100g o porciones.<br/><br/>", body_style),
         Spacer(1, 4)
@@ -4074,13 +4075,13 @@ def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
     header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
 
     story = [
-        Paragraph(f"<b>Detalle Diario de Presion Arterial - {mes_str}</b>", title_style),
+        Paragraph(f"<b>Detalle Diario de Presión Arterial - {mes_str}</b>", title_style),
         Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
         HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
     ]
 
     if df_presion.empty:
-        story.append(Paragraph("No hay registros de presion para este mes.", body_style))
+        story.append(Paragraph("No hay registros de presión para este mes.", body_style))
     else:
         table_data = [[
             Paragraph("Fecha y Hora", header_style),
@@ -4122,7 +4123,7 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if not raw_text:
         await update.message.reply_text(
-            "Ingresa o consulta un mes usando /presi. Ejemplos:\n\n"
+            "Ingresá o consultá un mes usando /presi. Ejemplos:\n\n"
             "• /presi 120,80,70, después de caminar\n"
             "• /presi 120,80,70\n"
             "• /presi 120,80\n"
@@ -4323,7 +4324,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(txt, parse_mode="Markdown")
     except Exception as e:
         print(f"Error al consultar perfil: {e}")
-        await update.message.reply_text(f"⚠️ Ocurrió un error al leer tu perfil: {e}", parse_no_mode="Markdown" if False else "Markdown")
+        await update.message.reply_text(f"⚠️ Ocurrió un error al leer tu perfil: {e}", parse_mode="Markdown")
 
 # ======================================================================================================================================
 #                       FINAL                                       COMANDOS INGRESOS                                      FINAL
@@ -5386,7 +5387,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 # =============================================================================================================================================
 
 # ==================================================================================================================================
-#                    INICIO                 COMANDOS COMIDAS Y COMANDOS ACTIVIDAD                                   INCIO  DB OK
+#                    INICIO                 COMANDOS COMIDAS COMANDOS ACTIVIDAD                                   INCIO  DB OK
 # ==================================================================================================================================
 
 #                    INICIO                                    COMANDO RECETAS                                   INCIO  DB OK
@@ -5609,6 +5610,16 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         data = analizar_con_groq(transcription)
+        
+        # 🛡️ FILTRO DE SEGURIDAD: Si mandaron ejercicio por error en el chat general
+        if data.get("tipo") == "Actividad":
+            await msg.edit_text(
+                "ℹ️ Detecté que tu audio describe una actividad física.\n"
+                "Para registrar ejercicios y calcular tu gasto calórico correctamente, por favor utilizá el comando /actividad.",
+                parse_mode="Markdown"
+            )
+            return
+
         await procesar_y_mostrar_confirmacion(data, msg, context)
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
@@ -6037,6 +6048,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
     try:
         data = analizar_con_groq(raw_text)
+        
+        # 🛡️ FILTRO DE SEGURIDAD: Si escribieron ejercicio por error en el chat general
+        if data.get("tipo") == "Actividad":
+            await msg.edit_text(
+                "ℹ️ Detecté que ingresaste una actividad física.\n"
+                "Para registrar ejercicios y calcular tu gasto calórico correctamente, por favor utilizá el comando /actividad.",
+                parse_mode="Markdown"
+            )
+            return
+
         items = data.get("items", [])
 
         total_calorias = sum(float(item.get("calorias", 0)) for item in items)
@@ -6226,7 +6247,7 @@ async def manejar_callback_actividad(update: Update, context: ContextTypes.DEFAU
         await query.answer()
         
 # =====================================================================================================================================
-#                FINAL                               COMANDOS COMIDA                             FINAL
+#                FINAL                               FUNCIONES COMIDA FUNCIONES ACTIVIDAD                            FINAL
 # ======================================================================================================================================
 
 # =============================================================================================================================================
