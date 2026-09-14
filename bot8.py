@@ -5609,6 +5609,16 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         data = analizar_con_groq(transcription)
+        
+        # 🛡️ FILTRO DE SEGURIDAD: Si mandaron ejercicio por error en el chat general
+        if data.get("tipo") == "Actividad":
+            await msg.edit_text(
+                "ℹ️ Detecté que tu audio describe una actividad física.\n"
+                "Para registrar ejercicios y calcular tu gasto calórico correctamente, por favor utilizá el comando /actividad.",
+                parse_mode="Markdown"
+            )
+            return
+
         await procesar_y_mostrar_confirmacion(data, msg, context)
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
@@ -6037,6 +6047,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
     try:
         data = analizar_con_groq(raw_text)
+        
+        # 🛡️ FILTRO DE SEGURIDAD: Si escribieron ejercicio por error en el chat general
+        if data.get("tipo") == "Actividad":
+            await msg.edit_text(
+                "ℹ️ Detecté que ingresaste una actividad física.\n"
+                "Para registrar ejercicios y calcular tu gasto calórico correctamente, por favor utilizá el comando /actividad.",
+                parse_mode="Markdown"
+            )
+            return
+
         items = data.get("items", [])
 
         total_calorias = sum(float(item.get("calorias", 0)) for item in items)
@@ -6228,6 +6248,8 @@ async def manejar_callback_actividad(update: Update, context: ContextTypes.DEFAU
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA                             FINAL
 # ======================================================================================================================================
+
+
 
 # =============================================================================================================================================
 #                INICIO                            COMANDOS PROFESIONALES                             INICIO 
