@@ -3688,7 +3688,8 @@ conv_handler_ingreso = ConversationHandler(
         ING_OCUPACION: [CallbackQueryHandler(ing_recibir_ocupacion, pattern="^ocup_")],
         ING_CUMPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cumple)],
     },
-    fallbacks=[CommandHandler('cancelar', ing_cancelar)]
+    fallbacks=[CommandHandler('cancelar', ing_cancelar)],
+    per_message=True
 )
 
 #                     INICIO                         COMANDO START                          INICIO  2026 09 05
