@@ -2928,7 +2928,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 # ======================================================================================================================================
-#                  INICIO               FUNCIONES CONFIRMACION Y MENU                     INICIO
+#                  INICIO               COMANDOS CONFIRMACION Y MENU                     INICIO
 # ======================================================================================================================================
 
 #                  INICIO               INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO
@@ -5362,7 +5362,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 # =============================================================================================================================================
 
 # ==================================================================================================================================
-#                    INICIO                                    COMANDOS COMIDAS Y COMANDOS ACTIVIDAD                                   INCIO  DB OK
+#                    INICIO                        COMANDOS COMIDAS Y COMANDOS ACTIVIDAD                                   INCIO  DB OK
 # ==================================================================================================================================
 
 #                    INICIO                                    COMANDO RECETAS                                   INCIO  DB OK
@@ -5539,11 +5539,50 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response_format="text"
         )
         
+        if context.user_data.get('awaiting_activity_voice'):
+            context.user_data['awaiting_activity_voice'] = False
+            user_id = update.effective_user.id
+            
+            perfil_biometrico = obtener_datos_biometricos_usuario(user_id) if 'obtener_datos_biometricos_usuario' in globals() else ""
+            
+            prompt_ia = (
+                f"El usuario realizó una actividad física descrita por voz. Transcripción: '{transcription}'. "
+                f"Calcula las calorías gastadas utilizando estrictamente su perfil biométrico: {perfil_biometrico}.\n"
+                f"REGLA OBLIGATORIA 1: El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de 'min' y una descripción clara (ej: '50 min - Caminata rápida').\n"
+                f"REGLA OBLIGATORIA 2: El campo 'calorias' debe ser un número positivo que luego transformaremos en negativo.\n"
+                f"Devolvé un JSON con los campos 'alimento' y 'calorias'."
+            )
+
+            resultado_ia = analizar_con_groq(prompt_ia)
+            kcal_estimadas = float(resultado_ia.get('calorias', 0))
+            descripcion_formateada = str(resultado_ia.get('alimento', transcription))
+            calorias_finales = -abs(kcal_estimadas)
+
+            item_actividad = {
+                "alimento": descripcion_formateada,
+                "peso": 0,
+                "calorias": calorias_finales,
+                "proteinas": 0,
+                "grasas": 0,
+                "carbohidratos": 0,
+                "fibras": 0
+            }
+
+            context.user_data['pending_items'] = [item_actividad]
+            context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+            context.user_data['pending_momento'] = 'Actividad'
+
+            await msg.delete()
+            msg_menu = await update.message.reply_text("📋 Actividad analizada por audio:")
+            context.user_data['last_menu_msg_id'] = msg_menu.message_id
+            await render_confirmation_screen(msg_menu, context)
+            return
+
         data = analizar_con_groq(transcription)
         await procesar_y_mostrar_confirmacion(data, msg, context)
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
-
+        
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
@@ -6122,7 +6161,12 @@ async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-async def manejar_callback_actividad(query, user_id, data, context):
+@requiere_registro
+async def manejar_callback_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    data = query.data
+
     if data == "act_tipo_texto":
         context.user_data['awaiting_activity_text'] = True
         msg_solic = await query.message.reply_text(
@@ -6144,6 +6188,7 @@ async def manejar_callback_actividad(query, user_id, data, context):
         context.user_data.pop('awaiting_activity_text', None)
         context.user_data.pop('awaiting_activity_voice', None)
         await query.edit_message_text("❌ Registro de actividad cancelado.")
+        await query.answer()
         
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA                             FINAL
