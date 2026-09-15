@@ -4696,13 +4696,71 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
 #                 INICIO                            COMANDO SEMANA  2026 09 09             INICIO   DB OK
 # ======================================================================================================================================
 
+def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo):
+    """Calcula y genera el texto estructurado del resumen semanal con rangos, presión y actividad."""
+    df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+
+    if df_datos.empty or 'Fecha' not in df_datos.columns:
+        return None, None
+
+    df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.date
+    df_semana = df_datos[(df_datos['Fecha_dt'] >= inicio_rango) & (df_datos['Fecha_dt'] <= fin_rango)].copy()
+
+    if df_semana.empty:
+        return None, None
+
+    mes_target = inicio_rango.strftime("%Y-%m")
+    perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
+    m = calcular_metricas_mensuales(df_semana, perfil) if 'calcular_metricas_mensuales' in globals() else {}
+
+    minutos_totales_actividad = 0
+    if 'Momento' in df_semana.columns and 'Alimento' in df_semana.columns:
+        for _, row in df_semana.iterrows():
+            momento_str = str(row.get('Momento', '')).strip().lower()
+            alimento_str = str(row.get('Alimento', '')).strip()
+            cal_val = float(row.get('Calorias', 0) or 0)
+            if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
+                match = re.match(r'^(\d+)', alimento_str)
+                if match:
+                    minutos_totales_actividad += int(match.group(1))
+
+    prom_alta, prom_baja = None, None
+    try:
+        df_presion = obtener_datos_presion_db(user_id) if 'obtener_datos_presion_db' in globals() else pd.DataFrame()
+        if not df_presion.empty and 'Fecha_Dia' in df_presion.columns:
+            df_presion['Fecha_Dia_dt'] = pd.to_datetime(df_presion['Fecha_Dia'], errors='coerce').dt.date
+            df_presion_semana = df_presion[
+                (df_presion['Fecha_Dia_dt'] >= inicio_rango) & 
+                (df_presion['Fecha_Dia_dt'] <= fin_rango)
+            ]
+            if not df_presion_semana.empty:
+                prom_alta = round(df_presion_semana['Alta'].mean())
+                prom_baja = round(df_presion_semana['Baja'].mean())
+    except Exception as e_presion:
+        logger.error(f"Error al calcular presión semanal: {e_presion}")
+
+    txt = (
+        f"📅 **Resumen Nutricional Semanal:**\n"
+        f"ℹ️ *{etiqueta_periodo}*\n\n"
+        f"• **Promedio Calorías:** `{m.get('prom_cal', 0)} kcal` / Rango: `{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal`\n"
+        f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
+        f"• **Grasas:** `{m.get('prom_gras', 0)} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
+        f"• **Carbohidratos:** `{m.get('prom_carb', 0)} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
+        f"• **Fibras:** `{m.get('prom_fibr', 0)} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
+    )
+    if prom_alta is not None and prom_baja is not None:
+        txt += f"• **Presión Arterial Promedio:** `{prom_alta}/{prom_baja} mmHg`\n"
+
+    txt += (
+        f"• **Actividad Física:** `{minutos_totales_actividad} minutos` totales\n"
+        f"• **Calorías Quemadas (Promedio):** `{m.get('prom_quem', 0)} kcal/día`\n"
+        f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`"
+    )
+
+    return txt, m
+    
 @requiere_registro
 async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Manejador del comando /mensaje (semanal).
-    Analiza los días transcurridos de la semana actual (o semana anterior si es lunes) en castellano,
-    utilizando la hora local de Argentina, agregando promedio de presión arterial, minutos totales de actividad y rangos saludables.
-    """
     if not await _validar_peso_mes_actual(update=update, context=context):
         return
 
@@ -4710,23 +4768,10 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         msg_espera = await update.message.reply_text("⏳ Procesando resumen nutricional...")
 
-        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
-
-        if df_datos.empty or 'Fecha' not in df_datos.columns:
-            await msg_espera.edit_text("⚠️ No hay información de comidas registradas.")
-            return
-
-        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.date
-
         tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
         ahora_arg = datetime.now(tz_arg)
         hoy = ahora_arg.date()
-        dia_semana = ahora_arg.weekday()  # 0: Lunes, 1: Martes...
-
-        dias_espanol = {
-            0: "Lunes", 1: "Martes", 2: "Miércoles", 
-            3: "Jueves", 4: "Viernes", 5: "Sábado", 6: "Domingo"
-        }
+        dia_semana = ahora_arg.weekday()  # 0: Lunes
 
         if dia_semana == 0:
             inicio_rango = hoy - timedelta(days=7)
@@ -4735,71 +4780,24 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             inicio_rango = hoy - timedelta(days=dia_semana)
             fin_rango = hoy - timedelta(days=1)
+            dias_espanol = {1: "Martes", 2: "Miércoles", 3: "Jueves", 4: "Viernes", 5: "Sábado", 6: "Domingo"}
             nombre_dia_ayer = dias_espanol.get(dia_semana - 1, "")
             etiqueta_periodo = f"Semana Actual (Lunes a {nombre_dia_ayer})"
 
-        df_semana = df_datos[(df_datos['Fecha_dt'] >= inicio_rango) & (df_datos['Fecha_dt'] <= fin_rango)].copy()
+        txt, _ = _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo)
 
-        if df_semana.empty:
+        if not txt:
             await msg_espera.edit_text("⚠️ No hay registros acumulados para los días transcurridos de este período.")
             return
-
-        mes_target = inicio_rango.strftime("%Y-%m")
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
-        m = calcular_metricas_mensuales(df_semana, perfil) if 'calcular_metricas_mensuales' in globals() else {}
-
-        minutos_totales_actividad = 0
-        if 'Momento' in df_semana.columns and 'Alimento' in df_semana.columns:
-            for _, row in df_semana.iterrows():
-                momento_str = str(row.get('Momento', '')).strip().lower()
-                alimento_str = str(row.get('Alimento', '')).strip()
-                cal_val = float(row.get('Calorias', 0) or 0)
-                if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
-                    match = re.match(r'^(\d+)', alimento_str)
-                    if match:
-                        minutos_totales_actividad += int(match.group(1))
-
-        prom_alta, prom_baja = None, None
-        try:
-            df_presion = obtener_datos_presion_db(user_id) if 'obtener_datos_presion_db' in globals() else pd.DataFrame()
-            if not df_presion.empty and 'Fecha_Dia' in df_presion.columns:
-                df_presion['Fecha_Dia_dt'] = pd.to_datetime(df_presion['Fecha_Dia'], errors='coerce').dt.date
-                df_presion_semana = df_presion[
-                    (df_presion['Fecha_Dia_dt'] >= inicio_rango) & 
-                    (df_presion['Fecha_Dia_dt'] <= fin_rango)
-                ]
-                if not df_presion_semana.empty:
-                    prom_alta = round(df_presion_semana['Alta'].mean())
-                    prom_baja = round(df_presion_semana['Baja'].mean())
-        except Exception as e_presion:
-            logger.error(f"Error al calcular presión semanal: {e_presion}")
-
-        txt = (
-            f"📅 **Resumen Nutricional Semanal:**\n"
-            f"ℹ️ *{etiqueta_periodo}*\n\n"
-            f"• **Promedio Calorías:** `{m.get('prom_cal', 0)} kcal` / Rango: `{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal`\n"
-            f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
-            f"• **Grasas:** `{m.get('prom_gras', 0)} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
-            f"• **Carbohidratos:** `{m.get('prom_carb', 0)} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
-            f"• **Fibras:** `{m.get('prom_fibr', 0)} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
-        )
-        if prom_alta is not None and prom_baja is not None:
-            txt += f"• **Presión Arterial Promedio:** `{prom_alta}/{prom_baja} mmHg`\n"
-
-        txt += (
-            f"• **Actividad Física:** `{minutos_totales_actividad} minutos` totales\n"
-            f"• **Calorías Quemadas (Promedio):** `{m.get('prom_quem', 0)} kcal/día`\n"
-            f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`"
-        )
 
         await msg_espera.edit_text(txt, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Error en cmd_mensaje: {e}")
         if 'msg_espera' in locals():
-            await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")            
-
-#               INICIO                                COMANDO RESUMEN MENSUAL                        INICIO DB OK
+            await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
+#
+               INICIO                                COMANDO RESUMEN MENSUAL                        INICIO DB OK
 # ==========================================================================================================================================
 
 @requiere_registro
@@ -5430,62 +5428,52 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
                 if peso_ok and semana_ok:
                     try:
-                        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
-                        if not df_datos.empty and 'Fecha' in df_datos.columns:
-                            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None)
-                            
-                            ahora_raw = obtener_ahora_arg()
-                            if hasattr(ahora_raw, 'tzinfo') and ahora_raw.tzinfo is not None:
-                                ahora_raw = ahora_raw.replace(tzinfo=None)
-                            ahora_ts = pd.Timestamp(ahora_raw)
+                        ahora_raw = obtener_ahora_arg()
+                        if hasattr(ahora_raw, 'tzinfo') and ahora_raw.tzinfo is not None:
+                            ahora_raw = ahora_raw.replace(tzinfo=None)
+                        ahora_ts = pd.Timestamp(ahora_raw)
 
-                            inicio_rango = ahora_ts.floor('D') - pd.Timedelta(days=7)
-                            fin_rango = ahora_ts.floor('D') - pd.Timedelta(seconds=1)
-                            etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
+                        inicio_rango = (ahora_ts.floor('D') - pd.Timedelta(days=7)).date()
+                        fin_rango = (ahora_ts.floor('D') - pd.Timedelta(seconds=1)).date()
+                        etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
 
-                            df_semana = df_datos[(df_datos['Fecha_dt'] >= inicio_rango) & (df_datos['Fecha_dt'] <= fin_rango)].copy()
-                            
-                            if not df_semana.empty:
-                                mes_target = inicio_rango.strftime("%Y-%m")
-                                perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
-                                m = calcular_metricas_mensuales(df_semana, perfil) if 'calcular_metricas_mensuales' in globals() else {}
+                        # 1. Reutilizamos la misma función para generar el texto con rangos
+                        txt_resumen, m = _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo)
 
-                                prompt_semana = (
-                                    f"Actúa como un nutricionista clínico experto. Proporcioná una devolución amplia, precisa y detallada "
-                                    f"sobre la evolución nutricional de la {etiqueta_periodo}:\n\n"
-                                    f"DATOS REEVALUADOS:\n"
-                                    f"- Días evaluados: {m.get('dias_registrados', 0)}\n"
-                                    f"- Calorías consumidas: {m.get('prom_cal', 0)} kcal/día (Meta: {m.get('ideal_cal', 0)} kcal)\n"
-                                    f"- Proteínas: {m.get('prom_prot', 0)} g/día (Meta: {m.get('ideal_prot', 0)} g)\n"
-                                    f"- Grasas: {m.get('prom_gras', 0)} g/día (Meta: {m.get('ideal_gras', 0)} g)\n"
-                                    f"- Carbohidratos: {m.get('prom_carb', 0)} g/día (Meta: {m.get('ideal_carb', 0)} g)\n"
-                                    f"- Fibra: {m.get('prom_fibr', 0)} g/día (Meta: {m.get('ideal_fibr', 0)} g)\n\n"
-                                    f"INSTRUCCIONES:\n"
-                                    f"Analizá en profundidad los desvíos numéricos de cada macronutriente. "
-                                    f"Si hubo exceso de grasas o déficit de proteínas, señalalo con claridad y recomendá alimentos "
-                                    f"específicos accesibles para corregirlo durante los próximos días."
-                                )
+                        if txt_resumen and m:
+                            await context.bot.send_message(chat_id=int(user_id), text=txt_resumen, parse_mode="Markdown")
 
-                                recomendacion = await obtener_recomendacion_ia(prompt_semana, es_semanal=True)
+                            # 2. Prompt de la IA mejorado con datos biométricos y rangos reales
+                            prompt_semana = (
+                                f"Actúa como un nutricionista clínico experto y constructivo. Analiza la evolución nutricional de la {etiqueta_periodo} "
+                                f"comparando los promedios reales frente a los rangos saludables:\n\n"
+                                f"PERFIL BIOMÉTRICO:\n"
+                                f"- Edad: {m.get('edad', 'S/D')} años | Altura: {m.get('altura', 'S/D')} cm | Peso actual: {m.get('peso_actual', 'S/D')} kg\n\n"
+                                f"DATOS DEL PERÍODO:\n"
+                                f"- Días evaluados: {m.get('dias_registrados', 0)}\n"
+                                f"- Calorías consumidas: {m.get('prom_cal', 0)} kcal/día (Rango saludable: {m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal)\n"
+                                f"- Proteínas: {m.get('prom_prot', 0)} g/día (Rango saludable: {m.get('prot_min', 0)} - {m.get('prot_max', 0)} g)\n"
+                                f"- Grasas: {m.get('prom_gras', 0)} g/día (Rango saludable: {m.get('gras_min', 0)} - {m.get('gras_max', 0)} g)\n"
+                                f"- Carbohidratos: {m.get('prom_carb', 0)} g/día (Rango saludable: {m.get('carb_min', 0)} - {m.get('carb_max', 0)} g)\n"
+                                f"- Fibra: {m.get('prom_fibr', 0)} g/día (Mínimo recomendado: {m.get('fibr_min', 0)} g)\n\n"
+                                f"INSTRUCCIONES CLAVE:\n"
+                                f"1. Si un valor se encuentra dentro del rango saludable, considéralo un comportamiento correcto y equilibrado; no lo señales como un error.\n"
+                                f"2. Ten en cuenta que si el usuario está en proceso de descenso de peso, un consumo calórico dentro del rango inferior es correcto y esperado.\n"
+                                f"3. Proporciona una devolución clara, motivadora y recomendaciones breves y prácticas para optimizar los hábitos en la semana entrante."
+                            )
 
-                                txt = (
-                                    f"📅 **Informe Nutricional Semanal con IA:**\n"
-                                    f"ℹ️ *{etiqueta_periodo}*\n\n"
-                                    f"• **Promedio Calorías:** `{m.get('prom_cal', 0)} kcal` / Meta: `{m.get('ideal_cal', 0)} kcal`\n"
-                                    f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Meta: `{m.get('ideal_prot', 0)} g`\n"
-                                    f"• **Grasas:** `{m.get('prom_gras', 0)} g` / Meta: `{m.get('ideal_gras', 0)} g`\n"
-                                    f"• **Carbohidratos:** `{m.get('prom_carb', 0)} g` / Meta: `{m.get('ideal_carb', 0)} g`\n"
-                                    f"• **Fibras:** `{m.get('prom_fibr', 0)} g` / Meta: `{m.get('ideal_fibr', 0)} g`\n"
-                                    f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`\n\n"
-                                    f"🤖 **Evaluación y Recomendaciones del Especialista:**\n"
-                                    f"{recomendacion}"
-                                )
+                            recomendacion = await obtener_recomendacion_ia(prompt_semana, es_semanal=True)
 
-                                await context.bot.send_message(chat_id=int(user_id), text=txt, parse_mode="Markdown")
-                                logger.info(f"Resumen semanal con IA enviado exitosamente a {user_id}")
+                            txt_ia = (
+                                f"🤖 **Evaluación y Recomendaciones del Especialista:**\n"
+                                f"{recomendacion}"
+                            )
 
-                                if index < len(registros_usuarios) - 1:
-                                    await asyncio.sleep(60)
+                            await context.bot.send_message(chat_id=int(user_id), text=txt_ia, parse_mode="Markdown")
+                            logger.info(f"Resumen semanal y recomendación con IA enviados exitosamente a {user_id}")
+
+                            if index < len(registros_usuarios) - 1:
+                                await asyncio.sleep(60)
 
                     except Exception as e_ia:
                         logger.error(f"Error generando resumen semanal con IA para {user_id}: {e_ia}")
