@@ -3315,7 +3315,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 #                       INICIO                  COMANDOS INGRESOS                            INICIO
 # ======================================================================================================================================
 
-#                       INICIO                  COMANDO ALTA DE USUARIO                        INICIO
+#                                   INICIO                  COMANDO ALTA DE USUARIO                                 INICIO
 # ======================================================================================================================================
 
 def cmd_nueva_cuenta(datos_usuario):
@@ -3492,13 +3492,39 @@ async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
 
-    # --- SI NO EXISTE, LO PRIMERO ES INGRESAR EL ID DEL PROFESIONAL ---
-    await update.message.reply_text(
-        "🔑 **Apertura de Ficha - Validación de Profesional**\n\n"
-        "Para comenzar el registro, por favor ingresá el **ID de Telegram del profesional**:",
-        parse_mode="Markdown"
+    # --- ADVERTENCIA LEGAL Y TÉRMINOS Y CONDICIONES ---
+    texto_advertencia = (
+        "⚖️ **ADVERTENCIA LEGAL Y CONDICIONES DE USO**\n\n"
+        "Este asistente es una herramienta de cálculo automatizado orientada a sumar y restar calorías, "
+        "registrar ingestas y macronutrientes de forma práctica. **No posee un valor médico ni científico:** "
+        "las recomendaciones emitidas son generadas por una Inteligencia Artificial de carácter generalizado.\n\n"
+        "Todo seguimiento clínico o nutricional formal debe ser realizado exclusivamente por un profesional de la salud competente. "
+        "Si decidís utilizar el bot de forma independiente, debés comprender que su función se limita estrictamente al balance cuantitativo "
+        "de calorías y nutrientes, sin reemplazar la consulta médica.\n\n"
+        "👉 *Para continuar con la apertura de tu cuenta y aceptar los términos, por favor presioná el botón de abajo:*"
     )
-    return ING_PROFESIONAL
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ He leído y acepto los términos", callback_data="aceptar_terminos_ok")]
+    ])
+
+    await update.message.reply_text(texto_advertencia, reply_markup=keyboard, parse_mode="Markdown")
+    return ING_TERMINOS
+
+
+async def ing_aceptar_terminos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "aceptar_terminos_ok":
+        await query.edit_message_text(
+            "✅ **Términos aceptados correctamente.**\n\n"
+            "🔑 **Apertura de Ficha - Validación de Profesional**\n\n"
+            "Para comenzar el registro, por favor ingresá el **ID de Telegram del profesional**:",
+            parse_mode="Markdown"
+        )
+        return ING_PROFESIONAL
+    return ING_TERMINOS
 
 async def cmd_nuevo_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await cmd_ingreso_start(update, context)
@@ -3719,6 +3745,7 @@ async def ing_cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 conv_handler_ingreso = ConversationHandler(
     entry_points=[CommandHandler(['ingreso', 'nuevo', 'alta', 'registrar', 'nuevo_usuario'], cmd_ingreso_start)],
     states={
+        ING_TERMINOS: [CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$")],
         ING_PROFESIONAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_profesional)],
         ING_NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_nombre)],
         ING_EDAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_edad)],
@@ -3898,7 +3925,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("<b>Cumpleaños:</b> Ingresar la fecha de nacimiento obligatoriamente en formato <code>AAAA-MM-DD</code> (ejemplo: <code>1985-04-12</code>).", body_style)
         ],
         [
-            Paragraph("<b>/cancelar</b>", code_style), 
+            Paragraph("<b>Cancelar</b>", code_style), 
             Paragraph("<b>Cancelar Registro:</b> Permite abortar el proceso de alta en cualquier momento, limpiando los datos temporales almacenados.", body_style)
         ],
         [
@@ -3912,7 +3939,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
                       "<b>• Consulta:</b> <code>/presi AAAA-MM</code> Promedio del mes e informe PDF detallado.", body_style)
         ],
         [
-            Paragraph("<b>/diario</b>", code_style), 
+            Paragraph("<b>/dia</b>", code_style), 
             Paragraph("<b>Resumen diario:</b> Permite seleccionar el día de consulta. Muestra por pantalla los consumos del día y descarga el PDF detallado con todas las ingestas.", body_style)
         ],
         [
@@ -6683,15 +6710,15 @@ def main():
         app_bot.add_handler(CommandHandler("eliminar", cmd_eliminar_ingesta))
         app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
         app_bot.add_handler(CommandHandler("guia", cmd_guia))
-        
-        # Comando exclusivo para el factor de actividad por reloj inteligente
         app_bot.add_handler(CommandHandler(["factor", "get", "GET"], cmd_factor_handler))
-        
         app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
         app_bot.add_handler(CommandHandler("migrar", cmd_migrar))
         app_bot.add_handler(CommandHandler(["actividad", "ejercicio", "a"], cmd_actividad))
 
         # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
+        # Manejador para aceptar los términos y condiciones al iniciar el alta
+        app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
+        
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
@@ -6722,8 +6749,4 @@ if __name__ == "__main__":
 # =============================================================================================================================================
 #                                                   FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
-
-
-
-
 
