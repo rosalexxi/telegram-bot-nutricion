@@ -1208,7 +1208,6 @@ def obtener_comidas_usuario(user_id):
         tabla_nombre = f"Comidas_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
         
-        # Nos aseguramos de consultar utilizando el nombre real de la tabla devuelto por el buscador sensible a mayúsculas
         query = f"""
             SELECT "Nombre", "Descripcion", "Peso", "Calorias", "Proteinas", "Grasas", "Carbohidratos", "Fibras"
             FROM "{tabla_nombre}"
@@ -1218,15 +1217,29 @@ def obtener_comidas_usuario(user_id):
         
         records = []
         for fila in filas:
+            # Función auxiliar interna para limpiar y convertir valores de texto/números de forma segura
+            def parse_val(val):
+                if val is None:
+                    return 0.0
+                if isinstance(val, (int, float)):
+                    return float(val)
+                val_str = str(val).strip().replace(',', '.')
+                if not val_str:
+                    return 0.0
+                try:
+                    return float(val_str)
+                except ValueError:
+                    return 0.0
+
             records.append({
-                'Nombre': str(fila[0] or ''), 
-                'Descripcion': str(fila[1] or ''),
-                'Peso': float(fila[2] or 0), 
-                'Calorias': float(fila[3] or 0),
-                'Proteinas': float(fila[4] or 0), 
-                'Grasas': float(fila[5] or 0), 
-                'Carbohidratos': float(fila[6] or 0), 
-                'Fibras': float(fila[7] or 0)
+                'Nombre': str(fila[0] or '').strip(), 
+                'Descripcion': str(fila[1] or '').strip(),
+                'Peso': parse_val(fila[2]), 
+                'Calorias': parse_val(fila[3]),
+                'Proteinas': parse_val(fila[4]), 
+                'Grasas': parse_val(fila[5]), 
+                'Carbohidratos': parse_val(fila[6]), 
+                'Fibras': parse_val(fila[7])
             })
             
         return records
@@ -1235,7 +1248,6 @@ def obtener_comidas_usuario(user_id):
         logger.error(f"Error al obtener comidas de Supabase: {e}")
         return []
     finally:
-        # Garantizamos el cierre seguro de la conexión y el cursor para evitar bloqueos de hilos
         if cur:
             try:
                 cur.close()
@@ -1246,7 +1258,7 @@ def obtener_comidas_usuario(user_id):
                 conn.close()
             except Exception:
                 pass
-                
+                                
 def obtener_codigo_unico(tabla_nombre, codigo_base):
     try:
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
