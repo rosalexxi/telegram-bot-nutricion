@@ -2270,8 +2270,8 @@ def consultar_codigo_barras(barcode: str) -> dict | bool:
             return False
             
         product = data.get("product", {})
-        nutriments = product.get("nutriments", {})
         
+        # 1. Obtenemos SOLAMENTE el nombre y la marca (descartamos los valores nutricionales de Open Food Facts)
         nombre_alimento = (
             product.get("product_name_es") or 
             product.get("product_name") or 
@@ -2282,27 +2282,51 @@ def consultar_codigo_barras(barcode: str) -> dict | bool:
         if marca:
             nombre_alimento = f"{nombre_alimento} ({marca})"
 
-        calorias = float(nutriments.get("energy-kcal_100g", nutriments.get("energy-kcal", 0.0) or 0.0))
-        proteinas = float(nutriments.get("proteins_100g", 0.0) or 0.0)
-        grasas = float(nutriments.get("fat_100g", 0.0) or 0.0)
-        carbohidratos = float(nutriments.get("carbohydrates_100g", 0.0) or 0.0)
-        fibras = float(nutriments.get("fiber_100g", 0.0) or 0.0)
+        # 2. Le pedimos a la IA de Groq que estime los valores nutricionales exactos para 100 GRAMOS basados en el nombre
+        client_ai = globals().get('client_ai')
+        if not client_ai:
+            return False
+
+        prompt = (
+            f"Actúa como un nutricionista experto. A partir del nombre del producto '{nombre_alimento}', "
+            f"estima su información nutricional estándar por cada 100 GRAMOS (calorías, proteínas, grasas, carbohidratos, fibras).\n"
+            f"Devolvé ÚNICAMENTE un objeto JSON válido con la siguiente estructura exacta:\n"
+            f"{{\n"
+            f'  "calorias": número,\n'
+            f'  "proteinas": número,\n'
+            f'  "grasas": número,\n'
+            f'  "carbohidratos": número,\n'
+            f'  "fibras": número\n'
+            f"}}"
+        )
+
+        chat_completion = client_ai.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "Sos un asistente nutricional que responde estrictamente en formato JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            model=globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile"),
+            response_format={"type": "json_object"},
+            temperature=0.1
+        )
+
+        nutri_data = json.loads(chat_completion.choices[0].message.content)
 
         return {
             "alimento": nombre_alimento,
-            "peso": 100.0,
-            "calorias": calorias,
-            "proteinas": proteinas,
-            "grasas": grasas,
-            "carbohidratos": carbohidratos,
-            "fibras": fibras,
-            "fuente": "Open Food Facts"
+            "peso": 100.0,  # Fijo y estricto en 100 gramos
+            "calorias": float(nutri_data.get("calorias", 0)),
+            "proteinas": float(nutri_data.get("proteinas", 0)),
+            "grasas": float(nutri_data.get("grasas", 0)),
+            "carbohidratos": float(nutri_data.get("carbohidratos", 0)),
+            "fibras": float(nutri_data.get("fibras", 0)),
+            "fuente": "IA (Nombre por Código de Barras)"
         }
         
     except Exception as e:
         logging.error(f"⚠️ Error al consultar el código de barras {barcode}: {e}")
         return False
-        
+                
 def procesar_foto_codigo_barras(base64_image: str) -> dict | bool:
     try:
         image_bytes = base64.b64decode(base64_image)
