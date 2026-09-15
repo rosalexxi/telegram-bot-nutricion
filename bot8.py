@@ -3096,8 +3096,14 @@ async def render_confirmation_screen(msg_or_query, context):
 
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     items = data_json.get("items", [])
-    if not items:
-        await msg_obj.edit_text("❌ No se pudieron detectar alimentos en la consulta.")
+    total_calorias = sum(float(item.get("calorias", 0)) for item in items)
+    
+    # Si la IA no detecta alimentos o da 0 calorías (ej. detergente), borra el mensaje y no hace nada en silencio
+    if not items or total_calorias == 0:
+        try:
+            await msg_obj.delete()
+        except Exception:
+            pass
         return
 
     fecha, momento = obtener_momento_y_fecha_auto()
@@ -3106,7 +3112,7 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     context.user_data['pending_momento'] = momento
 
     await render_confirmation_screen(msg_obj, context)
-
+    
 async def manejar_callback_actividad(query, user_id, data, context):
     if data == "act_tipo_texto":
         context.user_data['awaiting_activity_text'] = True
@@ -5824,6 +5830,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             resultado_api = consultar_codigo_barras(barcode_text)
             
             if resultado_api:
+                if isinstance(resultado_api, dict) and not resultado_api.get("es_comestible", True):
+                    nombre_prod = resultado_api.get("alimento", "El producto")
+                    await msg.edit_text(
+                        f"❌ **No es comestible**\n\nEl producto escaneado (`{nombre_prod}`) no es una ingesta apta para consumo humano.",
+                        parse_mode="Markdown"
+                    )
+                    return
+
                 item_procesado = {
                     "alimento": f"{resultado_api['alimento']} §",
                     "alimento_display": resultado_api['alimento'],
@@ -5839,6 +5853,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
 
                 await msg.delete()
+                # Corrección aplicada: se usa update.message en lugar de message_obj
                 msg_menu = await update.message.reply_text("📋 Producto encontrado por código de barras:")
                 context.user_data['last_menu_msg_id'] = msg_menu.message_id
                 context.user_data['pending_items'] = [item_procesado]
@@ -5852,11 +5867,20 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await msg.edit_text("🤖 Analizando plato con Inteligencia Artificial...")
             data = analizar_imagen_con_groq(base64_image, user_caption)
+            
+            if isinstance(data, dict) and not data.get("es_comestible", True):
+                nombre_objeto = data.get("nombre_detectado", "El objeto")
+                await msg.edit_text(
+                    f"❌ **No es comestible**\n\nLo que enviaste (`{nombre_objeto}`) no es una ingesta apta para consumo humano. Ingreso anulado.",
+                    parse_mode="Markdown"
+                )
+                return
+
             await procesar_y_mostrar_confirmacion(data, msg, context)
             
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar imagen: {e}")
-
+                
 async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
     chat_id = message_obj.chat_id
     msg_espera = await message_obj.reply_text("🔍 Buscando código de barras en la base de datos...")
