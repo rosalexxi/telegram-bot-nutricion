@@ -80,8 +80,8 @@ GOOGLE_SHEETS_KEY_PATH = os.getenv("GOOGLE_SHEETS_KEY_PATH", "credentials.json")
 SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "Registro_Nutricional_Bot")
 ARG_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
 
-# Estados del flujo de conversación
-ING_PROFESIONAL, ING_NOMBRE, ING_EDAD, ING_SEXO, ING_ALTURA, ING_PESO, ING_MUNECA, ING_OCUPACION, ING_CUMPLE = range(10, 19)
+# Estados del flujo de conversación (Incluyendo ING_TERMINOS al inicio)
+ING_TERMINOS, ING_PROFESIONAL, ING_NOMBRE, ING_EDAD, ING_SEXO, ING_ALTURA, ING_PESO, ING_MUNECA, ING_OCUPACION, ING_CUMPLE = range(10, 20)
 
 if GROQ_API_KEY:
     client_ai = Groq(api_key=GROQ_API_KEY)
