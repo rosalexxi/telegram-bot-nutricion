@@ -4385,7 +4385,7 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not raw_text:
         await update.message.reply_text(
             "Ingresá las calorías totales que registró tu reloj en 24 horas. Ejemplo:\n\n"
-            "• `/factor 2150`", 
+            "• `/GET 2150`", 
             parse_mode="Markdown"
         )
         return
@@ -4447,7 +4447,7 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(msg_texto, reply_markup=keyboard, parse_mode="Markdown")
 
     except ValueError:
-        await update.message.reply_text("❌ Formato incorrecto. Ingresá un número válido. Ejemplo: `/factor 2150`", parse_mode="Markdown")
+        await update.message.reply_text("❌ Formato incorrecto. Ingresá un número válido. Ejemplo: `/GET 2150`", parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error al previsualizar /factor para {user_id}: {e}")
         await update.message.reply_text(f"⚠️ Ocurrió un error al procesar la solicitud: {e}", parse_mode="Markdown")
@@ -6341,7 +6341,8 @@ async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYP
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    context.user_data['del_filtr_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+    # CORRECCIÓN: Se estandarizó la clave a 'del_filtro_fecha' (removiendo el error de tipeo 'del_filtr_fecha')
+    context.user_data['del_filtro_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
     context.user_data['del_filtro_momento'] = "Almuerzo"
 
     await update.message.reply_text(
@@ -6352,7 +6353,7 @@ async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
-
+    
 #                INICIO                               COMANDOS ACTIVIDAD                             FINAL
 # ======================================================================================================================================
 
