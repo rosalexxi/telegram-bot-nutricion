@@ -5595,9 +5595,9 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @requiere_registro
 async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id[cite: 1]
+    user_id = update.effective_user.id
     
-    comidas = obtener_comidas_usuario(user_id)[cite: 1]
+    comidas = obtener_comidas_usuario(user_id)
     
     if not comidas:
         await update.message.reply_text(f"📋 No hay comidas predeterminadas registradas en la hoja 'Comidas_{user_id}'.")
@@ -5646,7 +5646,7 @@ def buscar_comida_precargada_exacta(user_id, texto_codigo):
     """
     Busca de forma estricta un código/nombre de comida ÚNICAMENTE en la tabla de Supabase 'comidas_<user_id>'.
     Recibe y procesa los valores directamente en su escala real (float).
-    """[cite: 1]
+    """
     codigo_buscado = texto_codigo.strip().upper()
     comidas_usuario = obtener_comidas_usuario(user_id)
 
@@ -6415,7 +6415,7 @@ async def manejar_callback_actividad(update: Update, context: ContextTypes.DEFAU
 # =============================================================================================================================================
 
 async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando para que el profesional vea el listado de sus pacientes y genere un reporte PDF avanzado (hasta 6 meses)."""[cite: 1]
+    """Comando para que el profesional vea el listado de sus pacientes y genere un reporte PDF avanzado (hasta 6 meses)."""
     prof_id = str(update.effective_user.id).strip()
     
     msg_espera = await update.message.reply_text("⏳ **Buscando pacientes y procesando historial clínico (hasta 6 meses)...**", parse_mode="Markdown")
@@ -6580,7 +6580,7 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
     """
     Comando para que el profesional seleccione un paciente de su lista y envíe el informe PDF.
     Uso: /informe
-    """[cite: 1]
+    """
     try:
         # 1. Validar que quien ejecuta sea un profesional registrado
         prof_id = await _verificar_y_obtener_profesional(update)
