@@ -5641,7 +5641,7 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Error generando PDF de comidas: {e}")
         await update.message.reply_text("❌ Ocurrió un error al generar el archivo PDF.")
-        
+                
 def buscar_comida_precargada_exacta(user_id, texto_codigo):
     """
     Busca de forma estricta un código/nombre de comida ÚNICAMENTE en la tabla de Supabase 'comidas_<user_id>'.
