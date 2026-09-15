@@ -4796,8 +4796,8 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error en cmd_mensaje: {e}")
         if 'msg_espera' in locals():
             await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
-#
-               INICIO                                COMANDO RESUMEN MENSUAL                        INICIO DB OK
+                     
+#               INICIO                                COMANDO RESUMEN MENSUAL                        INICIO DB OK
 # ==========================================================================================================================================
 
 @requiere_registro
