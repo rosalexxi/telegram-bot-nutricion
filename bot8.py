@@ -1202,10 +1202,13 @@ def obtener_registros_usuario(user_id: str) -> list:
 # =============================================================================================================================================
 
 def obtener_comidas_usuario(user_id):
+    conn = None
+    cur = None
     try:
         tabla_nombre = f"Comidas_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
         
+        # Nos aseguramos de consultar utilizando el nombre real de la tabla devuelto por el buscador sensible a mayúsculas
         query = f"""
             SELECT "Nombre", "Descripcion", "Peso", "Calorias", "Proteinas", "Grasas", "Carbohidratos", "Fibras"
             FROM "{tabla_nombre}"
@@ -1216,8 +1219,8 @@ def obtener_comidas_usuario(user_id):
         records = []
         for fila in filas:
             records.append({
-                'Nombre': fila[0], 
-                'Descripcion': fila[1],
+                'Nombre': str(fila[0] or ''), 
+                'Descripcion': str(fila[1] or ''),
                 'Peso': float(fila[2] or 0), 
                 'Calorias': float(fila[3] or 0),
                 'Proteinas': float(fila[4] or 0), 
@@ -1226,18 +1229,24 @@ def obtener_comidas_usuario(user_id):
                 'Fibras': float(fila[7] or 0)
             })
             
-        cur.close()
-        conn.close()
-        
-        for p in records:
-            p['Nombre'] = p.get('Nombre', '')
-            p['Descripcion'] = p.get('Descripcion', '')
-            
         return records
     except Exception as e:
+        print(f"ERROR CRÍTICO en obtener_comidas_usuario para {user_id}: {e}")
         logger.error(f"Error al obtener comidas de Supabase: {e}")
         return []
-
+    finally:
+        # Garantizamos el cierre seguro de la conexión y el cursor para evitar bloqueos de hilos
+        if cur:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+                
 def obtener_codigo_unico(tabla_nombre, codigo_base):
     try:
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
