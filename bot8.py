@@ -3026,17 +3026,21 @@ from telegram.ext import ContextTypes
 #                  INICIO               INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO
 # ======================================================================================================================================
 
-
 async def render_confirmation_screen(msg_or_query, context):
     items = context.user_data.get('pending_items', [])
     fecha = context.user_data.get('pending_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
     momento = context.user_data.get('pending_momento', 'Comida')
 
+    # Cartel único y resumido si la ingesta provino de un código de barras escaneado por foto
+    aviso_barras = ""
+    if context.user_data.pop('barcode_warning', None):
+        aviso_barras = "⚠️ *Verificá el producto: la lectura por foto puede fallar.*\n\n"
+
     # Cambia el título si es una actividad
     if momento == 'Actividad':
-        txt = f"📝 **Registro de Actividad:**\n📅 Fecha: `{fecha}`\n\n"
+        txt = f"{aviso_barras}📝 **Registro de Actividad:**\n📅 Fecha: `{fecha}`\n\n"
     else:
-        txt = f"📝 **Confirmación de Ingesta:**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\n\n"
+        txt = f"{aviso_barras}📝 **Confirmación de Ingesta:**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\n\n"
 
     for idx, item in enumerate(items, start=1):
         peso_total = item.get('peso', 0)
@@ -3117,7 +3121,7 @@ async def render_confirmation_screen(msg_or_query, context):
         if not editado and hasattr(msg_or_query, 'message') and msg_or_query.message:
             nuevo_msg = await msg_or_query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
             context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
-
+            
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     items = data_json.get("items", [])
     total_calorias = sum(float(item.get("calorias", 0)) for item in items)
@@ -5876,8 +5880,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
 
+                # Activamos la bandera para mostrar la advertencia de código de barras por foto
+                context.user_data['barcode_warning'] = True
+
                 await msg.delete()
-                # Corrección aplicada: se usa update.message en lugar de message_obj
                 msg_menu = await update.message.reply_text("📋 Producto encontrado por código de barras:")
                 context.user_data['last_menu_msg_id'] = msg_menu.message_id
                 context.user_data['pending_items'] = [item_procesado]
