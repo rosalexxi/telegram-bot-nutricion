@@ -142,20 +142,20 @@ HTML_CALCULADORA_RECETAS = """
 
 <div class="container">
     {% if user_id %}
-        <div class="user-badge">👤 Usuario conectado: {{ user_id }} (Pestaña: Comidas_{{ user_id }})</div>
+        <div class="user-badge">👤 Usuario conectado: {{ user_id }} (Tabla: Comidas_{{ user_id }})</div>
     {% else %}
-        <div class="error-user">⚠️ Atención: Acceso anónimo detectado. No se pueden realizar consultas a la IA ni guardar en planillas. Por favor, accedé mediante el link personalizado enviado por el bot de Telegram.</div>
+        <div class="error-user">⚠️ Atención: Acceso anónimo detectado. No se pueden realizar consultas a la IA ni guardar en la base de datos. Por favor, accedé mediante el link personalizado enviado por el bot de Telegram.</div>
     {% endif %}
 
     <h2>🍳 Generador de Comidas Precargadas</h2>
     
     <div class="row">
         <div class="col" style="flex: 0.4;">
-            <label for="codigo">Código / Nombre (Columna A):</label>
+            <label for="codigo">Código / Nombre:</label>
             <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()" {% if not user_id %}disabled{% endif %}>
         </div>
         <div class="col">
-            <label for="descripcion">Descripción de la Comida (Columna B):</label>
+            <label for="descripcion">Descripción de la Comida:</label>
             <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún o torta de chocolate" {% if not user_id %}disabled{% endif %}>
         </div>
     </div>
@@ -182,19 +182,19 @@ HTML_CALCULADORA_RECETAS = """
     <div id="loading">🔍 Analizando ingredientes con Groq y calculando proporciones...</div>
 
     <div id="resultado-section">
-        <h3>Fila Generada (Formato Excel x1000)</h3>
+        <h3>Fila Generada (Formato x1000)</h3>
         <div style="overflow-x: auto;">
             <table id="tablaNutricional">
                 <thead>
                     <tr>
-                        <th>Nombre (A)</th>
-                        <th>Descripción (B)</th>
-                        <th>Peso (C)</th>
-                        <th>Calorías (D)</th>
-                        <th>Proteínas (E)</th>
-                        <th>Grasas (F)</th>
-                        <th>Carbohidratos (G)</th>
-                        <th>Fibras (H)</th>
+                        <th>Nombre</th>
+                        <th>Descripción</th>
+                        <th>Peso</th>
+                        <th>Calorías</th>
+                        <th>Proteínas</th>
+                        <th>Grasas</th>
+                        <th>Carbohidratos</th>
+                        <th>Fibras</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -204,9 +204,9 @@ HTML_CALCULADORA_RECETAS = """
         </div>
 
         {% if user_id %}
-            <button class="btn-save" onclick="guardarEnGoogleSheets()">💾 Guardar Directamente en mi Planilla de Comidas</button>
+            <button class="btn-save" onclick="guardarEnSupabase()">💾 Guardar Directamente en mi Base de Datos</button>
         {% endif %}
-        <button class="btn-copy" onclick="copiarFilaExcel()">📋 Copiar Fila para Pegar Manualmente en Excel</button>
+        <button class="btn-copy" onclick="copiarFilaPortapapeles()">📋 Copiar Fila para Pegar Manualmente</button>
     </div>
 </div>
 
@@ -264,7 +264,7 @@ async function calcularReceta() {
             ultimoResultadoCalculado = data;
             const tbody = document.querySelector('#tablaNutricional tbody');
             tbody.innerHTML = `
-                <tr id="filaExcel">
+                <tr id="filaDatos">
                     <td>${data.nombre}</td>
                     <td>${data.descripcion}</td>
                     <td>${data.peso}</td>
@@ -286,7 +286,7 @@ async function calcularReceta() {
     }
 }
 
-async function guardarEnGoogleSheets() {
+async function guardarEnSupabase() {
     if (!currentUserId) {
         alert("No hay ID de usuario asociado.");
         return;
@@ -310,26 +310,26 @@ async function guardarEnGoogleSheets() {
         if (response.ok) {
             if (res.codigo_guardado) {
                 ultimoResultadoCalculado.nombre = res.codigo_guardado;
-                const tdNombre = document.querySelector('#filaExcel td:first-child');
+                const tdNombre = document.querySelector('#filaDatos td:first-child');
                 if (tdNombre) tdNombre.innerText = res.codigo_guardado;
             }
             alert("✅ ¡Éxito! " + res.message);
         } else {
-            alert("❌ Error al guardar en Google Sheets: " + (res.error || "Error desconocido."));
+            alert("❌ Error al guardar en la base de datos: " + (res.error || "Error desconocido."));
         }
     } catch (e) {
-        alert("Error de conexión al intentar guardar en la planilla.");
+        alert("Error de conexión al intentar guardar.");
     }
 }
 
-function copiarFilaExcel() {
-    const fila = document.getElementById('filaExcel');
+function copiarFilaPortapapeles() {
+    const fila = document.getElementById('filaDatos');
     if (!fila) return;
     const celdas = Array.from(fila.querySelectorAll('td')).map(td => td.innerText);
-    const textoCopiable = celdas.join('\t');
+    const textoCopiable = celdas.join('\\t');
 
     navigator.clipboard.writeText(textoCopiable).then(() => {
-        alert("¡Fila copiada! Podés pegarla en tu Excel con Ctrl + V.");
+        alert("¡Fila copiada al portapapeles!");
     }).catch(err => {
         alert("Error al copiar al portapapeles.");
     });
@@ -434,7 +434,7 @@ def api_calcular_receta():
             fibr_unitario = fibr_tot / div
             desc_final = f"{descripcion} porcion {int(round(peso_unitario))} g"
 
-        resultado_excel = {
+        resultado_calculado = {
             "nombre": codigo_nombre,
             "descripcion": desc_final,
             "peso": int(round(peso_unitario * 1000)),
@@ -445,7 +445,7 @@ def api_calcular_receta():
             "fibras": int(round(fibr_unitario * 1000))
         }
 
-        return jsonify(resultado_excel), 200
+        return jsonify(resultado_calculado), 200
 
     except Exception as e:
         logger.error(f"Error calculando receta web con Groq: {e}")
@@ -470,17 +470,16 @@ def api_guardar_comida():
         return jsonify({
             "status": "ok", 
             "codigo_guardado": codigo_unico,
-            "message": f"Comida agregada en pestaña Comidas_{user_id}{msg_extra}."
+            "message": f"Comida agregada en Comidas_{user_id}{msg_extra}."
         }), 200
 
     except Exception as e:
-        logger.error(f"Error al guardar en Google Sheets: {e}")
+        logger.error(f"Error al guardar en la base de datos: {e}")
         return jsonify({"error": str(e)}), 500
 
 # =============================================================================================================================================
 #                    FINAL                                   PAGINA WEB                                     FINAL
 # =============================================================================================================================================
-
 # =============================================================================================================================================
 #              INICIO                                   FUNCIONES SUPABASE                           INICIO
 # =============================================================================================================================================
@@ -766,8 +765,9 @@ def obtener_datos_usuario(user_id):
         tabla_nombre = f"User_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
         
+        # 👈 Modificado para incluir id y asignarlo a id_registro
         query = f"""
-            SELECT "Fecha", "Momento/Actividad", "Alimento/Detalle", 
+            SELECT id, "Fecha", "Momento/Actividad", "Alimento/Detalle", 
                    "Peso (g)", "Calorías (kcal)", "Proteínas (g)", 
                    "Grasas (g)", "Hidratos (g)", "Fibras (g)"
             FROM "{tabla_nombre}"
@@ -1396,16 +1396,7 @@ def actualizar_estado_usuario(user_id: str, nuevo_estado: str):
         logger.error(f"Error al actualizar estado en Supabase para {user_id}: {e}")
 
 def eliminar_registro_por_id(user_id, item_id):
-    """Función dual: borra el registro de Google Sheets y de Supabase."""
-    try:
-        fila_idx = int(item_id)
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws = sh.worksheet(f"User_{user_id}")
-        ws.delete_rows(fila_idx)
-    except Exception as e:
-        print(f"Error al eliminar registro en Google Sheets para el usuario {user_id}: {e}")
-
+    """Borra el registro exclusivamente de la tabla en Supabase."""
     try:
         tabla_nombre = f"User_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
@@ -1475,28 +1466,27 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
         logger.error(f"Error interno al duplicar ingesta en Supabase (User_{user_id}): {e}")
                 
 def guardar_comida_precargada_db(user_id, fila):
-    """Guarda las comidas precargadas de forma dual en Google Sheets y Supabase."""
-    ws = get_user_worksheet(user_id)
+    """Guarda las comidas precargadas exclusivamente en Supabase."""
     codigo_original = fila.get('Nombre', fila.get('nombre', ''))
-    codigo_unico = obtener_codigo_unico(ws, codigo_original)
-
-    nueva_fila = [
-        codigo_unico,
-        fila.get('Descripcion', fila.get('descripcion', '')),
-        fila.get('Peso', fila.get('peso', 0)),
-        fila.get('Calorias', fila.get('calorias', 0)),
-        fila.get('Proteinas', fila.get('proteinas', 0)),
-        fila.get('Grasas', fila.get('grasas', 0)),
-        fila.get('Carbohidratos', fila.get('carbohidratos', fila.get('Hidratos', 0))),
-        fila.get('Fibras', fila.get('fibras', 0))
-    ]
     
-    ws.append_row(nueva_fila)
+    # Obtenemos los códigos existentes desde Supabase para garantizar unicidad
+    tabla_nombre = f"Comidas_{user_id}"
+    try:
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
+        cur.execute(f'SELECT "Nombre" FROM "{tabla_nombre}"')
+        filas = cur.fetchall()
+        codigos_existentes = set(str(f[0]).strip().upper() for f in filas if f[0] is not None)
+    except Exception:
+        codigos_existentes = set()
+
+    codigo_limpio = str(codigo_original).strip().upper()
+    codigo_unico = codigo_limpio
+    i = 1
+    while codigo_unico in codigos_existentes:
+        i += 1
+        codigo_unico = f"{codigo_limpio}{i}"
 
     try:
-        tabla_nombre = f"Comidas_{user_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
-
         p_val = float(fila.get('Peso', fila.get('peso', 0)))
         c_val = float(fila.get('Calorias', fila.get('calorias', 0)))
         pr_val = float(fila.get('Proteinas', fila.get('proteinas', 0)))
@@ -1523,27 +1513,13 @@ def guardar_comida_precargada_db(user_id, fila):
         cur.close()
         conn.close()
     except Exception as e:
-        logger.error(f"Error interno al grabar Comida Precargada en Supabase (Comidas_{user_id}): {e}")
+        logger.error(f"Error al grabar Comida Precargada en Supabase (Comidas_{user_id}): {e}")
     
     return codigo_unico
 
 def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
-    """Guarda los registros de presión arterial de forma dual en Google Sheets y Supabase."""
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    ws = get_or_create_worksheet(sh, f"Presion_{user_id}")
+    """Guarda los registros de presión arterial exclusivamente en Supabase."""
     ahora = obtener_ahora_arg()
-    
-    val_pul = int(pulsaciones * 1000) if pulsaciones is not None else 0
-
-    ws.append_row([
-        ahora.strftime("%Y-%m-%d %H:%M:%S"), 
-        ahora.strftime("%Y-%m-%d"), 
-        int(alta * 1000) if alta < 250 else int(alta), 
-        int(baja * 1000) if baja < 150 else int(baja), 
-        val_pul,
-        str(nota).strip()
-    ])
 
     try:
         tabla_nombre = f"Presion_{user_id}"
@@ -1566,123 +1542,14 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
         cur.close()
         conn.close()
     except Exception as e:
-        logger.error(f"Error interno al grabar Presión en Supabase (Presion_{user_id}): {e}")
+        logger.error(f"Error al grabar Presión en Supabase (Presion_{user_id}): {e}")
 
 def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
-    """Guarda y actualiza los datos del perfil y peso del usuario de forma dual en Google Sheets y Supabase."""
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
+    """Guarda y actualiza los datos del perfil y peso del usuario exclusivamente en Supabase."""
     ahora = obtener_ahora_arg()
     
     if not mes:
         mes = ahora.strftime("%Y-%m")
-    
-    records = ws.get_all_records()
-    fila_a_actualizar = None
-
-    if records:
-        for idx, row in enumerate(records, start=2):
-            mes_en_fila = str(row.get('MES', row.get('Mes', ''))).strip()
-            if mes_en_fila == str(mes):
-                fila_a_actualizar = idx
-                break
-
-    peso_nuevo_sheet = to_sheet_int(peso)
-
-    if fila_a_actualizar:
-        peso_actual_en_celda = str(ws.cell(fila_a_actualizar, 2).value).strip()
-        if peso_actual_en_celda == str(peso_nuevo_sheet):
-            print(f"📌 El peso {peso} ya estaba registrado para el mes {mes}. No se reescribe nada.")
-            return
-
-        ws.update(f"B{fila_a_actualizar}", [[peso_nuevo_sheet]])
-        ws.update(f"G{fila_a_actualizar}", [[ahora.strftime("%Y-%m-%d %H:%M:%S")]])
-        ocupacion_final_para_usuarios = ws.cell(fila_a_actualizar, 5).value
-
-    else:
-        if len(records) >= 1:
-            ultimo_reg_previo = records[-1]
-            mes_anterior_str = str(ultimo_reg_previo.get('MES', ultimo_reg_previo.get('Mes', ''))).strip()
-            
-            if mes_anterior_str:
-                _calcular_y_actualizar_factor_mes_anterior(user_id, ws, mes_anterior_str, peso_fin_mes_override=peso)
-
-        records_actualizados = ws.get_all_records()
-        
-        valores_ocupacion = []
-        for row in records_actualizados:
-            val_ocu = row.get('ocupacion') or row.get('Ocupacion') or row.get('OCUPACION')
-            if val_ocu:
-                try:
-                    num_val = float(str(val_ocu).replace(',', '.'))
-                    if num_val > 100:
-                        num_val = num_val / 1000.0
-                    valores_ocupacion.append(num_val)
-                except ValueError:
-                    pass
-        
-        if valores_ocupacion:
-            ultimos_tres = valores_ocupacion[-3:]
-            promedio_ocupacion = sum(ultimos_tres) / len(ultimos_tres)
-            ocupacion_calculada = int(round(promedio_ocupacion * 1000)) if promedio_ocupacion < 10 else int(round(promedio_ocupacion))
-        else:
-            ocupacion_calculada = ocupacion if ocupacion is not None else 1684
-
-        ultimo_registro = records_actualizados[-1] if records_actualizados else {}
-        edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
-        altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
-        genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', 'M')))
-        peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
-        fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
-
-        nueva_fila = [
-            str(edad_raw),
-            peso_nuevo_sheet,
-            str(altura_raw),
-            str(genero_final),
-            str(ocupacion_calculada),
-            str(mes),
-            ahora.strftime("%Y-%m-%d %H:%M:%S"),
-            str(peso_ideal_final),
-            str(fecha_cumple_str)
-        ]
-        ws.append_row(nueva_fila)
-        ocupacion_final_para_usuarios = ocupacion_calculada
-
-    try:
-        ws_usuarios = sh.worksheet("Usuarios")
-        registros_usuarios = ws_usuarios.get_all_records()
-        headers = ws_usuarios.row_values(1)
-        
-        col_idx_mes = 4
-        col_idx_ocu = 10 
-
-        for idx, h in enumerate(headers, start=1):
-            h_lower = str(h).strip().lower()
-            if h_lower in ["ultimo mes peso", "ultimo_mes_peso", "ultimomespeso"]:
-                col_idx_mes = idx
-            elif h_lower in ["ocupacion", "ocupación"]:
-                col_idx_ocu = idx
-
-        fila_usuario = None
-        for i, reg in enumerate(registros_usuarios, start=2):
-            id_reg = reg.get('ID') or reg.get('user_id') or reg.get('User ID') or list(reg.values())[0]
-            if str(id_reg).strip() == str(user_id).strip():
-                fila_usuario = i
-                break
-
-        if fila_usuario:
-            from gspread.utils import rowcol_to_a1
-            celda_mes_a1 = rowcol_to_a1(fila_usuario, col_idx_mes)
-            fecha_usuarios_str = f"{str(mes)[:7]}-01"
-            ws_usuarios.update(celda_mes_a1, [[fecha_usuarios_str]])
-
-            celda_ocu_a1 = rowcol_to_a1(fila_usuario, col_idx_ocu)
-            ws_usuarios.update(celda_ocu_a1, [[ocupacion_final_para_usuarios]])
-            
-    except Exception as e:
-        print(f"❌ Error crítico al actualizar la pestaña 'Usuarios': {e}")
 
     try:
         tabla_nombre = f"Perfil_{user_id}"
@@ -1701,29 +1568,26 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                 WHERE "MES" = %s
             """, (peso_real, ahora.strftime("%Y-%m-%d %H:%M:%S"), str(mes)))
         else:
-            edad_val = parse_float_from_sheets(edad_raw) if 'edad_raw' in locals() else 64.0
-            altura_val = parse_float_from_sheets(altura_raw) if 'altura_raw' in locals() else 1.72
-            ocupacion_val = (ocupacion_calculada / 1000.0) if ocupacion_calculada > 100 else ocupacion_calculada
-            
             cur.execute(f"""
                 INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
-                str(edad_raw) if 'edad_raw' in locals() else "64",
+                str(edad) if edad is not None else "64",
                 peso_real,
-                altura_val,
-                str(genero_final) if 'genero_final' in locals() else "M",
-                float(ocupacion_val),
+                float(altura) if altura is not None else 1.72,
+                str(genero) if genero else "M",
+                float(ocupacion) if ocupacion is not None else 1.375,
                 str(mes),
                 ahora.strftime("%Y-%m-%d %H:%M:%S"),
-                parse_float_from_sheets(peso_ideal_final) if 'peso_ideal_final' in locals() and peso_ideal_final else 0.0,
-                str(fecha_cumple_str) if 'fecha_cumple_str' in locals() else ""
+                0.0,
+                ""
             ))
         conn.commit()
         cur.close()
         conn.close()
     except Exception as e:
-        logger.error(f"Error al duplicar perfil en Supabase (Perfil_{user_id}): {e}")
+        logger.error(f"Error al guardar perfil en Supabase (Perfil_{user_id}): {e}")
+
 
 #              INICIO                         FUNCIONES MIGRAR                           INICIO
 # =============================================================================================================================================
@@ -6346,7 +6210,7 @@ async def manejar_callback_eliminacion(query, user_id, data, context):
         
         await query.answer("✅ Actividad eliminada correctamente de Supabase.", show_alert=True)
         
-        # Refrescamos el listado de actividades pendientes
+        # Refrescamos el listado de actividades pendientes en Supabase
         df = obtener_datos_usuario(user_id)
         df_actividades = df[
             (df['Momento'].str.strip().str.lower() == 'actividad') | 
@@ -6373,7 +6237,7 @@ async def manejar_callback_eliminacion(query, user_id, data, context):
             ])
 
         await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(keyboard_buttons), parse_mode="Markdown")
-
+        
 async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
@@ -6804,7 +6668,7 @@ def main():
        
         # --- HANDLER CONVERSACIONAL (ALTA Y REGISTRO DE NUEVO USUARIO) ---
         app_bot.add_handler(conv_handler_ingreso)
-
+        
         # --- HANDLERS DE COMANDOS ---
         app_bot.add_handler(CommandHandler(["pacientes"], cmd_pacientes))
         app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
@@ -6825,21 +6689,17 @@ def main():
         app_bot.add_handler(CommandHandler(["actividad", "ejercicio", "a"], cmd_actividad))
         app_bot.add_handler(CommandHandler("actdel", cmd_actdel))
 
-        app_bot.add_handler(CallbackQueryHandler(manejar_callback_actdel, pattern="^ejecutar_del_act_"))
+        # --- HANDLERS DE CALLBACKS ESPECÍFICOS ---
+        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^ejecutar_del_item_"))
+        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^ejecutar_del_act_"))
         app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_actividad, pattern="^act_"))
 
-        # --- HANDLERS DE MENSAJES Y CONSULTAS ---
-        app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
-        app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-        app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        
-        # Callback genérico (debe ir al final de los CallbackQueryHandler)
+        # --- HANDLER GENÉRICO (DEBE IR ÚLTIMO) ---
         app_bot.add_handler(CallbackQueryHandler(handle_callback_query))
-
         print("Bot Nutricional iniciado correctamente en Telegram con tareas programadas...")
         
         # Inicio del bot en loop de eventos asíncrono
