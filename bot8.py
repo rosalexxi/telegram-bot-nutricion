@@ -1379,7 +1379,7 @@ def actualizar_estado_usuario(user_id: str, nuevo_estado: str):
     except Exception as e:
         logger.error(f"Error al actualizar estado en Supabase para {user_id}: {e}")
 
-ddef eliminar_registro_por_id(user_id, item_id):
+def eliminar_registro_por_id(user_id, item_id):
     """Función dual: borra el registro de Google Sheets y de Supabase de forma segura."""
     exito_sheets = False
     exito_supabase = False
