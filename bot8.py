@@ -6365,18 +6365,22 @@ async def mostrar_registros_para_eliminar(query, user_id, context):
     df = obtener_datos_usuario(user_id)
     
     if df.empty:
-        await query.edit_message_text("❌ No tenés registros cargados.")
+        try:
+            await query.edit_message_text("❌ No tenés registros cargados.")
+        except Exception:
+            pass
         return
 
     df_filtrado = df[(df['Fecha'] == fecha) & (df['Momento'].str.strip().str.lower() == momento.lower())]
 
     if df_filtrado.empty:
         keyboard = [[InlineKeyboardButton("🔙 Volver", callback_data="del_reg_volver")]]
-        await query.edit_message_text(
-            f"⚠️ No se encontraron registros para el **{fecha}** en **{momento}**.",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
+        txt_vacio = f"⚠️ No se encontraron registros para el **{fecha}** en **{momento}**."
+        try:
+            await query.edit_message_text(txt_vacio, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                logger.error(f"Error editando mensaje vacío en eliminación: {e}")
         return
 
     txt = f"🗑️ **Registros encontrados ({fecha} - {momento}):**\n\n"
@@ -6394,12 +6398,18 @@ async def mostrar_registros_para_eliminar(query, user_id, context):
 
     keyboard_buttons.append([InlineKeyboardButton("🔙 Volver", callback_data="del_reg_volver")])
     
-    await query.edit_message_text(
-        txt, 
-        reply_markup=InlineKeyboardMarkup(keyboard_buttons), 
-        parse_mode="Markdown"
-    )
-
+    markup = InlineKeyboardMarkup(keyboard_buttons)
+    
+    # 🛡️ PROTECCIÓN CRÍTICA: Atajamos el error cuando el mensaje no sufre modificaciones visuales
+    try:
+        await query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            # Ignoramos este error específico de Telegram para que el botón no se bloquee
+            pass
+        else:
+            logger.error(f"Error al editar mensaje en mostrar_registros_para_eliminar: {e}")
+            
 async def manejar_callback_eliminacion(query, user_id, data, context):
     if data == "del_reg_hoy":
         context.user_data['del_filtro_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
