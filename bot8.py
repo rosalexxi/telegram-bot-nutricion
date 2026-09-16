@@ -6411,6 +6411,8 @@ async def mostrar_registros_para_eliminar(query, user_id, context):
             logger.error(f"Error al editar mensaje en mostrar_registros_para_eliminar: {e}")
             
 async def manejar_callback_eliminacion(query, user_id, data, context):
+    print(f"👉 [DEBUG] Callback recibido en eliminación: {data} para usuario {user_id}")
+
     if data == "del_reg_hoy":
         context.user_data['del_filtro_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
         await actualizar_menu_filtro_eliminacion(query, context)
@@ -6432,15 +6434,15 @@ async def manejar_callback_eliminacion(query, user_id, data, context):
 
     elif data.startswith("ejecutar_del_item_"):
         item_id_str = data.replace("ejecutar_del_item_", "").strip()
+        print(f"🗑️ [DEBUG] Intentando eliminar ítem con ID string: '{item_id_str}'")
         
         try:
-            # Convertimos a entero de forma segura por requerimiento de Google Sheets / Supabase
             item_id = int(item_id_str)
         except ValueError:
-            item_id = item_id_str  # Fallback a string si el ID es un identificador alfanumérico
+            item_id = item_id_str
 
-        # Ejecutamos la eliminación dual
         exito = eliminar_registro_por_id(user_id, item_id)
+        print(f"🛠️ [DEBUG] Resultado del borrado dual (Supabase/Sheets): {exito}")
         
         if exito:
             await query.answer("✅ Registro eliminado correctamente.", show_alert=False)
@@ -6449,7 +6451,7 @@ async def manejar_callback_eliminacion(query, user_id, data, context):
             
         # Refrescamos la lista en pantalla
         await mostrar_registros_para_eliminar(query, user_id, context)
-        
+                
 async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
