@@ -6250,7 +6250,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar el texto: {e}")
-        
+                
 #                INICIO                               COMANDO ELIMINAR                          INICIO  
 # =======================================================================================================================================
 
