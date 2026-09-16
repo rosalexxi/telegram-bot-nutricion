@@ -5829,7 +5829,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.edit_text(f"📊 Leyendo tabla para '{user_caption}' y calculando por 100g...")
             
             prompt_tabla_con_texto = (
-                ff"El usuario envió una foto de una tabla nutricional correspondiente al siguiente producto: '{user_caption}'. "
+                f"El usuario envió una foto de una tabla nutricional correspondiente al siguiente producto: '{user_caption}'. "
                 "Lee los valores de la tabla en la imagen, identifica la porción declarada y calcula matemáticamente "
                 "los valores exactos **por cada 100 GRAMOS o 100 ML** de este producto específico.\n"
                 "Devolvé ÚNICAMENTE un objeto JSON válido con la siguiente estructura exacta:\n"
