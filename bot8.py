@@ -3005,6 +3005,7 @@ async def manejar_callback_actividad(query, user_id, data, context):
 # ======================================================================================================================================
 	
 @requiere_registro
+@requiere_registro
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -3018,8 +3019,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await manejar_callback_actividad(query, user_id, data, context)
         return
 
-    # 🆕 Interceptor exclusivo para los botones del menú de eliminación
-    if data.startswith(("del_reg_", "del_mom_", "ejecutar_del_fila_")):
+    # 🆕 Interceptor corregido para incluir los botones de eliminación de ingestas ("ejecutar_del_item_")
+    if data.startswith(("del_reg_", "del_mom_", "ejecutar_del_fila_", "ejecutar_del_item_")):
         await manejar_callback_eliminacion(query, user_id, data, context)
         return
 
@@ -3177,7 +3178,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 logger.error(f"Error en tarea en segundo plano de PDF para {target_user_id}: {e}", exc_info=True)
 
         asyncio.create_task(tarea_segundo_plano())
- 
+         
 @requiere_registro
 async def manejar_callback_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -6571,20 +6572,6 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 #                    INICIO                                MAIN                                      INICIO  
 # ==========================================================================================================================================
 
-async def job_recordatorio_manana(context):
-    """Tarea programada para el recordatorio matutino con protección contra fallas."""
-    try:
-        await ejecutar_recordatorio_comidas(context, momento='manana')
-    except Exception as e:
-        logger.error(f"❌ Error en job_recordatorio_manana: {e}")
-
-async def job_recordatorio_tarde(context):
-    """Tarea programada para el recordatorio vespertino con protección contra fallas."""
-    try:
-        await ejecutar_recordatorio_comidas(context, momento='tarde')
-    except Exception as e:
-        logger.error(f"❌ Error en job_recordatorio_tarde: {e}")
-
 def main():
     # Inicia el servidor Web Flask en un hilo independiente
     threading.Thread(target=run_flask, daemon=True).start()
@@ -6648,6 +6635,9 @@ def main():
         # Enrutador específico para los botones del comando de actividad (act_)
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_actividad, pattern="^act_"))
 
+        # 🆕 Enrutador agregado para la eliminación de actividades físicas (/actdel)
+        app_bot.add_handler(CallbackQueryHandler(manejar_callback_actdel, pattern="^ejecutar_del_act_"))
+
         # --- HANDLERS DE MENSAJES Y CONSULTAS ---
         app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
         app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
@@ -6664,10 +6654,7 @@ def main():
     except Exception as e:
         logger.critical(f"❌ Error crítico al iniciar el bot en main(): {e}", exc_info=True)
         raise e
-
-if __name__ == "__main__":
-    main()
-
+        
 # =============================================================================================================================================
 #                                                   FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
