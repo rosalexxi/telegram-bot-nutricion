@@ -3216,7 +3216,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await manejar_callback_actividad(query, user_id, data, context)
         return
 
-    # 🆕 Interceptor exclusivo para los botones del menú de eliminación (Añadido "ejecutar_del_item_")
+    # 🆕 Interceptor robusto y exclusivo para todo el menú de eliminación y sus opciones de navegación
     if data.startswith(("del_reg_", "del_mom_", "ejecutar_del_fila_", "ejecutar_del_item_")):
         await manejar_callback_eliminacion(query, user_id, data, context)
         return
@@ -3375,7 +3375,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 logger.error(f"Error en tarea en segundo plano de PDF para {target_user_id}: {e}", exc_info=True)
 
         asyncio.create_task(tarea_segundo_plano())
-        
+                
 # ======================================================================================================================================
 #                FINAL                           FUNCIONES CONFIRMACION Y MENU                     FINAL
 # ======================================================================================================================================
