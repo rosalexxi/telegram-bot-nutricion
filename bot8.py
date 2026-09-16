@@ -6635,7 +6635,7 @@ def main():
         # Enrutador específico para los botones del comando de actividad (act_)
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_actividad, pattern="^act_"))
 
-        # 🆕 Enrutador agregado para la eliminación de actividades físicas (/actdel)
+        # Enrutador agregado para la eliminación de actividades físicas (/actdel)
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_actdel, pattern="^ejecutar_del_act_"))
 
         # --- HANDLERS DE MENSAJES Y CONSULTAS ---
@@ -6652,7 +6652,8 @@ def main():
         app_bot.run_polling(drop_pending_updates=True)
 
     except Exception as e:
-        logger.critical(f"❌ Error crítico al iniciar el bot en main(): {e}", exc_info=True)
+        print(f"❌ ERROR CRÍTICO AL INICIAR EL BOT: {e}")
+        logger.critical(f"❌ ERROR CRÍTICO AL INICIAR EL BOT: {e}", exc_info=True)
         raise e
         
 # =============================================================================================================================================
