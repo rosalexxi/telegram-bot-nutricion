@@ -3178,7 +3178,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
         asyncio.create_task(tarea_segundo_plano())
  
- @requiere_registro
+@requiere_registro
 async def manejar_callback_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
