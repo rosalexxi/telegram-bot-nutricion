@@ -6837,8 +6837,22 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 # ==========================================================================================================================================
 
 # ==========================================================================================================================================
-#                    INICIO                                MAIN                                      INICIO  
+#                   INICIO                                   MAIN                                       INICIO  
 # ==========================================================================================================================================
+
+async def job_recordatorio_manana(context):
+    """Tarea programada para el recordatorio matutino con protección contra fallas."""
+    try:
+        await ejecutar_recordatorio_comidas(context, momento='manana')
+    except Exception as e:
+        logger.error(f"❌ Error en job_recordatorio_manana: {e}")
+
+async def job_recordatorio_tarde(context):
+    """Tarea programada para el recordatorio vespertino con protección contra fallas."""
+    try:
+        await ejecutar_recordatorio_comidas(context, momento='tarde')
+    except Exception as e:
+        logger.error(f"❌ Error en job_recordatorio_tarde: {e}")
 
 def main():
     # Inicia el servidor Web Flask en un hilo independiente
@@ -6918,6 +6932,6 @@ def main():
         raise e
         
 # =============================================================================================================================================
-#                                                   FINAL MAIN EXECUTION                                                    FINAL
+#                                               FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
 
