@@ -6913,6 +6913,11 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_actividad, pattern="^act_"))
+        
+        # --- HANDLERS ESPECÍFICOS DE ELIMINACIÓN Y NAVEGACIÓN ---
+        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_reg_"))
+        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_mom_"))
+        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^ejecutar_del_item_"))
 
         # --- HANDLERS DE MENSAJES Y CONSULTAS ---
         app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
