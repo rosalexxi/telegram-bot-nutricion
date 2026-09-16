@@ -1523,7 +1523,7 @@ def guardar_comida_precargada_db(user_id, fila):
     except Exception as e:
         logger.error(f"Error interno al grabar Comida Precargada en Supabase ({tabla_nombre}): {e}")
 
-    # 5. ESCRITURA EN GOOGLE SHEETS (Espejo transitorio actual con valores reales)
+# 5. ESCRITURA EN GOOGLE SHEETS (Espejo transitorio actual con valores reales)
     try:
         ws = get_user_worksheet(user_id)
         nueva_fila = [
@@ -1533,7 +1533,7 @@ def guardar_comida_precargada_db(user_id, fila):
             float(fila.get('Calorias', fila.get('calorias', 0))),
             float(fila.get('Proteinas', fila.get('proteinas', 0))),
             float(fila.get('Grasas', fila.get('grasas', 0))),
-            float(fila.get('Carbohidratos', fila.get('carbohidratos', fila.get('Hidratos', 0))),
+            float(fila.get('Carbohidratos', fila.get('carbohidratos', fila.get('Hidratos', 0)))),
             float(fila.get('Fibras', fila.get('fibras', 0)))
         ]
         ws.append_row(nueva_fila)
@@ -1541,7 +1541,7 @@ def guardar_comida_precargada_db(user_id, fila):
         logger.error(f"Error interno al replicar Comida Precargada en Google Sheets: {e}")
     
     return codigo_unico
-    
+        
 def eliminar_comida_precargada_db(user_id, nombre_codigo):
     """Elimina una comida precargada de Supabase y de Google Sheets de forma dual."""
     codigo_buscado = str(nombre_codigo).strip().upper()
