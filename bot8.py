@@ -132,8 +132,6 @@ HTML_CALCULADORA_RECETAS = """
         th { background-color: #f2f2f2; }
         .btn-save { background-color: #8e44ad; margin-top: 15px; }
         .btn-save:hover { background-color: #71368a; }
-        .btn-copy { background-color: #2980b9; margin-top: 10px; }
-        .btn-copy:hover { background-color: #1f6391; }
         .user-badge { background: #e0f2fe; color: #0369a1; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; display: inline-block; margin-bottom: 15px; }
         .error-user { background: #fee2e2; color: #991b1b; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-weight: bold; border-left: 4px solid #dc2626; }
     </style>
@@ -142,7 +140,7 @@ HTML_CALCULADORA_RECETAS = """
 
 <div class="container">
     {% if user_id %}
-        <div class="user-badge">👤 Usuario conectado: {{ user_id }} (Pestaña: Comidas_{{ user_id }})</div>
+        <div class="user-badge">👤 Usuario conectado: {{ user_id }}</div>
     {% else %}
         <div class="error-user">⚠️ Atención: Acceso anónimo detectado. No se pueden realizar consultas a la IA ni guardar en planillas. Por favor, accedé mediante el link personalizado enviado por el bot de Telegram.</div>
     {% endif %}
@@ -151,11 +149,11 @@ HTML_CALCULADORA_RECETAS = """
     
     <div class="row">
         <div class="col" style="flex: 0.4;">
-            <label for="codigo">Código / Nombre (Columna A):</label>
+            <label for="codigo">Código / Nombre:</label>
             <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()" {% if not user_id %}disabled{% endif %}>
         </div>
         <div class="col">
-            <label for="descripcion">Descripción de la Comida (Columna B):</label>
+            <label for="descripcion">Descripción de la Comida:</label>
             <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún o torta de chocolate" {% if not user_id %}disabled{% endif %}>
         </div>
     </div>
@@ -179,22 +177,22 @@ HTML_CALCULADORA_RECETAS = """
 
     <button onclick="calcularReceta()" {% if not user_id %}disabled title="Acceso restringido a usuarios registrados vía Telegram"{% endif %}>✨ Calcular Fila con IA</button>
 
-    <div id="loading">🔍 Analizando ingredientes con Groq y calculando proporciones...</div>
+    <div id="loading">🔍 Analizando ingredientes con Groq y calculando proporciones reales...</div>
 
     <div id="resultado-section">
-        <h3>Fila Generada (Formato Excel x1000)</h3>
+        <h3>Fila Generada</h3>
         <div style="overflow-x: auto;">
             <table id="tablaNutricional">
                 <thead>
                     <tr>
-                        <th>Nombre (A)</th>
-                        <th>Descripción (B)</th>
-                        <th>Peso (C)</th>
-                        <th>Calorías (D)</th>
-                        <th>Proteínas (E)</th>
-                        <th>Grasas (F)</th>
-                        <th>Carbohidratos (G)</th>
-                        <th>Fibras (H)</th>
+                        <th>Nombre</th>
+                        <th>Descripción</th>
+                        <th>Peso (g)</th>
+                        <th>Calorías (kcal)</th>
+                        <th>Proteínas (g)</th>
+                        <th>Grasas (g)</th>
+                        <th>Carbohidratos (g)</th>
+                        <th>Fibras (g)</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -206,7 +204,6 @@ HTML_CALCULADORA_RECETAS = """
         {% if user_id %}
             <button class="btn-save" onclick="guardarEnGoogleSheets()">💾 Guardar Directamente en mi Planilla de Comidas</button>
         {% endif %}
-        <button class="btn-copy" onclick="copiarFilaExcel()">📋 Copiar Fila para Pegar Manualmente en Excel</button>
     </div>
 </div>
 
@@ -315,24 +312,11 @@ async function guardarEnGoogleSheets() {
             }
             alert("✅ ¡Éxito! " + res.message);
         } else {
-            alert("❌ Error al guardar en Google Sheets: " + (res.error || "Error desconocido."));
+            alert("❌ Error al guardar en la base de datos: " + (res.error || "Error desconocido."));
         }
     } catch (e) {
-        alert("Error de conexión al intentar guardar en la planilla.");
+        alert("Error de conexión al intentar guardar.");
     }
-}
-
-function copiarFilaExcel() {
-    const fila = document.getElementById('filaExcel');
-    if (!fila) return;
-    const celdas = Array.from(fila.querySelectorAll('td')).map(td => td.innerText);
-    const textoCopiable = celdas.join('\t');
-
-    navigator.clipboard.writeText(textoCopiable).then(() => {
-        alert("¡Fila copiada! Podés pegarla en tu Excel con Ctrl + V.");
-    }).catch(err => {
-        alert("Error al copiar al portapapeles.");
-    });
 }
 </script>
 
@@ -434,18 +418,18 @@ def api_calcular_receta():
             fibr_unitario = fibr_tot / div
             desc_final = f"{descripcion} porcion {int(round(peso_unitario))} g"
 
-        resultado_excel = {
+        resultado_json = {
             "nombre": codigo_nombre,
             "descripcion": desc_final,
-            "peso": int(round(peso_unitario * 1000)),
-            "calorias": int(round(cal_unitario * 1000)),
-            "proteinas": int(round(prot_unitario * 1000)),
-            "grasas": int(round(gras_unitario * 1000)),
-            "carbohidratos": int(round(carb_unitario * 1000)),
-            "fibras": int(round(fibr_unitario * 1000))
+            "peso": round(peso_unitario, 1),
+            "calorias": round(cal_unitario, 1),
+            "proteinas": round(prot_unitario, 1),
+            "grasas": round(gras_unitario, 1),
+            "carbohidratos": round(carb_unitario, 1),
+            "fibras": round(fibr_unitario, 1)
         }
 
-        return jsonify(resultado_excel), 200
+        return jsonify(resultado_json), 200
 
     except Exception as e:
         logger.error(f"Error calculando receta web con Groq: {e}")
@@ -470,15 +454,15 @@ def api_guardar_comida():
         return jsonify({
             "status": "ok", 
             "codigo_guardado": codigo_unico,
-            "message": f"Comida agregada en pestaña Comidas_{user_id}{msg_extra}."
+            "message": f"Comida agregada correctamente{msg_extra}."
         }), 200
 
     except Exception as e:
-        logger.error(f"Error al guardar en Google Sheets: {e}")
+        logger.error(f"Error al guardar comida: {e}")
         return jsonify({"error": str(e)}), 500
 
 # =============================================================================================================================================
-#                    FINAL                                   PAGINA WEB                                     FINAL
+#                     FINAL                                   PAGINA WEB                                     FINAL
 # =============================================================================================================================================
 
 # =============================================================================================================================================
@@ -1475,26 +1459,40 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
         logger.error(f"Error interno al duplicar ingesta en Supabase (User_{user_id}): {e}")
                 
 def guardar_comida_precargada_db(user_id, fila):
-    """Guarda las comidas precargadas de forma dual en Google Sheets y Supabase."""
-    ws = get_user_worksheet(user_id)
-    codigo_original = fila.get('Nombre', fila.get('nombre', ''))
-    codigo_unico = obtener_codigo_unico(ws, codigo_original)
-
-    nueva_fila = [
-        codigo_unico,
-        fila.get('Descripcion', fila.get('descripcion', '')),
-        fila.get('Peso', fila.get('peso', 0)),
-        fila.get('Calorias', fila.get('calorias', 0)),
-        fila.get('Proteinas', fila.get('proteinas', 0)),
-        fila.get('Grasas', fila.get('grasas', 0)),
-        fila.get('Carbohidratos', fila.get('carbohidratos', fila.get('Hidratos', 0))),
-        fila.get('Fibras', fila.get('fibras', 0))
-    ]
+    """Guarda las comidas precargadas de forma dual, leyendo nombres existentes desde Supabase."""
     
-    ws.append_row(nueva_fila)
+    # 1. Normalizamos el nombre / código ingresado
+    codigo_original = str(fila.get('Nombre', fila.get('nombre', ''))).strip().upper()
+    if not codigo_original:
+        codigo_original = "COMIDA"
 
+    # 2. LECTURA EXCLUSIVA EN SUPABASE: Verificamos los nombres ya existentes en la tabla del usuario
+    tabla_nombre = f"Comidas_{user_id}"
+    codigos_existentes = set()
     try:
-        tabla_nombre = f"Comidas_{user_id}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
+        cur.execute(f'SELECT "Nombre" FROM "{tabla_nombre}"')
+        filas_db = cur.fetchall()
+        cur.close()
+        conn.close()
+        codigos_existentes = set(str(row[0]).strip().upper() for row in filas_db if row[0] is not None)
+    except Exception as e:
+        logger.error(f"Error al leer códigos existentes desde Supabase para {tabla_nombre}: {e}")
+
+    # 3. Cálculo del código único con sufijo numérico si ya está en uso
+    codigo_unico = codigo_original
+    if codigo_unico in codigos_existentes:
+        i = 1
+        while f"{codigo_unico}{i}" in codigos_existentes:
+            i += 1
+        codigo_unico = f"{codigo_unico}{i}"
+
+    # Actualizamos el diccionario con el código ya validado
+    fila['nombre'] = codigo_unico
+    fila['Nombre'] = codigo_unico
+
+    # 4. ESCRITURA EN SUPABASE (Destino principal de lectura futura con valores reales)
+    try:
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
 
         p_val = float(fila.get('Peso', fila.get('peso', 0)))
@@ -1511,22 +1509,75 @@ def guardar_comida_precargada_db(user_id, fila):
         valores = (
             str(codigo_unico), 
             str(fila.get('Descripcion', fila.get('descripcion', ''))), 
-            p_val / 1000.0 if p_val > 1000 else p_val, 
-            c_val / 1000.0 if c_val > 1000 else c_val, 
-            pr_val / 1000.0 if pr_val > 1000 else pr_val, 
-            g_val / 1000.0 if g_val > 1000 else g_val, 
-            h_val / 1000.0 if h_val > 1000 else h_val, 
-            f_val / 1000.0 if f_val > 1000 else f_val
+            p_val, 
+            c_val, 
+            pr_val, 
+            g_val, 
+            h_val, 
+            f_val
         )
         cur.execute(query, valores)
         conn.commit()
         cur.close()
         conn.close()
     except Exception as e:
-        logger.error(f"Error interno al grabar Comida Precargada en Supabase (Comidas_{user_id}): {e}")
+        logger.error(f"Error interno al grabar Comida Precargada en Supabase ({tabla_nombre}): {e}")
+
+    # 5. ESCRITURA EN GOOGLE SHEETS (Espejo transitorio actual con valores reales)
+    try:
+        ws = get_user_worksheet(user_id)
+        nueva_fila = [
+            codigo_unico,
+            fila.get('Descripcion', fila.get('descripcion', '')),
+            float(fila.get('Peso', fila.get('peso', 0))),
+            float(fila.get('Calorias', fila.get('calorias', 0))),
+            float(fila.get('Proteinas', fila.get('proteinas', 0))),
+            float(fila.get('Grasas', fila.get('grasas', 0))),
+            float(fila.get('Carbohidratos', fila.get('carbohidratos', fila.get('Hidratos', 0))),
+            float(fila.get('Fibras', fila.get('fibras', 0)))
+        ]
+        ws.append_row(nueva_fila)
+    except Exception as e:
+        logger.error(f"Error interno al replicar Comida Precargada en Google Sheets: {e}")
     
     return codigo_unico
+    
+def eliminar_comida_precargada_db(user_id, nombre_codigo):
+    """Elimina una comida precargada de Supabase y de Google Sheets de forma dual."""
+    codigo_buscado = str(nombre_codigo).strip().upper()
+    tabla_nombre = f"Comidas_{user_id}"
+    
+    eliminado_db = False
+    eliminado_sheets = False
 
+    # 1. Eliminar de Supabase
+    try:
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
+        cur.execute(f'DELETE FROM "{tabla_nombre}" WHERE UPPER("Nombre") = %s', (codigo_buscado,))
+        conn.commit()
+        if cur.rowcount > 0:
+            eliminado_db = True
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error al eliminar comida precargada en Supabase ({tabla_nombre}): {e}")
+
+    # 2. Eliminar de Google Sheets (Espejo transitorio)
+    try:
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = sh.worksheet(tabla_nombre)
+        
+        # Buscamos la fila cuyo código coincida en la primera columna (Columna A)
+        celda = ws.find(codigo_buscado)
+        if celda:
+            ws.delete_rows(celda.row)
+            eliminado_sheets = True
+    except Exception as e:
+        logger.error(f"Error al eliminar comida precargada en Google Sheets: {e}")
+
+    return eliminado_db or eliminado_sheets
+    
 def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
     """Guarda los registros de presión arterial de forma dual en Google Sheets y Supabase."""
     gc = get_gspread_client()
@@ -5743,6 +5794,27 @@ def generar_pdf_comidas_bytes(plantillas):
     buffer.seek(0)
     return buffer
 
+@requiere_registro
+async def cmd_borrar_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    args = context.args
+    
+    if not args:
+        await update.message.reply_text(
+            "⚠️ Indicá el código o nombre de la comida que querés eliminar.\n"
+            "Ejemplo: `/borrarcomida PASCUALINA1`",
+            parse_mode="Markdown"
+        )
+        return
+
+    codigo_a_borrar = " ".join(args).strip()
+    exito = eliminar_comida_precargada_db(user_id, codigo_a_borrar)
+
+    if exito:
+        await update.message.reply_text(f"✅ La comida o receta `*{codigo_a_borrar.upper()}` fue eliminada correctamente de tus planillas.", parse_mode="Markdown")
+    else:
+        await update.message.reply_text(f"❌ No se encontró ninguna comida registrada con el código `*{codigo_a_borrar.upper()}`.", parse_mode="Markdown")
+        
 #                INICIO                             MANEJADOR COMIDAS ACTIVIDAD                                 INICIO DB OK
 # =====================================================================================================================================
 
@@ -6797,7 +6869,8 @@ def main():
         app_bot.add_handler(CommandHandler("migrar", cmd_migrar))
         app_bot.add_handler(CommandHandler(["actividad", "ejercicio", "a"], cmd_actividad))
         app_bot.add_handler(CommandHandler("actdel", cmd_actdel))
-
+        app_bot.add_handler(CommandHandler(["borrarcomida", "delcomida"], cmd_borrar_comida))
+        
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_actdel, pattern="^ejecutar_del_act_"))
         app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
