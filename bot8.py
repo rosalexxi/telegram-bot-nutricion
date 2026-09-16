@@ -5769,9 +5769,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             perfil_biometrico = obtener_perfil_usuario(user_id)
             
             prompt_ia = (
-                f"El usuario realizó una actividad física descrita por voz. Transcripción: '{transcription}'. "
+                f"El usuario realizó una actividad física descrita por voz. Analiza minuciosamente la transcripción "
+                f"(prestando especial atención a la duración, distancia, tipo de terreno, pendiente, temperatura del medio e intensidad): '{transcription}'. "
                 f"Calcula las calorías gastadas utilizando estrictamente su perfil biométrico: {perfil_biometrico}.\n"
-                f"REGLA OBLIGATORIA 1: El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de 'min' y una descripción clara (ej: '50 min - Caminata rápida').\n"
+                f"REGLA OBLIGATORIA 1: El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de 'min' y una descripción clara que refleje el esfuerzo (ej: '50 min - Aquagym en agua templada').\n"
                 f"REGLA OBLIGATORIA 2: El campo 'calorias' debe ser un número positivo que luego transformaremos en negativo.\n"
                 f"Devolvé un JSON con los campos 'alimento' y 'calorias'."
             )
@@ -5949,9 +5950,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             perfil_biometrico = obtener_perfil_usuario(user_id)
             
             prompt_ia = (
-                f"El usuario realizó una actividad física. Analiza la descripción y calcula las calorías gastadas "
-                f"utilizando estrictamente su perfil biométrico: {perfil_biometrico}.\n"
-                f"REGLA OBLIGATORIA 1: El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de 'min' y una descripción clara (ej: '50 min - Caminata a velocidad moderada').\n"
+                f"El usuario realizó una actividad física. Analiza minuciosamente la descripción "
+                f"(prestando especial atención a la duración, distancia, tipo de terreno, pendiente, temperatura del medio e intensidad) "
+                f"y calcula las calorías gastadas utilizando estrictamente su perfil biométrico: {perfil_biometrico}.\n"
+                f"REGLA OBLIGATORIA 1: El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de 'min' y una descripción clara que refleje el esfuerzo (ej: '30 min - Caminata en terreno irregular').\n"
                 f"REGLA OBLIGATORIA 2: El campo 'calorias' debe ser un número positivo que luego transformaremos en negativo.\n"
                 f"Descripción del usuario: '{texto_actividad}'\n"
                 f"Devolvé un JSON con los campos 'alimento' y 'calorias'."
@@ -6425,7 +6427,92 @@ async def manejar_callback_actividad(update: Update, context: ContextTypes.DEFAU
         context.user_data.pop('awaiting_activity_voice', None)
         await query.edit_message_text("❌ Registro de actividad cancelado.")
         await query.answer()
+
+@requiere_registro
+async def cmd_actdel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando independiente para gestionar y eliminar registros de actividad física."""
+    user_id = update.effective_user.id
+    
+    df = obtener_datos_usuario(user_id)
+    if df.empty:
+        await update.message.reply_text("❌ No tenés registros cargados en tu planilla.")
+        return
+
+    # Filtramos estrictamente los registros que correspondan a actividades (por momento o calorías negativas)
+    df_actividades = df[
+        (df['Momento'].str.strip().str.lower() == 'actividad') | 
+        (df['Calorias'] < 0)
+    ]
+
+    if df_actividades.empty:
+        await update.message.reply_text("ℹ️ No se encontraron actividades físicas registradas para eliminar.")
+        return
+
+    txt = "🗑️ **Gestión de Actividades Físicas Registradas:**\n\nSeleccioná la actividad que querés eliminar:"
+    keyboard_buttons = []
+
+    # Mostramos los últimos 10 registros de actividad para no saturar la pantalla
+    for idx, row in df_actividades.tail(10).iterrows():
+        fecha = row.get('Fecha', '')
+        detalle = row.get('Alimento', 'Actividad')
+        kcal = abs(row.get('Calorias', 0))
         
+        item_id = row.get('id_registro', idx)
+        texto_boton = f"❌ {fecha} | {str(detalle)[:18]}... (-{kcal:.0f} kcal)"
+        
+        keyboard_buttons.append([
+            InlineKeyboardButton(texto_boton, callback_data=f"ejecutar_del_act_{item_id}")
+        ])
+
+    reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+    await update.message.reply_text(txt, reply_markup=reply_markup, parse_mode="Markdown")
+
+async def manejar_callback_actdel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Maneja el callback exclusivo de la eliminación de actividades."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    user_id = query.from_user.id
+
+    if data.startswith("ejecutar_del_act_"):
+        item_id = data.replace("ejecutar_del_act_", "")
+        
+        # Reutilizamos tu función dual existente para borrar en Sheets y Supabase
+        exito = eliminar_registro_por_id(user_id, item_id)
+        
+        if exito:
+            await query.answer("✅ Actividad eliminada correctamente.", show_alert=True)
+        else:
+            await query.answer("⚠️ No se pudo eliminar el registro.", show_alert=True)
+
+        # Refrescamos el listado de actividades pendientes
+        df = obtener_datos_usuario(user_id)
+        df_actividades = df[
+            (df['Momento'].str.strip().str.lower() == 'actividad') | 
+            (df['Calorias'] < 0)
+        ]
+
+        if df_actividades.empty:
+            await query.edit_message_text("🗑️ Ya no quedan actividades registradas para eliminar.")
+            return
+
+        txt = "🗑️ **Gestión de Actividades Físicas Registradas:**\n\nSeleccioná la actividad que querés eliminar:"
+        keyboard_buttons = []
+
+        for idx, row in df_actividades.tail(10).iterrows():
+            fecha = row.get('Fecha', '')
+            detalle = row.get('Alimento', 'Actividad')
+            kcal = abs(row.get('Calorias', 0))
+            
+            item_id = row.get('id_registro', idx)
+            texto_boton = f"❌ {fecha} | {str(detalle)[:18]}... (-{kcal:.0f} kcal)"
+            
+            keyboard_buttons.append([
+                InlineKeyboardButton(texto_boton, callback_data=f"ejecutar_del_act_{item_id}")
+            ])
+
+        await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(keyboard_buttons), parse_mode="Markdown")
+
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA                             FINAL
 # ======================================================================================================================================
@@ -6709,16 +6796,13 @@ def main():
         app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
         app_bot.add_handler(CommandHandler("migrar", cmd_migrar))
         app_bot.add_handler(CommandHandler(["actividad", "ejercicio", "a"], cmd_actividad))
+        app_bot.add_handler(CommandHandler("actdel", cmd_actdel))
 
-        # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
-        # Manejador para aceptar los términos y condiciones al iniciar el alta
+        app_bot.add_handler(CallbackQueryHandler(manejar_callback_actdel, pattern="^ejecutar_del_act_"))
         app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
-        
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
-        
-        # Enrutador específico para los botones del comando de actividad (act_)
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_actividad, pattern="^act_"))
 
         # --- HANDLERS DE MENSAJES Y CONSULTAS ---
