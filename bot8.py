@@ -2977,15 +2977,8 @@ def detectar_codigo_con_groq(base64_image: str) -> dict:
 #                FINAL                          FUNCIONES IA GROQ                                     FINAL
 # ======================================================================================================================================
 
-import asyncio
-from datetime import timedelta
-import logging
-import pandas as pd
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import ContextTypes
-
 # ======================================================================================================================================
-#                  INICIO               COMANDOS CONFIRMACION Y MENU                     INICIO
+#                  INICIO               COMANDOS CONFIRMACION Y COMANDOS MENU                     INICIO
 # ======================================================================================================================================
 
 #                  INICIO               INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO
@@ -3146,16 +3139,16 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     data = query.data
     user_id = query.from_user.id
 
+    # 🆕 Interceptor exclusivo para los botones del menú de eliminación (Comidas y Actividades)
+    if data.startswith(("del_reg_", "del_mom_", "ejecutar_del_fila_", "ejecutar_del_item_", "ejecutar_del_act_")):
+        await manejar_callback_eliminacion(query, user_id, data, context)
+        return
+        
     context.user_data['last_menu_msg_id'] = query.message.message_id
 
     # Interceptor exclusivo para los botones del menú de actividad
     if data.startswith("act_"):
         await manejar_callback_actividad(query, user_id, data, context)
-        return
-
-    # 🆕 Interceptor exclusivo para los botones del menú de eliminación
-    if data.startswith(("del_reg_", "del_mom_", "ejecutar_del_fila_")):
-        await manejar_callback_eliminacion(query, user_id, data, context)
         return
 
     if data.startswith("set_m_"):
@@ -6253,7 +6246,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar el texto: {e}")
                 
-#                INICIO                               COMANDO ELIMINAR                          INICIO  
+#                INICIO                               COMANDO ELIMINAR COMIDAS                         INICIO  
 # =======================================================================================================================================
 
 async def actualizar_menu_filtro_eliminacion(query, context):
@@ -6339,10 +6332,47 @@ async def manejar_callback_eliminacion(query, user_id, data, context):
     elif data.startswith("ejecutar_del_item_"):
         item_id = data.replace("ejecutar_del_item_", "")
         
+        # Eliminación directa en Supabase
         eliminar_registro_por_id(user_id, item_id)
         
-        await query.answer("✅ Registro eliminado correctamente.")
+        await query.answer("✅ Registro eliminado correctamente de Supabase.")
         await mostrar_registros_para_eliminar(query, user_id, context)
+
+    elif data.startswith("ejecutar_del_act_"):
+        item_id = data.replace("ejecutar_del_act_", "")
+        
+        # Eliminación directa de actividad en Supabase
+        eliminar_registro_por_id(user_id, item_id)
+        
+        await query.answer("✅ Actividad eliminada correctamente de Supabase.", show_alert=True)
+        
+        # Refrescamos el listado de actividades pendientes
+        df = obtener_datos_usuario(user_id)
+        df_actividades = df[
+            (df['Momento'].str.strip().str.lower() == 'actividad') | 
+            (df['Calorias'] < 0)
+        ]
+
+        if df_actividades.empty:
+            await query.edit_message_text("🗑️ Ya no quedan actividades registradas para eliminar.")
+            return
+
+        txt = "🗑️ **Gestión de Actividades Físicas Registradas:**\n\nSeleccioná la actividad que querés eliminar:"
+        keyboard_buttons = []
+
+        for idx, row in df_actividades.tail(10).iterrows():
+            fecha = row.get('Fecha', '')
+            detalle = row.get('Alimento', 'Actividad')
+            kcal = abs(row.get('Calorias', 0))
+            
+            item_id = row.get('id_registro', idx)
+            texto_boton = f"❌ {fecha} | {str(detalle)[:18]}... (-{kcal:.0f} kcal)"
+            
+            keyboard_buttons.append([
+                InlineKeyboardButton(texto_boton, callback_data=f"ejecutar_del_act_{item_id}")
+            ])
+
+        await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(keyboard_buttons), parse_mode="Markdown")
 
 async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -6365,19 +6395,18 @@ async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYP
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # CORRECCIÓN: Se estandarizó la clave a 'del_filtro_fecha' (removiendo el error de tipeo 'del_filtr_fecha')
     context.user_data['del_filtro_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
     context.user_data['del_filtro_momento'] = "Almuerzo"
 
     await update.message.reply_text(
         "🗑️ **Eliminar o Corregir Registro Pasado**\n\n"
-        f"• Fecha seleccionada: `{context.user_data['del_filtro_fecha']}`\n"
+        f"• Fecha seleccionada: `{context.user_data['del_fil_fecha']}`\n"
         f"• Momento seleccionado: `{context.user_data['del_filtro_momento']}`\n\n"
         "Usá los botones para cambiar los filtros o tocá *Ver Registros*:",
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
-    
+  
 #                INICIO                               COMANDOS ACTIVIDAD                             FINAL
 # ======================================================================================================================================
 
@@ -6438,7 +6467,6 @@ async def cmd_actdel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ No tenés registros cargados en tu planilla.")
         return
 
-    # Filtramos estrictamente los registros que correspondan a actividades (por momento o calorías negativas)
     df_actividades = df[
         (df['Momento'].str.strip().str.lower() == 'actividad') | 
         (df['Calorias'] < 0)
@@ -6451,7 +6479,6 @@ async def cmd_actdel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = "🗑️ **Gestión de Actividades Físicas Registradas:**\n\nSeleccioná la actividad que querés eliminar:"
     keyboard_buttons = []
 
-    # Mostramos los últimos 10 registros de actividad para no saturar la pantalla
     for idx, row in df_actividades.tail(10).iterrows():
         fecha = row.get('Fecha', '')
         detalle = row.get('Alimento', 'Actividad')
