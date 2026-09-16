@@ -3007,6 +3007,7 @@ async def manejar_callback_actividad(query, user_id, data, context):
 @requiere_registro
 @requiere_registro
 @requiere_registro
+@requiere_registro
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -3025,7 +3026,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await manejar_callback_eliminacion(query, user_id, data, context)
         return
 
-    # 🔹 BLOQUE RESTAURADO: Intercepta exactamente el clic de cada alimento a borrar en /eliminar
+    # Interceptor para los botones de eliminación de ítems de ingesta
     if data.startswith("ejecutar_del_item_"):
         await manejar_callback_eliminacion(query, user_id, data, context)
         return
@@ -3154,7 +3155,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             mes_target_str = mes_actual_str
 
         await query.edit_message_text(
-            f"⏳ Compilando informe PDF del período `{mes_target_str}` para le paciente (`{target_user_id}`)...",
+            f"⏳ Compilando informe PDF del período `{mes_target_str}` para el paciente (`{target_user_id}`)...",
             parse_mode="Markdown"
         )
 
@@ -3184,7 +3185,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 logger.error(f"Error en tarea en segundo plano de PDF para {target_user_id}: {e}", exc_info=True)
 
         asyncio.create_task(tarea_segundo_plano())
-                         
+                                 
 @requiere_registro
 async def manejar_callback_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
