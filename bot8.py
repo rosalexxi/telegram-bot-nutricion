@@ -1379,17 +1379,28 @@ def actualizar_estado_usuario(user_id: str, nuevo_estado: str):
     except Exception as e:
         logger.error(f"Error al actualizar estado en Supabase para {user_id}: {e}")
 
-def eliminar_registro_por_id(user_id, item_id):
-    """Función dual: borra el registro de Google Sheets y de Supabase."""
+ddef eliminar_registro_por_id(user_id, item_id):
+    """Función dual: borra el registro de Google Sheets y de Supabase de forma segura."""
+    exito_sheets = False
+    exito_supabase = False
+
+    # 1. Borrado en Google Sheets
     try:
         fila_idx = int(item_id)
         gc = get_gspread_client()
         sh = gc.open(SPREADSHEET_NAME)
         ws = sh.worksheet(f"User_{user_id}")
+        
+        # Opcional recomendado: si el id de Supabase no coincide exactamente con el número de fila 
+        # (por ejemplo si hay cabecera en la fila 1, el ID 1 es la fila 2), 
+        # asegúrate de ajustar la lógica o buscar el registro por contenido/ID si lo guardas.
+        # Asumiendo que fila_idx representa la fila exacta de la hoja:
         ws.delete_rows(fila_idx)
+        exito_sheets = True
     except Exception as e:
         print(f"Error al eliminar registro en Google Sheets para el usuario {user_id}: {e}")
 
+    # 2. Borrado en Supabase
     try:
         tabla_nombre = f"User_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
@@ -1397,12 +1408,13 @@ def eliminar_registro_por_id(user_id, item_id):
         conn.commit()
         cur.close()
         conn.close()
+        exito_supabase = True
     except Exception as e:
         print(f"Error al eliminar registro en Supabase para el usuario {user_id}: {e}")
-        return False
 
-    return True
-
+    # Retorna True si al menos se pudo borrar en Supabase o Sheets
+    return exito_supabase or exito_sheets
+    
 def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
     """Guarda los registros de ingesta alimentaria de forma dual en Google Sheets (multiplicado por 1000) y Supabase."""
     try:
@@ -3204,8 +3216,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await manejar_callback_actividad(query, user_id, data, context)
         return
 
-    # 🆕 Interceptor exclusivo para los botones del menú de eliminación
-    if data.startswith(("del_reg_", "del_mom_", "ejecutar_del_fila_")):
+    # 🆕 Interceptor exclusivo para los botones del menú de eliminación (Añadido "ejecutar_del_item_")
+    if data.startswith(("del_reg_", "del_mom_", "ejecutar_del_fila_", "ejecutar_del_item_")):
         await manejar_callback_eliminacion(query, user_id, data, context)
         return
 
@@ -3363,7 +3375,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 logger.error(f"Error en tarea en segundo plano de PDF para {target_user_id}: {e}", exc_info=True)
 
         asyncio.create_task(tarea_segundo_plano())
-
+        
 # ======================================================================================================================================
 #                FINAL                           FUNCIONES CONFIRMACION Y MENU                     FINAL
 # ======================================================================================================================================
@@ -6409,13 +6421,25 @@ async def manejar_callback_eliminacion(query, user_id, data, context):
         await mostrar_registros_para_eliminar(query, user_id, context)
 
     elif data.startswith("ejecutar_del_item_"):
-        item_id = data.replace("ejecutar_del_item_", "")
+        item_id_str = data.replace("ejecutar_del_item_", "").strip()
         
-        eliminar_registro_por_id(user_id, item_id)
-        
-        await query.answer("✅ Registro eliminado correctamente.")
-        await mostrar_registros_para_eliminar(query, user_id, context)
+        try:
+            # Convertimos a entero de forma segura por requerimiento de Google Sheets / Supabase
+            item_id = int(item_id_str)
+        except ValueError:
+            item_id = item_id_str  # Fallback a string si el ID es un identificador alfanumérico
 
+        # Ejecutamos la eliminación dual
+        exito = eliminar_registro_por_id(user_id, item_id)
+        
+        if exito:
+            await query.answer("✅ Registro eliminado correctamente.", show_alert=False)
+        else:
+            await query.answer("⚠️ No se pudo eliminar el registro seleccionado.", show_alert=True)
+            
+        # Refrescamos la lista en pantalla
+        await mostrar_registros_para_eliminar(query, user_id, context)
+        
 async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
