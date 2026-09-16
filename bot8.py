@@ -6839,20 +6839,6 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 #                    INICIO                                MAIN                                      INICIO  
 # ==========================================================================================================================================
 
-async def job_recordatorio_manana(context):
-    """Tarea programada para el recordatorio matutino con protección contra fallas."""
-    try:
-        await ejecutar_recordatorio_comidas(context, momento='manana')
-    except Exception as e:
-        logger.error(f"❌ Error en job_recordatorio_manana: {e}")
-
-async def job_recordatorio_tarde(context):
-    """Tarea programada para el recordatorio vespertino con protección contra fallas."""
-    try:
-        await ejecutar_recordatorio_comidas(context, momento='tarde')
-    except Exception as e:
-        logger.error(f"❌ Error en job_recordatorio_tarde: {e}")
-
 def main():
     # Inicia el servidor Web Flask en un hilo independiente
     threading.Thread(target=run_flask, daemon=True).start()
@@ -6913,32 +6899,23 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_actividad, pattern="^act_"))
-        
-        # --- HANDLERS ESPECÍFICOS DE ELIMINACIÓN Y NAVEGACIÓN ---
-        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_reg_"))
-        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_mom_"))
-        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^ejecutar_del_item_"))
 
         # --- HANDLERS DE MENSAJES Y CONSULTAS ---
         app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
         app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
         
-        # Callback genérico (debe ir al final de los CallbackQueryHandler)
+        # Callback genérico (maneja todo lo demás, incluidos los menús de eliminación)
         app_bot.add_handler(CallbackQueryHandler(handle_callback_query))
 
         print("Bot Nutricional iniciado correctamente en Telegram con tareas programadas...")
         
-        # Inicio del bot en loop de eventos asíncrono
         app_bot.run_polling(drop_pending_updates=True)
 
     except Exception as e:
         logger.critical(f"❌ Error crítico al iniciar el bot en main(): {e}", exc_info=True)
         raise e
-
-if __name__ == "__main__":
-    main()
-
+        
 # =============================================================================================================================================
 #                                                   FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
