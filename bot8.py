@@ -3664,6 +3664,7 @@ conv_handler_ingreso = ConversationHandler(
         ING_CUMPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cumple)],
     },
     fallbacks=[CommandHandler('cancelar', ing_cancelar)],
+    per_message=True,  # 👈 ¡Este es el parámetro obligatorio que faltaba!
 )
 
 #                     INICIO                         COMANDO START                          INICIO  2026 09 05
