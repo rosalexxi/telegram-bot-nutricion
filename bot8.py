@@ -6145,7 +6145,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar el texto: {e}")
                 
-#                INICIO                               COMANDO ELIMINAR                          INICIO  
+#                INICIO                               COMANDOS ELIMINAR                          INICIO  
 # =======================================================================================================================================
 
 async def actualizar_menu_filtro_eliminacion(query, context):
@@ -6269,10 +6269,90 @@ async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
-    
-#                INICIO                               COMANDOS ACTIVIDAD                             FINAL
-# ======================================================================================================================================
 
+@requiere_registro
+async def cmd_actdel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando independiente para gestionar y eliminar registros de actividad física."""
+    user_id = update.effective_user.id
+    
+    df = obtener_datos_usuario(user_id)
+    if df.empty:
+        await update.message.reply_text("❌ No tenés registros cargados en tu planilla.")
+        return
+
+    df_actividades = df[
+        (df['Momento'].str.strip().str.lower() == 'actividad') | 
+        (df['Calorias'] < 0)
+    ]
+
+    if df_actividades.empty:
+        await update.message.reply_text("ℹ️ No se encontraron actividades físicas registradas para eliminar.")
+        return
+
+    txt = "🗑️ **Gestión de Actividades Físicas Registradas:**\n\nSeleccioná la actividad que querés eliminar:"
+    keyboard_buttons = []
+
+    for idx, row in df_actividades.tail(10).iterrows():
+        fecha = row.get('Fecha', '')
+        detalle = row.get('Alimento', 'Actividad')
+        kcal = abs(row.get('Calorias', 0))
+        
+        item_id = row.get('id_registro', idx)
+        texto_boton = f"❌ {fecha} | {str(detalle)[:18]}... (-{kcal:.0f} kcal)"
+        
+        keyboard_buttons.append([
+            InlineKeyboardButton(texto_boton, callback_data=f"ejecutar_del_act_{item_id}")
+        ])
+
+    reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+    await update.message.reply_text(txt, reply_markup=reply_markup, parse_mode="Markdown")
+
+async def manejar_callback_actdel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Maneja el callback exclusivo de la eliminación de actividades."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    user_id = query.from_user.id
+
+    if data.startswith("ejecutar_del_act_"):
+        item_id = data.replace("ejecutar_del_act_", "")
+        
+        # Reutilizamos tu función dual existente para borrar en Sheets y Supabase
+        exito = eliminar_registro_por_id(user_id, item_id)
+        
+        if exito:
+            await query.answer("✅ Actividad eliminada correctamente.", show_alert=True)
+        else:
+            await query.answer("⚠️ No se pudo eliminar el registro.", show_alert=True)
+
+        # Refrescamos el listado de actividades pendientes
+        df = obtener_datos_usuario(user_id)
+        df_actividades = df[
+            (df['Momento'].str.strip().str.lower() == 'actividad') | 
+            (df['Calorias'] < 0)
+        ]
+
+        if df_actividades.empty:
+            await query.edit_message_text("🗑️ Ya no quedan actividades registradas para eliminar.")
+            return
+
+        txt = "🗑️ **Gestión de Actividades Físicas Registradas:**\n\nSeleccioná la actividad que querés eliminar:"
+        keyboard_buttons = []
+
+        for idx, row in df_actividades.tail(10).iterrows():
+            fecha = row.get('Fecha', '')
+            detalle = row.get('Alimento', 'Actividad')
+            kcal = abs(row.get('Calorias', 0))
+            
+            item_id = row.get('id_registro', idx)
+            texto_boton = f"❌ {fecha} | {str(detalle)[:18]}... (-{kcal:.0f} kcal)"
+            
+            keyboard_buttons.append([
+                InlineKeyboardButton(texto_boton, callback_data=f"ejecutar_del_act_{item_id}")
+            ])
+
+        await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(keyboard_buttons), parse_mode="Markdown")
+    
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA                             FINAL
 # ======================================================================================================================================
@@ -6555,6 +6635,7 @@ def main():
         app_bot.add_handler(CommandHandler(["factor", "get", "GET"], cmd_factor_handler))
         app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
         app_bot.add_handler(CommandHandler("migrar", cmd_migrar))
+        app_bot.add_handler(CommandHandler("actdel", cmd_actdel))
 
         # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
         # Manejador para aceptar los términos y condiciones al iniciar el alta
