@@ -6100,59 +6100,59 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['msg_solicitud_fecha_id'] = msg_err.message_id
             return
 
+    # BLOQUE DE EDICIÓN MATEMÁTICA ACTUALIZADO
     if context.user_data.get('awaiting_edit_item_val'):
         idx = context.user_data.get('editing_item_idx')
         items = context.user_data.get('pending_items', [])
 
         if items and 0 <= idx < len(items):
             item_previo = items[idx]
-            peso_previo = item_previo.get('peso', 0.0)
+            peso_previo = float(item_previo.get('peso', 0.0))
             desc_previa = item_previo.get('alimento', '')
 
-            msg_espera = await update.message.reply_text("⏳ Recalculando ítem con la IA...")
+            msg_espera = await update.message.reply_text("⏳ Actualizando peso y recalculando...")
             try:
+                nuevo_peso = peso_previo
+                nueva_desc = desc_previa
+
                 if ',' in raw_text:
                     partes = raw_text.split(',', 1)
                     parte_desc = partes[0].strip()
                     parte_peso = partes[1].strip()
-
-                    nuevo_peso = float(re.sub(r'[^\d.]', '', parte_peso.replace(',', '.'))) if parte_peso else peso_previo
-
-                    if parte_desc == "":
-                        prompt_edicion = (
-                            f"El usuario quiere actualizar únicamente el peso de un alimento.\n"
-                            f"Alimento actual: '{desc_previa}'\n"
-                            f"Nuevo peso en gramos: {nuevo_peso}\n"
-                            f"Devolvé el JSON con los nutrientes recalculados para ese mismo alimento y el nuevo peso."
-                        )
-                    else:
-                        prompt_edicion = (
-                            f"El usuario quiere editar un alimento especificando nueva descripción y peso.\n"
-                            f"Nueva descripción: '{parte_desc}'\n"
-                            f"Nuevo peso en gramos: {nuevo_peso}\n"
-                            f"Devolvé el JSON con los nutrientes recalculados para esa descripción y cantidad."
-                        )
+                    
+                    if parte_desc:
+                        nueva_desc = parte_desc
+                    if parte_peso:
+                        nuevo_peso = float(re.sub(r'[^\d.]', '', parte_peso.replace(',', '.')))
                 else:
-                    prompt_edicion = (
-                        f"El usuario quiere editar un alimento.\n"
-                        f"Nueva descripción ingresada por el usuario: '{raw_text}'\n"
-                        f"El usuario NO especificó un nuevo peso, por lo tanto DEBES usar exactamente este peso anterior: {peso_previo} gramos.\n"
-                        f"Devolvé el JSON con los nutrientes recalculados para esa nueva descripción y cantidad."
-                    )
-
-                nuevo_analisis = analizar_con_groq(prompt_edicion)
-                items_nuevos = nuevo_analisis.get('items', [])
-
-                if items_nuevos:
-                    items[idx] = items_nuevos[0]
-                    context.user_data['pending_items'] = items
-                    await msg_espera.delete()
                     try:
-                        await update.message.delete()
-                    except Exception:
-                        pass
+                        nuevo_peso = float(re.sub(r'[^\d.]', '', raw_text.replace(',', '.')))
+                    except ValueError:
+                        nueva_desc = raw_text
+
+                if peso_previo > 0:
+                    factor = nuevo_peso / peso_previo
                 else:
-                    await msg_espera.edit_text("⚠️ No se pudieron interpretar los datos para actualizar el ítem.")
+                    factor = 1.0
+
+                item_actualizado = {
+                    "alimento": nueva_desc,
+                    "alimento_display": nueva_desc.replace('§', '').strip(),
+                    "peso": nuevo_peso,
+                    "calorias": float(item_previo.get('calorias', 0.0)) * factor,
+                    "proteinas": float(item_previo.get('proteinas', 0.0)) * factor,
+                    "grasas": float(item_previo.get('grasas', 0.0)) * factor,
+                    "carbohidratos": float(item_previo.get('carbohidratos', 0.0)) * factor,
+                    "fibras": float(item_previo.get('fibras', 0.0)) * factor,
+                }
+                
+                items[idx] = item_actualizado
+                context.user_data['pending_items'] = items
+                await msg_espera.delete()
+                try:
+                    await update.message.delete()
+                except Exception:
+                    pass
 
             except Exception as e:
                 print(f"Error editando ítem: {e}")
@@ -6249,8 +6249,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await procesar_y_mostrar_confirmacion(data, msg, context)
 
     except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar el texto: {e}")   
-
+        await msg.edit_text(f"❌ Error al procesar el texto: {e}")
+        
 #                INICIO                               COMANDO ELIMINAR                          INICIO  
 # =======================================================================================================================================
 
