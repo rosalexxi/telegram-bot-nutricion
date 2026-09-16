@@ -3006,6 +3006,7 @@ async def manejar_callback_actividad(query, user_id, data, context):
 	
 @requiere_registro
 @requiere_registro
+@requiere_registro
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -3019,8 +3020,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await manejar_callback_actividad(query, user_id, data, context)
         return
 
-    # 🆕 Interceptor corregido para incluir los botones de eliminación de ingestas ("ejecutar_del_item_")
-    if data.startswith(("del_reg_", "del_mom_", "ejecutar_del_fila_", "ejecutar_del_item_")):
+    # Interceptor para los botones de eliminación de ingestas y menús anteriores
+    if data.startswith(("del_reg_", "del_mom_", "ejecutar_del_fila_")):
+        await manejar_callback_eliminacion(query, user_id, data, context)
+        return
+
+    # 🔹 BLOQUE RESTAURADO: Intercepta exactamente el clic de cada alimento a borrar en /eliminar
+    if data.startswith("ejecutar_del_item_"):
         await manejar_callback_eliminacion(query, user_id, data, context)
         return
 
@@ -3148,7 +3154,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             mes_target_str = mes_actual_str
 
         await query.edit_message_text(
-            f"⏳ Compilando informe PDF del período `{mes_target_str}` para el paciente (`{target_user_id}`)...",
+            f"⏳ Compilando informe PDF del período `{mes_target_str}` para le paciente (`{target_user_id}`)...",
             parse_mode="Markdown"
         )
 
@@ -3178,7 +3184,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 logger.error(f"Error en tarea en segundo plano de PDF para {target_user_id}: {e}", exc_info=True)
 
         asyncio.create_task(tarea_segundo_plano())
-         
+                         
 @requiere_registro
 async def manejar_callback_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -6572,6 +6578,7 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 #                    INICIO                                MAIN                                      INICIO  
 # ==========================================================================================================================================
 
+
 def main():
     # Inicia el servidor Web Flask en un hilo independiente
     threading.Thread(target=run_flask, daemon=True).start()
@@ -6652,8 +6659,7 @@ def main():
         app_bot.run_polling(drop_pending_updates=True)
 
     except Exception as e:
-        print(f"❌ ERROR CRÍTICO AL INICIAR EL BOT: {e}")
-        logger.critical(f"❌ ERROR CRÍTICO AL INICIAR EL BOT: {e}", exc_info=True)
+        logger.critical(f"❌ Error crítico al iniciar el bot en main(): {e}", exc_info=True)
         raise e
         
 # =============================================================================================================================================
