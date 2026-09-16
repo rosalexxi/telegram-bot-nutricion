@@ -2282,6 +2282,7 @@ def consultar_codigo_barras(barcode: str) -> dict | bool:
         if marca:
             nombre_alimento = f"{nombre_alimento} ({marca})"
 
+        # Extracción y cálculo estrictamente basado en 100 gramos
         calorias = float(nutriments.get("energy-kcal_100g", nutriments.get("energy-kcal", 0.0) or 0.0))
         proteinas = float(nutriments.get("proteins_100g", 0.0) or 0.0)
         grasas = float(nutriments.get("fat_100g", 0.0) or 0.0)
@@ -2302,7 +2303,7 @@ def consultar_codigo_barras(barcode: str) -> dict | bool:
     except Exception as e:
         logging.error(f"⚠️ Error al consultar el código de barras {barcode}: {e}")
         return False
-        
+                
 def procesar_foto_codigo_barras(base64_image: str) -> dict | bool:
     try:
         image_bytes = base64.b64decode(base64_image)
@@ -2879,15 +2880,18 @@ def analizar_con_groq(prompt_text):
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
     
     system_prompt = (
-        "Sos un nutricionista experto y preparador físico. Analiza el texto ingresado por el usuario.\n"
-        "1. Si el texto describe un alimento o bebida comestible, desglósalo individualmente y estimá pesos en gramos y nutrientes lógicos (tipo: 'Comida', calorías positivas).\n"
-        "2. Si el texto describe una actividad física o ejercicio (caminata, gimnasia, entrenamiento, etc.), calcúlalo como ejercicio (tipo: 'Actividad', con el formato de minutos y calorías estimadas positivas).\n"
-        "3. REGLA ESTRICTA DE RECHAZO: Si el texto NO es ni comida/bebida ni actividad física válida (por ejemplo, productos de limpieza como detergente, jabón, objetos inanimados o textos sin sentido), "
-        "NO inventes datos: devolvé la lista de 'items' vacía ([ ]).\n\n"
+        "Sos un asistente inteligente de salud. Analiza el texto ingresado por el usuario y clasifícalo en una de estas tres categorías:\n"
+        "1. COMIDA: Si el usuario menciona alimentos, platos o bebidas para ingerir.\n"
+        "2. ACTIVIDAD: Si el usuario menciona cualquier tipo de ejercicio, deporte, movimiento físico o actividad en movimiento.\n"
+        "3. RECHAZO: Si el usuario nombra objetos inanimados, productos de limpieza (como detergente, jabón), ropa o cosas que no se comen ni se entrenan.\n\n"
+        "REGLAS:\n"
+        "- Si es COMIDA, desglósalo con pesos y calorías positivas.\n"
+        "- Si es ACTIVIDAD, estima los minutos y calorías gastadas con valores positivos (el sistema después los hace negativos).\n"
+        "- Si es RECHAZO, devolvé la lista de 'items' vacía ([ ]).\n\n"
         "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
         "{\n"
         '  "items": [\n'
-        '    {"alimento": "nombre o actividad", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
+        '    {"alimento": "nombre o descripción", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
         "  ],\n"
         '  "tipo": "Comida" o "Actividad"\n'
         "}"
@@ -2903,7 +2907,7 @@ def analizar_con_groq(prompt_text):
         response_format={"type": "json_object"}
     )
     return json.loads(response.choices[0].message.content)
-        
+                
 def analizar_imagen_con_groq(base64_image, user_caption=""):
     client_ai = globals().get('client_ai')
     if not client_ai:
@@ -5810,131 +5814,69 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = await update.message.reply_text("📸 Analizando foto y descripción...")
+    msg = await update.message.reply_text("📸 Analizando imagen...")
     try:
         photo_file = await update.message.photo[-1].get_file()
         photo_bytes = await photo_file.download_as_bytearray()
         base64_image = base64.b64encode(photo_bytes).decode('utf-8')
         
-        # El texto que escribís al mandar la foto (caption)
-        user_caption = (update.message.caption or "").strip()
+        user_caption = update.message.caption or ""
         
-        client_ai = globals().get('client_ai')
-        if not client_ai:
-            await msg.edit_text("❌ Error: Cliente de IA no configurado.")
-            return
+        resultado_deteccion = detectar_codigo_con_groq(base64_image)
+        
+        if resultado_deteccion.get("tiene_codigo") and resultado_deteccion.get("codigo"):
+            barcode_text = str(resultado_deteccion["codigo"]).strip()
+            
+            resultado_api = consultar_codigo_barras(barcode_text)
+            
+            if resultado_api:
+                item_procesado = {
+                    "alimento": f"{resultado_api['alimento']} §",
+                    "alimento_display": resultado_api['alimento'],
+                    "peso": resultado_api['peso'],          # 100.0 g exactos
+                    "calorias": resultado_api['calorias'],  # Calculado a 100g
+                    "proteinas": resultado_api['proteinas'],
+                    "grasas": resultado_api['grasas'],
+                    "carbohidratos": resultado_api['carbohidratos'],
+                    "fibras": resultado_api['fibras'],
+                    "fuente": "Open Food Facts"
+                }
 
-        # Si mandaste texto junto con la foto, le damos prioridad absoluta a leer la tabla guiados por ese nombre
-        if user_caption:
-            await msg.edit_text(f"📊 Leyendo tabla para '{user_caption}' y calculando por 100g...")
-            
-            prompt_tabla_con_texto = (
-                f"El usuario envió una foto de una tabla nutricional correspondiente al siguiente producto: '{user_caption}'. "
-                "Lee los valores de la tabla en la imagen, identifica la porción declarada y calcula matemáticamente "
-                "los valores exactos **por cada 100 GRAMOS o 100 ML** de este producto específico.\n"
-                "Devolvé ÚNICAMENTE un objeto JSON válido con la siguiente estructura exacta:\n"
-                "{\n"
-                '  "items": [\n'
-                '    {\n'
-                f'      "alimento": "{user_caption} (100g)",\n'
-                '      "peso": 100.0,\n'
-                '      "calorias": número (calculado por 100g),\n'
-                '      "proteinas": número (calculado por 100g),\n'
-                '      "grasas": número (calculado por 100g),\n'
-                '      "carbohidratos": número (calculado por 100g),\n'
-                '      "fibras": número (calculado por 100g)\n'
-                '    }\n'
-                '  ]\n'
-                "}"
-            )
-            
-            resp_tabla = client_ai.chat.completions.create(
-                model=globals().get('GROQ_FOTO', "llama-3.3-70b-versatile"),
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt_tabla_con_texto},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                    ]
-                }],
-                temperature=0.1,
-                response_format={"type": "json_object"}
-            )
-            data = json.loads(resp_tabla.choices[0].message.content)
-            
-        else:
-            # Si mandó la foto sin texto, intenta adivinar si es tabla o plato común (como venía haciendo)
-            prompt_clasificacion = (
-                "Analiza esta imagen. Determina si es una foto de una 'tabla_nutricional' (etiqueta con información nutricional) "
-                "o si es una 'comida' (un plato servido o alimento real). "
-                "Responde ÚNICAMENTE en formato JSON con la estructura:\n"
-                "{\n"
-                '  "tipo_imagen": "tabla_nutricional" o "comida",\n'
-                '  "nombre_producto": "nombre del producto"\n'
-                "}"
-            )
-            
-            resp_clasif = client_ai.chat.completions.create(
-                model=globals().get('GROQ_FOTO', "llama-3.3-70b-versatile"),
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt_clasificacion},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                    ]
-                }],
-                temperature=0.1,
-                response_format={"type": "json_object"}
-            )
-            clasif_data = json.loads(resp_clasif.choices[0].message.content)
-            tipo = clasif_data.get("tipo_imagen", "comida")
+                fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
 
-            if tipo == "tabla_nutricional":
-                await msg.edit_text("📊 Tabla detectada. Leyendo valores por 100g...")
-                prompt_tabla = (
-                    "Lee los valores de esta tabla nutricional y calculalos por cada 100 gramos o 100 ml. "
-                    "Devolvé un JSON con la clave 'items' conteniendo alimento, peso (100.0), calorias, proteinas, grasas, carbohidratos, fibras."
-                )
-                resp_t = client_ai.chat.completions.create(
-                    model=globals().get('GROQ_FOTO', "llama-3.3-70b-versatile"),
-                    messages=[{
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt_tabla},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                        ]
-                    }],
-                    temperature=0.1,
-                    response_format={"type": "json_object"}
-                )
-                data = json.loads(resp_t.choices[0].message.content)
+                await msg.delete()
+                msg_menu = await update.message.reply_text("📋 Producto encontrado por código de barras (calculado a 100 g):")
+                context.user_data['last_menu_msg_id'] = msg_menu.message_id
+                context.user_data['pending_items'] = [item_procesado]
+                context.user_data['pending_fecha'] = fecha_auto
+                context.user_data['pending_momento'] = momento_auto
+                await render_confirmation_screen(msg_menu, context)
+                return
             else:
-                await msg.edit_text("🤖 Analizando plato de comida...")
-                data = analizar_imagen_con_groq(base64_image, user_caption)
-        
-        # Control de elementos no comestibles
-        if isinstance(data, dict) and not data.get("es_comestible", True):
-            await msg.edit_text("❌ **No es comestible**\n\nEl producto ingresado no es apto para consumo humano.", parse_mode="Markdown")
-            return
-
-        await procesar_y_mostrar_confirmacion(data, msg, context)
+                await msg.edit_text(f"⚠️ Código de barras `{barcode_text}` no encontrado en la base de datos.", parse_mode="Markdown")
+                return
+        else:
+            await msg.edit_text("🤖 Analizando plato con Inteligencia Artificial...")
+            data = analizar_imagen_con_groq(base64_image, user_caption)
+            # Utiliza la función de confirmación que filtra de forma silenciosa si no hay calorías
+            await procesar_y_mostrar_confirmacion(data, msg, context)
             
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar imagen: {e}")
-        
+                
 async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
     chat_id = message_obj.chat_id
-    msg_espera = await message_obj.reply_text("🔍 Buscando código de barras en la base de datos...")
+    msg_espera = await message_obj.reply_text("🔍 Analizando código de barras y verificando producto...")
     
     try:
         resultado_api = consultar_codigo_barras(barcode_text)
         
         if resultado_api:
             item_procesado = {
-                "alimento": f"{resultado_api['alimento']} §",
+                "alimento": resultado_api['alimento'],          # 👈 SIN EL SÍMBOLO §
                 "alimento_display": resultado_api['alimento'],
-                "peso": resultado_api['peso'],
-                "calorias": resultado_api['calorias'],
+                "peso": resultado_api['peso'],                  # 100.0 g exactos
+                "calorias": resultado_api['calorias'],          # Calculado a 100g
                 "proteinas": resultado_api['proteinas'],
                 "grasas": resultado_api['grasas'],
                 "carbohidratos": resultado_api['carbohidratos'],
@@ -5945,7 +5887,7 @@ async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
             fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
 
             await msg_espera.delete()
-            msg_menu = await message_obj.reply_text("📋 Producto encontrado por código de barras:")
+            msg_menu = await message_obj.reply_text("📋 Producto encontrado (valores calculados cada 100 g):")
             
             context.user_data['last_menu_msg_id'] = msg_menu.message_id
             context.user_data['pending_items'] = [item_procesado]
@@ -5958,7 +5900,7 @@ async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
             
     except Exception as e:
         await msg_espera.edit_text(f"❌ Error al consultar el código: {e}")
-        
+                
 @requiere_registro
 async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
