@@ -3423,8 +3423,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await manejar_callback_actividad(query, user_id, data, context)
         return
 
-    # 🆕 Interceptor exclusivo para los botones del menú de eliminación
-    if data.startswith(("del_reg_", "del_mom_", "ejecutar_del_fila_")):
+    # Interceptor exclusivo para los botones del menú de eliminación (NUEVO)
+    if data.startswith(("del_reg_", "del_mom_", "del_d_", "del_borrar_", "del_volver_", "del_cambiar_", "ejecutar_del_fila_")):
+        if data in ["del_cambiar_fecha", "del_volver_momentos"]:
+            await mostrar_selector_momento_eliminar(query, context)
+            return
         await manejar_callback_eliminacion(query, user_id, data, context)
         return
 
@@ -3432,6 +3435,14 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         nuevo_momento = data.replace("set_m_", "")
         context.user_data['pending_momento'] = nuevo_momento
         await render_confirmation_screen(query, context)
+
+    elif data == "diario_hoy":
+        fecha = obtener_ahora_arg().strftime("%Y-%m-%d")
+        await mostrar_diario_fecha(query, user_id, fecha)
+
+    elif data == "diario_ayer":
+        fecha = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
+        await mostrar_diario_fecha(query, user_id, fecha)
 
     elif data == "set_d_hoy":
         context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
@@ -3504,17 +3515,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         else:
             await query.edit_message_text("❌ No se encontraron datos para guardar.")
 
-    elif data == "diario_hoy":
-        fecha = obtener_ahora_arg().strftime("%Y-%m-%d")
-        await mostrar_diario_fecha(query, user_id, fecha)
-
-    elif data == "diario_ayer":
-        fecha = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
-        await mostrar_diario_fecha(query, user_id, fecha)
-
-    elif data.startswith("resumen_mes_20"):
-        mes_str = data.replace("resumen_mes_", "")
-        await mostrar_resumen_mes(query, user_id, mes_str)
+    # CORREGIDO: Ahora captura cualquier mes correctamente (ej: resumen_mes_2026-08)
+    elif data.startswith("resumen_mes_"):
+        await mostrar_resumen_mes(update, context)
 
     elif data.startswith("descargar_pdf_resumen_"):
         mes_str = data.replace("descargar_pdf_resumen_", "")
