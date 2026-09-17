@@ -4195,14 +4195,22 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         context.user_data['editing_item_idx'] = idx
         
         momento_actual = context.user_data.get('pending_momento', 'Comida')
+        items = context.user_data.get('pending_items', [])
+        
+        # Verificamos si es un producto de código de barras (Open Food Facts)
+        es_codigo_barras = False
+        if 0 <= idx < len(items):
+            es_codigo_barras = items[idx].get('fuente') == "Open Food Facts"
         
         if momento_actual == 'Actividad':
             await query.message.reply_text(
                 "✏️ Ingresá la corrección de la actividad (ej: descripción nueva o separando con coma las calorías exactas de tu reloj, ej: `Caminata fuerte, 220`):",
                 parse_mode="Markdown"
             )
+        elif es_codigo_barras:
+            await query.message.reply_text("⚖️ Ingresá el **nuevo peso en gramos** para este producto (ej: `150`):", parse_mode="Markdown")
         else:
-            await query.message.reply_text("✏️ Ingresá la nueva descripción o peso para este alimento:")
+            await query.message.reply_text("✏️ Ingresá la nueva descripción y/o peso para este alimento:")
             
     elif data.startswith("del_item_"):
         idx = int(data.replace("del_item_", "")) - 1
@@ -4773,19 +4781,20 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 **¡Bienvenido a tu Bot Nutricional Personalizado!**\n\n"
         "Guía rápida de comandos e ingresos disponibles:\n\n"
         "📌 **Comandos Principales:**\n"
-        "• `/inicio`: Resumen de los comandos y PDF del manual.\n"
         "• `/alta`: Apertura de cuenta ingresando los datos.\n"
-        "• `/presi`: Registro y consulta de presión arterial.\n"
+        "• `/barra`: Ingresa por código de barras un comestible.\n"
+        "• `/borracomida`: Borra una comida de la Planilla.\n"
+        "• `/comidas`: Planilla de comidas precargadas y PDF.\n"
         "• `/dia`: Ingestas del día, detalle nutricional y PDF.\n"
-        "• `/semana`: Estadística semanal (calorías, fibras, etc.).\n"
+        "• `/eliminar`: Borra ingestas y actividades.\n"
+        "• `/GET`: Actualiza GET por medio del reloj inteligente.\n"
+        "• `/inicio`: Resumen de los comandos y PDF del manual.\n"
         "• `/mes`: Reporte con estimación de peso y PDF.\n"
         "• `/perfil`: Consulta de datos biométricos.\n"
         "• `/peso`: Actualiza el peso del mes .\n"
-        "• `/eliminar`: Borra ingestas y actividades.\n"
-        "• `/barra`: Ingresa por código de barras un comestible.\n"
-        "• `/GET`: Actualiza GET por medio del reloj inteligente.\n"
-        "• `/comidas`: Planilla de comidas precargadas y PDF.\n"
-        "• `/receta`: Calculadora Web para registrar comidas.\n\n"
+        "• `/presi`: Registro y consulta de presión arterial.\n"
+        "• `/receta`: Calculadora Web para registrar comidas.\n"
+        "• `/semana`: Estadística semanal (calorías, fibras, etc.).\n\n"
         "📌 **Métodos de Registro:**\n"
         "• **Ingestas con IA:** Texto, 🎤 Notas de voz, 📸 Fotos.\n"
         "• **Modificación parcial:** por item y reenvío a la IA\n"
@@ -4801,15 +4810,18 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "    `*DESAYUNO`: menú completo\n"
         "    `*PIZZA (porción),4`: 4 porciones de pizza\n"
         "    `*TORTA (fracción x 100g),1.5`: 150 g de torta\n\n"
-        "📄 *Descargá nuestro Manual Integral de Usuario completo desde el botón de abajo.*"
+        "📄 *Descargá nuestra guía de instrucciones en PDF desde el botón de abajo.*"
     )
     
-    # Botón con enlace web directo al PDF grande alojado en el servidor HTTP
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📚 Descargar Manual Integral (PDF)", url="https://telegram-bot-nutricional.onrender.com/manual.pdf")]
-    ])
+    # Generar el PDF dinámicamente llamando a la segunda función
+    pdf_buffer = generar_pdf_instrucciones_bytes()
     
-    await update.message.reply_text(msg, reply_markup=keyboard, parse_mode="Markdown")
+    # Enviar el mensaje de texto con la guía y a continuación el documento adjunto
+    await update.message.reply_text(msg, parse_mode="Markdown")
+    await update.message.reply_document(
+        document=InputFile(pdf_buffer, filename="Guia_Instrucciones_Bot.pdf"),
+        caption="📚 Aquí tenés el manual/guía de instrucciones detallado en PDF."
+    )
 
 def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     buffer = io.BytesIO()
@@ -4887,10 +4899,6 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     cmds_data = [
         [Paragraph("Comando", body_bold), Paragraph("Descripción Detallada y Formato de Uso", body_bold)],
         [
-            Paragraph("<b>/inicio</b>", code_style), 
-            Paragraph("Presenta la guía rápida con opción de descargar este manual en formato PDF.", body_style)
-        ],
-        [
             Paragraph("<b>/alta</b>", code_style), 
             Paragraph("<b>Comando de Inicio de Registro:</b> Permite iniciar el proceso de apertura de cuenta y creación de ficha nutricional paso a paso.", body_style)
         ],
@@ -4916,7 +4924,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>Peso Actual</b>", code_style), 
-            Paragraph("<b>Peso en kilogramos:</b> Ingresar el peso actual (ejemplo: <code>82.5</code> kg, con un rango válido de 30 a 300 kg).", body_style)
+            Paragraph("<b>Peso en kilogramos:</b> Ingresar el peso actual en kg(ejemplo: <code>82.5</code> kg, con un rango válido de 30 a 300 kg).", body_style)
         ],
         [
             Paragraph("<b>Muñeca</b>", code_style), 
@@ -4935,27 +4943,32 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("<b>Cancelar Registro:</b> Permite abortar el proceso de alta en cualquier momento, limpiando los datos temporales almacenados.", body_style)
         ],
         [
-            Paragraph("<b>/comidas</b>", code_style), 
-            Paragraph("<b>Planilla de comidas:</b> Visualiza el listado de comidas predeterminadas guardadas en tu planilla personal y descarga la plantilla en PDF.", body_style)
+            Paragraph("<b>/barra</b>", code_style), 
+            Paragraph("<b>Código de barras:</b> Ingresa un código de barras y se presenta porpantalla un comestible en fracciones de 100 g .", body_style)
         ],
         [
-            Paragraph("<b>/presi</b>", code_style), 
-            Paragraph("<b>• Carga:</b> <code>/presi ALTA,BAJA,PULSO,NOTA</code> (Registra presión, pulso y nota en planilla).<br/>"
-                      "<b>• Opciones cortas:</b> <code>/presi ALTA,BAJA,PULSO</code> o <code>/presi ALTA,BAJA</code> (omite nota y pulso).<br/>"
-                      "<b>• Consulta:</b> <code>/presi AAAA-MM</code> Promedio del mes e informe PDF detallado.", body_style)
+            Paragraph("<b>/comidas</b>", code_style), 
+            Paragraph("<b>Planilla de comidas:</b> Visualiza el listado de comidas predeterminadas guardadas en tu planilla personal y permite descargar la plantilla en PDF.", body_style)
         ],
         [
             Paragraph("<b>/dia</b>", code_style), 
-            Paragraph("<b>Resumen diario:</b> Permite seleccionar el día de consulta. Muestra por pantalla los consumos del día y descarga el PDF detallado con todas las ingestas.", body_style)
+            Paragraph("<b>Resumen diario:</b> Permite seleccionar el día de consulta. Muestra por pantalla los consumos del día y descargar el PDF detallado con todas las ingestas.", body_style)
         ],
         [
-            Paragraph("<b>/semana</b>", code_style), 
-            Paragraph("<b>Promedio semanal:</b> Estadística de la semana mostrando el resumen de calorías, proteínas, actividad física y macronutrientes.<br/>"
-                      "El corte se realiza de lunes a domingo. Los lunes muestra la semana cerrada; de martes a domingo muestra la semana en curso.", body_style)
+            Paragraph("<b>/eliminar</b>", code_style), 
+            Paragraph("<b>Borrar registros:</b> Permite eliminar ingestas y actividades seleccionendo el dia.", body_style)
+        ],
+        [
+            Paragraph("<b>/GET</b>", code_style), 
+            Paragraph("<b>Gasto Energético Total:</b> Actualiza el GET mediante el registro de calorías base de 24 horas. Los datos pueden surgir de un reloj inteligente y sirve para actualizar el factor de actividad (ejemplo: <code>/GET 2150</code>).", body_style)
+        ],
+        [
+            Paragraph("<b>/inicio</b>", code_style), 
+            Paragraph("<b>Guía principal:</b> Presenta la guía rápida de comandos e ingresos disponibles.", body_style)
         ],
         [
             Paragraph("<b>/mes</b>", code_style), 
-            Paragraph("<b>Resumen mensual:</b> Selección del mes de consulta. Presenta reporte mensual, resumen calórico, estimación de cambio de peso, tabla de macronutrientes y descarga de informe diario completo.", body_style)
+            Paragraph("<b>Resumen mensual:</b> Selección del mes de consulta. Presenta reporte mensual, resumen calórico, estimación de cambio de peso, tabla de macronutrientes y descarga de informe completo en PDF.", body_style)
         ],
         [
             Paragraph("<b>/perfil</b>", code_style), 
@@ -4966,12 +4979,19 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("<b>Actualización del peso:</b> Actualiza el peso registrado para el mes en curso.", body_style)
         ],
         [
-            Paragraph("<b>/GET</b>", code_style), 
-            Paragraph("<b>Gasto Energetico Total:</b> Actualiza el GET mediante el registro de calorías base de 24 horas de un reloj inteligente para actualizar el factor de actividad (ejemplo: <code>/GET 2150</code>).", body_style)
+            Paragraph("<b>/presi</b>", code_style), 
+            Paragraph("<b>• Carga:</b> <code>/presi ALTA,BAJA,PULSO,NOTA</code> (Registra presión, pulso y nota en planilla).<br/>"
+                      "<b>• Opciones cortas:</b> <code>/presi ALTA,BAJA,PULSO</code> o <code>/presi ALTA,BAJA</code> (omite nota y pulso).<br/>"
+                      "<b>• Consulta:</b> <code>/presi AAAA-MM</code> Promedio del mes e informe PDF detallado.", body_style)
         ],
         [
             Paragraph("<b>/receta</b>", code_style), 
             Paragraph("<b>Calculadora nutricional:</b> Acceso directo a la <i>Calculadora Nutricional Web</i> para cargar recetas complejas o combinaciones de alimentos en la planilla personal.", body_style)
+        ],
+        [
+            Paragraph("<b>/semana</b>", code_style), 
+            Paragraph("<b>Promedio semanal:</b> Estadística de la semana mostrando el resumen de calorías, proteínas, actividad física y macronutrientes.<br/>"
+                      "El corte se realiza de lunes a domingo. Los lunes muestra la semana cerrada; de martes a domingo muestra la semana en curso.", body_style)
         ],
         [
             Paragraph("<b>Atajos</b>", code_style), 
@@ -5014,12 +5034,12 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("<b>Notas de Voz:</b> Dictá tu ingesta o actividad fisica en una nota de voz; la IA convertirá el audio a texto y procesará los datos nutricionales.", body_style)
         ],
         [
-            Paragraph("<b>Fotografías de Galería / Cámara:</b> Envía una foto del código de barras del producto o del plato con o sin descripción aclaratoria (Ej: <i>'Milanesa casera de pollo al horno 200 g'</i>).", body_style)
+            Paragraph("<b>Fotografías de Galería / Cámara:</b> Envía una foto del plato con o sin descripción aclaratoria (Ej: <i>'Milanesa casera de pollo al horno 200 g'</i>).", body_style)
         ],
         [
             Paragraph("<b>Proceso de Edición y Confirmación de ingestas:</b><br/>"
                       "• <b>Momento:</b> Desayuno, Almuerzo, Merienda o Cena.<br/>"
-                      "• <b>Edición parcial:</b> Seleccioná ítem por ítem enviando una <i>nueva descripción</i> (mantiene peso) o <i>descripción y peso</i> (recalcula completo).<br/>"
+                      "• <b>Edición parcial:</b> Seleccioná ítem por ítem enviando una <i>nueva descripción</i> (mantiene peso y se reenvia a la IA), <i>,nuevo peso</i> (mantiene descripcion y recalcula el bot el nuevo peso) o <i>nueva descripción,nuevo peso</i> (se reenvia todo a la IA).<br/>"
                       "• <b>Fecha y Guardado:</b> Confirmá la fecha del consumo para asentar en tu planilla.", body_style)
         ]
     ]
@@ -5127,7 +5147,6 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     buffer.seek(0)
     return buffer
     
-
 #                   INICIO                            COMANDO PRESION                                   INICIO  DB OK
 # ======================================================================================================================================
 
@@ -6578,41 +6597,16 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 #                    INICIO                 COMANDOS COMIDAS Y COMANDOS ACTIVIDAD                                   INCIO  DB OK
 # ==================================================================================================================================
 
-#                    INICIO                                    COMANDO RECETAS                                   INCIO  DB OK
-# ==================================================================================================================================
-
-@requiere_registro
-async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Envía un botón interactivo y enlace con el user_id apuntando directamente
-    a la página principal (calculadora) para ingresar la comida precargada.
-    """
-    user_id = update.effective_user.id
-    web_app_url = f"https://telegram-bot-nutricion.onrender.com/?user_id={user_id}"
-    
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🍳 Abrir Creador de Recetas", url=web_app_url)]
-    ])
-    
-    mensaje = (
-        f"👋 Hola! Usá el siguiente botón para calcular los valores nutricionales "
-        f"de tu receta e ingresarla directamente en tu planilla personalizada (*Comidas_{user_id}*):"
-    )
-    
-    await update.message.reply_text(mensaje, reply_markup=keyboard, parse_mode="Markdown")
-    
-#                      INICIO                               COMANDO COMIDAS PRECARGADAS                              INICIO  DB OK
+#                      INICIO                               COMANDOS COMIDAS PRECARGADAS                              INICIO  DB OK
 # =======================================================================================================================================
 
-@requiere_registro
-async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    comidas = obtener_comidas_usuario(user_id)
-    
+def construir_texto_listado_comidas(user_id, comidas):
+    """
+    Construye y retorna el texto en formato HTML con el listado de comidas del usuario.
+    Reutilizable tanto para ver las comidas como para el flujo de borrado.
+    """
     if not comidas:
-        await update.message.reply_text(f"📋 No hay comidas predeterminadas registradas en la hoja 'Comidas_{user_id}'.")
-        return
+        return f"📋 No hay comidas predeterminadas registradas en la hoja 'Comidas_{user_id}'."
 
     txt = f"📋 <b>Listado de Comidas Predeterminadas (Comidas_{user_id}):</b>\n\n"
     
@@ -6633,7 +6627,22 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
             break
             
         txt += linea
+        
+    return txt
 
+
+@requiere_registro
+async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    comidas = obtener_comidas_usuario(user_id)
+    
+    if not comidas:
+        await update.message.reply_text(f"📋 No hay comidas predeterminadas registradas en la hoja 'Comidas_{user_id}'.")
+        return
+
+    # Reutilizamos la función auxiliar para generar el texto
+    txt = construir_texto_listado_comidas(user_id, comidas)
     txt += "\n📄 Te adjuntamos el archivo en PDF completo con todos los macronutrientes a continuación."
     
     try:
@@ -6652,7 +6661,62 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Error generando PDF de comidas: {e}")
         await update.message.reply_text("❌ Ocurrió un error al generar el archivo PDF.")
-                
+
+
+@requiere_registro
+async def cmd_borrar_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Comando dual para eliminar comidas:
+    - Sin argumentos: Muestra el listado de comidas y la instrucción de uso.
+    - Con argumento (nombre): Busca la comida de forma exacta y procede a eliminarla.
+    """
+    user_id = update.effective_user.id
+    
+    # CASO 1: Se invocó con argumentos (ej: /borrar_comida Milanesa)
+    if context.args:
+        nombre_a_borrar = " ".join(context.args).strip()
+        
+        comida_encontrada = buscar_comida_precargada_exacta(user_id, nombre_a_borrar)
+        
+        if not comida_encontrada:
+            await update.message.reply_text(
+                f"❌ No se encontró ninguna comida registrada con el nombre exacto: <b>{nombre_a_borrar}</b>.",
+                parse_mode="HTML"
+            )
+            return
+        
+        # TODO: ACÁ LLAMAS A TU FUNCIÓN DE SUPABASE PARA BORRAR LA COMIDA
+        # Ejemplo: eliminar_comida_en_supabase(user_id, comida_encontrada['nombre'])
+        
+        await update.message.reply_text(
+            f"✅ La comida <b>{comida_encontrada['nombre']}</b> ha sido eliminada exitosamente de tu planilla.",
+            parse_mode="HTML"
+        )
+        return
+
+    # CASO 2: Se invocó solo (ej: /borrar_comida) -> Mostramos listado + instrucciones
+    comidas = obtener_comidas_usuario(user_id)
+    
+    if not comidas:
+        await update.message.reply_text(f"📋 No hay comidas predeterminadas registradas para eliminar.")
+        return
+
+    txt = construir_texto_listado_comidas(user_id, comidas)
+    
+    # Agregamos las instrucciones abajo del listado
+    txt += (
+        "\n🗑️ <b>¿Cómo borrar una comida?</b>\n"
+        "Copiá el nombre exacto de la lista de arriba y escribí el comando de la siguiente forma:\n"
+        "<code>/borrar_comida Nombre de la Comida</code>"
+    )
+    
+    try:
+        await update.message.reply_text(txt, parse_mode="HTML")
+    except Exception as e:
+        print(f"Error enviando texto de borrado: {e}")
+        await update.message.reply_text("📋 Ocurrió un error al mostrar el listado.")
+
+
 def buscar_comida_precargada_exacta(user_id, texto_codigo):
     """
     Busca de forma estricta un código/nombre de comida ÚNICAMENTE en la tabla de Supabase 'comidas_<user_id>'.
@@ -6732,7 +6796,7 @@ def generar_pdf_comidas_bytes(plantillas):
     doc.build(story)
     buffer.seek(0)
     return buffer
-
+    
 #                INICIO                             MANEJADOR COMIDAS ACTIVIDAD                                 INICIO DB OK
 # =====================================================================================================================================
 
@@ -7981,6 +8045,8 @@ def main():
         app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
         app_bot.add_handler(CommandHandler("migrar", cmd_migrar))
         app_bot.add_handler(CommandHandler(["eliminar", "borrar"], cmd_eliminar)) # 👈 NUEVO COMANDO ELIMINAR
+        app_bot.add_handler(CommandHandler(["delcomida", "borracomida"], cmd_borrar_comida)) # 👈 NUEVO COMANDO ELIMINAR
+
 
         # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
         # Manejador para aceptar los términos y condiciones al iniciar el alta
