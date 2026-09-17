@@ -761,6 +761,28 @@ def requiere_registro(func):
 #              INICIO                     4 FUNCIONES BIOMETRIA Y PRESION                       INICIO
 # =============================================================================================================================================
 
+def calcular_rango_actividad_fisica(peso_actual: float, peso_referencia: float) -> tuple[int, int]:
+    """
+    Calcula el rango recomendado de minutos de actividad física diaria (mínimo y máximo)
+    según la lógica proporcional de sobrepeso (tope de 60 min con >=20% de exceso, sube hasta 90 min en el ideal).
+    """
+    min_minutos = 30  # Mínimo universal saludable
+    
+    if peso_referencia <= 0:
+        return min_minutos, 60
+
+    exceso_pct = max(0.0, (peso_actual - peso_referencia) / peso_referencia)
+
+    if exceso_pct >= 0.20:
+        max_minutos = 60
+    elif exceso_pct <= 0.0:
+        max_minutos = 90
+    else:
+        max_minutos = int(90 - (exceso_pct / 0.20) * 30)
+        max_minutos = max(60, min(90, max_minutos))
+
+    return min_minutos, max_minutos
+    
 def obtener_datos_usuario(user_id):
     try:
         tabla_nombre = f"User_{user_id}"
@@ -1680,603 +1702,709 @@ async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #              FINAL                            FUNCIONES SUPABASE                 FINAL
 # =============================================================================================================================================
 
-# =============================================================================================================================================
-#              INICIO                         FUNCIONES AUXILIARES                           INICIO
-# =============================================================================================================================================
+# ======================================================================================================================================
+#                   INICIO                                    COMANDOS INFORMES                                   INICIO  DB OK
+# =====================================================================================================================================
 
-#              INICIO                       10  FUNCIONES DATOS Y FECHAS                           INICIO
-# =============================================================================================================================================
+#                   INICIO                                    COMANDO DIARIO                                    INICIO  DB OK
+# =====================================================================================================================================
 
-def parse_raw_val(val):
-    if val is None or val == "":
-        return 0.0
-    if isinstance(val, (int, float)):
-        return float(val)
-    val_str = str(val).strip().replace(',', '.')
-    try:
-        return float(val_str)
-    except ValueError:
-        return 0.0
-
-def to_sheet_int(val):
-    num = parse_raw_val(val)
-    return int(round(num * 1000))
-
-def parse_float_from_sheets(val):
-    num = parse_raw_val(val)
-    return num / 1000.0
-
-def obtener_ahora_arg():
-    return datetime.now(ARG_TZ)
-    
-def obtener_momento_y_fecha_auto():
-    ahora = obtener_ahora_arg()
-    hora = ahora.time()
-    fecha_obj = ahora.date()
-    
-    if time(0, 0) <= hora < time(4, 0):
-        fecha_obj = fecha_obj - timedelta(days=1)
-        momento = "Cena"
-    elif time(4, 0) <= hora < time(11, 0):
-        momento = "Desayuno"
-    elif time(11, 0) <= hora < time(16, 0):
-        momento = "Almuerzo"
-    elif time(16, 0) <= hora < time(20, 0):
-        momento = "Merienda"
-    else:
-        momento = "Cena"
-        
-    return fecha_obj.strftime("%Y-%m-%d"), momento
-
-def extraer_val(texto: str) -> float:
-    if not texto:
-        return 0.0
-    coincidencia = re.search(r'(\d+(?:[.,]\d+)?)', str(texto))
-    if coincidencia:
-        try:
-            return float(coincidencia.group(1).replace(',', '.'))
-        except ValueError:
-            return 0.0
-    return 0.0
-
-#              INICIO                     11 FUNCIONES BIOMETRICAS                           INICIO
-# =============================================================================================================================================
-
-def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
-    if peso_referencia and peso_referencia > 0:
-        dif_relativa = (peso_actual - peso_referencia) / peso_referencia
-        
-        if -0.10 <= dif_relativa <= 0.10:
-            return (
-                "ESTADO: MANTENIMIENTO / ESTABLE\n"
-                "Instrucción para la IA: El usuario se encuentra dentro del rango de tolerancia del 10% respecto a su peso objetivo. "
-                "El consumo calórico real y el ideal deben tender a la paridad. Analiza la estabilidad de los hábitos, la variedad de los grupos "
-                "de alimentos y la distribución armónica de los macronutrientes. No sugieras cambios drásticos de peso."
-            )
-        elif peso_actual > peso_referencia:
-            return (
-                "ESTADO: DESCENSO DE PESO\n"
-                "Instrucción para la IA: El usuario se encuentra en un régimen de descenso de peso con un déficit calórico deliberado. "
-                "Una ingesta calórica menor al gasto ideal es el comportamiento esperado y correcto. No señales la diferencia calórica como un error "
-                "o déficit involuntario ni recomiendes aumentar calorías para alcanzar el mantenimiento. Enfócate exclusivamente en la calidad nutricional, "
-                "saciedad y densidad de los alimentos consumidos dentro del marco de restricción."
-            )
-        else:
-            return (
-                "ESTADO: ASCENSO / GANANCIA DE PESO\n"
-                "Instrucción para la IA: El usuario se encuentra en un régimen de ganancia o ascenso de peso mediante un superávit calórico controlado. "
-                "Una ingesta superior al gasto base es el comportamiento pretendido. Evalúa que el aporte extra de nutrientes esté respaldado por proteínas "
-                "y carbohidratos de calidad, evitando alertar por un consumo calórico elevado."
-            )
-    else:
-        return (
-            "ESTADO: DESCENSO DE PESO\n"
-            "Instrucción para la IA: Evalúa el informe priorizando la calidad de los nutrientes y hábitos saludables sin alterar los números duros ya calculados."
-        )
-
-
-def calcular_contextura(sexo: str, altura_cm: float, muneca_cm: float) -> str:
-    """Calcula la contextura física según la relación Altura / Muñeca."""
-    if muneca_cm <= 0: return "Mediana"
-    r = altura_cm / muneca_cm
-    if str(sexo).upper() in ['M', 'MASCULINO']:
-        if r > 10.4: return "Pequeña"
-        elif 9.6 <= r <= 10.4: return "Mediana"
-        else: return "Grande"
-    else:
-        if r > 11.0: return "Pequeña"
-        elif 10.1 <= r <= 11.0: return "Mediana"
-        else: return "Grande"
-
-def calcular_peso_ideal(sexo: str, altura_cm: float) -> float:
-    """Estimación de peso ideal mediante fórmula de Lorentz."""
-    if str(sexo).upper() in ['M', 'MASCULINO']:
-        return (altura_cm - 100) - ((altura_cm - 150) / 4.0)
-    else:
-        return (altura_cm - 100) - ((altura_cm - 150) / 2.5)
-
-def calcular_peso_etapa(peso_actual: float, peso_ideal: float) -> float:
-    """Calcula el peso objetivo prudente para la primera etapa (75% actual + 25% ideal)."""
-    return round((peso_actual * 0.75) + (peso_ideal * 0.25), 1)
-    
-def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero: str = "masculino", actividad = 1375, peso_ideal = None) -> tuple[float, float]:
+@requiere_registro
+async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Calcula TMB (Mifflin-St Jeor) y GET (Gasto Energético Total).
-    Procesa números enteros (*1000) o strings/floats numéricos de forma tolerante.
+    Manejador del comando /diario.
+    Muestra el menú de selección de fecha solo si el peso del mes en curso está al día.
     """
-    def _parse_num(val, default):
-        if val is None:
-            return default
-        try:
-            return float(str(val).replace(',', '.').strip())
-        except (ValueError, TypeError):
-            return default
+    # Usá exactamente la misma signatura de llamada que en cmd_mensaje
+    #if not await _validar_peso_mes_actual(update=update, context=context):
+    #    return
+    # Despliegue del menú si el peso está al día
 
-    try:
-        p_num = _parse_num(peso_actual, 70000.0)
-        a_num = _parse_num(altura_cm, 170.0)
-        e_num = _parse_num(edad, 30.0)
-        act_num = _parse_num(actividad, 1375.0)
-
-        peso = p_num / 1000.0 if p_num > 1000 else p_num
-        altura = a_num / 1000.0 if a_num > 1000 else a_num
-        años = int(e_num / 1000.0) if e_num > 1000 else int(e_num)
-        factor_actividad = act_num / 1000.0 if act_num > 100 else act_num
-
-        if factor_actividad <= 0:
-            factor_actividad = 1.375
-
-    except Exception as e:
-        print(f"ERROR en calcular_tmb_y_get: {e}")
-        peso, altura, años, factor_actividad = 70.0, 170.0, 30, 1.375
-
-    gen_clean = str(genero).strip().lower()
-
-    if gen_clean in ["femenino", "f", "mujer", "female"]:
-        tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * años) - 161.0
-    else:
-        tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * años) + 5.0
-
-    get = tmb * factor_actividad
-    return round(tmb, 2), round(get, 2)
-        
-def calcular_metricas_mensuales(df_mes, perfil_dict):
-    """Procesa todos los cálculos mensuales garantizando consistencia y exactitud metabólica con rangos (Mínimo y Máximo)."""
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 Hoy", callback_data="diario_hoy"), InlineKeyboardButton("📆 Ayer", callback_data="diario_ayer")],
+        [InlineKeyboardButton("🗓️ Seleccionar Fecha", callback_data="diario_otro")]
+    ])
     
-    # Encapsulado: Filtramos internamente el DataFrame para excluir días incompletos del cálculo mensual
-    if df_mes is not None and not df_mes.empty and 'Fecha' in df_mes.columns:
-        todas_comidas = {"Desayuno", "Almuerzo", "Merienda", "Cena"}
-        comidas_principales = {"Almuerzo", "Cena"}
-        dias_validos_filtrados = []
-        
-        for fecha, grupo in df_mes.groupby('Fecha'):
-            comidas_del_dia = [
-                str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() 
-                for _, r in grupo.iterrows()
-                if str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() in todas_comidas
-            ]
-            
-            total_comidas = len(comidas_del_dia)
-            tiene_principal = any(c in comidas_principales for c in comidas_del_dia)
-            
-            if total_comidas >= 2 and tiene_principal:
-                dias_validos_filtrados.append(fecha)
-                
-        df_mes = df_mes[df_mes['Fecha'].isin(dias_validos_filtrados)]
-
-    dias_registrados = df_mes['Fecha'].nunique() if (df_mes is not None and not df_mes.empty) else 1
-    if dias_registrados == 0:
-        dias_registrados = 1
-
-    tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
-    tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
-
-    prom_cons = tot_cons_mes / dias_registrados
-    prom_quem = tot_quem_mes / dias_registrados
-    prom_bal_neto = prom_cons - prom_quem
-
-    tot_prot = float(df_mes['Proteinas'].sum()) if df_mes is not None and 'Proteinas' in df_mes.columns else 0.0
-    tot_gras = float(df_mes['Grasas'].sum()) if df_mes is not None and 'Grasas' in df_mes.columns else 0.0
-    tot_carb = float(df_mes['Carbohidratos'].sum()) if df_mes is not None and 'Carbohidratos' in df_mes.columns else 0.0
-    tot_fibr = float(df_mes['Fibras'].sum()) if df_mes is not None and 'Fibras' in df_mes.columns else 0.0
-
-    prom_cal = int(round(prom_cons))
-    prom_prot = int(round(tot_prot / dias_registrados))
-    prom_gras = int(round(tot_gras / dias_registrados))
-    prom_carb = int(round(tot_carb / dias_registrados))
-    prom_fibr = int(round(tot_fibr / dias_registrados))
-
-    perfil_dict = perfil_dict if isinstance(perfil_dict, dict) else {}
-    
-    def get_perfil_num(key_list, default):
-        for k in key_list:
-            if k in perfil_dict and perfil_dict[k] is not None:
-                val = parse_raw_val(perfil_dict[k])
-                if val != 0.0:
-                    return val
-        return default
-
-    edad = int(get_perfil_num(['Edad', 'edad'], 64))
-    altura = get_perfil_num(['Altura', 'altura'], 167.0)
-    peso_actual = get_perfil_num(['Peso', 'peso'], 108.5)
-    peso_ideal = get_perfil_num(['Peso_ideal', 'peso_ideal', 'Peso Ideal'], 75.0)
-    
-    genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
-    ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
-
-    peso_referencia = (peso_actual * 0.75) + (peso_ideal * 0.25)
-
-    _, get_real = calcular_tmb_y_get(
-        peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
-    )
-    _, get_meta = calcular_tmb_y_get(
-        peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
+    await update.message.reply_text(
+        "📅 **Consulta de Diario:** Seleccioná qué día querés revisar:", 
+        reply_markup=keyboard, 
+        parse_mode="Markdown"
     )
 
-    gasto_diario_total = get_real + prom_quem
-    balance_diario = prom_cons - gasto_diario_total
-    cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
-    deficit_diario_real = -balance_diario
-
-    gen_clean = genero.lower()
-    if gen_clean in ["femenino", "f", "mujer", "female"]:
-        factor_proteina_min = 1.0
-        factor_proteina_max = 1.2
-        fibr_min = 25
-    else:
-        factor_proteina_min = 1.2
-        factor_proteina_max = 1.5
-        fibr_min = 30
-
-    cal_max = int(round(get_meta))
-    cal_min = max(1500, int(round(cal_max - 600)))
-
-    prot_min = int(round(peso_referencia * factor_proteina_min))
-    prot_max = int(round(peso_referencia * factor_proteina_max))
-
-    gras_min = int(round((cal_min * 0.20) / 9.0))
-    gras_max = int(round((cal_max * 0.30) / 9.0))
-
-    carb_min = int(round((cal_min * 0.40) / 4.0))
-    carb_max = int(round((cal_max * 0.55) / 4.0))
-
-    fibr_min_val = fibr_min
-
-    return {
-        "dias_registrados": dias_registrados,
-        "prom_cal": prom_cal,
-        "prom_quem": int(round(prom_quem)),
-        "prom_bal_neto": int(round(prom_bal_neto)),
-        "prom_prot": prom_prot,
-        "prom_gras": prom_gras,
-        "prom_carb": prom_carb,
-        "prom_fibr": prom_fibr,
-        "cal_min": cal_min, "cal_max": cal_max,
-        "prot_min": prot_min, "prot_max": prot_max,
-        "gras_min": gras_min, "gras_max": gras_max,
-        "carb_min": carb_min, "carb_max": carb_max,
-        "fibr_min": fibr_min_val,
-        "ideal_cal": cal_max,
-        "ideal_prot": prot_max,
-        "ideal_gras": gras_max,
-        "ideal_carb": carb_max,
-        "ideal_fibr": fibr_min_val,
-        "peso_actual": round(float(peso_actual), 1),
-        "peso_ideal": round(float(peso_ideal), 1),
-        "peso_referencia": round(float(peso_referencia), 1),
-        "altura": round(float(altura), 1),
-        "edad": edad,
-        "get_meta": get_meta,
-        "get_real": get_real,
-        "deficit_diario_real": int(round(deficit_diario_real)),
-        "cambio_peso_kg": cambio_peso_kg,
-        "tot_cons": tot_cons_mes,
-        "tot_quem": tot_quem_mes,
-        "tot_prot": tot_prot,
-        "tot_gras": tot_gras,
-        "tot_carb": tot_carb,
-        "tot_fibr": tot_fibr
-    }
-        
-async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.DEFAULT_TYPE = None, user_id: int = None) -> bool:
-    uid = user_id or (update.effective_user.id if update else None)
-    if not uid:
-        return False
-
+async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
+    """
+    Función auxiliar para procesar y renderizar el reporte del diario agrupado por evento.
+    """
     try:
-        ultimo_registro = obtener_ultimo_peso(uid) if 'obtener_ultimo_peso' in globals() else None
-    except Exception as e:
-        if 'log_error' in globals():
-            await log_error("validar_peso_mes_actual", e, user_id=uid)
-        ultimo_registro = None
+        df = obtener_datos_usuario(user_id)
+        df_diario = df[df['Fecha'] == fecha_str] if not df.empty else pd.DataFrame()
 
-    peso_valido = False
-
-    if ultimo_registro:
-        fecha_val = (
-            ultimo_registro.get("fecha") or  
-            ultimo_registro.get("Ultimo Mes Peso") or  
-            ultimo_registro.get("MES") or  
-            ""
-        )
-        fecha_str = str(fecha_val).strip()
-
-        if fecha_str:
-            ahora = obtener_ahora_arg() if 'obtener_ahora_arg' in globals() else datetime.now()
-            
-            formatos = [
-                "%d/%m/%Y", "%Y-%m-%d", "%d/%m/%y",
-                "%Y-%m", "%m/%Y", "%Y-%m-%d %H:%M:%S",
-                "%d/%m/%Y %H:%M:%S", "%Y-%m-%d %H:%M"
-            ]
-
-            fecha_dt = None
-            for fmt in formatos:
-                try:
-                    fecha_dt = datetime.strptime(fecha_str, fmt)
-                    break
-                except ValueError:
-                    continue
-
-            if fecha_dt:
-                if fecha_dt.year == ahora.year and fecha_dt.month == ahora.month:
-                    peso_valido = True
-            else:
-                mes_str_iso = ahora.strftime("%Y-%m")
-                mes_str_lat = ahora.strftime("%m/%Y")
-                if mes_str_iso in fecha_str or mes_str_lat in fecha_str:
-                    peso_valido = True
-                    
-    return peso_valido
-    
-#              INICIO                     12 FUNCIONES COMIDAS                           INICIO
-# =============================================================================================================================================
-
-def calcular_porcentajes_harinas(frecuencias):
-    key_int = next((k for k in frecuencias.keys() if 'integral' in k), None)
-    key_ref = next((k for k in frecuencias.keys() if 'refinada' in k or 'blanca' in k), None)
-
-    total_integrales = frecuencias.get(key_int, 0) if key_int else 0
-    total_refinadas = frecuencias.get(key_ref, 0) if key_ref else 0
-    total_harinas = total_integrales + total_refinadas
-    
-    if total_harinas > 0:
-        porc_int = round((total_integrales / total_harinas) * 100)
-        porc_ref = round((total_refinadas / total_harinas) * 100)
-    else:
-        porc_int, porc_ref = 0, 0
-        
-    return porc_int, porc_ref
-    
-def analizar_frecuencia_alimentos_mes(df_o_user_id, cat_dict_o_mes=None, col_integrales=None, col_refinadas=None, otras_categorias=None):
-    try:
-        # Compatibilidad dual: si el primer argumento es un user_id (int) y el segundo un mes (str)
-        if isinstance(df_o_user_id, (int, str)) and isinstance(cat_dict_o_mes, str) and not isinstance(df_o_user_id, pd.DataFrame):
-            user_id = int(df_o_user_id)
-            mes_str = cat_dict_o_mes
-            
-            df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
-            if df_datos.empty or 'Fecha' not in df_datos.columns:
-                return {}
-                
-            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
-            inicio_periodo = pd.Timestamp(f"{mes_str}-01").normalize()
-            fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
-            
-            df_mes = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
-            if df_mes.empty:
-                return {}
-                
-            # Categorías por defecto si no se pasan
-            cat_dict = {'harinas_integrales': ['integral', 'salvado'], 'harinas_refinadas': ['blanca', 'refinada']}
+        if df_diario.empty:
+            texto = f"⚠️ No se encontraron registros de ingestas para la fecha `{fecha_str}`."
+            reply_markup = None
         else:
-            df_mes = df_o_user_id
-            cat_dict = cat_dict_o_mes if isinstance(cat_dict_o_mes, dict) else {}
-
-        if other_cat := otras_categorias is None:
-            otras_categorias = {}
+            # 1. Encabezado
+            texto = f"📅 Registro del día {fecha_str}:\n\n"
             
-        frecuencias = {cat: 0 for cat in cat_dict.keys()} if cat_dict else {}
-
-        for _, row in df_mes.iterrows():
-            texto_celda = str(row.get('Alimento', '')).strip().lower()
-            if not texto_celda:
-                continue
-
-            es_integral = any(p in texto_celda for p in (col_integrales or ['integral', 'salvado', 'centeno', 'avena']))
+            # 2. Agrupación por momento mantención del orden de aparición original
+            momentos_vistos = []
+            agrupado = {}
             
-            if es_integral:
-                for cat_key in frecuencias.keys():
-                    if 'integral' in cat_key:
-                        frecuencias[cat_key] += 1
-            else:
-                if col_refinadas and any(p in texto_celda for p in col_refinadas):
-                    for cat_key in frecuencias.keys():
-                        if 'refinada' in cat_key or 'blanca' in cat_key:
-                            frecuencias[cat_key] += 1
-
-            for cat_nombre, palabras in otras_categorias.items():
-                if any(p in texto_celda for p in palabras):
-                    if cat_nombre not in frecuencias:
-                        frecuencias[cat_nombre] = 0
-                    frecuencias[cat_nombre] += 1
-
-        return frecuencias
-    except Exception as e:
-        print(f"Error analizando frecuencias de alimentos: {e}")
-        return {}
-        
-def consultar_codigo_barras(barcode: str) -> dict | bool:
-    url = f"https://world.openfoodfacts.org/api/v2/product/{barcode.strip()}.json"
-    
-    headers = {
-        "User-Agent": "BotNutricionTelegram/1.0 (contacto@tudominio.com)"
-    }
-    
-    try:
-        response = requests.get(url, headers=headers, timeout=5)
-        
-        if response.status_code != 200:
-            return False
-            
-        data = response.json()
-        
-        if data.get("status") != 1:
-            return False
-            
-        product = data.get("product", {})
-        nutriments = product.get("nutriments", {})
-        
-        nombre_alimento = (
-            product.get("product_name_es") or 
-            product.get("product_name") or 
-            "Producto desconocido"
-        )
-        
-        marca = product.get("brands", "")
-        if marca:
-            nombre_alimento = f"{nombre_alimento} ({marca})"
-
-        # Extracción y cálculo estrictamente basado en 100 gramos
-        calorias = float(nutriments.get("energy-kcal_100g", nutriments.get("energy-kcal", 0.0) or 0.0))
-        proteinas = float(nutriments.get("proteins_100g", 0.0) or 0.0)
-        grasas = float(nutriments.get("fat_100g", 0.0) or 0.0)
-        carbohidratos = float(nutriments.get("carbohydrates_100g", 0.0) or 0.0)
-        fibras = float(nutriments.get("fiber_100g", 0.0) or 0.0)
-
-        return {
-            "alimento": nombre_alimento,
-            "peso": 100.0,
-            "calorias": calorias,
-            "proteinas": proteinas,
-            "grasas": grasas,
-            "carbohidratos": carbohidratos,
-            "fibras": fibras,
-            "fuente": "Open Food Facts"
-        }
-        
-    except Exception as e:
-        logging.error(f"⚠️ Error al consultar el código de barras {barcode}: {e}")
-        return False
+            for _, r in df_diario.iterrows():
+                momento = str(r.get('Momento', '')).strip()
+                alimento = str(r.get('Alimento', '')).strip()
                 
-def procesar_foto_codigo_barras(base64_image: str) -> dict | bool:
-    try:
-        image_bytes = base64.b64decode(base64_image)
-        np_arr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-        
-        if img is None:
-            return False
-            
-        detector = cv2.barcode.BarcodeDetector()
-        retval, decoded_info, decoded_type, points = detector.detectAndDecode(img)
-        
-        if retval and decoded_info:
-            for barcode_text in decoded_info:
-                if barcode_text and barcode_text.strip():
-                    resultado_api = consultar_codigo_barras(barcode_text.strip())
-                    if resultado_api:
-                        return resultado_api
-                        
-        return False
-        
-    except Exception as e:
-        return False
-        
-#              INICIO             13 FUNCIONES LOGGING Y TELEGRAM                           INICIO
-# =============================================================================================================================================
+                if momento not in agrupado:
+                    agrupado[momento] = []
+                    momentos_vistos.append(momento)
+                if alimento:
+                    agrupado[momento].append(alimento)
 
-async def enviar_mensaje_largo(context, chat_id, texto, parse_mode="HTML"):
-    limite = 4000
-    if len(texto) <= limite:
-        await context.bot.send_message(chat_id=chat_id, text=texto, parse_mode=parse_mode)
+            # Formateo agrupado tipo listado bullet
+            for m in momentos_vistos:
+                items_str = ", ".join(agrupado[m])
+                texto += f"• {m}: {items_str}\n"
+
+            # 3. Totales y métricas nutricionales
+            c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
+            c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
+            b_neto = c_cons - c_quem
+            
+            p_tot = df_diario[df_diario['Calorias'] > 0]['Proteinas'].sum()
+            g_tot = df_diario[df_diario['Calorias'] > 0]['Grasas'].sum()
+            cb_tot = df_diario[df_diario['Calorias'] > 0]['Carbohidratos'].sum()
+            f_tot = df_diario[df_diario['Calorias'] > 0]['Fibras'].sum()
+
+            texto += f"\n🔥 Consumidas: {c_cons:.1f} kcal\n"
+            texto += f"⚡ Quemadas: {c_quem:.1f} kcal\n"
+            texto += f"⚖️ Balance Neto: {b_neto:.1f} kcal\n\n"
+            texto += f"🥩 Prot: {p_tot:.1f}g | 🥑 Gras: {g_tot:.1f}g | 🍞 Carb: {cb_tot:.1f}g | 🌾 Fibr: {f_tot:.1f}g"
+
+            keyboard = [[InlineKeyboardButton("📄 Descargar PDF", callback_data=f"descargar_pdf_diario_{fecha_str}")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Envíos dinámicos según el origen de llamada originales
+        if hasattr(update_or_query, 'edit_message_text'):
+            try:
+                await update_or_query.edit_message_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+            except Exception as ex:
+                if "Message is not modified" not in str(ex):
+                    raise ex
+        elif hasattr(update_or_query, 'reply_text'):
+            await update_or_query.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+        elif hasattr(update_or_query, 'message') and update_or_query.message:
+            await update_or_query.message.reply_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
+
+    except Exception as e:
+        if "Message is not modified" in str(e):
+            return
+            
+        msg_err = f"❌ Error al consultar el diario para la fecha `{fecha_str}`: {e}"
+        if hasattr(update_or_query, 'edit_message_text'):
+            try:
+                await update_or_query.edit_message_text(msg_err, parse_mode="Markdown")
+            except Exception:
+                pass
+        elif hasattr(update_or_query, 'reply_text'):
+            await update_or_query.reply_text(msg_err, parse_mode="Markdown")
+        elif hasattr(update_or_query, 'message') and update_or_query.message:
+            await update_or_query.message.reply_text(msg_err, parse_mode="Markdown")
+
+def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#1E293B'))
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
+
+    story = [
+        Paragraph(f"<b>Detalle Diario de Ingestas - {fecha_str}</b>", title_style),
+        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
+    ]
+
+    if df_diario.empty:
+        story.append(Paragraph("No hay registros para esta fecha.", body_style))
+    else:
+        table_data = [[
+            Paragraph("Momento", header_style),
+            Paragraph("Alimento / Detalle", header_style),
+            Paragraph("Peso", header_style),
+            Paragraph("Kcal", header_style),
+            Paragraph("Prot", header_style),
+            Paragraph("Gras", header_style),
+            Paragraph("Carb", header_style),
+            Paragraph("Fibr", header_style)
+        ]]
+
+        for _, r in df_diario.iterrows():
+            table_data.append([
+                Paragraph(str(r.get('Momento', '')), body_style),
+                Paragraph(str(r.get('Alimento', '')), body_style),
+                Paragraph(f"{r.get('Peso', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Calorias', 0):.1f}", body_style),
+                Paragraph(f"{r.get('Proteinas', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Grasas', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Carbohidratos', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Fibras', 0):.1f}g", body_style)
+            ])
+
+        t = Table(table_data, colWidths=[70, 160, 45, 45, 45, 45, 45, 45])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 10))
+
+        c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
+        c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
+        b_neto = c_cons - c_quem
+        story.append(Paragraph(f"• <b>Total Consumidas:</b> {c_cons:.1f} kcal", body_style))
+        story.append(Paragraph(f"• <b>Total Quemadas:</b> {c_quem:.1f} kcal", body_style))
+        story.append(Paragraph(f"• <b>Balance Neto:</b> {b_neto:.1f} kcal", body_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+#                 INICIO                            COMANDO SEMANA  2026 09 09             INICIO   DB OK
+# ======================================================================================================================================
+
+def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo):
+    """Calcula y genera el texto estructurado del resumen semanal con rangos, presión y actividad."""
+    df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+
+    if df_datos.empty or 'Fecha' not in df_datos.columns:
+        return None, None
+
+    df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.date
+    df_semana = df_datos[(df_datos['Fecha_dt'] >= inicio_rango) & (df_datos['Fecha_dt'] <= fin_rango)].copy()
+
+    if df_semana.empty:
+        return None, None
+
+    mes_target = inicio_rango.strftime("%Y-%m")
+    perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
+    m = calcular_metricas_mensuales(df_semana, perfil) if 'calcular_metricas_mensuales' in globals() else {}
+
+    # Cálculo seguro de los rangos de actividad según peso actual y de referencia
+    peso_act_val = float(m.get('peso_actual', 0))
+    peso_ref_val = float(m.get('peso_referencia', 0))
+    act_min_val, act_max_val = calcular_rango_actividad_fisica(peso_act_val, peso_ref_val)
+
+    minutos_totales_actividad = 0
+    if 'Momento' in df_semana.columns and 'Alimento' in df_semana.columns:
+        for _, row in df_semana.iterrows():
+            momento_str = str(row.get('Momento', '')).strip().lower()
+            alimento_str = str(row.get('Alimento', '')).strip()
+            cal_val = float(row.get('Calorias', 0) or 0)
+            if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
+                match = re.match(r'^(\d+)', alimento_str)
+                if match:
+                    minutos_totales_actividad += int(match.group(1))
+
+    # Promedio diario de la semana (dividido entre 7 días)
+    prom_minutos_act = int(round(minutos_totales_actividad / 7.0))
+
+    prom_alta, prom_baja = None, None
+    try:
+        df_presion = obtener_datos_presion_db(user_id) if 'obtener_datos_presion_db' in globals() else pd.DataFrame()
+        if not df_presion.empty and 'Fecha_Dia' in df_presion.columns:
+            df_presion['Fecha_Dia_dt'] = pd.to_datetime(df_presion['Fecha_Dia'], errors='coerce').dt.date
+            df_presion_semana = df_presion[
+                (df_presion['Fecha_Dia_dt'] >= inicio_rango) & 
+                (df_presion['Fecha_Dia_dt'] <= fin_rango)
+            ]
+            if not df_presion_semana.empty:
+                prom_alta = round(df_presion_semana['Alta'].mean())
+                prom_baja = round(df_presion_semana['Baja'].mean())
+    except Exception as e_presion:
+        logger.error(f"Error al calcular presión semanal: {e_presion}")
+
+    txt = (
+        f"📅 **Resumen Nutricional Semanal:**\n"
+        f"ℹ️ *{etiqueta_periodo}*\n\n"
+        f"📈 **Promedios vs. Rangos Saludables:**\n"
+        f"• Calorías: `{m.get('prom_cal', 0)} kcal` / Rango: `{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal`\n"
+        f"• Proteínas: `{m.get('prom_prot', 0)} g` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
+        f"• Grasas: `{m.get('prom_gras', 0)} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
+        f"• Carbohidratos: `{m.get('prom_carb', 0)} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
+        f"• Fibras: `{m.get('prom_fibr', 0)} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
+        f"• Actividad Física: `{prom_minutos_act} min/día` / Rango: `{act_min_val} - {act_max_val} min/día`\n"
+    )
+    if prom_alta is not None and prom_baja is not None:
+        txt += f"• **Presión Arterial Promedio:** `{prom_alta}/{prom_baja} mmHg`\n"
+
+    txt += (
+        f"\n• **Calorías Quemadas (Promedio):** `{m.get('prom_quem', 0)} kcal/día`\n"
+        f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`\n\n"
+        f"_(Nota: Los rangos de actividad consideran impacto corporal; actividades como aquagym o natación no aplican restricciones de sobrepeso)._"
+    )
+
+    return txt, m
+            
+@requiere_registro
+async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _validar_peso_mes_actual(update=update, context=context):
         return
 
-    lineas = texto.split("\n")
-    chunk_actual = ""
-    for linea in lineas:
-        if len(chunk_actual) + len(linea) + 1 > limite:
-            await context.bot.send_message(chat_id=chat_id, text=chunk_actual, parse_mode=parse_mode)
-            chunk_actual = linea + "\n"
-        else:
-            chunk_actual += linea + "\n"
-    
-    if chunk_actual.strip():
-        await context.bot.send_message(chat_id=chat_id, text=chunk_actual, parse_mode=parse_mode)
-
-async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
     try:
-        peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
-        if not peso_ok and not forzar_envio:
-            return False
+        user_id = update.effective_user.id
+        msg_espera = await update.message.reply_text("⏳ Procesando resumen nutricional...")
+
+        tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
+        ahora_arg = datetime.now(tz_arg)
+        hoy = ahora_arg.date()
+        dia_semana = ahora_arg.weekday()  # 0: Lunes
+
+        if dia_semana == 0:
+            inicio_rango = hoy - timedelta(days=7)
+            fin_rango = hoy - timedelta(days=1)
+            etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
+        else:
+            inicio_rango = hoy - timedelta(days=dia_semana)
+            fin_rango = hoy - timedelta(days=1)
+            dias_espanol = {1: "Martes", 2: "Miércoles", 3: "Jueves", 4: "Viernes", 5: "Sábado", 6: "Domingo"}
+            nombre_dia_ayer = dias_espanol.get(dia_semana - 1, "")
+            etiqueta_periodo = f"Semana Actual (Lunes a {nombre_dia_ayer})"
+
+        txt, _ = _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo)
+
+        if not txt:
+            await msg_espera.edit_text("⚠️ No hay registros acumulados para los días transcurridos de este período.")
+            return
+
+        await msg_espera.edit_text(txt, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Error en cmd_mensaje: {e}")
+        if 'msg_espera' in locals():
+            await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
+                     
+#               INICIO                                COMANDO RESUMEN MENSUAL                        INICIO DB OK
+# ==========================================================================================================================================
+
+@requiere_registro
+async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Manejador del comando /resumen.
+    Muestra el menú de selección de mes condicional según el día actual.
+    """
+    if not await _validar_peso_mes_actual(update, context):
+        return
+
+    ahora = obtener_ahora_arg()
+    mes_actual = ahora.strftime("%Y-%m")
+    mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+    dia_actual = ahora.day
+
+    if 1 <= dia_actual <= 7:
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
+            [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+        ])
+    else:
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual}")],
+            [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
+            [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+        ])
+
+    await update.message.reply_text(
+        "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", 
+        reply_markup=keyboard, 
+        parse_mode="Markdown"
+    )
+
+async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+
+        ahora = obtener_ahora_arg()
+        mes_actual_str = ahora.strftime("%Y-%m")
+        dia_actual = ahora.day
+
+        mes_str = None
+        if query and query.data:
+            await query.answer()
+            cb_data = query.data
+
+            if cb_data == "resumen_mes_menu_otros":
+                botones_meses = []
+                primer_dia_mes_actual = ahora.replace(day=1)
+                for i in range(1, 7):
+                    mes_iter = (primer_dia_mes_actual - pd.DateOffset(months=i)).strftime("%Y-%m")
+                    botones_meses.append([InlineKeyboardButton(f"🗓️ Período {mes_iter}", callback_data=f"resumen_mes_{mes_iter}")])
+                
+                botones_meses.append([InlineKeyboardButton("🔙 Volver", callback_data="resumen_volver_menu")])
+                
+                await query.edit_message_text(
+                    "🗓️ **Seleccioná el mes que querés consultar:**", 
+                    reply_markup=InlineKeyboardMarkup(botones_meses),
+                    parse_mode="Markdown"
+                )
+                return
+
+            elif cb_data == "resumen_volver_menu":
+                mes_anterior_str = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+                
+                if 1 <= dia_actual <= 7:
+                    keyboard = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior_str}")],
+                        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+                    ])
+                else:
+                    keyboard = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual_str}")],
+                        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior_str}")],
+                        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+                    ])
+
+                await query.edit_message_text(
+                    "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", 
+                    reply_markup=keyboard, 
+                    parse_mode="Markdown"
+                )
+                return
+
+            elif cb_data.startswith("resumen_mes_"):
+                mes_str = cb_data.replace("resumen_mes_", "")
+
+        elif context.args:
+            mes_str = context.args[0]
+
+        if not mes_str:
+            mes_str = mes_actual_str
+
+        if mes_str == mes_actual_str and 1 <= dia_actual <= 7:
+            msg = "⚠️ No se encuentra disponible el resumen del mes actual durante los primeros 7 días del mes."
+            if query:
+                await query.edit_message_text(msg, parse_mode="Markdown")
+            else:
+                await update.message.reply_text(msg, parse_mode="Markdown")
+            return
+
+        if mes_str == mes_actual_str:
+            if not await _validar_peso_mes_actual(update, context):
+                return
 
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
-        if df_datos.empty or 'Fecha' not in df_datos.columns:
-            await context.bot.send_message(chat_id=user_id, text="⚠️ No hay registros suficientes para generar el informe.")
-            return False
-
-        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
         
-        ahora_arg = obtener_ahora_arg()
-        if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
-            ahora_arg = ahora_arg.replace(tzinfo=None)
-        
-        hoy_ts = pd.Timestamp(ahora_arg).normalize()
-        ayer_ts = hoy_ts - pd.Timedelta(days=1)
-        mes_actual_str = hoy_ts.strftime("%Y-%m")
-
-        if es_automatico_15:
-            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
-            fin_periodo = pd.Timestamp(f"{mes_target}-14").normalize()
-            etiqueta_periodo = f"Quincenal ({mes_target}: 1 al 14)"
-        else:
-            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
-            if mes_target == mes_actual_str:
-                fin_periodo = ayer_ts
-                etiqueta_periodo = f"Mes Actual en curso ({mes_target}: del 01 al {ayer_ts.strftime('%d/%m')})"
+        if not df_datos.empty and 'Fecha' in df_datos.columns:
+            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce')
+            hoy_comienzo = pd.Timestamp.now().floor('D')
+            
+            if mes_str == mes_actual_str:
+                df_mes = df_datos[
+                    (df_datos['Fecha'].astype(str).str.startswith(mes_str)) & 
+                    (df_datos['Fecha_dt'] < hoy_comienzo)
+                ].copy()
             else:
-                fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
-                etiqueta_periodo = f"Mes Completo ({mes_target})"
+                df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)].copy()
+        else:
+            df_mes = pd.DataFrame()
 
-        df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
+        if df_mes.empty:
+            msg = f"⚠️ No hay registros cargados para el mes `{mes_str}`."
+            if query:
+                await query.edit_message_text(msg, parse_mode="Markdown")
+            else:
+                await update.message.reply_text(msg, parse_mode="Markdown")
+            return
 
-        if df_filtrado.empty:
-            await context.bot.send_message(chat_id=user_id, text=f"⚠️ No se encontraron registros cerrados para el período {etiqueta_periodo}.")
-            return False
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
+        m = calcular_metricas_mensuales(df_mes, perfil)
 
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
-        m = calcular_metricas_mensuales(df_filtrado, perfil) if 'calcular_metricas_mensuales' in globals() else {}
-        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_target) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
+        # Cálculo seguro de minutos de actividad mensuales si existen columnas en el df_mes
+        minutos_mes_act = 0
+        dias_activos_act = m.get('dias_registrados', 1) if m.get('dias_registrados', 1) > 0 else 1
+        if not df_mes.empty and 'Momento' in df_mes.columns and 'Alimento' in df_mes.columns:
+            for _, row in df_mes.iterrows():
+                momento_str = str(row.get('Momento', '')).strip().lower()
+                alimento_str = str(row.get('Alimento', '')).strip()
+                cal_val = float(row.get('Calorias', 0) or 0)
+                if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
+                    match = re.match(r'^(\d+)', alimento_str)
+                    if match:
+                        minutos_mes_act += int(match.group(1))
+        prom_minutos_mes_act = int(round(minutos_mes_act / dias_activos_act))
 
-        peso_actual_eval = float(m.get('peso_actual', 0))
-        peso_referencia_eval = float(m.get('peso_referencia', 0))
-        prompt_condicional = obtener_prompt_segun_objetivo_peso(peso_actual_eval, peso_referencia_eval) if 'obtener_prompt_segun_objetivo_peso' in globals() else None
+        # Rangos seguros de actividad según peso actual y de referencia
+        peso_act_val = float(m.get('peso_actual', 0))
+        peso_ref_val = float(m.get('peso_referencia', 0))
+        if 'calcular_rango_actividad_fisica' in globals():
+            act_min_val, act_max_val = calcular_rango_actividad_fisica(peso_act_val, peso_ref_val)
+        else:
+            act_min_val, act_max_val = 30, 60
 
-        informe_ia = await generar_informe_mensual_auditado(
-            context=context, 
-            user_id=user_id, 
-            mes_str=mes_target, 
-            m=m, 
-            frecuencias=conteo_frecuencias,
-            prompt_condicional=prompt_condicional
+        def _fmt(val, dec=0):
+            try:
+                num = float(val)
+                return f"{num:.{dec}f}" if dec > 0 else f"{int(round(num))}"
+            except (ValueError, TypeError):
+                return "0"
+
+        cambio_peso_val = float(m.get('cambio_peso_kg', 0))
+        texto_variacion_peso = f"`{cambio_peso_val:+.1f} kg`"
+
+        encabezado_txt = (
+            f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n"
+            f"⚖️ Peso registrado: `{_fmt(m.get('peso_actual', 0), 1)} kg`\n\n"
+            f"• Consumidas: `{_fmt(m.get('prom_cal', 0))} kcal` | Quemadas: `{_fmt(m.get('prom_quem', 0))} kcal`\n"
+            f"• Balance Neto: `{_fmt(m.get('prom_bal_neto', 0))} kcal/día`\n"
+            f"• Variación Est. de Peso: {texto_variacion_peso} ({m.get('dias_registrados', 0)} días)\n\n"
+            f"📈 **Promedios vs. Rangos Saludables:**\n"
+            f"• Calorías: `{_fmt(m.get('prom_cal', 0))} kcal` / Rango: `{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal`\n"
+            f"• Proteínas: `{_fmt(m.get('prom_prot', 0))} g` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
+            f"• Grasas: `{_fmt(m.get('prom_gras', 0))} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
+            f"• Carbs: `{_fmt(m.get('prom_carb', 0))} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
+            f"• Fibras: `{_fmt(m.get('prom_fibr', 0))} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
+            f"• Actividad Física: `{prom_minutos_mes_act} min/día` / Rango: `{act_min_val} - {act_max_val} min/día`\n\n"
+            f"_(Nota: Los rangos de actividad consideran impacto corporal; actividades como aquagym o natación no aplican restricciones de sobrepeso)._\n\n"
+            f"📌 Resumen calculado con éxito"
         )
 
-        if not informe_ia:
-            informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
+        pie_txt = f"\n\n📄 Podés descargar el informe completo en PDF abajo:"
+        txt_final = f"{encabezado_txt}{pie_txt}"
 
-        recomendacion_pdf = (
-            informe_ia
-            .replace("<br>", "<br/>")
-            .replace("<BR>", "<br/>")
-        )
+        keyboard = [[InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"descargar_pdf_resumen_{mes_str}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
+        if query:
+            await query.edit_message_text(txt_final, reply_markup=reply_markup, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(txt_final, reply_markup=reply_markup, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Error en mostrar_resumen_mes: {e}", exc_info=True)
+        msg_err = f"⚠️ Ocurrió un error al generar el resumen mensual: {e}"
+        if update.callback_query:
+            await update.callback_query.edit_message_text(msg_err)
+        else:
+            await update.message.reply_text(msg_err)
+            
+def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=14, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
+    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=10, textColor=colors.HexColor('#2563EB'), spaceBefore=6, spaceAfter=2)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#1E293B'))
+    rec_style = ParagraphStyle('RecBody', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#0F172A'), spaceAfter=1)
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
+
+    story = [
+        Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str}</b>", title_style),
+        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=6)
+    ]
+
+    headers_h1 = ["Fecha", "Cal. Consumid.", "Cal. Quemad.", "Bal. Neto", "Proteinas (g)", "Grasas (g)", "Carbohidratos (g)", "Fibras (g)"]
+    table_data_h1 = [[Paragraph(h, header_style) for h in headers_h1]]
+
+    tot_cons, tot_quem, tot_prot, tot_gras, tot_carb, tot_fibr = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+
+    if df_mes is not None and not df_mes.empty:
+        fechas_unicas = sorted(df_mes['Fecha'].unique())
+
+        for f in fechas_unicas:
+            sub = df_mes[df_mes['Fecha'] == f]
+            
+            c_cons = float(sub[sub['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in sub.columns else 0.0
+            c_quem = float(abs(sub[sub['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in sub.columns else 0.0
+            b_neto = c_cons - c_quem
+            
+            prot = float(sub['Proteinas'].sum()) if 'Proteinas' in sub.columns else 0.0
+            gras = float(sub['Grasas'].sum()) if 'Grasas' in sub.columns else 0.0
+            carb = float(sub['Carbohidratos'].sum()) if 'Carbohidratos' in sub.columns else 0.0
+            fibr = float(sub['Fibras'].sum()) if 'Fibras' in sub.columns else 0.0
+
+            tot_cons += c_cons
+            tot_quem += c_quem
+            tot_prot += prot
+            tot_gras += gras
+            tot_carb += carb
+            tot_fibr += fibr
+
+            table_data_h1.append([
+                Paragraph(str(f), body_style),
+                Paragraph(f"{int(round(c_cons))} kcal", body_style),
+                Paragraph(f"{int(round(c_quem))} kcal", body_style),
+                Paragraph(f"{int(round(b_neto))} kcal", body_style),
+                Paragraph(f"{int(round(prot))} g", body_style),
+                Paragraph(f"{int(round(gras))} g", body_style),
+                Paragraph(f"{int(round(carb))} g", body_style),
+                Paragraph(f"{int(round(fibr))} g", body_style)
+            ])
+        
+        tot_neto = tot_cons - tot_quem
+        dias_activos = len(fechas_unicas) if len(fechas_unicas) > 0 else 1
+
+        table_data_h1.append([
+            Paragraph("<b>TOTAL MES</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_cons))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_quem))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_neto))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_prot))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_gras))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_carb))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_fibr))} g</b>", body_style)
+        ])
+
+        table_data_h1.append([
+            Paragraph("<b>PROM. DIARIO</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_cons/dias_activos))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_quem/dias_activos))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_neto/dias_activos))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_prot/dias_activos))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_gras/dias_activos))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_carb/dias_activos))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_fibr/dias_activos))} g</b>", body_style)
+        ])
+
+    t1 = Table(table_data_h1, colWidths=[65, 75, 70, 70, 65, 60, 80, 55])
+    t1.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('BACKGROUND', (0, -2), (-1, -1), colors.HexColor('#F1F5F9'))
+    ]))
+    story.append(t1)
+
+    story.append(PageBreak())
+    story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes (Rangos Saludables)</b>", title_style))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=6))
+
+    perfil_dict = perfil if isinstance(perfil, dict) else {}
+    m = calcular_metricas_mensuales(df_mes, perfil_dict)
+
+    table_comp = [
+        [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Rango / Mínimo Saludable</b>", header_style)],
+        [Paragraph("Calorías", body_style), Paragraph(f"{m.get('prom_cal', 0)} kcal", body_style), Paragraph(f"{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal", body_style)],
+        [Paragraph("Proteínas", body_style), Paragraph(f"{m.get('prom_prot', 0)} g", body_style), Paragraph(f"{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g", body_style)],
+        [Paragraph("Grasas", body_style), Paragraph(f"{m.get('prom_gras', 0)} g", body_style), Paragraph(f"{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g", body_style)],
+        [Paragraph("Carbohidratos", body_style), Paragraph(f"{m.get('prom_carb', 0)} g", body_style), Paragraph(f"{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g", body_style)],
+        [Paragraph("Fibras", body_style), Paragraph(f"{m.get('prom_fibr', 0)} g", body_style), Paragraph(f"Mínimo {m.get('fibr_min', 0)} g", body_style)]
+    ]
+    t_comp = Table(table_comp, colWidths=[150, 185, 185])
+    t_comp.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+    ]))
+    story.append(t_comp)
+    story.append(Spacer(1, 4))
+
+    peso_act_pdf = round(float(m.get('peso_actual', 0)), 1)
+    peso_ref_pdf = round(float(m.get('peso_referencia', 0)), 1)
+
+    story.append(Paragraph(f"• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {peso_act_pdf} kg | Peso Objetivo de esta etapa : {peso_ref_pdf} kg |", body_style))
+    story.append(Paragraph(f"• <b>DÉFICIT CALÓRICO DIARIO PROMEDIO:</b> {m.get('deficit_diario_real', 0)} kcal / día", body_style))
+    story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {m.get('cambio_peso_kg', 0):+.1f} kg", body_style))
+    story.append(Paragraph(f"• <b>ACTIVIDAD FÍSICA PROMEDIO:</b> {m.get('prom_minutos_act', 0)} min/día (Rango recomendado: {m.get('act_min', 30)} - {m.get('act_max', 60)} min/día)", body_style))
+    story.append(Spacer(1, 2))
+    story.append(Paragraph("<i>(Nota: Los rangos de actividad consideran impacto corporal; actividades de bajo impacto como aquagym, natación o yoga no aplican restricciones de sobrepeso).</i>", body_style))
+
+    story.append(Spacer(1, 4))
+    story.append(Paragraph("<b>Informe Nutricional:</b>", sub_style))
+
+    if isinstance(recomendacion, str) and recomendacion.strip():
+        rec_limpia = recomendacion.strip().replace('""', '"')
+        for bloque in rec_limpia.split('\n\n'):
+            bloque_txt = bloque.strip()
+            if bloque_txt:
+                lineas_filtradas = [
+                    linea for linea in bloque_txt.split('\n') 
+                    if not linea.strip().startswith('|') and '|' not in linea
+                ]
+                bloque_sin_tablas = '<br/>'.join(lineas_filtradas).strip()
+                
+                if bloque_sin_tablas:
+                    try:
+                        story.append(Paragraph(bloque_sin_tablas, rec_style))
+                        story.append(Spacer(1, 2))
+                    except Exception:
+                        texto_plano = re.sub('<[^<]+?>', '', bloque_sin_tablas)
+                        story.append(Paragraph(texto_plano, rec_style))
+                        story.append(Spacer(1, 2))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("Generando PDF con análisis de IA... ⏳")
+
+    try:
+        user_id = query.from_user.id
+        cb_val = query.data
+        for prefix in ["descargar_pdf_resumen_", "pdf_mes_"]:
+            if cb_val.startswith(prefix):
+                cb_val = cb_val.replace(prefix, "")
+        mes_str = cb_val
+
+        ahora = obtener_ahora_arg()
+        mes_actual_str = ahora.strftime("%Y-%m")
+        dia_actual = ahora.day
+
+        if mes_str == mes_actual_str and 1 <= dia_actual <= 7:
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text="⚠️ No se encuentra disponible el reporte en PDF del mes actual durante los primeros 7 días del mes.",
+                parse_mode="Markdown"
+            )
+            return
+
+        if mes_str == mes_actual_str:
+            if not await _validar_peso_mes_actual(update, context):
+                return
+
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        
+        if not df_datos.empty and 'Fecha' in df_datos.columns:
+            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
+            hoy_comienzo = pd.Timestamp.now().floor('D')
+            
+            if mes_str == mes_actual_str:
+                df_mes = df_datos[
+                    (df_datos['Fecha'].astype(str).str.startswith(mes_str)) & 
+                    (df_datos['Fecha_dt'] < hoy_comienzo)
+                ].copy()
+            else:
+                df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)].copy()
+        else:
+            df_mes = pd.DataFrame()
+
+        if df_mes.empty:
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=f"⚠️ No hay registros de días en el mes `{mes_str}` para generar el PDF.",
+                parse_mode="Markdown"
+            )
+            return
+
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
         df_presion = pd.DataFrame()
         tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
 
+        m = calcular_metricas_mensuales(df_mes, perfil)
+
+        recomendacion_pdf = await generar_recomendacion_mensual_para_pdf(user_id, mes_str, df_mes, perfil, m, context)
+
         pdf_buffer = await asyncio.to_thread(
             generar_pdf_resumen_bytes,
-            mes_target,
-            df_filtrado,
+            mes_str,
+            df_mes,
             df_presion,
             perfil,
             tmb_val,
@@ -2285,48 +2413,387 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
         )
 
         await context.bot.send_document(
-            chat_id=int(user_id),
+            chat_id=query.message.chat_id,
             document=pdf_buffer,
-            filename=f"Informe_Nutricional_{mes_target}.pdf",
-            caption=f"📄 <b>Informe Nutricional Auditado ({etiqueta_periodo})</b>",
-            parse_mode="HTML"
+            filename=f"Reporte_Nutricional_{mes_str}.pdf",
+            caption=f"📄 Reporte mensual auditado correspondiente a **{mes_str}**.",
+            parse_mode="Markdown"
         )
-        
-        logger.info(f"Informe PDF ({etiqueta_periodo}) enviado exitosamente al paciente {user_id}")
-        return True
 
     except Exception as e:
-        logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}", exc_info=True)
-        try:
-            await context.bot.send_message(chat_id=user_id, text=f"⚠️ Error al compilar el informe PDF: {str(e)}")
-        except Exception:
-            pass
-        return False
-
-def obtener_categorias_diccionario(sh):
-    try:
-        ws = get_or_create_worksheet(sh, "Categorias_Comida")
-        records = ws.get_all_records()
-        if not records:
-            return {}
-        
-        df_cat = pd.DataFrame(records)
-        cat_dict = {}
-        for col in df_cat.columns:
-            cat_nombre = str(col).strip().lower()
-            palabras = [str(x).strip().lower() for x in df_cat[col].dropna().tolist() if str(x).strip()]
-            if palabras:
-                cat_dict[cat_nombre] = palabras
-        return cat_dict
-    except Exception as e:
-        print(f"Error al leer Categorias_Comida: {e}")
-        return {}
-        
-# =====================================================================================================================================
-#                FINAL                          FUNCIONES AUXILIARES                                     FINAL
+        logger.error(f"Error al enviar PDF: {e}", exc_info=True)
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=f"⚠️ Error al procesar la descarga del PDF: {e}"
+        )                
+#                INICIO                               MENSAJES PROGRAMADOS                          INICIO  
 # ======================================================================================================================================
 
+async def recordatorio_lunes_presion(context):
+    """
+    Job programado para los lunes: verifica si el usuario registró al menos
+    una medición de presión arterial en la última semana. Si no hay registros,
+    envía un recordatorio amistoso sin ningún tipo de sanción o penalización.
+    """
+    try:
+        records = obtener_todos_usuarios()
+        if not records:
+            return
 
+        ahora = obtener_ahora_arg()
+        hace_siete_dias = ahora - timedelta(days=7)
+
+        for r in records:
+            user_id_raw = r.get("User ID", r.get("user_id", ""))
+            if not user_id_raw:
+                continue
+            
+            user_id = str(user_id_raw).split('.')[0].strip()
+            estado_val = str(r.get("Estado", r.get("estado", "Activo"))).strip().lower()
+            
+            if estado_val in ['baja', 'suspendido', '3']:
+                continue
+            
+            if estado_val not in ['activo', 'sí', 'si', 'true', '1'] and not estado_val.isdigit():
+                continue
+
+            df_presion = obtener_datos_presion_db(user_id) if 'obtener_datos_presion_db' in globals() else pd.DataFrame()
+            
+            tiene_medicion_reciente = False
+            if not df_presion.empty and 'Fecha_Dia' in df_presion.columns:
+                df_presion['Fecha_dt'] = pd.to_datetime(df_presion['Fecha_Dia'], errors='coerce')
+                recientes = df_presion[df_presion['Fecha_dt'] >= pd.Timestamp(hace_siete_dias.date())]
+                if not recientes.empty:
+                    tiene_medicion_reciente = True
+
+            if not tiene_medicion_reciente:
+                mensaje = (
+                    "🩺 **Recordatorio de Presión Arterial**\n\n"
+                    "Hola. Notamos que todavía no registraste ninguna medición de presión arterial durante la semana pasada. "
+                    "Te recordamos la importancia de mantener un control regular para tu seguimiento médico.\n\n"
+                    "Podés registrarla cuando gustes usando el comando:\n"
+                    "`/presi 120,80,70`\n\n"
+                    "_Este es un aviso informativo y de acompañamiento, sin ninguna penalización._"
+                )
+                try:
+                    await context.bot.send_message(
+                        chat_id=int(user_id),
+                        text=mensaje,
+                        parse_mode="Markdown"
+                    )
+                except Exception as ex_send:
+                    logger.error(f"No se pudo enviar el recordatorio de presión al usuario {user_id}: {ex_send}")
+
+    except Exception as e:
+        logger.error(f"Error en la ejecución del recordatorio semanal de presión: {e}")
+
+async def ejecutar_recordatorio_comidas(context, momento: str):
+    """
+    Verifica y envía alertas de comidas pendientes, evalúa el cumplimiento semanal de ingestas 
+    (lunes y martes) aplicando el sistema de penalizaciones y suspensión, y emite el informe 
+    mensual definitivo en formato PDF el día 2 del mes siguiente cubriendo el mes completo anterior.
+    """
+    registros_usuarios = obtener_todos_usuarios()
+    if not registros_usuarios:
+        return
+
+    ahora_dt = obtener_ahora_arg()
+    hoy = ahora_dt.date() if hasattr(ahora_dt, "date") else ahora_dt
+    ayer = hoy - timedelta(days=1)
+    anteayer = hoy - timedelta(days=2)
+
+    str_hoy = hoy.strftime("%Y-%m-%d")
+    str_ayer = ayer.strftime("%Y-%m-%d")
+    str_anteayer = anteayer.strftime("%Y-%m-%d")
+
+    todas_comidas = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
+    comidas_principales = {"Almuerzo", "Cena"}
+    
+    es_lunes_manana = (hoy.weekday() == 0 and momento == 'manana')
+    es_martes_manana = (hoy.weekday() == 1 and momento == 'manana')
+    es_informe_mensual_pdf = (hoy.day in [5, 20] and momento == 'tarde')
+
+    if es_lunes_manana:
+        await recordatorio_lunes_presion(context)
+
+    for index, u in enumerate(registros_usuarios):
+        try:
+            estado_raw = str(u.get("Estado", u.get("estado", "0"))).strip().lower()
+            notif = str(u.get("Notificaciones", "")).strip().lower()
+            raw_user_id = u.get("User ID", u.get("user_id", ""))
+            
+            if not raw_user_id:
+                continue
+            
+            try:
+                user_id = int(str(raw_user_id).split('.')[0].strip())
+            except ValueError:
+                continue
+
+            if estado_raw in ['baja', 'suspendido', '3']:
+                continue
+
+            if notif not in ["si", "sí"]:
+                continue
+
+            if es_lunes_manana:
+                await _validar_peso_mes_actual(context=context, user_id=user_id)
+
+                inicio_semana_pasada = hoy - timedelta(days=7)
+                fin_semana_pasada = hoy - timedelta(days=1)
+
+                registros_u = obtener_registros_usuario(user_id)
+
+                dias_incompletos = []
+                dias_validos_count = 0
+                current_d = inicio_semana_pasada
+
+                while current_d <= fin_semana_pasada:
+                    str_d = current_d.strftime("%Y-%m-%d")
+                    
+                    comidas_del_dia = [
+                        str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() 
+                        for r in registros_u 
+                        if str(r.get("Fecha", "")).strip() == str_d 
+                        and str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() in todas_comidas
+                    ]
+                    
+                    total_comidas = len(comidas_del_dia)
+                    tiene_principal = any(c in comidas_principales for c in comidas_del_dia)
+                    
+                    if total_comidas >= 2 and tiene_principal:
+                        dias_validos_count += 1
+                    else:
+                        dias_incompletos.append(str_d)
+                    
+                    current_d += timedelta(days=1)
+
+                semana_completa = (dias_validos_count == 7)
+
+                try:
+                    actual_puntos = int(estado_raw) if estado_raw.isdigit() else 0
+                except ValueError:
+                    actual_puntos = 0
+
+                if not semana_completa:
+                    actual_puntos += 1
+                    if actual_puntos >= 3:
+                        actual_puntos = 3
+                        actualizar_estado_usuario(user_id, "3")
+
+                        await context.bot.send_message(
+                            chat_id=user_id,
+                            text="❌ **Su usuario ha sido dado de baja / suspendido** por acumular tres semanas consecutivas sin registro completo de ingestas. Ya no podrá registrar más comidas ni recibir resúmenes.",
+                            parse_mode="Markdown"
+                        )
+                        continue
+                    else:
+                        actualizar_estado_usuario(user_id, str(actual_puntos))
+
+                        dias_str = ", ".join(dias_incompletos) if dias_incompletos else "varios días"
+                        await context.bot.send_message(
+                            chat_id=user_id,
+                            text=(
+                                f"⚠️ **Aviso de Ingesta Incompleta (Semana Pasada)**\n\n"
+                                f"Notamos que la semana pasada no se completaron los registros mínimos de comidas con al menos una comida principal ({dias_str}). "
+                                f"Acumulás una advertencia (Estado actual: {actual_puntos}/3).\n"
+                                f"Recordá que al llegar a 3 semanas consecutivas sin registrar, el usuario quedará suspendido."
+                            ),
+                            parse_mode="Markdown"
+                        )
+                else:
+                    if actual_puntos > 0:
+                        actual_puntos = 0
+                        actualizar_estado_usuario(user_id, "0")
+
+            if es_martes_manana:
+                usuarios_actualizados = obtener_todos_usuarios()
+                usuario_actual = next((u for u in usuarios_actualizados if str(u.get("User ID", u.get("user_id", ""))).split('.')[0].strip() == str(user_id)), {})
+                current_estado_val = str(usuario_actual.get("Estado", usuario_actual.get("estado", "0"))).strip().lower()
+                if current_estado_val == '3':
+                    continue
+
+                peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
+                registros_u = obtener_registros_usuario(user_id)
+
+                inicio_semana_pasada = hoy - timedelta(days=7)
+                fin_semana_pasada = hoy - timedelta(days=1)
+                dias_validos_count = 0
+                dias_faltantes_detalle = []
+
+                curr = inicio_semana_pasada
+                while curr <= fin_semana_pasada:
+                    str_c = curr.strftime("%Y-%m-%d")
+                    
+                    comidas_del_dia = [
+                        str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() 
+                        for r in registros_u 
+                        if str(r.get("Fecha", "")).strip() == str_c 
+                        and str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() in todas_comidas
+                    ]
+                    
+                    total_comidas = len(comidas_del_dia)
+                    tiene_principal = any(c in comidas_principales for c in comidas_del_dia)
+                    
+                    if total_comidas >= 2 and tiene_principal:
+                        dias_validos_count += 1
+                    else:
+                        dias_faltantes_detalle.append(str_c)
+                    curr += timedelta(days=1)
+
+                semana_ok = (dias_validos_count == 7)
+
+                if peso_ok and semana_ok:
+                    try:
+                        ahora_raw = obtener_ahora_arg()
+                        if hasattr(ahora_raw, 'tzinfo') and ahora_raw.tzinfo is not None:
+                            ahora_raw = ahora_raw.replace(tzinfo=None)
+                        ahora_ts = pd.Timestamp(ahora_raw)
+
+                        inicio_rango = (ahora_ts.floor('D') - pd.Timedelta(days=7)).date()
+                        fin_rango = (ahora_ts.floor('D') - pd.Timedelta(seconds=1)).date()
+                        etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
+
+                        # 1. Reutilizamos la misma función para generar el texto con rangos
+                        txt_resumen, m = _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo)
+
+                        if txt_resumen and m:
+                            await context.bot.send_message(chat_id=int(user_id), text=txt_resumen, parse_mode="Markdown")
+
+                            # 2. Prompt de la IA mejorado con datos biométricos y rangos reales
+                            prompt_semana = (
+                                f"Actúa como un nutricionista clínico experto y constructivo. Analiza la evolución nutricional de la {etiqueta_periodo} "
+                                f"comparando los promedios reales frente a los rangos saludables:\n\n"
+                                f"PERFIL BIOMÉTRICO:\n"
+                                f"- Edad: {m.get('edad', 'S/D')} años | Altura: {m.get('altura', 'S/D')} cm | Peso actual: {m.get('peso_actual', 'S/D')} kg\n\n"
+                                f"DATOS DEL PERÍODO:\n"
+                                f"- Días evaluados: {m.get('dias_registrados', 0)}\n"
+                                f"- Calorías consumidas: {m.get('prom_cal', 0)} kcal/día (Rango saludable: {m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal)\n"
+                                f"- Proteínas: {m.get('prom_prot', 0)} g/día (Rango saludable: {m.get('prot_min', 0)} - {m.get('prot_max', 0)} g)\n"
+                                f"- Grasas: {m.get('prom_gras', 0)} g/día (Rango saludable: {m.get('gras_min', 0)} - {m.get('gras_max', 0)} g)\n"
+                                f"- Carbohidratos: {m.get('prom_carb', 0)} g/día (Rango saludable: {m.get('carb_min', 0)} - {m.get('carb_max', 0)} g)\n"
+                                f"- Fibra: {m.get('prom_fibr', 0)} g/día (Mínimo recomendado: {m.get('fibr_min', 0)} g)\n\n"
+                                f"INSTRUCCIONES CLAVE:\n"
+                                f"1. Si un valor se encuentra dentro del rango saludable, considéralo un comportamiento correcto y equilibrado; no lo señales como un error.\n"
+                                f"2. Ten en cuenta que si el usuario está en proceso de descenso de peso, un consumo calórico dentro del rango inferior es correcto y esperado.\n"
+                                f"3. Proporciona una devolución clara, motivadora y recomendaciones breves y prácticas para optimizar los hábitos en la semana entrante."
+                            )
+
+                            recomendacion = await obtener_recomendacion_ia(prompt_semana, es_semanal=True)
+
+                            txt_ia = (
+                                f"🤖 **Evaluación y Recomendaciones del Especialista:**\n"
+                                f"{recomendacion}"
+                            )
+
+                            await context.bot.send_message(chat_id=int(user_id), text=txt_ia, parse_mode="Markdown")
+                            logger.info(f"Resumen semanal y recomendación con IA enviados exitosamente a {user_id}")
+
+                            if index < len(registros_usuarios) - 1:
+                                await asyncio.sleep(60)
+
+                    except Exception as e_ia:
+                        logger.error(f"Error generando resumen semanal con IA para {user_id}: {e_ia}")
+                else:
+                    faltas_str = ", ".join(dias_faltantes_detalle) if dias_faltantes_detalle else "días de la semana pasada"
+                    await context.bot.send_message(
+                        chat_id=int(user_id),
+                        text=(
+                            f"⚠️ **No se pudo emitir el resumen semanal**\n\n"
+                            f"Motivo: Faltó registrar las ingestas correspondientes (se requieren al menos 2 comidas diarias con al menos una principal: Almuerzo o Cena) o el peso mensual obligatorio. "
+                            f"Se detectaron registros insuficientes en los siguientes días: `{faltas_str}`.\n"
+                            f"Ingresá tus comidas pendientes para retomar la normalidad en los próximos reportes."
+                        ),
+                        parse_mode="Markdown"
+                    )
+
+            if es_informe_mensual_pdf:
+                peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
+                if peso_ok:
+                    try:
+                        if hoy.day == 5:
+                            primer_dia_mes_actual = hoy.replace(day=1)
+                            ultimo_dia_mes_anterior = primer_dia_mes_actual - timedelta(days=1)
+                            mes_target_str = ultimo_dia_mes_anterior.strftime("%Y-%m")
+                            es_auto_15 = False
+                        else:
+                            mes_target_str = hoy.strftime("%Y-%m")
+                            es_auto_15 = True
+
+                        exito_envio = await procesar_y_enviar_informe_mensual(
+                            context=context,
+                            user_id=user_id,
+                            chat_destino=user_id,
+                            mes_target=mes_target_str,
+                            es_automatico_15=es_auto_15,
+                            forzar_envio=True
+                        )
+
+                        if exito_envio:
+                            logger.info(f"Informe automático en PDF del período {mes_target_str} enviado exitosamente a {user_id}")
+
+                            if index < len(registros_usuarios) - 1:
+                                await asyncio.sleep(60)
+
+                    except Exception as e_mensual:
+                        logger.error(f"Error generando informe automático en PDF para {user_id}: {e_mensual}", exc_info=True)
+
+            registros_comidas = obtener_registros_usuario(user_id)
+
+            comidas_anteayer = set()
+            comidas_ayer = set()
+            comidas_hoy = set()
+
+            for reg in registros_comidas:
+                fecha_reg = str(reg.get("Fecha", "")).strip()
+                momento_actividad = str(reg.get("Momento/Actividad") or reg.get("Momento", "")).strip()
+                momento_reg = momento_actividad.capitalize()
+
+                if fecha_reg == str_anteayer:
+                    comidas_anteayer.add(momento_reg)
+                elif fecha_reg == str_ayer:
+                    comidas_ayer.add(momento_reg)
+                elif fecha_reg == str_hoy:
+                    comidas_hoy.add(momento_reg)
+
+            faltantes = []
+            if momento == 'manana':
+                for c in todas_comidas:
+                    if c not in comidas_anteayer:
+                        faltantes.append(f"{c} de anteayer ({str_anteayer})")
+                for c in todas_comidas:
+                    if c not in comidas_ayer:
+                        faltantes.append(f"{c} de ayer ({str_ayer})")
+
+            elif momento == 'tarde':
+                for c in todas_comidas:
+                    if c not in comidas_ayer:
+                        faltantes.append(f"{c} de ayer ({str_ayer})")
+                if "Desayuno" not in comidas_hoy:
+                    faltantes.append("Desayuno de hoy")
+                if "Almuerzo" not in comidas_hoy:
+                    faltantes.append("Almuerzo de hoy")
+
+            if faltantes:
+                lista_formateada = "\n• " + "\n• ".join(faltantes)
+                mensaje_recordatorio = (
+                    f"📌 **Recordatorio de comidas pendientes:**\n"
+                    f"{lista_formateada}\n\n"
+                    f"Si ya las consumiste, podés registrarlas en cualquier momento."
+                )
+                await context.bot.send_message(
+                    chat_id=int(user_id), 
+                    text=mensaje_recordatorio, 
+                    parse_mode="Markdown"
+                )
+                logger.info(f"Recordatorio de comidas ({momento}) enviado a {user_id}")
+
+        except Exception as e:
+            logger.error(f"Error procesando usuario {user_id}: {e}")                        
+
+# =============================================================================================================================================
+#                    FINAL                                    COMANDOS INFORMES                                        FINAL
+# =============================================================================================================================================
 
 # ======================================================================================================================================       
 #                INICIO                       14 FUNCIONES IA GROQ                                      INICIO
@@ -2705,7 +3172,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         return informe_candidato
 
     return None
-
+    
 async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False) -> str:
     if es_semanal:
         prompt = (
@@ -2831,13 +3298,6 @@ def detectar_codigo_con_groq(base64_image: str) -> dict:
 # =====================================================================================================================================
 #                FINAL                          FUNCIONES IA GROQ                                     FINAL
 # ======================================================================================================================================
-
-import asyncio
-from datetime import timedelta
-import logging
-import pandas as pd
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import ContextTypes
 
 # ======================================================================================================================================
 #                  INICIO               COMANDOS CONFIRMACION Y COMANDOS MENU                     INICIO
@@ -3008,8 +3468,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await manejar_callback_actividad(query, user_id, data, context)
         return
 
-    # 🆕 Interceptor exclusivo para los botones del menú de eliminación
-    if data.startswith(("del_reg_", "del_mom_", "ejecutar_del_fila_")):
+    # Interceptor exclusivo para los botones del menú de eliminación
+    if data.startswith(("del_reg_", "del_mom_", "del_d_", "del_borrar_", "del_volver_", "del_cambiar_", "ejecutar_del_fila_")):
+        if data in ["del_cambiar_fecha", "del_volver_momentos"]:
+            await mostrar_selector_momento_eliminar(query, context)
+            return
         await manejar_callback_eliminacion(query, user_id, data, context)
         return
 
@@ -3017,6 +3480,14 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         nuevo_momento = data.replace("set_m_", "")
         context.user_data['pending_momento'] = nuevo_momento
         await render_confirmation_screen(query, context)
+
+    elif data == "diario_hoy":
+        fecha = obtener_ahora_arg().strftime("%Y-%m-%d")
+        await mostrar_diario_fecha(query, user_id, fecha)
+
+    elif data == "diario_ayer":
+        fecha = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
+        await mostrar_diario_fecha(query, user_id, fecha)
 
     elif data == "set_d_hoy":
         context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
@@ -3089,17 +3560,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         else:
             await query.edit_message_text("❌ No se encontraron datos para guardar.")
 
-    elif data == "diario_hoy":
-        fecha = obtener_ahora_arg().strftime("%Y-%m-%d")
-        await mostrar_diario_fecha(query, user_id, fecha)
-
-    elif data == "diario_ayer":
-        fecha = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
-        await mostrar_diario_fecha(query, user_id, fecha)
-
-    elif data.startswith("resumen_mes_20"):
-        mes_str = data.replace("resumen_mes_", "")
-        await mostrar_resumen_mes(query, user_id, mes_str)
+    elif data.startswith("resumen_mes_"):
+        await mostrar_resumen_mes(update, context)
 
     elif data.startswith("descargar_pdf_resumen_"):
         mes_str = data.replace("descargar_pdf_resumen_", "")
@@ -3167,7 +3629,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 logger.error(f"Error en tarea en segundo plano de PDF para {target_user_id}: {e}", exc_info=True)
 
         asyncio.create_task(tarea_segundo_plano())
- 
+         
 @requiere_registro
 async def manejar_callback_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3637,18 +4099,22 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/mes`: Reporte con estimación de peso y PDF.\n"
         "• `/perfil`: Consulta de datos biométricos.\n"
         "• `/peso`: Actualiza el peso del mes .\n"
-        "• `/eliminar`: Borra ingestas seleccionando el día.\n"
+        "• `/eliminar`: Borra ingestas y actividades.\n"
         "• `/barra`: Ingresa por código de barras un comestible.\n"
         "• `/GET`: Actualiza GET por medio del reloj inteligente.\n"
         "• `/comidas`: Planilla de comidas precargadas y PDF.\n"
         "• `/receta`: Calculadora Web para registrar comidas.\n\n"
         "📌 **Métodos de Registro:**\n"
-        "• **Con IA:** Texto, 🎤 Notas de voz, 📸 Fotos.\n"
-        "    Ingreso de ingestas o actividad fisica\n"
-        "• **Modificación parcial:** ingestas por item y reenvío a la IA\n"
-        "    `DESCRIPCION` manteniendo el peso\n"
-        "    `DESCRIPCION,PESO` modificando ambos campos\n"
-        "    `,PESO` manteniendo la descripción\n"
+        "• **Ingestas con IA:** Texto, 🎤 Notas de voz, 📸 Fotos.\n"
+        "• **Modificación parcial:** por item y reenvío a la IA\n"
+        "    `DESCRIPCION` manteniendo el peso recalcula IA.\n"
+        "    `DESCRIPCION,PESO` recalculo total por IA.\n"
+        "    `,PESO` recalculo sin intervencion de IA\n"
+        "• **Actividad fisica con IA:** Texto, 🎤 Notas de voz.\n"
+        "• **Modificación parcial:** por item y reenvío a la IA\n"
+        "    `DESCRIPCION` manteniendo el peso recalcula IA.\n"
+        "    `DESCRIPCION,PESO` recalculo total por IA.\n"
+        "    `,PESO` recalculo sin intervencion de IA\n"
         "• **Sin IA:** Comidas precargadas en planilla:\n"
         "    `*DESAYUNO`: menú completo\n"
         "    `*PIZZA (porción),4`: 4 porciones de pizza\n"
@@ -4538,7 +5004,7 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
     buffer.seek(0)
     return buffer
 
-#                 INICIO                            COMANDO SEMANA  2026 09 09             INICIO   DB OK
+#                   INICIO                                    COMANDO SEMANA                            INICIO   DB OK
 # ======================================================================================================================================
 
 def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo):
@@ -4558,6 +5024,14 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
     perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
     m = calcular_metricas_mensuales(df_semana, perfil) if 'calcular_metricas_mensuales' in globals() else {}
 
+    # Cálculo seguro de los rangos de actividad según peso actual y de referencia (si la función existe)
+    peso_act_val = float(m.get('peso_actual', 0))
+    peso_ref_val = float(m.get('peso_referencia', 0))
+    if 'calcular_rango_actividad_fisica' in globals():
+        act_min_val, act_max_val = calcular_rango_actividad_fisica(peso_act_val, peso_ref_val)
+    else:
+        act_min_val, act_max_val = 30, 60
+
     minutos_totales_actividad = 0
     if 'Momento' in df_semana.columns and 'Alimento' in df_semana.columns:
         for _, row in df_semana.iterrows():
@@ -4568,6 +5042,9 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
                 match = re.match(r'^(\d+)', alimento_str)
                 if match:
                     minutos_totales_actividad += int(match.group(1))
+
+    # Promedio diario de la semana (dividido entre 7 días del período semanal)
+    prom_minutos_act = int(round(minutos_totales_actividad / 7.0))
 
     prom_alta, prom_baja = None, None
     try:
@@ -4587,61 +5064,25 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
     txt = (
         f"📅 **Resumen Nutricional Semanal:**\n"
         f"ℹ️ *{etiqueta_periodo}*\n\n"
-        f"• **Promedio Calorías:** `{m.get('prom_cal', 0)} kcal` / Rango: `{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal`\n"
-        f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
-        f"• **Grasas:** `{m.get('prom_gras', 0)} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
-        f"• **Carbohidratos:** `{m.get('prom_carb', 0)} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
-        f"• **Fibras:** `{m.get('prom_fibr', 0)} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
+        f"📈 **Promedios vs. Rangos Saludables:**\n"
+        f"• Calorías: `{m.get('prom_cal', 0)} kcal` / Rango: `{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal`\n"
+        f"• Proteínas: `{m.get('prom_prot', 0)} g` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
+        f"• Grasas: `{m.get('prom_gras', 0)} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
+        f"• Carbohidratos: `{m.get('prom_carb', 0)} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
+        f"• Fibras: `{m.get('prom_fibr', 0)} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
+        f"• Actividad Física: `{prom_minutos_act} min/día` / Rango: `{act_min_val} - {act_max_val} min/día`\n"
     )
     if prom_alta is not None and prom_baja is not None:
         txt += f"• **Presión Arterial Promedio:** `{prom_alta}/{prom_baja} mmHg`\n"
 
     txt += (
-        f"• **Actividad Física:** `{minutos_totales_actividad} minutos` totales\n"
-        f"• **Calorías Quemadas (Promedio):** `{m.get('prom_quem', 0)} kcal/día`\n"
-        f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`"
+        f"\n• **Calorías Quemadas (Promedio):** `{m.get('prom_quem', 0)} kcal/día`\n"
+        f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`\n\n"
+        f"_(Nota: Los rangos de actividad consideran impacto corporal; actividades como aquagym o natación no aplican restricciones de sobrepeso)._"
     )
 
     return txt, m
-    
-@requiere_registro
-async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await _validar_peso_mes_actual(update=update, context=context):
-        return
-
-    try:
-        user_id = update.effective_user.id
-        msg_espera = await update.message.reply_text("⏳ Procesando resumen nutricional...")
-
-        tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
-        ahora_arg = datetime.now(tz_arg)
-        hoy = ahora_arg.date()
-        dia_semana = ahora_arg.weekday()  # 0: Lunes
-
-        if dia_semana == 0:
-            inicio_rango = hoy - timedelta(days=7)
-            fin_rango = hoy - timedelta(days=1)
-            etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
-        else:
-            inicio_rango = hoy - timedelta(days=dia_semana)
-            fin_rango = hoy - timedelta(days=1)
-            dias_espanol = {1: "Martes", 2: "Miércoles", 3: "Jueves", 4: "Viernes", 5: "Sábado", 6: "Domingo"}
-            nombre_dia_ayer = dias_espanol.get(dia_semana - 1, "")
-            etiqueta_periodo = f"Semana Actual (Lunes a {nombre_dia_ayer})"
-
-        txt, _ = _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo)
-
-        if not txt:
-            await msg_espera.edit_text("⚠️ No hay registros acumulados para los días transcurridos de este período.")
-            return
-
-        await msg_espera.edit_text(txt, parse_mode="Markdown")
-
-    except Exception as e:
-        logger.error(f"Error en cmd_mensaje: {e}")
-        if 'msg_espera' in locals():
-            await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
-                     
+                         
 #               INICIO                                COMANDO RESUMEN MENSUAL                        INICIO DB OK
 # ==========================================================================================================================================
 
@@ -4777,6 +5218,28 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
         m = calcular_metricas_mensuales(df_mes, perfil)
 
+        # Cálculo seguro de minutos de actividad mensuales si existen columnas en el df_mes
+        minutos_mes_act = 0
+        dias_activos_act = m.get('dias_registrados', 1) if m.get('dias_registrados', 1) > 0 else 1
+        if not df_mes.empty and 'Momento' in df_mes.columns and 'Alimento' in df_mes.columns:
+            for _, row in df_mes.iterrows():
+                momento_str = str(row.get('Momento', '')).strip().lower()
+                alimento_str = str(row.get('Alimento', '')).strip()
+                cal_val = float(row.get('Calorias', 0) or 0)
+                if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
+                    match = re.match(r'^(\d+)', alimento_str)
+                    if match:
+                        minutos_mes_act += int(match.group(1))
+        prom_minutos_mes_act = int(round(minutos_mes_act / dias_activos_act))
+
+        # Rangos seguros de actividad
+        peso_act_val = float(m.get('peso_actual', 0))
+        peso_ref_val = float(m.get('peso_referencia', 0))
+        if 'calcular_rango_actividad_fisica' in globals():
+            act_min_val, act_max_val = calcular_rango_actividad_fisica(peso_act_val, peso_ref_val)
+        else:
+            act_min_val, act_max_val = 30, 60
+
         def _fmt(val, dec=0):
             try:
                 num = float(val)
@@ -4798,10 +5261,12 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"• Proteínas: `{_fmt(m.get('prom_prot', 0))} g` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
             f"• Grasas: `{_fmt(m.get('prom_gras', 0))} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
             f"• Carbs: `{_fmt(m.get('prom_carb', 0))} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
-            f"• Fibras: `{_fmt(m.get('prom_fibr', 0))} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n\n"
+            f"• Fibras: `{_fmt(m.get('prom_fibr', 0))} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
+            f"• Actividad Física: `{prom_minutos_mes_act} min/día` / Rango: `{act_min_val} - {act_max_val} min/día`\n\n"
+            f"_(Nota: Los rangos de actividad consideran impacto corporal; actividades como aquagym o natación no aplican restricciones de sobrepeso)._\n\n"
             f"📌 Resumen calculado con éxito"
         )
-        
+
         pie_txt = f"\n\n📄 Podés descargar el informe completo en PDF abajo:"
         txt_final = f"{encabezado_txt}{pie_txt}"
 
@@ -4814,7 +5279,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(txt_final, reply_markup=reply_markup, parse_mode="Markdown")
 
     except Exception as e:
-        logger.error(f"Error en mostrar_resumen_mes: {e}")
+        logger.error(f"Error en mostrar_resumen_mes: {e}", exc_info=True)
         msg_err = f"⚠️ Ocurrió un error al generar el resumen mensual: {e}"
         if update.callback_query:
             await update.callback_query.edit_message_text(msg_err)
@@ -4941,6 +5406,9 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(Paragraph(f"• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {peso_act_pdf} kg | Peso Objetivo de esta etapa : {peso_ref_pdf} kg |", body_style))
     story.append(Paragraph(f"• <b>DÉFICIT CALÓRICO DIARIO PROMEDIO:</b> {m.get('deficit_diario_real', 0)} kcal / día", body_style))
     story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {m.get('cambio_peso_kg', 0):+.1f} kg", body_style))
+    story.append(Paragraph(f"• <b>ACTIVIDAD FÍSICA PROMEDIO:</b> {m.get('prom_minutos_act', 0)} min/día (Rango recomendado: {m.get('act_min', 30)} - {m.get('act_max', 60)} min/día)", body_style))
+    story.append(Spacer(1, 2))
+    story.append(Paragraph("<i>(Nota: Los rangos de actividad consideran impacto corporal; actividades de bajo impacto como aquagym, natación o yoga no aplican restricciones de sobrepeso).</i>", body_style))
 
     story.append(Spacer(1, 4))
     story.append(Paragraph("<b>Informe Nutricional:</b>", sub_style))
@@ -5053,7 +5521,8 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text=f"⚠️ Error al procesar la descarga del PDF: {e}"
-        )                
+        )  
+                      
 #                INICIO                               MENSAJES PROGRAMADOS                          INICIO  
 # ======================================================================================================================================
 
@@ -5652,6 +6121,340 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
         
 @requiere_registro
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    raw_text = update.message.text.strip() if update.message and update.message.text else ""
+
+    if not raw_text:
+        return
+
+    # Captura el texto cuando el usuario eligió ingresar actividad por texto tras tocar /actividad
+    if context.user_data.get('awaiting_activity_text'):
+        texto_actividad = raw_text.strip()
+        
+        msg_solic = context.user_data.pop('msg_solicitud_activity_id', None)
+        if msg_solic:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
+            except Exception:
+                pass
+
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
+        context.user_data['awaiting_activity_text'] = False
+        msg_espera = await update.message.reply_text("🏃 Analizando actividad y calculando calorías según tus datos...")
+
+        try:
+            perfil_biometrico = obtener_perfil_usuario(user_id)
+            
+            prompt_ia = (
+                f"El usuario realizó una actividad física. Analiza la descripción y calcula las calorías gastadas "
+                f"utilizando estrictamente su perfil biométrico: {perfil_biometrico}.\n"
+                f"REGLA OBLIGATORIA 1: El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de 'min' y una descripción clara (ej: '50 min - Caminata a velocidad moderada').\n"
+                f"REGLA OBLIGATORIA 2: El campo 'calorias' debe ser un número positivo que luego transformaremos en negativo.\n"
+                f"Descripción del usuario: '{texto_actividad}'\n"
+                f"Devolvé un JSON con los campos 'alimento' y 'calorias'."
+            )
+
+            resultado_ia = analizar_con_groq(prompt_ia)
+            items_ia = resultado_ia.get('items', [])
+            if items_ia:
+                kcal_estimadas = float(items_ia[0].get('calorias', 0))
+                descripcion_formateada = str(items_ia[0].get('alimento', texto_actividad))
+            else:
+                kcal_estimadas = 0.0
+                descripcion_formateada = texto_actividad
+            
+            calorias_finales = -abs(kcal_estimadas) # Negativo para restar
+
+            item_actividad = {
+                "alimento": descripcion_formateada,
+                "peso": 0,
+                "calorias": calorias_finales,
+                "proteinas": 0,
+                "grasas": 0,
+                "carbohidratos": 0,
+                "fibras": 0
+            }
+
+            context.user_data['pending_items'] = [item_actividad]
+            context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+            context.user_data['pending_momento'] = 'Actividad'
+
+            await msg_espera.delete()
+            msg_menu = await update.message.reply_text("📋 Actividad analizada:")
+            context.user_data['last_menu_msg_id'] = msg_menu.message_id
+            await render_confirmation_screen(msg_menu, context)
+            return
+
+        except Exception as e:
+            await msg_espera.edit_text(f"❌ Error al procesar la actividad: {e}")
+            return
+
+    # Captura de fecha personalizada para el comando /eliminar
+    if context.user_data.get('awaiting_del_custom_date'):
+        fecha_parseada = None
+        txt = raw_text.replace('/', '-').replace('.', '-')
+        partes = txt.split('-')
+        
+        try:
+            if len(partes) == 3:
+                if len(partes[0]) == 4:
+                    fecha_parseada = f"{int(partes[0]):04d}-{int(partes[1]):02d}-{int(partes[2]):02d}"
+                else:
+                    fecha_parseada = f"{int(partes[2]):04d}-{int(partes[1]):02d}-{int(partes[0]):02d}"
+            elif len(partes) == 2:
+                anio_actual = obtener_ahora_arg().year
+                fecha_parseada = f"{anio_actual:04d}-{int(partes[1]):02d}-{int(partes[0]):02d}"
+        except Exception:
+            fecha_parseada = None
+
+        msg_solic = context.user_data.pop('msg_solicitud_del_fecha_id', None)
+        if msg_solic:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
+            except Exception:
+                pass
+
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
+        if fecha_parseada:
+            context.user_data['del_fecha'] = fecha_parseada
+            context.user_data['awaiting_del_custom_date'] = False
+            
+            class DummyQuery:
+                def __init__(self, msg):
+                    self.message = msg
+                async def edit_message_text(self, text, reply_markup=None, parse_mode=None):
+                    await self.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+
+            dummy = DummyQuery(update.message)
+            await mostrar_selector_momento_eliminar(dummy, context)
+            return
+        else:
+            msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+            context.user_data['msg_solicitud_del_fecha_id'] = msg_err.message_id
+            return
+
+    # Captura de fecha personalizada para el comando /diario
+    if context.user_data.get('awaiting_diario_custom_date'):
+        fecha_parseada = None
+        txt = raw_text.replace('/', '-').replace('.', '-')
+        partes = txt.split('-')
+        
+        try:
+            if len(partes) == 3:
+                if len(partes[0]) == 4:
+                    fecha_parseada = f"{int(partes[0]):04d}-{int(partes[1]):02d}-{int(partes[2]):02d}"
+                else:
+                    fecha_parseada = f"{int(partes[2]):04d}-{int(partes[1]):02d}-{int(partes[0]):02d}"
+            elif len(partes) == 2:
+                anio_actual = obtener_ahora_arg().year
+                fecha_parseada = f"{anio_actual:04d}-{int(partes[1]):02d}-{int(partes[0]):02d}"
+        except Exception:
+            fecha_parseada = None
+
+        msg_solic = context.user_data.pop('msg_solicitud_diario_fecha_id', None)
+        if msg_solic:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
+            except Exception:
+                pass
+
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
+        if fecha_parseada:
+            context.user_data['awaiting_diario_custom_date'] = False
+            await mostrar_diario_fecha(update.message, user_id, fecha_parseada)
+            return
+        else:
+            msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+            context.user_data['msg_solicitud_diario_fecha_id'] = msg_err.message_id
+            return
+
+    # BLOQUE DE EDICIÓN MATEMÁTICA / ACTIVIDAD
+    if context.user_data.get('awaiting_edit_item_val'):
+        idx = context.user_data.get('editing_item_idx')
+        items = context.user_data.get('pending_items', [])
+        momento_actual = context.user_data.get('pending_momento', 'Comida')
+
+        if items and 0 <= idx < len(items):
+            item_previo = items[idx]
+            msg_espera = await update.message.reply_text("⏳ Procesando valor...")
+
+            try:
+                if momento_actual == 'Actividad':
+                    calorias_originales_ia = abs(float(item_previo.get('calorias', 0.0)))
+                    texto_limpio = raw_text.replace(',', '.').strip()
+                    nuevo_valor_kcal = float(re.sub(r'[^\d.]', '', texto_limpio))
+
+                    limite_inferior = calorias_originales_ia * 0.5
+                    limite_superior = calorias_originales_ia * 2.0
+
+                    if limite_inferior <= nuevo_valor_kcal <= limite_superior:
+                        item_actualizado = item_previo.copy()
+                        item_actualizado['calorias'] = -abs(nuevo_valor_kcal)
+                        items[idx] = item_actualizado
+                        context.user_data['pending_items'] = items
+                        await msg_espera.delete()
+                    else:
+                        await msg_espera.edit_text(
+                            f"❌ **Valor no válido.** Las calorías ingresadas (`{nuevo_valor_kcal:.0f} kcal`) están fuera del rango lógico esperado "
+                            f"(debe estar entre `{limite_inferior:.0f}` y `{limite_superior:.0f} kcal`). No se aplicaron cambios.",
+                            parse_mode="Markdown"
+                        )
+                        context.user_data['awaiting_edit_item_val'] = False
+                        context.user_data.pop('editing_item_idx', None)
+                        return
+                else:
+                    peso_previo = float(item_previo.get('peso', 0.0))
+                    desc_previa = item_previo.get('alimento', '')
+                    nuevo_peso = peso_previo
+                    nueva_desc = desc_previa
+
+                    if ',' in raw_text:
+                        partes = raw_text.split(',', 1)
+                        parte_desc = partes[0].strip()
+                        parte_peso = partes[1].strip()
+                        if parte_desc:
+                            nueva_desc = parte_desc
+                        if parte_peso:
+                            nuevo_peso = float(re.sub(r'[^\d.]', '', parte_peso.replace(',', '.')))
+                    else:
+                        try:
+                            nuevo_peso = float(re.sub(r'[^\d.]', '', raw_text.replace(',', '.')))
+                        except ValueError:
+                            nueva_desc = raw_text
+
+                    factor = (nuevo_peso / peso_previo) if peso_previo > 0 else 1.0
+
+                    item_actualizado = {
+                        "alimento": nueva_desc,
+                        "alimento_display": nueva_desc.replace('§', '').strip(),
+                        "peso": nuevo_peso,
+                        "calorias": float(item_previo.get('calorias', 0.0)) * factor,
+                        "proteinas": float(item_previo.get('proteinas', 0.0)) * factor,
+                        "grasas": float(item_previo.get('grasas', 0.0)) * factor,
+                        "carbohidratos": float(item_previo.get('carbohidratos', 0.0)) * factor,
+                        "fibras": float(item_previo.get('fibras', 0.0)) * factor,
+                    }
+                    items[idx] = item_actualizado
+                    context.user_data['pending_items'] = items
+                    await msg_espera.delete()
+
+                try:
+                    await update.message.delete()
+                except Exception:
+                    pass
+
+            except Exception as e:
+                print(f"Error editando ítem: {e}")
+                await msg_espera.edit_text(f"❌ Error al procesar el valor ingresado. Asegurate de escribir sólo números (ej: `220`).")
+
+        context.user_data['awaiting_edit_item_val'] = False
+        context.user_data.pop('editing_item_idx', None)
+
+        last_menu_msg_id = context.user_data.get('last_menu_msg_id')
+        if last_menu_msg_id:
+            try:
+                target_msg = await context.bot.get_message(chat_id=chat_id, message_id=last_menu_msg_id)
+                await render_confirmation_screen(target_msg, context)
+            except Exception:
+                nuevo_menu_msg = await update.message.reply_text("📋 Actualizando menú...")
+                context.user_data['last_menu_msg_id'] = nuevo_menu_msg.message_id
+                await render_confirmation_screen(nuevo_menu_msg, context)
+        else:
+            await render_confirmation_screen(update, context)
+        return
+        
+    if raw_text.startswith('*'):
+        contenido = raw_text[1:].strip()
+        partes = [p.strip() for p in contenido.split(',')]
+        nombre_plantilla = partes[0].upper()
+        multiplicador = float(partes[1]) if len(partes) > 1 else 1.0
+
+        plantillas = obtener_comidas_usuario(user_id)
+        plantilla_encontrada = None
+        for p in plantillas:
+            nombre_item = str(p.get('Código / Nombre') or p.get('Nombre') or '').strip().upper()
+            if nombre_item == nombre_plantilla:
+                plantilla_encontrada = p
+                break
+
+        if plantilla_encontrada:
+            p_base = parse_raw_val(plantilla_encontrada.get('Peso', 0))
+            c_base = parse_raw_val(plantilla_encontrada.get('Calorias', 0))
+            pr_base = parse_raw_val(plantilla_encontrada.get('Proteinas', 0))
+            g_base = parse_raw_val(plantilla_encontrada.get('Grasas', 0))
+            cb_base = parse_raw_val(plantilla_encontrada.get('Carbohidratos', 0))
+            f_base = parse_raw_val(plantilla_encontrada.get('Fibras', 0))
+
+            val_descripcion = None
+            for k, v in plantilla_encontrada.items():
+                if str(k).strip().lower() in ['descripcion', 'descripción']:
+                    val_descripcion = v
+                    break
+
+            texto_base = str(val_descripcion).strip() if val_descripcion else str(plantilla_encontrada.get('Nombre', 'Comida')).strip()
+            texto_base = texto_base.replace('§', '').strip()
+            
+            if texto_base.startswith('(x'):
+                if ')' in texto_base:
+                    texto_base = texto_base.split(')', 1)[1].strip()
+
+            multiplicador_str = f"{int(multiplicador)}" if multiplicador.is_integer() else f"{multiplicador}"
+            
+            nombre_pantalla = f"(x{multiplicador_str}) {texto_base}"
+            nombre_sheets = f"(x{multiplicador_str}) {texto_base} §"
+
+            item_generado = {
+                "alimento": nombre_sheets,
+                "alimento_display": nombre_pantalla,
+                "peso": p_base * multiplicador,
+                "calorias": c_base * multiplicador,
+                "proteinas": pr_base * multiplicador,
+                "grasas": g_base * multiplicador,
+                "carbohidratos": cb_base * multiplicador,
+                "fibras": f_base * multiplicador,
+                "multiplicador": multiplicador
+            }
+            
+            data_json = {"items": [item_generado], "tipo": "Comida"}
+            msg = await update.message.reply_text("⏳ Procesando comida predeterminada...")
+            await procesar_y_mostrar_confirmacion(data_json, msg, context)
+            return
+        else:
+            await update.message.reply_text(f"❌ No se encontró la comida `*{nombre_plantilla}` en tu planilla `Comidas_{user_id}`.", parse_mode="Markdown")
+            return  
+                                  
+    msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
+    try:
+        data = analizar_con_groq(raw_text)
+        items = data.get("items", [])
+
+        total_calorias = sum(float(item.get("calorias", 0)) for item in items)
+        total_peso = sum(float(item.get("peso", 0)) for item in items)
+
+        if not items or (total_calorias == 0 and total_peso == 0):
+            await msg.delete()
+            return
+
+        await procesar_y_mostrar_confirmacion(data, msg, context)
+
+    except Exception as e:
+        await msg.edit_text(f"❌ Error al procesar el texto: {e}")
+        
+@requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
     try:
@@ -6212,13 +7015,6 @@ async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEF
     elif data in ["del_cambiar_fecha", "del_volver_momentos"]:
         await mostrar_selector_momento_eliminar(query, context)
         
-# ======================================================================================================================================
-#                   FINAL                       NUEVO COMANDO ELIMINAR INGESTAS                         FINAL
-# ======================================================================================================================================
-
-
-
-
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
@@ -6268,7 +7064,7 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             u_id = pac["user_id"]
             nombre = pac["nombre"]
             
-            # Obtener datos resumidos actuales mediante funciones auxiliares
+            # Obtener datos resumidos actuales mediante funciones aux
             peso_str = obtener_ultimo_peso_str(u_id)
             recs_presion_all = obtener_registros_presion(u_id)
             presion_str = obtener_ultima_presion_str(recs_presion_all)
