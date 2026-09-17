@@ -28,6 +28,7 @@ import cv2
 import numpy as np
 import base64
 import requests
+from __future__ import annotations
 
 from typing import Dict, Tuple, List, Optional, Any            
 from urllib.parse import urlparse 
@@ -56,9 +57,9 @@ logger = logging.getLogger(__name__)
 
 # Definición de franjas horarias (sin tildes)
 FRANJAS_COMIDAS = {
-    "Desayuno": (8, 10),
-    "Almuerzo": (12, 15),
-    "Merienda": (17, 19),
+    "Desayuno": (8, 11),
+    "Almuerzo": (11, 16),
+    "Merienda": (16, 20),
     "Cena": (20, 24)
 }
 
@@ -470,70 +471,6 @@ def api_guardar_comida():
 
 # =============================================================================================================================================
 #                    FINAL                                   PAGINA WEB                                     FINAL
-# =============================================================================================================================================
-
-# =============================================================================================================================================
-#              INICIO                     1 FUNCIONES DATOS Y FECHAS                           INICIO
-# =============================================================================================================================================
-
-def parse_raw_val(val):
-    if val is None or val == "":
-        return 0.0
-    if isinstance(val, (int, float)):
-        return float(val)
-    val_str = str(val).strip().replace(',', '.')
-    try:
-        return float(val_str)
-    except ValueError:
-        return 0.0
-
-def to_sheet_int(val):
-    num = parse_raw_val(val)
-    return int(round(num * 1000))
-
-def parse_float_from_sheets(val):
-    num = parse_raw_val(val)
-    return num / 1000.0
-
-def obtener_ahora_arg():
-    return datetime.now(ARG_TZ)
-    
-def obtener_momento_y_fecha_auto():
-    ahora = obtener_ahora_arg()
-    hora = ahora.time()
-    fecha_obj = ahora.date()
-    
-    if time(0, 0) <= hora < time(2, 0):
-        fecha_obj = fecha_obj - timedelta(days=1)
-        momento = "Cena"
-    elif time(2, 0) <= hora < time(10, 0):
-        momento = "Desayuno"
-    elif time(10, 0) <= hora < time(13, 0):
-        momento = "Colación"
-    elif time(13, 0) <= hora < time(15, 0):
-        momento = "Almuerzo"
-    elif time(15, 0) <= hora < time(17, 0):
-        momento = "Colación"
-    elif time(17, 0) <= hora < time(20, 0):
-        momento = "Merienda"
-    else:
-        momento = "Cena"
-        
-    return fecha_obj.strftime("%Y-%m-%d"), momento
-
-def extraer_val(texto: str) -> float:
-    if not texto:
-        return 0.0
-    coincidencia = re.search(r'(\d+(?:[.,]\d+)?)', str(texto))
-    if coincidencia:
-        try:
-            return float(coincidencia.group(1).replace(',', '.'))
-        except ValueError:
-            return 0.0
-    return 0.0
-
-# =============================================================================================================================================
-#              FINAL                     1 FUNCIONES DATOS Y FECHAS                           FINAL
 # =============================================================================================================================================
 
 # =============================================================================================================================================
@@ -1767,18 +1704,14 @@ def obtener_momento_y_fecha_auto():
     hora = ahora.time()
     fecha_obj = ahora.date()
     
-    if time(0, 0) <= hora < time(2, 0):
+    if time(0, 0) <= hora < time(4, 0):
         fecha_obj = fecha_obj - timedelta(days=1)
         momento = "Cena"
-    elif time(2, 0) <= hora < time(10, 0):
+    elif time(4, 0) <= hora < time(11, 0):
         momento = "Desayuno"
-    elif time(10, 0) <= hora < time(13, 0):
-        momento = "Colación"
-    elif time(13, 0) <= hora < time(15, 0):
+    elif time(11, 0) <= hora < time(16, 0):
         momento = "Almuerzo"
-    elif time(15, 0) <= hora < time(17, 0):
-        momento = "Colación"
-    elif time(17, 0) <= hora < time(20, 0):
+    elif time(16, 0) <= hora < time(20, 0):
         momento = "Merienda"
     else:
         momento = "Cena"
@@ -2288,7 +2221,6 @@ def procesar_foto_codigo_barras(base64_image: str) -> dict | bool:
         # retorna False para que el sistema caiga en el análisis de IA por foto.
         return False
         
-
 # =============================================================================================================================================
 #              FINAL                        12 FUNCIONES COMIDAS                           FINAL
 # =============================================================================================================================================
@@ -2983,11 +2915,40 @@ def analizar_imagen_con_groq(base64_image, user_caption=""):
             }
         ],
         temperature=0.1,
-        max_tokens=5000,  # <--- Agregado explícitamente para aprovechar el nuevo límite de tokens
+        max_tokens=600,  # <--- Agregado explícitamente para aprovechar el nuevo límite de tokens
         response_format={"type": "json_object"}
     )
     return json.loads(response.choices[0].message.content)
-    
+
+def detectar_codigo_con_groq(base64_image: str) -> dict:
+    """Consulta a Groq exclusivamente si la imagen contiene un código de barras y sus dígitos."""
+    prompt = (
+        "Analiza esta imagen exclusivamente para detectar si hay un código de barras visible "
+        "con sus números impresos debajo. "
+        "Responde ÚNICAMENTE en formato JSON con este formato exacto:\n"
+        "{\n"
+        '  "tiene_codigo": true/false,\n'
+        '  "codigo": "numeros_exactos_si_los_hay_o_vacio"\n'
+        "}"
+    )
+    try:
+        response = client_ai.chat.completions.create(
+            model=GROQ_FOTO,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                ]
+            }],
+            temperature=0.0,
+            response_format={"type": "json_object"}
+        )
+        return json.loads(response.choices[0].message.content)
+    except Exception as e:
+        logger.error(f"Error en detección IA de código de barras: {e}")
+        return {"tiene_codigo": False, "codigo": ""}
+            
 # =====================================================================================================================================
 #                FINAL                        14  FUNCIONES IA GROQ                                      FINAL
 # ======================================================================================================================================
@@ -4657,50 +4618,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         user_caption = update.message.caption or ""
         
-        # Decodificar imagen para OpenCV y buscar código de barras
-        image_bytes = base64.b64decode(base64_image)
-        np_arr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        # PASO 1: Verificar si la foto contiene un código de barras mediante Groq
+        resultado_deteccion = detectar_codigo_con_groq(base64_image)
         
-        detector = cv2.barcode.BarcodeDetector()
-        
-        # Desempaquetado seguro adaptado a cualquier versión de OpenCV
-        try:
-            retval, decoded_info, decoded_type, points = detector.detectAndDecode(img)
-        except ValueError:
-            try:
-                retval, decoded_info, points = detector.detectAndDecode(img)
-            except Exception:
-                retval, decoded_info = False, None
-
-        # Validación segura del arreglo devuelto por OpenCV
-        has_barcode = False
-        try:
-            if isinstance(retval, np.ndarray):
-                has_barcode = bool(retval.any())
-            else:
-                has_barcode = bool(retval)
-        except Exception:
-            has_barcode = False
-
-        # Extraer el texto del código de forma segura
-        barcode_text = None
-        if has_barcode and decoded_info is not None:
-            if isinstance(decoded_info, (list, tuple)) and len(decoded_info) > 0:
-                if decoded_info[0]:
-                    barcode_text = str(decoded_info[0]).strip()
-            elif isinstance(decoded_info, np.ndarray):
-                if decoded_info.size > 0 and decoded_info.item(0):
-                    barcode_text = str(decoded_info.item(0)).strip()
-            elif isinstance(decoded_info, str) and decoded_info.strip():
-                barcode_text = decoded_info.strip()
-
-        if barcode_text:
-            # ES UN CÓDIGO DE BARRAS VÁLIDO
+        if resultado_deteccion.get("tiene_codigo") and resultado_deteccion.get("codigo"):
+            barcode_text = str(resultado_deteccion["codigo"]).strip()
+            
+            # PASO 2A: Si hay código, consultamos Open Food Facts
             resultado_api = consultar_codigo_barras(barcode_text)
             
             if resultado_api:
-                # Adaptamos el ítem con formato visual y base de datos
                 item_procesado = {
                     "alimento": f"{resultado_api['alimento']} §",
                     "alimento_display": resultado_api['alimento'],
@@ -4713,7 +4640,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "fuente": "Open Food Facts"
                 }
 
-                # Obtenemos fecha y momento automático según la hora
                 fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
 
                 await msg.delete()
@@ -4725,18 +4651,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await render_confirmation_screen(msg_menu, context)
                 return
             else:
-                # NO LO ENCONTRÓ EN LA BASE DE DATOS
+                # No se encontró en la base externa, muestra el número exacto que detectó la IA
                 await msg.edit_text(f"⚠️ Código de barras `{barcode_text}` no encontrado en la base de datos.", parse_mode="Markdown")
                 return
         else:
-            # NO ES CÓDIGO DE BARRAS: Va directo a la IA
-            await msg.edit_text("🤖 Analizando foto con Inteligencia Artificial...")
+            # PASO 2B: Si NO es un código de barras, va directo al análisis visual de comida
+            await msg.edit_text("🤖 Analizando plato con Inteligencia Artificial...")
             data = analizar_imagen_con_groq(base64_image, user_caption)
             await procesar_y_mostrar_confirmacion(data, msg, context)
             
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar imagen: {e}")
-                
+        
 @requiere_registro
 async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
