@@ -766,9 +766,8 @@ def obtener_datos_usuario(user_id):
         tabla_nombre = f"User_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
         
-        # 👈 Modificado para incluir id y asignarlo a id_registro
         query = f"""
-            SELECT id, "Fecha", "Momento/Actividad", "Alimento/Detalle", 
+            SELECT "Fecha", "Momento/Actividad", "Alimento/Detalle", 
                    "Peso (g)", "Calorías (kcal)", "Proteínas (g)", 
                    "Grasas (g)", "Hidratos (g)", "Fibras (g)"
             FROM "{tabla_nombre}"
@@ -1397,7 +1396,16 @@ def actualizar_estado_usuario(user_id: str, nuevo_estado: str):
         logger.error(f"Error al actualizar estado en Supabase para {user_id}: {e}")
 
 def eliminar_registro_por_id(user_id, item_id):
-    """Borra el registro exclusivamente de la tabla en Supabase."""
+    """Función dual: borra el registro de Google Sheets y de Supabase."""
+    try:
+        fila_idx = int(item_id)
+        gc = get_gspread_client()
+        sh = gc.open(SPREADSHEET_NAME)
+        ws = sh.worksheet(f"User_{user_id}")
+        ws.delete_rows(fila_idx)
+    except Exception as e:
+        print(f"Error al eliminar registro en Google Sheets para el usuario {user_id}: {e}")
+
     try:
         tabla_nombre = f"User_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
@@ -1467,27 +1475,28 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
         logger.error(f"Error interno al duplicar ingesta en Supabase (User_{user_id}): {e}")
                 
 def guardar_comida_precargada_db(user_id, fila):
-    """Guarda las comidas precargadas exclusivamente en Supabase."""
+    """Guarda las comidas precargadas de forma dual en Google Sheets y Supabase."""
+    ws = get_user_worksheet(user_id)
     codigo_original = fila.get('Nombre', fila.get('nombre', ''))
+    codigo_unico = obtener_codigo_unico(ws, codigo_original)
+
+    nueva_fila = [
+        codigo_unico,
+        fila.get('Descripcion', fila.get('descripcion', '')),
+        fila.get('Peso', fila.get('peso', 0)),
+        fila.get('Calorias', fila.get('calorias', 0)),
+        fila.get('Proteinas', fila.get('proteinas', 0)),
+        fila.get('Grasas', fila.get('grasas', 0)),
+        fila.get('Carbohidratos', fila.get('carbohidratos', fila.get('Hidratos', 0))),
+        fila.get('Fibras', fila.get('fibras', 0))
+    ]
     
-    # Obtenemos los códigos existentes desde Supabase para garantizar unicidad
-    tabla_nombre = f"Comidas_{user_id}"
+    ws.append_row(nueva_fila)
+
     try:
+        tabla_nombre = f"Comidas_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
-        cur.execute(f'SELECT "Nombre" FROM "{tabla_nombre}"')
-        filas = cur.fetchall()
-        codigos_existentes = set(str(f[0]).strip().upper() for f in filas if f[0] is not None)
-    except Exception:
-        codigos_existentes = set()
 
-    codigo_limpio = str(codigo_original).strip().upper()
-    codigo_unico = codigo_limpio
-    i = 1
-    while codigo_unico in codigos_existentes:
-        i += 1
-        codigo_unico = f"{codigo_limpio}{i}"
-
-    try:
         p_val = float(fila.get('Peso', fila.get('peso', 0)))
         c_val = float(fila.get('Calorias', fila.get('calorias', 0)))
         pr_val = float(fila.get('Proteinas', fila.get('proteinas', 0)))
@@ -1514,13 +1523,27 @@ def guardar_comida_precargada_db(user_id, fila):
         cur.close()
         conn.close()
     except Exception as e:
-        logger.error(f"Error al grabar Comida Precargada en Supabase (Comidas_{user_id}): {e}")
+        logger.error(f"Error interno al grabar Comida Precargada en Supabase (Comidas_{user_id}): {e}")
     
     return codigo_unico
 
 def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
-    """Guarda los registros de presión arterial exclusivamente en Supabase."""
+    """Guarda los registros de presión arterial de forma dual en Google Sheets y Supabase."""
+    gc = get_gspread_client()
+    sh = gc.open(SPREADSHEET_NAME)
+    ws = get_or_create_worksheet(sh, f"Presion_{user_id}")
     ahora = obtener_ahora_arg()
+    
+    val_pul = int(pulsaciones * 1000) if pulsaciones is not None else 0
+
+    ws.append_row([
+        ahora.strftime("%Y-%m-%d %H:%M:%S"), 
+        ahora.strftime("%Y-%m-%d"), 
+        int(alta * 1000) if alta < 250 else int(alta), 
+        int(baja * 1000) if baja < 150 else int(baja), 
+        val_pul,
+        str(nota).strip()
+    ])
 
     try:
         tabla_nombre = f"Presion_{user_id}"
@@ -1543,14 +1566,123 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
         cur.close()
         conn.close()
     except Exception as e:
-        logger.error(f"Error al grabar Presión en Supabase (Presion_{user_id}): {e}")
+        logger.error(f"Error interno al grabar Presión en Supabase (Presion_{user_id}): {e}")
 
 def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
-    """Guarda y actualiza los datos del perfil y peso del usuario exclusivamente en Supabase."""
+    """Guarda y actualiza los datos del perfil y peso del usuario de forma dual en Google Sheets y Supabase."""
+    gc = get_gspread_client()
+    sh = gc.open(SPREADSHEET_NAME)
+    ws = get_or_create_worksheet(sh, f"Perfil_{user_id}")
     ahora = obtener_ahora_arg()
     
     if not mes:
         mes = ahora.strftime("%Y-%m")
+    
+    records = ws.get_all_records()
+    fila_a_actualizar = None
+
+    if records:
+        for idx, row in enumerate(records, start=2):
+            mes_en_fila = str(row.get('MES', row.get('Mes', ''))).strip()
+            if mes_en_fila == str(mes):
+                fila_a_actualizar = idx
+                break
+
+    peso_nuevo_sheet = to_sheet_int(peso)
+
+    if fila_a_actualizar:
+        peso_actual_en_celda = str(ws.cell(fila_a_actualizar, 2).value).strip()
+        if peso_actual_en_celda == str(peso_nuevo_sheet):
+            print(f"📌 El peso {peso} ya estaba registrado para el mes {mes}. No se reescribe nada.")
+            return
+
+        ws.update(f"B{fila_a_actualizar}", [[peso_nuevo_sheet]])
+        ws.update(f"G{fila_a_actualizar}", [[ahora.strftime("%Y-%m-%d %H:%M:%S")]])
+        ocupacion_final_para_usuarios = ws.cell(fila_a_actualizar, 5).value
+
+    else:
+        if len(records) >= 1:
+            ultimo_reg_previo = records[-1]
+            mes_anterior_str = str(ultimo_reg_previo.get('MES', ultimo_reg_previo.get('Mes', ''))).strip()
+            
+            if mes_anterior_str:
+                _calcular_y_actualizar_factor_mes_anterior(user_id, ws, mes_anterior_str, peso_fin_mes_override=peso)
+
+        records_actualizados = ws.get_all_records()
+        
+        valores_ocupacion = []
+        for row in records_actualizados:
+            val_ocu = row.get('ocupacion') or row.get('Ocupacion') or row.get('OCUPACION')
+            if val_ocu:
+                try:
+                    num_val = float(str(val_ocu).replace(',', '.'))
+                    if num_val > 100:
+                        num_val = num_val / 1000.0
+                    valores_ocupacion.append(num_val)
+                except ValueError:
+                    pass
+        
+        if valores_ocupacion:
+            ultimos_tres = valores_ocupacion[-3:]
+            promedio_ocupacion = sum(ultimos_tres) / len(ultimos_tres)
+            ocupacion_calculada = int(round(promedio_ocupacion * 1000)) if promedio_ocupacion < 10 else int(round(promedio_ocupacion))
+        else:
+            ocupacion_calculada = ocupacion if ocupacion is not None else 1684
+
+        ultimo_registro = records_actualizados[-1] if records_actualizados else {}
+        edad_raw = ultimo_registro.get('EDAD', ultimo_registro.get('Edad', 64000))
+        altura_raw = ultimo_registro.get('ALTURA', ultimo_registro.get('Altura', 172000))
+        genero_final = str(ultimo_registro.get('GENERO', ultimo_registro.get('Genero', 'M')))
+        peso_ideal_final = ultimo_registro.get('Peso_ideal', ultimo_registro.get('peso_ideal', ''))
+        fecha_cumple_str = str(ultimo_registro.get('Cumple', ultimo_registro.get('cumple', ''))).strip()
+
+        nueva_fila = [
+            str(edad_raw),
+            peso_nuevo_sheet,
+            str(altura_raw),
+            str(genero_final),
+            str(ocupacion_calculada),
+            str(mes),
+            ahora.strftime("%Y-%m-%d %H:%M:%S"),
+            str(peso_ideal_final),
+            str(fecha_cumple_str)
+        ]
+        ws.append_row(nueva_fila)
+        ocupacion_final_para_usuarios = ocupacion_calculada
+
+    try:
+        ws_usuarios = sh.worksheet("Usuarios")
+        registros_usuarios = ws_usuarios.get_all_records()
+        headers = ws_usuarios.row_values(1)
+        
+        col_idx_mes = 4
+        col_idx_ocu = 10 
+
+        for idx, h in enumerate(headers, start=1):
+            h_lower = str(h).strip().lower()
+            if h_lower in ["ultimo mes peso", "ultimo_mes_peso", "ultimomespeso"]:
+                col_idx_mes = idx
+            elif h_lower in ["ocupacion", "ocupación"]:
+                col_idx_ocu = idx
+
+        fila_usuario = None
+        for i, reg in enumerate(registros_usuarios, start=2):
+            id_reg = reg.get('ID') or reg.get('user_id') or reg.get('User ID') or list(reg.values())[0]
+            if str(id_reg).strip() == str(user_id).strip():
+                fila_usuario = i
+                break
+
+        if fila_usuario:
+            from gspread.utils import rowcol_to_a1
+            celda_mes_a1 = rowcol_to_a1(fila_usuario, col_idx_mes)
+            fecha_usuarios_str = f"{str(mes)[:7]}-01"
+            ws_usuarios.update(celda_mes_a1, [[fecha_usuarios_str]])
+
+            celda_ocu_a1 = rowcol_to_a1(fila_usuario, col_idx_ocu)
+            ws_usuarios.update(celda_ocu_a1, [[ocupacion_final_para_usuarios]])
+            
+    except Exception as e:
+        print(f"❌ Error crítico al actualizar la pestaña 'Usuarios': {e}")
 
     try:
         tabla_nombre = f"Perfil_{user_id}"
@@ -1569,26 +1701,29 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                 WHERE "MES" = %s
             """, (peso_real, ahora.strftime("%Y-%m-%d %H:%M:%S"), str(mes)))
         else:
+            edad_val = parse_float_from_sheets(edad_raw) if 'edad_raw' in locals() else 64.0
+            altura_val = parse_float_from_sheets(altura_raw) if 'altura_raw' in locals() else 1.72
+            ocupacion_val = (ocupacion_calculada / 1000.0) if ocupacion_calculada > 100 else ocupacion_calculada
+            
             cur.execute(f"""
                 INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
-                str(edad) if edad is not None else "64",
+                str(edad_raw) if 'edad_raw' in locals() else "64",
                 peso_real,
-                float(altura) if altura is not None else 1.72,
-                str(genero) if genero else "M",
-                float(ocupacion) if ocupacion is not None else 1.375,
+                altura_val,
+                str(genero_final) if 'genero_final' in locals() else "M",
+                float(ocupacion_val),
                 str(mes),
                 ahora.strftime("%Y-%m-%d %H:%M:%S"),
-                0.0,
-                ""
+                parse_float_from_sheets(peso_ideal_final) if 'peso_ideal_final' in locals() and peso_ideal_final else 0.0,
+                str(fecha_cumple_str) if 'fecha_cumple_str' in locals() else ""
             ))
         conn.commit()
         cur.close()
         conn.close()
     except Exception as e:
-        logger.error(f"Error al guardar perfil en Supabase (Perfil_{user_id}): {e}")
-
+        logger.error(f"Error al duplicar perfil en Supabase (Perfil_{user_id}): {e}")
 
 #              INICIO                         FUNCIONES MIGRAR                           INICIO
 # =============================================================================================================================================
@@ -2850,7 +2985,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 # ======================================================================================================================================
-#                  INICIO               COMANDOS CONFIRMACION Y COMANDOS MENU                     INICIO
+#                  INICIO               COMANDOS CONFIRMACION Y MENU                     INICIO
 # ======================================================================================================================================
 
 #                  INICIO               INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO
@@ -3005,9 +3140,6 @@ async def manejar_callback_actividad(query, user_id, data, context):
 # ======================================================================================================================================
 	
 @requiere_registro
-@requiere_registro
-@requiere_registro
-@requiere_registro
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -3021,13 +3153,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await manejar_callback_actividad(query, user_id, data, context)
         return
 
-    # Interceptor para los botones de eliminación de ingestas y menús anteriores
+    # 🆕 Interceptor exclusivo para los botones del menú de eliminación
     if data.startswith(("del_reg_", "del_mom_", "ejecutar_del_fila_")):
-        await manejar_callback_eliminacion(query, user_id, data, context)
-        return
-
-    # Interceptor para los botones de eliminación de ítems de ingesta
-    if data.startswith("ejecutar_del_item_"):
         await manejar_callback_eliminacion(query, user_id, data, context)
         return
 
@@ -3185,38 +3312,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 logger.error(f"Error en tarea en segundo plano de PDF para {target_user_id}: {e}", exc_info=True)
 
         asyncio.create_task(tarea_segundo_plano())
-                                 
-@requiere_registro
-async def manejar_callback_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user_id = query.from_user.id
-    data = query.data
 
-    if data == "act_tipo_texto":
-        context.user_data['awaiting_activity_text'] = True
-        msg_solic = await query.message.reply_text(
-            "⌨️ Escribí la actividad (Ej: `50 minutos de caminata a velocidad moderada` o `aquagym 45 min liviano`):",
-            parse_mode="Markdown"
-        )
-        context.user_data['msg_solicitud_activity_id'] = msg_solic.message_id
-        await query.answer()
-
-    elif data == "act_tipo_audio":
-        context.user_data['awaiting_activity_voice'] = True
-        await query.message.reply_text(
-            "🎙️ Enviá una nota de voz describiendo tu actividad física.",
-            parse_mode="Markdown"
-        )
-        await query.answer()
-
-    elif data == "act_cancelar":
-        context.user_data.pop('awaiting_activity_text', None)
-        context.user_data.pop('awaiting_activity_voice', None)
-        await query.edit_message_text("❌ Registro de actividad cancelado.")
-        await query.answer()
-        
 # ======================================================================================================================================
-#                FINAL                           FUNCIONES CONFIRMACION Y FUNCIONES MENU                     FINAL
+#                FINAL                           FUNCIONES CONFIRMACION Y MENU                     FINAL
 # ======================================================================================================================================
 
 # =====================================================================================================================================
@@ -3665,7 +3763,6 @@ conv_handler_ingreso = ConversationHandler(
         ING_CUMPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cumple)],
     },
     fallbacks=[CommandHandler('cancelar', ing_cancelar)],
-    per_message=True,  # 👈 ¡Este es el parámetro obligatorio que faltaba!
 )
 
 #                     INICIO                         COMANDO START                          INICIO  2026 09 05
@@ -6154,7 +6251,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar el texto: {e}")
                 
-#                INICIO                               COMANDOS ELIMINAR                          INICIO  
+#                INICIO                               COMANDO ELIMINAR                          INICIO  
 # =======================================================================================================================================
 
 async def actualizar_menu_filtro_eliminacion(query, context):
@@ -6278,90 +6375,57 @@ async def cmd_eliminar_ingesta(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
+    
+#                INICIO                               COMANDOS ACTIVIDAD                             FINAL
+# ======================================================================================================================================
 
 @requiere_registro
-async def cmd_actdel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando independiente para gestionar y eliminar registros de actividad física."""
-    user_id = update.effective_user.id
-    
-    df = obtener_datos_usuario(user_id)
-    if df.empty:
-        await update.message.reply_text("❌ No tenés registros cargados en tu planilla.")
-        return
-
-    df_actividades = df[
-        (df['Momento'].str.strip().str.lower() == 'actividad') | 
-        (df['Calorias'] < 0)
+async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [
+            InlineKeyboardButton("⌨️ Ingresar Texto", callback_data="act_tipo_texto"),
+            InlineKeyboardButton("🎙️ Enviar Audio", callback_data="act_tipo_audio")
+        ],
+        [InlineKeyboardButton("❌ Cancelar", callback_data="act_cancelar")]
     ]
-
-    if df_actividades.empty:
-        await update.message.reply_text("ℹ️ No se encontraron actividades físicas registradas para eliminar.")
-        return
-
-    txt = "🗑️ **Gestión de Actividades Físicas Registradas:**\n\nSeleccioná la actividad que querés eliminar:"
-    keyboard_buttons = []
-
-    for idx, row in df_actividades.tail(10).iterrows():
-        fecha = row.get('Fecha', '')
-        detalle = row.get('Alimento', 'Actividad')
-        kcal = abs(row.get('Calorias', 0))
-        
-        item_id = row.get('id_registro', idx)
-        texto_boton = f"❌ {fecha} | {str(detalle)[:18]}... (-{kcal:.0f} kcal)"
-        
-        keyboard_buttons.append([
-            InlineKeyboardButton(texto_boton, callback_data=f"ejecutar_del_act_{item_id}")
-        ])
-
-    reply_markup = InlineKeyboardMarkup(keyboard_buttons)
-    await update.message.reply_text(txt, reply_markup=reply_markup, parse_mode="Markdown")
-
-async def manejar_callback_actdel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Maneja el callback exclusivo de la eliminación de actividades."""
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    user_id = query.from_user.id
-
-    if data.startswith("ejecutar_del_act_"):
-        item_id = data.replace("ejecutar_del_act_", "")
-        
-        # Reutilizamos tu función dual existente para borrar en Sheets y Supabase
-        exito = eliminar_registro_por_id(user_id, item_id)
-        
-        if exito:
-            await query.answer("✅ Actividad eliminada correctamente.", show_alert=True)
-        else:
-            await query.answer("⚠️ No se pudo eliminar el registro.", show_alert=True)
-
-        # Refrescamos el listado de actividades pendientes
-        df = obtener_datos_usuario(user_id)
-        df_actividades = df[
-            (df['Momento'].str.strip().str.lower() == 'actividad') | 
-            (df['Calorias'] < 0)
-        ]
-
-        if df_actividades.empty:
-            await query.edit_message_text("🗑️ Ya no quedan actividades registradas para eliminar.")
-            return
-
-        txt = "🗑️ **Gestión de Actividades Físicas Registradas:**\n\nSeleccioná la actividad que querés eliminar:"
-        keyboard_buttons = []
-
-        for idx, row in df_actividades.tail(10).iterrows():
-            fecha = row.get('Fecha', '')
-            detalle = row.get('Alimento', 'Actividad')
-            kcal = abs(row.get('Calorias', 0))
-            
-            item_id = row.get('id_registro', idx)
-            texto_boton = f"❌ {fecha} | {str(detalle)[:18]}... (-{kcal:.0f} kcal)"
-            
-            keyboard_buttons.append([
-                InlineKeyboardButton(texto_boton, callback_data=f"ejecutar_del_act_{item_id}")
-            ])
-
-        await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(keyboard_buttons), parse_mode="Markdown")
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
+    await update.message.reply_text(
+        "🏃 **Registro de Actividad Física**\n\n"
+        "¿Cómo querés ingresar tu ejercicio?",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+@requiere_registro
+async def manejar_callback_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    data = query.data
+
+    if data == "act_tipo_texto":
+        context.user_data['awaiting_activity_text'] = True
+        msg_solic = await query.message.reply_text(
+            "⌨️ Escribí la actividad (Ej: `50 minutos de caminata a velocidad moderada` o `aquagym 45 min liviano`):",
+            parse_mode="Markdown"
+        )
+        context.user_data['msg_solicitud_activity_id'] = msg_solic.message_id
+        await query.answer()
+
+    elif data == "act_tipo_audio":
+        context.user_data['awaiting_activity_voice'] = True
+        await query.message.reply_text(
+            "🎙️ Enviá una nota de voz describiendo tu actividad física.",
+            parse_mode="Markdown"
+        )
+        await query.answer()
+
+    elif data == "act_cancelar":
+        context.user_data.pop('awaiting_activity_text', None)
+        context.user_data.pop('awaiting_activity_voice', None)
+        await query.edit_message_text("❌ Registro de actividad cancelado.")
+        await query.answer()
+        
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA                             FINAL
 # ======================================================================================================================================
@@ -6580,6 +6644,19 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 #                    INICIO                                MAIN                                      INICIO  
 # ==========================================================================================================================================
 
+async def job_recordatorio_manana(context):
+    """Tarea programada para el recordatorio matutino con protección contra fallas."""
+    try:
+        await ejecutar_recordatorio_comidas(context, momento='manana')
+    except Exception as e:
+        logger.error(f"❌ Error en job_recordatorio_manana: {e}")
+
+async def job_recordatorio_tarde(context):
+    """Tarea programada para el recordatorio vespertino con protección contra fallas."""
+    try:
+        await ejecutar_recordatorio_comidas(context, momento='tarde')
+    except Exception as e:
+        logger.error(f"❌ Error en job_recordatorio_tarde: {e}")
 
 def main():
     # Inicia el servidor Web Flask en un hilo independiente
@@ -6631,7 +6708,7 @@ def main():
         app_bot.add_handler(CommandHandler(["factor", "get", "GET"], cmd_factor_handler))
         app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
         app_bot.add_handler(CommandHandler("migrar", cmd_migrar))
-        app_bot.add_handler(CommandHandler("actdel", cmd_actdel))
+        app_bot.add_handler(CommandHandler(["actividad", "ejercicio", "a"], cmd_actividad))
 
         # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
         # Manejador para aceptar los términos y condiciones al iniciar el alta
@@ -6643,9 +6720,6 @@ def main():
         
         # Enrutador específico para los botones del comando de actividad (act_)
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_actividad, pattern="^act_"))
-
-        # Enrutador agregado para la eliminación de actividades físicas (/actdel)
-        app_bot.add_handler(CallbackQueryHandler(manejar_callback_actdel, pattern="^ejecutar_del_act_"))
 
         # --- HANDLERS DE MENSAJES Y CONSULTAS ---
         app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
@@ -6663,7 +6737,10 @@ def main():
     except Exception as e:
         logger.critical(f"❌ Error crítico al iniciar el bot en main(): {e}", exc_info=True)
         raise e
-        
+
+if __name__ == "__main__":
+    main()
+
 # =============================================================================================================================================
 #                                                   FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
