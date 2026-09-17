@@ -6495,7 +6495,6 @@ def main():
         app_bot.add_handler(CommandHandler(["semana", "semanal", "s"], cmd_mensaje))
         app_bot.add_handler(CommandHandler(["receta", "planilla"], cmd_cargar_receta))
         app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
-        app_bot.add_handler(CommandHandler("guia", cmd_guia))
         app_bot.add_handler(CommandHandler(["factor", "get", "GET"], cmd_factor_handler))
         app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
         app_bot.add_handler(CommandHandler("migrar", cmd_migrar))
