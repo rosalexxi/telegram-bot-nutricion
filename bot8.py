@@ -4946,7 +4946,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>Peso Actual</b>", code_style), 
-            Paragraph("<b>Peso en kilogramos:</b> Ingresar el peso actual en kg(ejemplo: <code>82.5</code> kg, con un rango válido de 30 a 300 kg).", body_style)
+            Paragraph("<b>Peso en kilogramos:</b> Ingresar el peso actual en kg (ejemplo: <code>82.5</code> kg, con un rango válido de 30 a 300 kg).", body_style)
         ],
         [
             Paragraph("<b>Muñeca</b>", code_style), 
@@ -4966,24 +4966,23 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>/barra</b>", code_style), 
-            Paragraph("<b>Código de barras:</b> Ingresa un código de barras y se presenta porpantalla un comestible en fracciones de 100 g .", body_style)
+            Paragraph("<b>Código de barras:</b> Ingresa un código de barras y se presenta por pantalla un comestible en fracciones de 100 g.", body_style)
         ],
         [
             Paragraph("<b>/borrarcomida</b>", code_style), 
-            Paragraph("<b>Borra una comida de la planilla:</b> Visualiza el listado de comidas predeterminadas y permite la eliminacion de una ingresando el comando seguido del nombre de la comida.", body_style)
+            Paragraph("<b>Borra una comida de la planilla:</b> Visualiza el listado de comidas predeterminadas y permite la eliminación de una ingresando el comando seguido del nombre de la comida.", body_style)
         ],
-
         [
             Paragraph("<b>/comidas</b>", code_style), 
             Paragraph("<b>Planilla de comidas:</b> Visualiza el listado de comidas predeterminadas guardadas en tu planilla personal y permite descargar la plantilla en PDF.", body_style)
         ],
         [
             Paragraph("<b>/dia</b>", code_style), 
-            Paragraph("<b>Resumen diario:</b> Permite seleccionar el día de consulta. Muestra por pantalla los consumos del día y descargar el PDF detallado con todas las ingestas.", body_style)
+            Paragraph("<b>Resumen diario:</b> Permite seleccionar el día de consulta. Muestra por pantalla los consumos del día y descarga el PDF detallado con todas las ingestas.", body_style)
         ],
         [
             Paragraph("<b>/eliminar</b>", code_style), 
-            Paragraph("<b>Borrar registros:</b> Permite eliminar ingestas y actividades seleccionndo el dia.", body_style)
+            Paragraph("<b>Borrar registros:</b> Permite eliminar ingestas y actividades seleccionando el día.", body_style)
         ],
         [
             Paragraph("<b>/GET</b>", code_style), 
@@ -5001,6 +5000,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("<b>/perfil</b>", code_style), 
             Paragraph("<b>Datos biométricos:</b> Muestra los datos biométricos corporales cargados en el sistema.", body_style)
         ],
+        [
             Paragraph("<b>/peso</b>", code_style), 
             Paragraph("<b>Actualización del peso:</b> Actualiza el peso registrado para el mes en curso.", body_style)
         ],
@@ -5054,10 +5054,10 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     
     registro_ia_data = [
         [
-            Paragraph("<b>Texto Libre:</b> Escribí tus alimentos de forma natural detallando porciones (Ej: <i>'2 huevos revueltos con 1 tostada integral y café'</i>). Detalla tu actividad fisica indicando tipo, duracion, intensidad, dificultad  (Ej: <i>'Caminata de 4000 metros durante 45 minutos en terreno plano '</i>)", body_style)
+            Paragraph("<b>Texto Libre:</b> Escribí tus alimentos de forma natural detallando porciones (Ej: <i>'2 huevos revueltos con 1 tostada integral y café'</i>). Detallá tu actividad física indicando tipo, duración, intensidad y dificultad (Ej: <i>'Caminata de 4000 metros durante 45 minutos en terreno plano'</i>).", body_style)
         ],
         [
-            Paragraph("<b>Notas de Voz:</b> Dictá tu ingesta o actividad fisica en una nota de voz; la IA convertirá el audio a texto y procesará los datos nutricionales.", body_style)
+            Paragraph("<b>Notas de Voz:</b> Dictá tu ingesta o actividad física en una nota de voz; la IA convertirá el audio a texto y procesará los datos nutricionales.", body_style)
         ],
         [
             Paragraph("<b>Fotografías de Galería / Cámara:</b> Envía una foto del plato con o sin descripción aclaratoria (Ej: <i>'Milanesa casera de pollo al horno 200 g'</i>).", body_style)
@@ -5065,16 +5065,15 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         [
             Paragraph("<b>Proceso de Edición y Confirmación de ingestas:</b><br/>"
                       "• <b>Momento:</b> Desayuno, Almuerzo, Merienda o Cena.<br/>"
-                      "• <b>Edición parcial:</b> Seleccioná ítem por ítem enviando una <i>nueva descripción</i> (mantiene peso y se reenvia a la IA), <i>,nuevo peso</i> (mantiene descripcion y recalcula el bot el nuevo peso) o <i>nueva descripción,nuevo peso</i> (se reenvia todo a la IA).<br/>"
+                      "• <b>Edición parcial:</b> Seleccioná ítem por ítem enviando una <i>nueva descripción</i> (mantiene peso y se reenvía a la IA), <i>,nuevo peso</i> (mantiene descripción y el bot recalcula el nuevo peso) o <i>nueva descripción,nuevo peso</i> (se reenvía todo a la IA).<br/>"
                       "• <b>Fecha y Guardado:</b> Confirmá la fecha del consumo para asentar en tu planilla.", body_style)
         ],
         [
             Paragraph("<b>Proceso de Edición y Confirmación de actividades:</b><br/>"
                       "• <b>Momento:</b> Actividad.<br/>"
-                      "• <b>Edición parcial:</b> Ingresar un nuevo valor de las calorias quemadas por la activuidad si dispone de un dispositivo que las pueda medir con mayor exactitud.<br/>"
+                      "• <b>Edición parcial:</b> Ingresar un nuevo valor de las calorías quemadas por la actividad si dispone de un dispositivo que las pueda medir con mayor exactitud.<br/>"
                       "• <b>Fecha y Guardado:</b> Confirmá para asentar en tu planilla.", body_style)
         ]
-
     ]
 
     t_reg_ia = Table(registro_ia_data, colWidths=[540])
@@ -5180,6 +5179,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     buffer.seek(0)
     return buffer
     
+   
 #                   INICIO                            COMANDO PRESION                                   INICIO  DB OK
 # ======================================================================================================================================
 
