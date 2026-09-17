@@ -1360,29 +1360,19 @@ def obtener_pacientes_por_medico(prof_id):
 # =============================================================================================================================================
 
 def actualizar_estado_usuario(user_id: str, nuevo_estado: str):
-    """Función dual: Actualiza el estado de un usuario en Google Sheets y Supabase."""
+    """Actualiza el estado de un usuario exclusivamente en Supabase."""
     try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        sheet_usuarios = sh.worksheet("Usuarios")
-        records = sheet_usuarios.get_all_records()
-        
-        for idx, r in enumerate(records):
-            uid = str(r.get("User ID", r.get("user_id", ""))).split('.')[0].strip()
-            if uid == str(user_id):
-                row_index = idx + 2
-                header_row = sheet_usuarios.row_values(1)
-                col_estado_idx = None
-                for h_idx, h_name in enumerate(header_row, start=1):
-                    if h_name.strip().lower() in ['estado', 'status']:
-                        col_estado_idx = h_idx
-                        break
-                if col_estado_idx:
-                    sheet_usuarios.update_cell(row_index, col_estado_idx, str(nuevo_estado))
-                break
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur.execute("""
+            UPDATE "Usuarios"
+            SET "Estado" = %s
+            WHERE "User ID" = %s
+        """, (str(nuevo_estado), str(user_id)))
+        conn.commit()
+        cur.close()
+        conn.close()
     except Exception as e:
-        logger.error(f"Error al actualizar estado en Google Sheets para {user_id}: {e}")
-
+        logger.error(f"Error al actualizar estado en Supabase para {user_id}: {e}")
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
         cur.execute("""
@@ -3220,9 +3210,8 @@ async def manejar_callback_actividad(update: Update, context: ContextTypes.DEFAU
 
 def cmd_nueva_cuenta(datos_usuario):
     """
-    Crea la hoja de perfil, presión y comidas del usuario en Google Sheets,
-    crea automáticamente la tabla maestra 'usuarios' en Supabase si no existe,
-    e inserta su registro tanto en la hoja de Google Sheets como en Supabase con estado inicial 0.
+    Crea o actualiza el registro del usuario exclusivamente en Supabase.
+    Ya no interactúa con Google Sheets para la creación de perfiles o tablas de control.
     """
     user_id = datos_usuario.get("user_id")
     nombre = datos_usuario.get("nombre")
@@ -3236,82 +3225,51 @@ def cmd_nueva_cuenta(datos_usuario):
     cumple = datos_usuario.get("cumple", "")
     profesional = datos_usuario.get("profesional", "")
 
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-
-    # 1. Crear hoja Perfil_<user_id> y rellenar la primera fila de datos en Google Sheets
-    nombre_hoja_perfil = f"Perfil_{user_id}"
-    try:
-        ws_perfil = sh.worksheet(nombre_hoja_perfil)
-    except gspread.exceptions.WorksheetNotFound:
-        ws_perfil = sh.add_worksheet(title=nombre_hoja_perfil, rows=100, cols=10)
-        cabeceras_perfil = ["EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple"]
-        ws_perfil.append_row(cabeceras_perfil)
-
     mes_actual = datetime.now(ARG_TZ).strftime("%Y-%m")
     fecha_act = datetime.now(ARG_TZ).strftime("%Y-%m-%d %H:%M:%S")
-
-    fila_perfil = [
-        int(edad),
-        int(round(peso * 1000)),
-        int(round(altura * 1000)),
-        str(sexo),
-        int(ocupacion),
-        str(mes_actual),
-        str(fecha_act),
-        int(round(peso_ideal * 1000)),
-        str(cumple)
-    ]
-    ws_perfil.append_row(fila_perfil)
-
-    # 2. Crear hojas adicionales si corresponde (Presión y Comidas) en Google Sheets
-    try:
-        sh.add_worksheet(title=f"Presion_{user_id}", rows=100, cols=10)
-    except Exception:
-        pass
-
-    try:
-        sh.add_worksheet(title=f"Comidas_{user_id}", rows=100, cols=10)
-    except Exception:
-        pass
-
-    # 3. Agregar fila en la hoja 'Usuarios' de Google Sheets con estado inicial 0
-    ws_usuarios = sh.worksheet("Usuarios")
     fecha_alta = datetime.now(ARG_TZ).strftime("%Y-%m-%d")
-    
-    nueva_fila_usuario = [
-        str(user_id),
-        str(nombre),
-        0,
-        str(mes_actual),
-        "Si",
-        str(fecha_alta),
-        str(sexo),
-        int(round(altura)),
-        float(muneca),
-        int(ocupacion),
-        str(cumple),
-        str(profesional)
-    ]
-    ws_usuarios.append_row(nueva_fila_usuario)
 
-    # 4. Asegurar la creación de la tabla maestra 'usuarios' en Supabase e insertar/actualizar el registro
+    # 1. Guardar perfil inicial en la tabla Perfil_<user_id> de Supabase
     try:
-        conn_u, cur_u = _asegurar_tabla_y_conectar("usuarios", tipo_tabla="usuarios")
+        tabla_perfil = f"Perfil_{user_id}"
+        conn_p, cur_p = _asegurar_tabla_y_conectar(tabla_perfil, tipo_tabla="perfil")
+        cur_p.execute(f"""
+            INSERT INTO "{tabla_perfil}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            str(edad),
+            peso,
+            altura,
+            str(sexo),
+            float(ocupacion),
+            str(mes_actual),
+            str(fecha_act),
+            peso_ideal,
+            str(cumple)
+        ))
+        conn_p.commit()
+        cur_p.close()
+        conn_p.close()
+    except Exception as e:
+        logger.error(f"Error al guardar perfil inicial en Supabase para {user_id}: {e}")
+
+    # 2. Insertar o actualizar registro en la tabla maestra 'Usuarios' de Supabase
+    try:
+        conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
         query_usr = """
-            INSERT INTO usuarios ("User ID", "Nombre", "Estado", "MES", "Notificaciones", "Fecha Alta", "Sexo", "Altura", "Muñeca", "Ocupacion", "Cumple", "Profesional")
+            INSERT INTO "Usuarios" ("User ID", "Nombre", "Estado", "Ultimo Mes Peso", "Notificaciones", "Fecha Alta", "Sexo", "Altura", "muneca", "ocupacion", "cumple", "profesional")
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT ("User ID") DO UPDATE SET
                 "Nombre" = EXCLUDED."Nombre",
                 "Estado" = EXCLUDED."Estado",
-                "MES" = EXCLUDED."MES",
+                "Ultimo Mes Peso" = EXCLUDED."Ultimo Mes Peso",
                 "Notificaciones" = EXCLUDED."Notificaciones",
                 "Sexo" = EXCLUDED."Sexo",
                 "Altura" = EXCLUDED."Altura",
-                "Muñeca" = EXCLUDED."Muñeca",
-                "Ocupacion" = EXCLUDED."Ocupacion",
-                "Cumple" = EXCLUDED."Cumple",
-                "Profesional" = EXCLUDED."Profesional"
+                "muneca" = EXCLUDED."muneca",
+                "ocupacion" = EXCLUDED."ocupacion",
+                "cumple" = EXCLUDED."cumple",
+                "profesional" = EXCLUDED."profesional"
         """
         valores_usr = (
             str(user_id),
@@ -3332,41 +3290,45 @@ def cmd_nueva_cuenta(datos_usuario):
         cur_u.close()
         conn_u.close()
     except Exception as e:
-        logger.error(f"Error al crear o insertar en la tabla maestra 'usuarios' de Supabase para el usuario {user_id}: {e}")
-                    
+        logger.error(f"Error al insertar en la tabla maestra 'Usuarios' de Supabase para el usuario {user_id}: {e}")
+                            
 def _verificar_estado_usuario_en_hoja(user_id):
-    """Verifica si el usuario existe en la hoja 'Usuarios' y devuelve su estado o None."""
+    """Verifica si el usuario existe en Supabase y devuelve su estado o None."""
     try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws_usuarios = sh.worksheet("Usuarios")
-        records = ws_usuarios.get_all_records()
-        for r in records:
-            id_hoja = str(r.get("User ID", r.get("user_id", ""))).split('.')[0].strip()
-            if id_hoja == str(user_id).strip():
-                for k, v in r.items():
-                    if str(k).strip().lower() in ['estado', 'status', 'activo', 'activa']:
-                        return str(v).strip()
-                return "Activo"
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        query = 'SELECT "User ID", "Estado" FROM "Usuarios"'
+        cur.execute(query)
+        filas = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        for fila in filas:
+            raw_id = fila[0]
+            if raw_id and str(raw_id).split('.')[0].strip() == str(user_id).strip():
+                estado_val = fila[1]
+                return str(estado_val if estado_val is not None else "0").strip()
     except Exception as e:
-        logger.error(f"Error al verificar estado de usuario: {e}")
+        logger.error(f"Error al verificar estado de usuario en Supabase: {e}")
     return None
-
+    
 def _verificar_profesional_valido(prof_id_str):
-    """Verifica si el ID del profesional existe en la hoja 'Profesionales'."""
+    """Verifica si el ID del profesional existe en la tabla 'Profesionales' de Supabase."""
     try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws_prof = sh.worksheet("Profesionales")
-        records = ws_prof.get_all_records()
-        for r in records:
-            id_hoja = str(r.get("User ID", r.get("user_id", ""))).split('.')[0].strip()
-            if id_hoja == str(prof_id_str).strip():
+        conn, cur = _asegurar_tabla_y_conectar("Profesionales", tipo_tabla="profesionales")
+        query = 'SELECT "User ID" FROM "Profesionales"'
+        cur.execute(query)
+        filas = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        for fila in filas:
+            id_p = str(fila[0] or "").split('.')[0].strip()
+            if id_p == str(prof_id_str).strip():
                 return True
     except Exception as e:
-        logger.error(f"Error al verificar hoja Profesionales: {e}")
+        logger.error(f"Error al verificar profesionales en Supabase: {e}")
     return False
-
+    
 async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
@@ -3665,33 +3627,29 @@ conv_handler_ingreso = ConversationHandler(
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "👋 **¡Bienvenido a tu Bot Nutricional Personalizado!**\n\n"
-        "Guía rápida de comandos e ingestas disponibles:\n\n"
+        "Guía rápida de comandos e ingresos disponibles:\n\n"
         "📌 **Comandos Principales:**\n"
         "• `/inicio`: Resumen de los comandos y PDF del manual.\n"
-        "• `/nuevo`: Apertura de cuenta ingresando los datos.\n"
+        "• `/alta`: Apertura de cuenta ingresando los datos.\n"
         "• `/presi`: Registro y consulta de presión arterial.\n"
-        "  `  /presi 120,80,70,nota` (Completo)\n"
-        "  `  /presi 120,80,70` (Sin nota)\n"
-        "  `  /presi 120,80` (Solo presión)\n"
-        "  `  /presi AAAA-MM` Promedio mensual y PDF.\n"
-        "• `/diario`: Ingestas del día, detalle nutricional y PDF.\n"
-        "• `/semanal`: Estadística semanal (calorías, fibras, etc.).\n"
-        "• `/mensual`: Reporte con estimación de peso y PDF.\n"
+        "• `/dia`: Ingestas del día, detalle nutricional y PDF.\n"
+        "• `/semana`: Estadística semanal (calorías, fibras, etc.).\n"
+        "• `/mes`: Reporte con estimación de peso y PDF.\n"
         "• `/perfil`: Consulta de datos biométricos.\n"
-        "• `/peso`: Actualiza el peso del mes (`/peso 90`).\n"
+        "• `/peso`: Actualiza el peso del mes .\n"
         "• `/eliminar`: Borra ingestas seleccionando el día.\n"
-        "• `/actividad`: Ingresa actividad física con IA.\n"
-        "• `/barra`: Ingresa por código de barras (`/barra Número`).\n"
+        "• `/barra`: Ingresa por código de barras un comestible.\n"
         "• `/GET`: Actualiza GET por medio del reloj inteligente.\n"
         "• `/comidas`: Planilla de comidas precargadas y PDF.\n"
         "• `/receta`: Calculadora Web para registrar comidas.\n\n"
         "📌 **Métodos de Registro:**\n"
         "• **Con IA:** Texto, 🎤 Notas de voz, 📸 Fotos.\n"
-        "• **Modificación parcial:** Editar por ítem y reenvío a la IA\n"
+        "    Ingreso de ingestas o actividad fisica\n"
+        "• **Modificación parcial:** ingestas por item y reenvío a la IA\n"
         "    `DESCRIPCION` manteniendo el peso\n"
         "    `DESCRIPCION,PESO` modificando ambos campos\n"
         "    `,PESO` manteniendo la descripción\n"
-        "• **Sin IA:** Comidas precargadas y actividad física:\n"
+        "• **Sin IA:** Comidas precargadas en planilla:\n"
         "    `*DESAYUNO`: menú completo\n"
         "    `*PIZZA (porción),4`: 4 porciones de pizza\n"
         "    `*TORTA (fracción x 100g),1.5`: 150 g de torta\n\n"
@@ -3785,7 +3743,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("Presenta la guía rápida con opción de descargar este manual en formato PDF.", body_style)
         ],
         [
-            Paragraph("<b>/ingreso</b>", code_style), 
+            Paragraph("<b>/alta</b>", code_style), 
             Paragraph("<b>Comando de Inicio de Registro:</b> Permite iniciar el proceso de apertura de cuenta y creación de ficha nutricional paso a paso.", body_style)
         ],
         [
@@ -3860,10 +3818,6 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("<b>Actualización del peso:</b> Actualiza el peso registrado para el mes en curso.", body_style)
         ],
         [
-            Paragraph("<b>/actividad</b>", code_style), 
-            Paragraph("<b>Actividad física:</b> Carga actividad física por medio de voz o texto consultando a la IA. El formato es MINUTOS ACTIVIDAD INTENSIDAD.", body_style)
-        ],
-        [
             Paragraph("<b>/GET</b>", code_style), 
             Paragraph("<b>Gasto Energetico Total:</b> Actualiza el GET mediante el registro de calorías base de 24 horas de un reloj inteligente para actualizar el factor de actividad (ejemplo: <code>/GET 2150</code>).", body_style)
         ],
@@ -3876,7 +3830,6 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("<b>• /diario:</b> <code>/d</code><br/>"
                       "<b>• /semanal:</b> <code>/s</code><br/>"
                       "<b>• /mensual:</b> <code>/m</code><br/>"
-                      "<b>• /actividad:</b> <code>/a</code>", body_style)
         ],
     ]
 
@@ -3907,16 +3860,16 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     
     registro_ia_data = [
         [
-            Paragraph("<b>Texto Libre:</b> Escribí tus alimentos de forma natural detallando porciones (Ej: <i>'2 huevos revueltos con 1 tostada integral y café'</i>).", body_style)
+            Paragraph("<b>Texto Libre:</b> Escribí tus alimentos de forma natural detallando porciones (Ej: <i>'2 huevos revueltos con 1 tostada integral y café'</i>). Detalla tu actividad fisica indicando tipo, duracion, intensidad, dificultad  (Ej: <i>'Caminata de 4000 metros durante 45 minutos en terreno plano '</i>)", body_style)
         ],
         [
-            Paragraph("<b>Notas de Voz:</b> Dictá tu ingesta en una nota de voz; la IA convertirá el audio a texto y procesará los datos nutricionales.", body_style)
+            Paragraph("<b>Notas de Voz:</b> Dictá tu ingesta o actividad fisica en una nota de voz; la IA convertirá el audio a texto y procesará los datos nutricionales.", body_style)
         ],
         [
             Paragraph("<b>Fotografías de Galería / Cámara:</b> Envía una foto del código de barras del producto o del plato con o sin descripción aclaratoria (Ej: <i>'Milanesa casera de pollo al horno 200 g'</i>).", body_style)
         ],
         [
-            Paragraph("<b>Proceso de Edición y Confirmación:</b><br/>"
+            Paragraph("<b>Proceso de Edición y Confirmación de ingestas:</b><br/>"
                       "• <b>Momento:</b> Desayuno, Almuerzo, Merienda o Cena.<br/>"
                       "• <b>Edición parcial:</b> Seleccioná ítem por ítem enviando una <i>nueva descripción</i> (mantiene peso) o <i>descripción y peso</i> (recalcula completo).<br/>"
                       "• <b>Fecha y Guardado:</b> Confirmá la fecha del consumo para asentar en tu planilla.", body_style)
@@ -3937,7 +3890,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     story.append(t_reg_ia)
     story.append(Spacer(1, 6))
 
-    story.append(Paragraph("B. Sin Intervención de IA (Comidas Precargadas y Actividades)", subsection_style))
+    story.append(Paragraph("B. Sin Intervención de IA (Comidas Precargadas)", subsection_style))
 
     direct_data = [
         [Paragraph("Tipo de Registro", body_bold), Paragraph("Sintaxis", body_bold), Paragraph("Ejemplos y Funcionamiento", body_bold)],
@@ -4849,11 +4802,11 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"• Balance Neto: `{_fmt(m.get('prom_bal_neto', 0))} kcal/día`\n"
             f"• Variación Est. de Peso: {texto_variacion_peso} ({m.get('dias_registrados', 0)} días)\n\n"
             f"📈 **Promedios vs. Rangos Saludables:**\n"
-            f"• Calorías: `{_fmt(m.get('prom_cal', 0))}` / Rango: `{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal`\n"
-            f"• Proteínas: `{_fmt(m.get('prom_prot', 0))}` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
-            f"• Grasas: `{_fmt(m.get('prom_gras', 0))}` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
-            f"• Carbs: `{_fmt(m.get('prom_carb', 0))}` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
-            f"• Fibras: `{_fmt(m.get('prom_fibr', 0))}` / Mínimo: `{m.get('fibr_min', 0)} g`\n\n"
+            f"• Calorías: `{_fmt(m.get('prom_cal', 0))} kcal` / Rango: `{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal`\n"
+            f"• Proteínas: `{_fmt(m.get('prom_prot', 0))} g` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
+            f"• Grasas: `{_fmt(m.get('prom_gras', 0))} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
+            f"• Carbs: `{_fmt(m.get('prom_carb', 0))} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
+            f"• Fibras: `{_fmt(m.get('prom_fibr', 0))} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n\n"
             f"📌 Resumen calculado con éxito"
         )
         
