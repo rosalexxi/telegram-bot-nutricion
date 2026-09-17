@@ -4969,6 +4969,11 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("<b>Código de barras:</b> Ingresa un código de barras y se presenta porpantalla un comestible en fracciones de 100 g .", body_style)
         ],
         [
+            Paragraph("<b>/borrarcomida</b>", code_style), 
+            Paragraph("<b>Borra una comida de la planilla:</b> Visualiza el listado de comidas predeterminadas y permite la eliminacion de una ingresando el comando seguido del nombre de la comida.", body_style)
+        ],
+
+        [
             Paragraph("<b>/comidas</b>", code_style), 
             Paragraph("<b>Planilla de comidas:</b> Visualiza el listado de comidas predeterminadas guardadas en tu planilla personal y permite descargar la plantilla en PDF.", body_style)
         ],
@@ -4978,7 +4983,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>/eliminar</b>", code_style), 
-            Paragraph("<b>Borrar registros:</b> Permite eliminar ingestas y actividades seleccionendo el dia.", body_style)
+            Paragraph("<b>Borrar registros:</b> Permite eliminar ingestas y actividades seleccionndo el dia.", body_style)
         ],
         [
             Paragraph("<b>/GET</b>", code_style), 
@@ -4996,7 +5001,6 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("<b>/perfil</b>", code_style), 
             Paragraph("<b>Datos biométricos:</b> Muestra los datos biométricos corporales cargados en el sistema.", body_style)
         ],
-        [
             Paragraph("<b>/peso</b>", code_style), 
             Paragraph("<b>Actualización del peso:</b> Actualiza el peso registrado para el mes en curso.", body_style)
         ],
@@ -5063,7 +5067,14 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
                       "• <b>Momento:</b> Desayuno, Almuerzo, Merienda o Cena.<br/>"
                       "• <b>Edición parcial:</b> Seleccioná ítem por ítem enviando una <i>nueva descripción</i> (mantiene peso y se reenvia a la IA), <i>,nuevo peso</i> (mantiene descripcion y recalcula el bot el nuevo peso) o <i>nueva descripción,nuevo peso</i> (se reenvia todo a la IA).<br/>"
                       "• <b>Fecha y Guardado:</b> Confirmá la fecha del consumo para asentar en tu planilla.", body_style)
+        ],
+        [
+            Paragraph("<b>Proceso de Edición y Confirmación de actividades:</b><br/>"
+                      "• <b>Momento:</b> Actividad.<br/>"
+                      "• <b>Edición parcial:</b> Ingresar un nuevo valor de las calorias quemadas por la activuidad si dispone de un dispositivo que las pueda medir con mayor exactitud.<br/>"
+                      "• <b>Fecha y Guardado:</b> Confirmá para asentar en tu planilla.", body_style)
         ]
+
     ]
 
     t_reg_ia = Table(registro_ia_data, colWidths=[540])
