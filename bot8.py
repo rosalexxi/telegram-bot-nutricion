@@ -3995,6 +3995,9 @@ async def render_confirmation_screen(msg_or_query, context):
     for idx, item in enumerate(items, start=1):
         peso_total = item.get('peso', 0)
         cal_total = item.get('calorias', 0)
+        prot_total = item.get('proteinas', 0)
+        grasas_total = item.get('grasas', 0)
+        fibras_total = item.get('fibras', 0)
         
         # Si la plantilla ya tiene display limpio configurado, lo usamos; si no, limpiamos el §
         alimento_str = item.get('alimento_display') or item.get('alimento', item.get('nombre', ''))
@@ -4003,8 +4006,12 @@ async def render_confirmation_screen(msg_or_query, context):
         if momento == 'Actividad':
             txt += f"**{idx}. {alimento_limpio}**: `{cal_total:.1f} kcal`\n"
         else:
-            # Mostramos el texto limpio una sola vez (ya incluye el (x...) si era plantilla)
-            txt += f"**{idx}. {alimento_limpio}** ({peso_total:.1f}g): `{cal_total:.1f} kcal`\n"
+            # Mostramos el desglose completo de nutrientes por cada 100g (o el peso registrado)
+            txt += f"**{idx}. {alimento_limpio}** ({peso_total:.1f}g):\n"
+            txt += f"   • Calorías: `{cal_total:.1f} kcal`\n"
+            txt += f"   • Proteínas: `{prot_total:.1f} g`\n"
+            txt += f"   • Grasas tot.: `{grasas_total:.1f} g`\n"
+            txt += f"   • Fibras: `{fibras_total:.1f} g`\n\n"
 
     keyboard = []
     
@@ -4071,6 +4078,7 @@ async def render_confirmation_screen(msg_or_query, context):
         if not editado and hasattr(msg_or_query, 'message') and msg_or_query.message:
             nuevo_msg = await msg_or_query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
             context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
+            
 
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     items = data_json.get("items", [])
@@ -7179,59 +7187,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar imagen: {e}")
-                
-async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
-    chat_id = message_obj.chat_id
-    msg_espera = await message_obj.reply_text("🔍 Analizando código de barras y verificando producto...")
-    
-    try:
-        resultado_api = consultar_codigo_barras(barcode_text)
-        
-        if resultado_api:
-            item_procesado = {
-                "alimento": resultado_api['alimento'],          # 👈 SIN EL SÍMBOLO §
-                "alimento_display": resultado_api['alimento'],
-                "peso": resultado_api['peso'],                  # 100.0 g exactos
-                "calorias": resultado_api['calorias'],          # Calculado a 100g
-                "proteinas": resultado_api['proteinas'],
-                "grasas": resultado_api['grasas'],
-                "carbohidratos": resultado_api['carbohidratos'],
-                "fibras": resultado_api['fibras'],
-                "fuente": "Open Food Facts"
-            }
-
-            fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
-
-            await msg_espera.delete()
-            msg_menu = await message_obj.reply_text("📋 Producto encontrado (valores calculados cada 100 g):")
-            
-            context.user_data['last_menu_msg_id'] = msg_menu.message_id
-            context.user_data['pending_items'] = [item_procesado]
-            context.user_data['pending_fecha'] = fecha_auto
-            context.user_data['pending_momento'] = momento_auto
-                
-            await render_confirmation_screen(msg_menu, context)
-        else:
-            await msg_espera.edit_text("⚠️ Código de barras no encontrado en la base de datos. Intentá ingresarlo como texto o foto.")
-            
-    except Exception as e:
-        await msg_espera.edit_text(f"❌ Error al consultar el código: {e}")
-                
-@requiere_registro
-async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args
-    
-    if not args:
-        msg_solic = await update.message.reply_text(
-            "⌨️ Por favor, ingresá o pegá los números del código de barras:",
-            parse_mode="Markdown"
-        )
-        context.user_data['awaiting_barcode_input'] = True
-        context.user_data['msg_solicitud_barcode_id'] = msg_solic.message_id
-        return
-
-    barcode_text = args[0].strip()
-    await procesar_codigo_ingresado(update.message, context, barcode_text)
         
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -7545,7 +7500,64 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar el texto: {e}")
+
+                
+#                INICIO                             COMANDO BARRA                                 INICIO DB OK
+# =================================================================================================================================
+
+async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
+    chat_id = message_obj.chat_id
+    msg_espera = await message_obj.reply_text("🔍 Analizando código de barras y verificando producto...")
+    
+    try:
+        resultado_api = consultar_codigo_barras(barcode_text)
         
+        if resultado_api:
+            item_procesado = {
+                "alimento": resultado_api['alimento'],          # 👈 SIN EL SÍMBOLO §
+                "alimento_display": resultado_api['alimento'],
+                "peso": resultado_api['peso'],                  # 100.0 g exactos
+                "calorias": resultado_api['calorias'],          # Calculado a 100g
+                "proteinas": resultado_api['proteinas'],
+                "grasas": resultado_api['grasas'],
+                "carbohidratos": resultado_api['carbohidratos'],
+                "fibras": resultado_api['fibras'],
+                "fuente": "Open Food Facts"
+            }
+
+            fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
+
+            await msg_espera.delete()
+            msg_menu = await message_obj.reply_text("📋 Producto encontrado (valores calculados cada 100 g):")
+            
+            context.user_data['last_menu_msg_id'] = msg_menu.message_id
+            context.user_data['pending_items'] = [item_procesado]
+            context.user_data['pending_fecha'] = fecha_auto
+            context.user_data['pending_momento'] = momento_auto
+                
+            await render_confirmation_screen(msg_menu, context)
+        else:
+            await msg_espera.edit_text("⚠️ Código de barras no encontrado en la base de datos. Intentá ingresarlo como texto o foto.")
+            
+    except Exception as e:
+        await msg_espera.edit_text(f"❌ Error al consultar el código: {e}")
+
+@requiere_registro
+async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    
+    if not args:
+        msg_solic = await update.message.reply_text(
+            "⌨️ Por favor, ingresá o pegá los números del código de barras:",
+            parse_mode="Markdown"
+        )
+        context.user_data['awaiting_barcode_input'] = True
+        context.user_data['msg_solicitud_barcode_id'] = msg_solic.message_id
+        return
+
+    barcode_text = args[0].strip()
+    await procesar_codigo_ingresado(update.message, context, barcode_text)
+               
                 
 #                   INICIO                       COMANDO ELIMINAR INGESTAS ACTIVIDAD                         INICIO
 # ======================================================================================================================================
