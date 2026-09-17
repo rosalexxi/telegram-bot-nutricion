@@ -6213,8 +6213,12 @@ async def render_pantalla_items_eliminar(query, user_id, context):
     markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
 
-async def manejar_callback_eliminacion(query, user_id, data, context):
+async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Manejador central para todos los pasos interactivos del comando /eliminar."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    user_id = query.from_user.id
     
     if data == "del_d_hoy":
         context.user_data['del_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
@@ -6228,7 +6232,6 @@ async def manejar_callback_eliminacion(query, user_id, data, context):
         context.user_data['awaiting_del_custom_date'] = True
         msg_solic = await query.message.reply_text("📅 Ingresá la fecha que querés revisar (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
         context.user_data['msg_solicitud_del_fecha_id'] = msg_solic.message_id
-        await query.answer()
 
     elif data.startswith("del_mom_"):
         momento = data.replace("del_mom_", "")
@@ -6263,7 +6266,7 @@ async def manejar_callback_eliminacion(query, user_id, data, context):
 
     elif data in ["del_cambiar_fecha", "del_volver_momentos"]:
         await mostrar_selector_momento_eliminar(query, context)
-
+        
 # ======================================================================================================================================
 #                   FINAL                       NUEVO COMANDO ELIMINAR INGESTAS                         FINAL
 # ======================================================================================================================================
