@@ -1702,6 +1702,680 @@ async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #              FINAL                            FUNCIONES SUPABASE                 FINAL
 # =============================================================================================================================================
 
+# =============================================================================================================================================
+#              INICIO                         FUNCIONES AUXILIARES                           INICIO
+# =============================================================================================================================================
+
+#              INICIO                       10  FUNCIONES DATOS Y FECHAS                           INICIO
+# =============================================================================================================================================
+
+def parse_raw_val(val):
+    if val is None or val == "":
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    val_str = str(val).strip().replace(',', '.')
+    try:
+        return float(val_str)
+    except ValueError:
+        return 0.0
+
+def to_sheet_int(val):
+    num = parse_raw_val(val)
+    return int(round(num * 1000))
+
+def parse_float_from_sheets(val):
+    num = parse_raw_val(val)
+    return num / 1000.0
+
+def obtener_ahora_arg():
+    return datetime.now(ARG_TZ)
+    
+def obtener_momento_y_fecha_auto():
+    ahora = obtener_ahora_arg()
+    hora = ahora.time()
+    fecha_obj = ahora.date()
+    
+    if time(0, 0) <= hora < time(4, 0):
+        fecha_obj = fecha_obj - timedelta(days=1)
+        momento = "Cena"
+    elif time(4, 0) <= hora < time(11, 0):
+        momento = "Desayuno"
+    elif time(11, 0) <= hora < time(16, 0):
+        momento = "Almuerzo"
+    elif time(16, 0) <= hora < time(20, 0):
+        momento = "Merienda"
+    else:
+        momento = "Cena"
+        
+    return fecha_obj.strftime("%Y-%m-%d"), momento
+
+def extraer_val(texto: str) -> float:
+    if not texto:
+        return 0.0
+    coincidencia = re.search(r'(\d+(?:[.,]\d+)?)', str(texto))
+    if coincidencia:
+        try:
+            return float(coincidencia.group(1).replace(',', '.'))
+        except ValueError:
+            return 0.0
+    return 0.0
+
+#              INICIO                     11 FUNCIONES BIOMETRICAS                           INICIO
+# =============================================================================================================================================
+
+def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
+    if peso_referencia and peso_referencia > 0:
+        dif_relativa = (peso_actual - peso_referencia) / peso_referencia
+        
+        if -0.10 <= dif_relativa <= 0.10:
+            return (
+                "ESTADO: MANTENIMIENTO / ESTABLE\n"
+                "Instrucción para la IA: El usuario se encuentra dentro del rango de tolerancia del 10% respecto a su peso objetivo. "
+                "El consumo calórico real y el ideal deben tender a la paridad. Analiza la estabilidad de los hábitos, la variedad de los grupos "
+                "de alimentos y la distribución armónica de los macronutrientes. No sugieras cambios drásticos de peso."
+            )
+        elif peso_actual > peso_referencia:
+            return (
+                "ESTADO: DESCENSO DE PESO\n"
+                "Instrucción para la IA: El usuario se encuentra en un régimen de descenso de peso con un déficit calórico deliberado. "
+                "Una ingesta calórica menor al gasto ideal es el comportamiento esperado y correcto. No señales la diferencia calórica como un error "
+                "o déficit involuntario ni recomiendes aumentar calorías para alcanzar el mantenimiento. Enfócate exclusivamente en la calidad nutricional, "
+                "saciedad y densidad de los alimentos consumidos dentro del marco de restricción."
+            )
+        else:
+            return (
+                "ESTADO: ASCENSO / GANANCIA DE PESO\n"
+                "Instrucción para la IA: El usuario se encuentra en un régimen de ganancia o ascenso de peso mediante un superávit calórico controlado. "
+                "Una ingesta superior al gasto base es el comportamiento pretendido. Evalúa que el aporte extra de nutrientes esté respaldado por proteínas "
+                "y carbohidratos de calidad, evitando alertar por un consumo calórico elevado."
+            )
+    else:
+        return (
+            "ESTADO: DESCENSO DE PESO\n"
+            "Instrucción para la IA: Evalúa el informe priorizando la calidad de los nutrientes y hábitos saludables sin alterar los números duros ya calculados."
+        )
+
+
+def calcular_contextura(sexo: str, altura_cm: float, muneca_cm: float) -> str:
+    """Calcula la contextura física según la relación Altura / Muñeca."""
+    if muneca_cm <= 0: return "Mediana"
+    r = altura_cm / muneca_cm
+    if str(sexo).upper() in ['M', 'MASCULINO']:
+        if r > 10.4: return "Pequeña"
+        elif 9.6 <= r <= 10.4: return "Mediana"
+        else: return "Grande"
+    else:
+        if r > 11.0: return "Pequeña"
+        elif 10.1 <= r <= 11.0: return "Mediana"
+        else: return "Grande"
+
+def calcular_peso_ideal(sexo: str, altura_cm: float) -> float:
+    """Estimación de peso ideal mediante fórmula de Lorentz."""
+    if str(sexo).upper() in ['M', 'MASCULINO']:
+        return (altura_cm - 100) - ((altura_cm - 150) / 4.0)
+    else:
+        return (altura_cm - 100) - ((altura_cm - 150) / 2.5)
+
+def calcular_peso_etapa(peso_actual: float, peso_ideal: float) -> float:
+    """Calcula el peso objetivo prudente para la primera etapa (75% actual + 25% ideal)."""
+    return round((peso_actual * 0.75) + (peso_ideal * 0.25), 1)
+    
+def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero: str = "masculino", actividad = 1375, peso_ideal = None) -> tuple[float, float]:
+    """
+    Calcula TMB (Mifflin-St Jeor) y GET (Gasto Energético Total).
+    Procesa números enteros (*1000) o strings/floats numéricos de forma tolerante.
+    """
+    def _parse_num(val, default):
+        if val is None:
+            return default
+        try:
+            return float(str(val).replace(',', '.').strip())
+        except (ValueError, TypeError):
+            return default
+
+    try:
+        p_num = _parse_num(peso_actual, 70000.0)
+        a_num = _parse_num(altura_cm, 170.0)
+        e_num = _parse_num(edad, 30.0)
+        act_num = _parse_num(actividad, 1375.0)
+
+        peso = p_num / 1000.0 if p_num > 1000 else p_num
+        altura = a_num / 1000.0 if a_num > 1000 else a_num
+        años = int(e_num / 1000.0) if e_num > 1000 else int(e_num)
+        factor_actividad = act_num / 1000.0 if act_num > 100 else act_num
+
+        if factor_actividad <= 0:
+            factor_actividad = 1.375
+
+    except Exception as e:
+        print(f"ERROR en calcular_tmb_y_get: {e}")
+        peso, altura, años, factor_actividad = 70.0, 170.0, 30, 1.375
+
+    gen_clean = str(genero).strip().lower()
+
+    if gen_clean in ["femenino", "f", "mujer", "female"]:
+        tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * años) - 161.0
+    else:
+        tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * años) + 5.0
+
+    get = tmb * factor_actividad
+    return round(tmb, 2), round(get, 2)
+        
+def calcular_metricas_mensuales(df_mes, perfil_dict):
+    """Procesa todos los cálculos mensuales garantizando consistencia y exactitud metabólica con rangos (Mínimo y Máximo)."""
+    
+    # Encapsulado: Filtramos internamente el DataFrame para excluir días incompletos del cálculo mensual
+    if df_mes is not None and not df_mes.empty and 'Fecha' in df_mes.columns:
+        todas_comidas = {"Desayuno", "Almuerzo", "Merienda", "Cena"}
+        comidas_principales = {"Almuerzo", "Cena"}
+        dias_validos_filtrados = []
+        
+        for fecha, grupo in df_mes.groupby('Fecha'):
+            comidas_del_dia = [
+                str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() 
+                for _, r in grupo.iterrows()
+                if str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() in todas_comidas
+            ]
+            
+            total_comidas = len(comidas_del_dia)
+            tiene_principal = any(c in comidas_principales for c in comidas_del_dia)
+            
+            if total_comidas >= 2 and tiene_principal:
+                dias_validos_filtrados.append(fecha)
+                
+        df_mes = df_mes[df_mes['Fecha'].isin(dias_validos_filtrados)]
+
+    dias_registrados = df_mes['Fecha'].nunique() if (df_mes is not None and not df_mes.empty) else 1
+    if dias_registrados == 0:
+        dias_registrados = 1
+
+    tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
+    tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
+
+    # Cálculo de minutos totales de actividad física en el período
+    minutos_totales_actividad = 0
+    if df_mes is not None and not df_mes.empty and 'Momento' in df_mes.columns and 'Alimento' in df_mes.columns:
+        for _, row in df_mes.iterrows():
+            momento_str = str(row.get('Momento', '')).strip().lower()
+            alimento_str = str(row.get('Alimento', '')).strip()
+            cal_val = float(row.get('Calorias', 0) or 0)
+            if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
+                match = re.match(r'^(\d+)', alimento_str)
+                if match:
+                    minutos_totales_actividad += int(match.group(1))
+
+    prom_minutos_act = int(round(minutos_totales_actividad / dias_registrados))
+
+    prom_cons = tot_cons_mes / dias_registrados
+    prom_quem = tot_quem_mes / dias_registrados
+    prom_bal_neto = prom_cons - prom_quem
+
+    tot_prot = float(df_mes['Proteinas'].sum()) if df_mes is not None and 'Proteinas' in df_mes.columns else 0.0
+    tot_gras = float(df_mes['Grasas'].sum()) if df_mes is not None and 'Grasas' in df_mes.columns else 0.0
+    tot_carb = float(df_mes['Carbohidratos'].sum()) if df_mes is not None and 'Carbohidratos' in df_mes.columns else 0.0
+    tot_fibr = float(df_mes['Fibras'].sum()) if df_mes is not None and 'Fibras' in df_mes.columns else 0.0
+
+    prom_cal = int(round(prom_cons))
+    prom_prot = int(round(tot_prot / dias_registrados))
+    prom_gras = int(round(tot_gras / dias_registrados))
+    prom_carb = int(round(tot_carb / dias_registrados))
+    prom_fibr = int(round(tot_fibr / dias_registrados))
+
+    perfil_dict = perfil_dict if isinstance(perfil_dict, dict) else {}
+    
+    def get_perfil_num(key_list, default):
+        for k in key_list:
+            if k in perfil_dict and perfil_dict[k] is not None:
+                val = parse_raw_val(perfil_dict[k])
+                if val != 0.0:
+                    return val
+        return default
+
+    edad = int(get_perfil_num(['Edad', 'edad'], 64))
+    altura = get_perfil_num(['Altura', 'altura'], 167.0)
+    peso_actual = get_perfil_num(['Peso', 'peso'], 108.5)
+    peso_ideal = get_perfil_num(['Peso_ideal', 'peso_ideal', 'Peso Ideal'], 75.0)
+    
+    genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
+    ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
+
+    peso_referencia = (peso_actual * 0.75) + (peso_ideal * 0.25)
+
+    # Cálculo dinámico del rango de actividad física según el sobrepeso (tope 60 a 90 min)
+    min_act = 30
+    exceso_pct = max(0.0, (peso_actual - peso_ideal) / peso_ideal) if peso_ideal > 0 else 0.0
+    if exceso_pct >= 0.20:
+        max_act = 60
+    elif exceso_pct <= 0.0:
+        max_act = 90
+    else:
+        max_act = int(90 - (exceso_pct / 0.20) * 30)
+        max_act = max(60, min(90, max_act))
+
+    _, get_real = calcular_tmb_y_get(
+        peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
+    )
+    _, get_meta = calcular_tmb_y_get(
+        peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
+    )
+
+    gasto_diario_total = get_real + prom_quem
+    balance_diario = prom_cons - gasto_diario_total
+    cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
+    deficit_diario_real = -balance_diario
+
+    gen_clean = genero.lower()
+    if gen_clean in ["femenino", "f", "mujer", "female"]:
+        factor_proteina_min = 1.0
+        factor_proteina_max = 1.2
+        fibr_min = 25
+    else:
+        factor_proteina_min = 1.2
+        factor_proteina_max = 1.5
+        fibr_min = 30
+
+    cal_max = int(round(get_meta))
+    cal_min = max(1500, int(round(cal_max - 600)))
+
+    prot_min = int(round(peso_referencia * factor_proteina_min))
+    prot_max = int(round(peso_referencia * factor_proteina_max))
+
+    gras_min = int(round((cal_min * 0.20) / 9.0))
+    gras_max = int(round((cal_max * 0.30) / 9.0))
+
+    carb_min = int(round((cal_min * 0.40) / 4.0))
+    carb_max = int(round((cal_max * 0.55) / 4.0))
+
+    fibr_min_val = fibr_min
+
+    return {
+        "dias_registrados": dias_registrados,
+        "prom_cal": prom_cal,
+        "prom_quem": int(round(prom_quem)),
+        "prom_bal_neto": int(round(prom_bal_neto)),
+        "prom_prot": prom_prot,
+        "prom_gras": prom_gras,
+        "prom_carb": prom_carb,
+        "prom_fibr": prom_fibr,
+        "prom_minutos_act": prom_minutos_act,
+        "act_min": min_act,
+        "act_max": max_act,
+        "cal_min": cal_min, "cal_max": cal_max,
+        "prot_min": prot_min, "prot_max": prot_max,
+        "gras_min": gras_min, "gras_max": gras_max,
+        "carb_min": carb_min, "carb_max": carb_max,
+        "fibr_min": fibr_min_val,
+        "ideal_cal": cal_max,
+        "ideal_prot": prot_max,
+        "ideal_gras": gras_max,
+        "ideal_carb": carb_max,
+        "ideal_fibr": fibr_min_val,
+        "peso_actual": round(float(peso_actual), 1),
+        "peso_ideal": round(float(peso_ideal), 1),
+        "peso_referencia": round(float(peso_referencia), 1),
+        "altura": round(float(altura), 1),
+        "edad": edad,
+        "get_meta": get_meta,
+        "get_real": get_real,
+        "deficit_diario_real": int(round(deficit_diario_real)),
+        "cambio_peso_kg": cambio_peso_kg,
+        "tot_cons": tot_cons_mes,
+        "tot_quem": tot_quem_mes,
+        "tot_prot": tot_prot,
+        "tot_gras": tot_gras,
+        "tot_carb": tot_carb,
+        "tot_fibr": tot_fibr
+    }
+            
+async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.DEFAULT_TYPE = None, user_id: int = None) -> bool:
+    uid = user_id or (update.effective_user.id if update else None)
+    if not uid:
+        return False
+
+    try:
+        ultimo_registro = obtener_ultimo_peso(uid) if 'obtener_ultimo_peso' in globals() else None
+    except Exception as e:
+        if 'log_error' in globals():
+            await log_error("validar_peso_mes_actual", e, user_id=uid)
+        ultimo_registro = None
+
+    peso_valido = False
+
+    if ultimo_registro:
+        fecha_val = (
+            ultimo_registro.get("fecha") or  
+            ultimo_registro.get("Ultimo Mes Peso") or  
+            ultimo_registro.get("MES") or  
+            ""
+        )
+        fecha_str = str(fecha_val).strip()
+
+        if fecha_str:
+            ahora = obtener_ahora_arg() if 'obtener_ahora_arg' in globals() else datetime.now()
+            
+            formatos = [
+                "%d/%m/%Y", "%Y-%m-%d", "%d/%m/%y",
+                "%Y-%m", "%m/%Y", "%Y-%m-%d %H:%M:%S",
+                "%d/%m/%Y %H:%M:%S", "%Y-%m-%d %H:%M"
+            ]
+
+            fecha_dt = None
+            for fmt in formatos:
+                try:
+                    fecha_dt = datetime.strptime(fecha_str, fmt)
+                    break
+                except ValueError:
+                    continue
+
+            if fecha_dt:
+                if fecha_dt.year == ahora.year and fecha_dt.month == ahora.month:
+                    peso_valido = True
+            else:
+                mes_str_iso = ahora.strftime("%Y-%m")
+                mes_str_lat = ahora.strftime("%m/%Y")
+                if mes_str_iso in fecha_str or mes_str_lat in fecha_str:
+                    peso_valido = True
+                    
+    return peso_valido
+    
+#              INICIO                     12 FUNCIONES COMIDAS                           INICIO
+# =============================================================================================================================================
+
+def calcular_porcentajes_harinas(frecuencias):
+    key_int = next((k for k in frecuencias.keys() if 'integral' in k), None)
+    key_ref = next((k for k in frecuencias.keys() if 'refinada' in k or 'blanca' in k), None)
+
+    total_integrales = frecuencias.get(key_int, 0) if key_int else 0
+    total_refinadas = frecuencias.get(key_ref, 0) if key_ref else 0
+    total_harinas = total_integrales + total_refinadas
+    
+    if total_harinas > 0:
+        porc_int = round((total_integrales / total_harinas) * 100)
+        porc_ref = round((total_refinadas / total_harinas) * 100)
+    else:
+        porc_int, porc_ref = 0, 0
+        
+    return porc_int, porc_ref
+    
+def analizar_frecuencia_alimentos_mes(df_o_user_id, cat_dict_o_mes=None, col_integrales=None, col_refinadas=None, otras_categorias=None):
+    try:
+        # Compatibilidad dual: si el primer argumento es un user_id (int) y el segundo un mes (str)
+        if isinstance(df_o_user_id, (int, str)) and isinstance(cat_dict_o_mes, str) and not isinstance(df_o_user_id, pd.DataFrame):
+            user_id = int(df_o_user_id)
+            mes_str = cat_dict_o_mes
+            
+            df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+            if df_datos.empty or 'Fecha' not in df_datos.columns:
+                return {}
+                
+            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
+            inicio_periodo = pd.Timestamp(f"{mes_str}-01").normalize()
+            fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
+            
+            df_mes = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
+            if df_mes.empty:
+                return {}
+                
+            # Categorías por defecto si no se pasan
+            cat_dict = {'harinas_integrales': ['integral', 'salvado'], 'harinas_refinadas': ['blanca', 'refinada']}
+        else:
+            df_mes = df_o_user_id
+            cat_dict = cat_dict_o_mes if isinstance(cat_dict_o_mes, dict) else {}
+
+        if other_cat := otras_categorias is None:
+            otras_categorias = {}
+            
+        frecuencias = {cat: 0 for cat in cat_dict.keys()} if cat_dict else {}
+
+        for _, row in df_mes.iterrows():
+            texto_celda = str(row.get('Alimento', '')).strip().lower()
+            if not texto_celda:
+                continue
+
+            es_integral = any(p in texto_celda for p in (col_integrales or ['integral', 'salvado', 'centeno', 'avena']))
+            
+            if es_integral:
+                for cat_key in frecuencias.keys():
+                    if 'integral' in cat_key:
+                        frecuencias[cat_key] += 1
+            else:
+                if col_refinadas and any(p in texto_celda for p in col_refinadas):
+                    for cat_key in frecuencias.keys():
+                        if 'refinada' in cat_key or 'blanca' in cat_key:
+                            frecuencias[cat_key] += 1
+
+            for cat_nombre, palabras in otras_categorias.items():
+                if any(p in texto_celda for p in palabras):
+                    if cat_nombre not in frecuencias:
+                        frecuencias[cat_nombre] = 0
+                    frecuencias[cat_nombre] += 1
+
+        return frecuencias
+    except Exception as e:
+        print(f"Error analizando frecuencias de alimentos: {e}")
+        return {}
+        
+def consultar_codigo_barras(barcode: str) -> dict | bool:
+    url = f"https://world.openfoodfacts.org/api/v2/product/{barcode.strip()}.json"
+    
+    headers = {
+        "User-Agent": "BotNutricionTelegram/1.0 (contacto@tudominio.com)"
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=5)
+        
+        if response.status_code != 200:
+            return False
+            
+        data = response.json()
+        
+        if data.get("status") != 1:
+            return False
+            
+        product = data.get("product", {})
+        nutriments = product.get("nutriments", {})
+        
+        nombre_alimento = (
+            product.get("product_name_es") or 
+            product.get("product_name") or 
+            "Producto desconocido"
+        )
+        
+        marca = product.get("brands", "")
+        if marca:
+            nombre_alimento = f"{nombre_alimento} ({marca})"
+
+        # Extracción y cálculo estrictamente basado en 100 gramos
+        calorias = float(nutriments.get("energy-kcal_100g", nutriments.get("energy-kcal", 0.0) or 0.0))
+        proteinas = float(nutriments.get("proteins_100g", 0.0) or 0.0)
+        grasas = float(nutriments.get("fat_100g", 0.0) or 0.0)
+        carbohidratos = float(nutriments.get("carbohydrates_100g", 0.0) or 0.0)
+        fibras = float(nutriments.get("fiber_100g", 0.0) or 0.0)
+
+        return {
+            "alimento": nombre_alimento,
+            "peso": 100.0,
+            "calorias": calorias,
+            "proteinas": proteinas,
+            "grasas": grasas,
+            "carbohidratos": carbohidratos,
+            "fibras": fibras,
+            "fuente": "Open Food Facts"
+        }
+        
+    except Exception as e:
+        logging.error(f"⚠️ Error al consultar el código de barras {barcode}: {e}")
+        return False
+                
+def procesar_foto_codigo_barras(base64_image: str) -> dict | bool:
+    try:
+        image_bytes = base64.b64decode(base64_image)
+        np_arr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            return False
+            
+        detector = cv2.barcode.BarcodeDetector()
+        retval, decoded_info, decoded_type, points = detector.detectAndDecode(img)
+        
+        if retval and decoded_info:
+            for barcode_text in decoded_info:
+                if barcode_text and barcode_text.strip():
+                    resultado_api = consultar_codigo_barras(barcode_text.strip())
+                    if resultado_api:
+                        return resultado_api
+                        
+        return False
+        
+    except Exception as e:
+        return False
+        
+#              INICIO             13 FUNCIONES LOGGING Y TELEGRAM                           INICIO
+# =============================================================================================================================================
+
+async def enviar_mensaje_largo(context, chat_id, texto, parse_mode="HTML"):
+    limite = 4000
+    if len(texto) <= limite:
+        await context.bot.send_message(chat_id=chat_id, text=texto, parse_mode=parse_mode)
+        return
+
+    lineas = texto.split("\n")
+    chunk_actual = ""
+    for linea in lineas:
+        if len(chunk_actual) + len(linea) + 1 > limite:
+            await context.bot.send_message(chat_id=chat_id, text=chunk_actual, parse_mode=parse_mode)
+            chunk_actual = linea + "\n"
+        else:
+            chunk_actual += linea + "\n"
+    
+    if chunk_actual.strip():
+        await context.bot.send_message(chat_id=chat_id, text=chunk_actual, parse_mode=parse_mode)
+
+async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
+    try:
+        peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
+        if not peso_ok and not forzar_envio:
+            return False
+
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        if df_datos.empty or 'Fecha' not in df_datos.columns:
+            await context.bot.send_message(chat_id=user_id, text="⚠️ No hay registros suficientes para generar el informe.")
+            return False
+
+        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
+        
+        ahora_arg = obtener_ahora_arg()
+        if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
+            ahora_arg = ahora_arg.replace(tzinfo=None)
+        
+        hoy_ts = pd.Timestamp(ahora_arg).normalize()
+        ayer_ts = hoy_ts - pd.Timedelta(days=1)
+        mes_actual_str = hoy_ts.strftime("%Y-%m")
+
+        if es_automatico_15:
+            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
+            fin_periodo = pd.Timestamp(f"{mes_target}-14").normalize()
+            etiqueta_periodo = f"Quincenal ({mes_target}: 1 al 14)"
+        else:
+            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
+            if mes_target == mes_actual_str:
+                fin_periodo = ayer_ts
+                etiqueta_periodo = f"Mes Actual en curso ({mes_target}: del 01 al {ayer_ts.strftime('%d/%m')})"
+            else:
+                fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
+                etiqueta_periodo = f"Mes Completo ({mes_target})"
+
+        df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
+
+        if df_filtrado.empty:
+            await context.bot.send_message(chat_id=user_id, text=f"⚠️ No se encontraron registros cerrados para el período {etiqueta_periodo}.")
+            return False
+
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
+        m = calcular_metricas_mensuales(df_filtrado, perfil) if 'calcular_metricas_mensuales' in globals() else {}
+        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_target) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
+
+        peso_actual_eval = float(m.get('peso_actual', 0))
+        peso_referencia_eval = float(m.get('peso_referencia', 0))
+        prompt_condicional = obtener_prompt_segun_objetivo_peso(peso_actual_eval, peso_referencia_eval) if 'obtener_prompt_segun_objetivo_peso' in globals() else None
+
+        informe_ia = await generar_informe_mensual_auditado(
+            context=context, 
+            user_id=user_id, 
+            mes_str=mes_target, 
+            m=m, 
+            frecuencias=conteo_frecuencias,
+            prompt_condicional=prompt_condicional
+        )
+
+        if not informe_ia:
+            informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
+
+        recomendacion_pdf = (
+            informe_ia
+            .replace("<br>", "<br/>")
+            .replace("<BR>", "<br/>")
+        )
+
+        df_presion = pd.DataFrame()
+        tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
+
+        pdf_buffer = await asyncio.to_thread(
+            generar_pdf_resumen_bytes,
+            mes_target,
+            df_filtrado,
+            df_presion,
+            perfil,
+            tmb_val,
+            recomendacion_pdf,
+            user_id
+        )
+
+        await context.bot.send_document(
+            chat_id=int(user_id),
+            document=pdf_buffer,
+            filename=f"Informe_Nutricional_{mes_target}.pdf",
+            caption=f"📄 <b>Informe Nutricional Auditado ({etiqueta_periodo})</b>",
+            parse_mode="HTML"
+        )
+        
+        logger.info(f"Informe PDF ({etiqueta_periodo}) enviado exitosamente al paciente {user_id}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}", exc_info=True)
+        try:
+            await context.bot.send_message(chat_id=user_id, text=f"⚠️ Error al compilar el informe PDF: {str(e)}")
+        except Exception:
+            pass
+        return False
+
+def obtener_categorias_diccionario(sh):
+    try:
+        ws = get_or_create_worksheet(sh, "Categorias_Comida")
+        records = ws.get_all_records()
+        if not records:
+            return {}
+        
+        df_cat = pd.DataFrame(records)
+        cat_dict = {}
+        for col in df_cat.columns:
+            cat_nombre = str(col).strip().lower()
+            palabras = [str(x).strip().lower() for x in df_cat[col].dropna().tolist() if str(x).strip()]
+            if palabras:
+                cat_dict[cat_nombre] = palabras
+        return cat_dict
+    except Exception as e:
+        print(f"Error al leer Categorias_Comida: {e}")
+        return {}
+        
+# =====================================================================================================================================
+#                FINAL                          FUNCIONES AUXILIARES                                     FINAL
+# ======================================================================================================================================
+
 # ======================================================================================================================================
 #                   INICIO                                    COMANDOS INFORMES                                   INICIO  DB OK
 # =====================================================================================================================================
