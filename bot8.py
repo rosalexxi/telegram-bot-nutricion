@@ -3829,8 +3829,8 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("<b>Atajos</b>", code_style), 
             Paragraph("<b>• /diario:</b> <code>/d</code><br/>"
                       "<b>• /semanal:</b> <code>/s</code><br/>"
-                      "<b>• /mensual:</b> <code>/m</code><br/>"
-        ],
+                      "<b>• /mensual:</b> <code>/m</code>", body_style)
+        ]
     ]
 
     t_cmds = Table(cmds_data, colWidths=[90, 450])
@@ -3979,14 +3979,6 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     buffer.seek(0)
     return buffer
     
-async def cmd_guia(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /guia para generar y enviar la guía interactiva detallada en PDF."""
-    pdf_buf = generar_pdf_instrucciones_bytes()
-    await context.bot.send_document(
-        chat_id=update.effective_chat.id,
-        document=pdf_buf,
-        filename="Manual_Bot_Nutricional.pdf"
-    )
 
 #                   INICIO                            COMANDO PRESION                                   INICIO  DB OK
 # ======================================================================================================================================
