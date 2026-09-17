@@ -1307,7 +1307,27 @@ def obtener_codigo_unico(tabla_nombre, codigo_base):
         i += 1
         mientras_repetido = f"{codigo_limpio}{i}"
         
-    return mientras_repetido    
+    return mientras_repetido   
+
+def eliminar_comida_precargada_db(user_id, nombre_a_borrar):
+    """Elimina una comida precargada de la tabla 'Comidas_<user_id>' en Supabase de forma exacta."""
+    tabla_nombre = f"Comidas_{user_id}"
+    try:
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
+        
+        # Borramos haciendo un match estricto del nombre (asegurando mayúsculas/minúsculas)
+        query = f'DELETE FROM "{tabla_nombre}" WHERE UPPER(TRIM("Nombre")) = %s'
+        cur.execute(query, (nombre_a_borrar.strip().upper(),))
+        
+        filas_afectadas = cur.rowcount
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return filas_afectadas > 0
+    except Exception as e:
+        print(f"Error al eliminar comida precargada en Supabase para {user_id}: {e}")
+        return False 
 
 #                    INICIO                  6 FUNCIONES LECTURA PROFESIONALES         INICIO
 # =======================================================================================================================================
@@ -4776,6 +4796,9 @@ conv_handler_ingreso = ConversationHandler(
 #                     INICIO                         COMANDO START                          INICIO  2026 09 05
 # =========================================================================================================================================
 
+#                     INICIO                         COMANDO START                          INICIO  2026 09 05
+# =========================================================================================================================================
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "👋 **¡Bienvenido a tu Bot Nutricional Personalizado!**\n\n"
@@ -4783,8 +4806,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📌 **Comandos Principales:**\n"
         "• `/alta`: Apertura de cuenta ingresando los datos.\n"
         "• `/barra`: Ingresa por código de barras un comestible.\n"
-        "• `/borracomida`: Borra una comida de la Planilla.\n"
         "• `/comidas`: Planilla de comidas precargadas y PDF.\n"
+        "• `/borracomida`: Borra una comida de la Planilla.\n"
         "• `/dia`: Ingestas del día, detalle nutricional y PDF.\n"
         "• `/eliminar`: Borra ingestas y actividades.\n"
         "• `/GET`: Actualiza GET por medio del reloj inteligente.\n"
@@ -4796,33 +4819,32 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/receta`: Calculadora Web para registrar comidas.\n"
         "• `/semana`: Estadística semanal (calorías, fibras, etc.).\n\n"
         "📌 **Métodos de Registro:**\n"
-        "• **Ingestas con IA:** Texto, 🎤 Notas de voz, 📸 Fotos.\n"
+        "• **Ingestas con IA:** 📝 Texto, 🎤 Notas de voz, 📸 Fotos.\n"
         "• **Modificación parcial:** por item y reenvío a la IA\n"
         "    `DESCRIPCION` manteniendo el peso recalcula IA.\n"
         "    `DESCRIPCION,PESO` recalculo total por IA.\n"
         "    `,PESO` recalculo sin intervencion de IA\n"
-        "• **Actividad fisica con IA:** Texto, 🎤 Notas de voz.\n"
-        "• **Modificación parcial:** por item y reenvío a la IA\n"
-        "    `DESCRIPCION` manteniendo el peso recalcula IA.\n"
-        "    `DESCRIPCION,PESO` recalculo total por IA.\n"
-        "    `,PESO` recalculo sin intervencion de IA\n"
-        "• **Sin IA:** Comidas precargadas en planilla:\n"
+        "• **Ingestas sin IA:** 📝 Comidas precargadas en planilla:\n"
         "    `*DESAYUNO`: menú completo\n"
         "    `*PIZZA (porción),4`: 4 porciones de pizza\n"
-        "    `*TORTA (fracción x 100g),1.5`: 150 g de torta\n\n"
-        "📄 *Descargá nuestra guía de instrucciones en PDF desde el botón de abajo.*"
+        "    `*TORTA (fracción x 100g),1.5`: 150 g de torta\n"
+        "• **Actividad fisica con IA:** 📝 Texto, 🎤 Notas de voz.\n"
+        "• **Modificación :** ingresar el nuevo valor de calorias\n\n"
+        
+        "📄 *A continuación te comparto el manual en PDF.*"
     )
     
-    # Generar el PDF dinámicamente llamando a la segunda función
-    pdf_buffer = generar_pdf_instrucciones_bytes()
-    
-    # Enviar el mensaje de texto con la guía y a continuación el documento adjunto
+    # Enviar primero el texto con la guía rápida
     await update.message.reply_text(msg, parse_mode="Markdown")
-    await update.message.reply_document(
-        document=InputFile(pdf_buffer, filename="Guia_Instrucciones_Bot.pdf"),
-        caption="📚 Aquí tenés el manual/guía de instrucciones detallado en PDF."
-    )
-
+    
+    # Generación y envío del documento PDF mejorado (utilizando tu método original)
+    pdf_buf = generar_pdf_instrucciones_bytes()
+    await context.bot.send_document(
+        chat_id=update.effective_chat.id,
+        document=pdf_buf,
+        filename="Manual_Bot_Nutricional.pdf"
+    )    
+    
 def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -6665,14 +6687,8 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @requiere_registro
 async def cmd_borrar_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Comando dual para eliminar comidas:
-    - Sin argumentos: Muestra el listado de comidas y la instrucción de uso.
-    - Con argumento (nombre): Busca la comida de forma exacta y procede a eliminarla.
-    """
     user_id = update.effective_user.id
     
-    # CASO 1: Se invocó con argumentos (ej: /borrar_comida Milanesa)
     if context.args:
         nombre_a_borrar = " ".join(context.args).strip()
         
@@ -6685,16 +6701,22 @@ async def cmd_borrar_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # TODO: ACÁ LLAMAS A TU FUNCIÓN DE SUPABASE PARA BORRAR LA COMIDA
-        # Ejemplo: eliminar_comida_en_supabase(user_id, comida_encontrada['nombre'])
+        # 🟢 AHORA SÍ: LLAMAMOS A LA FUNCIÓN REAL DE SUPABASE PARA BORRARLA
+        exito = eliminar_comida_precargada_db(user_id, comida_encontrada['nombre'])
         
-        await update.message.reply_text(
-            f"✅ La comida <b>{comida_encontrada['nombre']}</b> ha sido eliminada exitosamente de tu planilla.",
-            parse_mode="HTML"
-        )
+        if exito:
+            await update.message.reply_text(
+                f"✅ La comida <b>{comida_encontrada['nombre']}</b> ha sido eliminada exitosamente de tu planilla.",
+                parse_mode="HTML"
+            )
+        else:
+            await update.message.reply_text(
+                f"❌ Hubo un error en la base de datos al intentar borrar <b>{comida_encontrada['nombre']}</b>.",
+                parse_mode="HTML"
+            )
         return
 
-    # CASO 2: Se invocó solo (ej: /borrar_comida) -> Mostramos listado + instrucciones
+    # Si se invocó solo -> Muestra el listado + instrucciones
     comidas = obtener_comidas_usuario(user_id)
     
     if not comidas:
@@ -6702,12 +6724,10 @@ async def cmd_borrar_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     txt = construir_texto_listado_comidas(user_id, comidas)
-    
-    # Agregamos las instrucciones abajo del listado
     txt += (
         "\n🗑️ <b>¿Cómo borrar una comida?</b>\n"
         "Copiá el nombre exacto de la lista de arriba y escribí el comando de la siguiente forma:\n"
-        "<code>/borrar_comida Nombre de la Comida</code>"
+        "<code>/borrarcomida Nombre de la Comida</code>"
     )
     
     try:
@@ -6715,8 +6735,6 @@ async def cmd_borrar_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Error enviando texto de borrado: {e}")
         await update.message.reply_text("📋 Ocurrió un error al mostrar el listado.")
-
-
 def buscar_comida_precargada_exacta(user_id, texto_codigo):
     """
     Busca de forma estricta un código/nombre de comida ÚNICAMENTE en la tabla de Supabase 'comidas_<user_id>'.
