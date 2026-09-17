@@ -4796,9 +4796,6 @@ conv_handler_ingreso = ConversationHandler(
 #                     INICIO                         COMANDO START                          INICIO  2026 09 05
 # =========================================================================================================================================
 
-#                     INICIO                         COMANDO START                          INICIO  2026 09 05
-# =========================================================================================================================================
-
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "👋 **¡Bienvenido a tu Bot Nutricional Personalizado!**\n\n"
@@ -4845,6 +4842,60 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         filename="Manual_Bot_Nutricional.pdf"
     )    
     
+import io
+from telegram import Update
+from telegram.ext import ContextTypes
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = (
+        "👋 **¡Bienvenido a tu Bot Nutricional Personalizado!**\n\n"
+        "Guía rápida de comandos e ingresos disponibles:\n\n"
+        "📌 **Comandos Principales:**\n"
+        "• `/alta`: Apertura de cuenta ingresando los datos.\n"
+        "• `/barra`: Ingresa por código de barras un comestible.\n"
+        "• `/comidas`: Planilla de comidas precargadas y PDF.\n"
+        "• `/borracomida`: Borra una comida de la Planilla.\n"
+        "• `/dia`: Ingestas del día, detalle nutricional y PDF.\n"
+        "• `/eliminar`: Borra ingestas y actividades.\n"
+        "• `/GET`: Actualiza GET por medio del reloj inteligente.\n"
+        "• `/inicio`: Resumen de los comandos y PDF del manual.\n"
+        "• `/mes`: Reporte con estimación de peso y PDF.\n"
+        "• `/perfil`: Consulta de datos biométricos.\n"
+        "• `/peso`: Actualiza el peso del mes .\n"
+        "• `/presi`: Registro y consulta de presión arterial.\n"
+        "• `/receta`: Calculadora Web para registrar comidas.\n"
+        "• `/semana`: Estadística semanal (calorías, fibras, etc.).\n\n"
+        "📌 **Métodos de Registro:**\n"
+        "• **Ingestas con IA:** 📝 Texto, 🎤 Notas de voz, 📸 Fotos.\n"
+        "• **Modificación parcial:** por item \n"
+        "    `DESCRIPCION` manteniendo el peso recalcula IA.\n"
+        "    `DESCRIPCION,PESO` recalculo total por IA.\n"
+        "    `,PESO` recalculo sin intervencion de IA\n"
+        "• **Ingestas sin IA:** 📝 Comidas precargadas en planilla:\n"
+        "    `*DESAYUNO`: menú completo\n"
+        "    `*PIZZA (porción),4`: 4 porciones de pizza\n"
+        "    `*TORTA (fracción x 100g),1.5`: 150 g de torta\n"
+        "• **Actividad fisica con IA:** 📝 Texto, 🎤 Notas de voz.\n"
+        "• **Modificación :** ingresar el nuevo valor de calorias\n\n"
+        
+        "📄 *A continuación te comparto el manual en PDF.*"
+    )
+    
+    # Enviar primero el texto con la guía rápida
+    await update.message.reply_text(msg, parse_mode="Markdown")
+    
+    # Generación y envío del documento PDF mejorado
+    pdf_buf = generar_pdf_instrucciones_bytes()
+    await context.bot.send_document(
+        chat_id=update.effective_chat.id,
+        document=pdf_buf,
+        filename="Manual_Bot_Nutricional.pdf"
+    )    
+
 def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -4862,7 +4913,6 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     PRIMARY = colors.HexColor('#1E293B')      # Slate 800 - Encabezados principales
     SECONDARY = colors.HexColor('#2563EB')    # Blue 600 - Destacados y acentos
     TEXT_MAIN = colors.HexColor('#334155')    # Slate 700 - Texto de lectura
-    TEXT_MUTED = colors.HexColor('#64748B')   # Slate 500 - Subtítulos
     BG_LIGHT = colors.HexColor('#F8FAFC')     # Slate 50 - Fondo alternado
     BG_CARD = colors.HexColor('#F1F5F9')      # Slate 100 - Cajas de código / ejemplos
     BORDER_COLOR = colors.HexColor('#E2E8F0') # Slate 200 - Líneas de tabla
@@ -4878,7 +4928,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     )
     section_style = ParagraphStyle(
         'DocSection', parent=styles['Heading2'], 
-        fontSize=12, leading=15, textColor=PRIMARY, fontName='Helvetica-Bold', spaceBefore=10, spaceAfter=5
+        fontSize=12, leading=15, textColor=PRIMARY, fontName='Helvetica-Bold', spaceBefore=0, spaceAfter=8
     )
     subsection_style = ParagraphStyle(
         'DocSubSection', parent=styles['Heading3'], 
@@ -4898,28 +4948,32 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 
     story = []
 
-    # --- ENCABEZADO PRINCIPAL (Sin emojis para evitar errores de renderizado en PDF) ---
-    header_content = [
-        [Paragraph("GUÍA INTERACTIVA DEL BOT NUTRICIONAL", title_style)],
-        [Paragraph("MANUAL INTEGRAL DE USUARIO • ASISTENTE PERSONAL INTELIGENTE", subtitle_style)]
-    ]
-    t_header = Table(header_content, colWidths=[540])
-    t_header.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('LEFTPADDING', (0,0), (-1,-1), 0),
-        ('RIGHTPADDING', (0,0), (-1,-1), 0),
-        ('TOPPADDING', (0,0), (-1,-1), 0),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-        ('LINEBELOW', (0,1), (-1,1), 2, SECONDARY),
-    ]))
-    story.append(t_header)
-    story.append(Spacer(1, 6))
+    # Función auxiliar para el encabezado de página
+    def crear_encabezado():
+        header_content = [
+            [Paragraph("GUÍA INTERACTIVA DEL BOT NUTRICIONAL", title_style)],
+            [Paragraph("MANUAL INTEGRAL DE USUARIO • ASISTENTE PERSONAL INTELIGENTE", subtitle_style)]
+        ]
+        t_header = Table(header_content, colWidths=[540])
+        t_header.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+            ('LINEBELOW', (0,1), (-1,1), 2, SECONDARY),
+        ]))
+        return t_header
 
-    # --- SECCIÓN 1: COMANDOS PRINCIPALES ---
-    story.append(Paragraph("1. Comandos Principales del Sistema", section_style))
+    # ==========================================
+    # PÁGINA 1: 1. ALTA AL SISTEMA Y REGISTRO INICIAL
+    # ==========================================
+    story.append(crear_encabezado())
+    story.append(Spacer(1, 6))
+    story.append(Paragraph("1. Alta al Sistema y Registro Inicial", section_style))
     
-    cmds_data = [
-        [Paragraph("Comando", body_bold), Paragraph("Descripción Detallada y Formato de Uso", body_bold)],
+    alta_data = [
+        [Paragraph("Comando / Campo", body_bold), Paragraph("Descripción Detallada y Formato de Uso", body_bold)],
         [
             Paragraph("<b>/alta</b>", code_style), 
             Paragraph("<b>Comando de Inicio de Registro:</b> Permite iniciar el proceso de apertura de cuenta y creación de ficha nutricional.", body_style)
@@ -4963,7 +5017,37 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         [
             Paragraph("<b>Cancelar</b>", code_style), 
             Paragraph("<b>Cancelar Registro:</b> Permite abortar el proceso de alta en cualquier momento, limpiando los datos temporales.", body_style)
-        ],
+        ]
+    ]
+
+    t_alta = Table(alta_data, colWidths=[110, 430])
+    t_alta.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), PRIMARY),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+        ('RIGHTPADDING', (0,0), (-1,-1), 6),
+        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, BG_LIGHT])
+    ]))
+    
+    alta_data[0][0].style.textColor = colors.white
+    alta_data[0][1].style.textColor = colors.white
+
+    story.append(t_alta)
+    story.append(PageBreak())
+
+    # ==========================================
+    # PÁGINA 2: 2. COMANDOS PRINCIPALES DEL SISTEMA
+    # ==========================================
+    story.append(crear_encabezado())
+    story.append(Spacer(1, 6))
+    story.append(Paragraph("2. Comandos Principales del Sistema", section_style))
+    
+    cmds_data = [
+        [Paragraph("Comando", body_bold), Paragraph("Descripción Detallada y Formato de Uso", body_bold)],
         [
             Paragraph("<b>/barra</b>", code_style), 
             Paragraph("<b>Código de barras:</b> Ingresa un código de barras y se presenta por pantalla un comestible en fracciones de 100 g.", body_style)
@@ -5029,7 +5113,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 
     t_cmds = Table(cmds_data, colWidths=[90, 450])
     t_cmds.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), SECONDARY),
+        ('BACKGROUND', (0,0), (-1,0), PRIMARY),
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('TOPPADDING', (0,0), (-1,-1), 4),
         ('BOTTOMPADDING', (0,0), (-1,-1), 4),
@@ -5040,15 +5124,18 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, BG_LIGHT])
     ]))
     
-    # Textos de cabecera en blanco
     cmds_data[0][0].style.textColor = colors.white
     cmds_data[0][1].style.textColor = colors.white
 
     story.append(t_cmds)
-    story.append(Spacer(1, 8))
+    story.append(PageBreak())
 
-    # --- SECCIÓN 2: MÉTODOS DE REGISTRO ---
-    story.append(Paragraph("2. Métodos de Registro de Ingestas y Actividades", section_style))
+    # ==========================================
+    # PÁGINA 3: 3. MÉTODOS DE REGISTRO
+    # ==========================================
+    story.append(crear_encabezado())
+    story.append(Spacer(1, 6))
+    story.append(Paragraph("3. Métodos de Registro de Ingestas y Actividades", section_style))
 
     story.append(Paragraph("A. Con Intervención de IA (Texto, Voz e Imagen)", subsection_style))
     
@@ -5127,17 +5214,18 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     direct_data[0][2].style.textColor = colors.white
 
     story.append(t_direct)
-    story.append(Spacer(1, 8))
+    story.append(PageBreak())
 
-    # --- SECCIÓN 3: CALCULADORA WEB DE RECETAS ---
-    story.append(KeepTogether([
-        Paragraph("3. Calculadora Nutricional Web (/receta)", section_style),
-        Paragraph("Permite cargar recetas elaboradas o combinaciones de alimentos habituales directamente en tu planilla personal.", body_style),
-        Paragraph("• <code>*Código/Nombre:</code> Código identificatorio para buscar la receta cargada en la planilla utilizando *.<br/>"
-                  "• <code>*Descripción:</code> Descripción de la receta o detalle de los componentes de una ingesta guardada.<br/>"
-                  "• <code>*Criterio:</code> Criterio a utilizar si la receta fue cargada en fracciones de 100g o porciones.<br/><br/>", body_style),
-        Spacer(1, 4)
-    ]))
+    # ==========================================
+    # PÁGINA 4: 4. CALCULADORA NUTRICIONAL WEB
+    # ==========================================
+    story.append(crear_encabezado())
+    story.append(Spacer(1, 6))
+    story.append(Paragraph("4. Calculadora Nutricional Web (/receta)", section_style))
+    story.append(Paragraph("Permite cargar recetas elaboradas o combinaciones de alimentos habituales directamente en tu planilla personal.", body_style))
+    story.append(Paragraph("• <code>*Código/Nombre:</code> Código identificatorio para buscar la receta cargada en la planilla utilizando *.<br/>"
+                           "• <code>*Descripción:</code> Descripción de la receta o detalle de los componentes de una ingesta guardada.<br/>"
+                           "• <code>*Criterio:</code> Criterio a utilizar si la receta fue cargada en fracciones de 100g o porciones.<br/><br/>", body_style))
 
     header_example_style = ParagraphStyle(
         'HeaderExampleStyle', parent=body_bold, textColor=colors.white
@@ -5177,9 +5265,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 
     doc.build(story)
     buffer.seek(0)
-    return buffer
-    
-   
+    return buffer   
 #                   INICIO                            COMANDO PRESION                                   INICIO  DB OK
 # ======================================================================================================================================
 
