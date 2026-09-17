@@ -4960,7 +4960,7 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
     buffer.seek(0)
     return buffer
 
-#                 INICIO                            COMANDO SEMANA  2026 09 09             INICIO   DB OK
+#                   INICIO                                    COMANDO SEMANA                            INICIO   DB OK
 # ======================================================================================================================================
 
 def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo):
@@ -4980,6 +4980,14 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
     perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
     m = calcular_metricas_mensuales(df_semana, perfil) if 'calcular_metricas_mensuales' in globals() else {}
 
+    # Cálculo seguro de los rangos de actividad según peso actual y de referencia (si la función existe)
+    peso_act_val = float(m.get('peso_actual', 0))
+    peso_ref_val = float(m.get('peso_referencia', 0))
+    if 'calcular_rango_actividad_fisica' in globals():
+        act_min_val, act_max_val = calcular_rango_actividad_fisica(peso_act_val, peso_ref_val)
+    else:
+        act_min_val, act_max_val = 30, 60
+
     minutos_totales_actividad = 0
     if 'Momento' in df_semana.columns and 'Alimento' in df_semana.columns:
         for _, row in df_semana.iterrows():
@@ -4991,8 +4999,8 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
                 if match:
                     minutos_totales_actividad += int(match.group(1))
 
-    dias_evaluados = m.get('dias_registrados', 1) if m.get('dias_registrados', 1) > 0 else 1
-    prom_minutos_act = int(round(minutos_totales_actividad / dias_evaluados))
+    # Promedio diario de la semana (dividido entre 7 días del período semanal)
+    prom_minutos_act = int(round(minutos_totales_actividad / 7.0))
 
     prom_alta, prom_baja = None, None
     try:
@@ -5018,7 +5026,7 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
         f"• Grasas: `{m.get('prom_gras', 0)} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
         f"• Carbohidratos: `{m.get('prom_carb', 0)} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
         f"• Fibras: `{m.get('prom_fibr', 0)} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
-        f"• Actividad Física: `{prom_minutos_act} min/día` / Rango: `{m.get('act_min', 30)} - {m.get('act_max', 60)} min/día`\n"
+        f"• Actividad Física: `{prom_minutos_act} min/día` / Rango: `{act_min_val} - {act_max_val} min/día`\n"
     )
     if prom_alta is not None and prom_baja is not None:
         txt += f"• **Presión Arterial Promedio:** `{prom_alta}/{prom_baja} mmHg`\n"
@@ -5030,45 +5038,7 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
     )
 
     return txt, m
-        
-@requiere_registro
-async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await _validar_peso_mes_actual(update=update, context=context):
-        return
-
-    try:
-        user_id = update.effective_user.id
-        msg_espera = await update.message.reply_text("⏳ Procesando resumen nutricional...")
-
-        tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
-        ahora_arg = datetime.now(tz_arg)
-        hoy = ahora_arg.date()
-        dia_semana = ahora_arg.weekday()  # 0: Lunes
-
-        if dia_semana == 0:
-            inicio_rango = hoy - timedelta(days=7)
-            fin_rango = hoy - timedelta(days=1)
-            etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
-        else:
-            inicio_rango = hoy - timedelta(days=dia_semana)
-            fin_rango = hoy - timedelta(days=1)
-            dias_espanol = {1: "Martes", 2: "Miércoles", 3: "Jueves", 4: "Viernes", 5: "Sábado", 6: "Domingo"}
-            nombre_dia_ayer = dias_espanol.get(dia_semana - 1, "")
-            etiqueta_periodo = f"Semana Actual (Lunes a {nombre_dia_ayer})"
-
-        txt, _ = _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo)
-
-        if not txt:
-            await msg_espera.edit_text("⚠️ No hay registros acumulados para los días transcurridos de este período.")
-            return
-
-        await msg_espera.edit_text(txt, parse_mode="Markdown")
-
-    except Exception as e:
-        logger.error(f"Error en cmd_mensaje: {e}")
-        if 'msg_espera' in locals():
-            await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
-                     
+                         
 #               INICIO                                COMANDO RESUMEN MENSUAL                        INICIO DB OK
 # ==========================================================================================================================================
 
@@ -5204,6 +5174,28 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
         m = calcular_metricas_mensuales(df_mes, perfil)
 
+        # Cálculo seguro de minutos de actividad mensuales si existen columnas en el df_mes
+        minutos_mes_act = 0
+        dias_activos_act = m.get('dias_registrados', 1) if m.get('dias_registrados', 1) > 0 else 1
+        if not df_mes.empty and 'Momento' in df_mes.columns and 'Alimento' in df_mes.columns:
+            for _, row in df_mes.iterrows():
+                momento_str = str(row.get('Momento', '')).strip().lower()
+                alimento_str = str(row.get('Alimento', '')).strip()
+                cal_val = float(row.get('Calorias', 0) or 0)
+                if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
+                    match = re.match(r'^(\d+)', alimento_str)
+                    if match:
+                        minutos_mes_act += int(match.group(1))
+        prom_minutos_mes_act = int(round(minutos_mes_act / dias_activos_act))
+
+        # Rangos seguros de actividad
+        peso_act_val = float(m.get('peso_actual', 0))
+        peso_ref_val = float(m.get('peso_referencia', 0))
+        if 'calcular_rango_actividad_fisica' in globals():
+            act_min_val, act_max_val = calcular_rango_actividad_fisica(peso_act_val, peso_ref_val)
+        else:
+            act_min_val, act_max_val = 30, 60
+
         def _fmt(val, dec=0):
             try:
                 num = float(val)
@@ -5226,7 +5218,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"• Grasas: `{_fmt(m.get('prom_gras', 0))} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
             f"• Carbs: `{_fmt(m.get('prom_carb', 0))} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
             f"• Fibras: `{_fmt(m.get('prom_fibr', 0))} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
-            f"• Actividad Física: `{m.get('prom_minutos_act', 0)} min/día` / Rango: `{m.get('act_min', 30)} - {m.get('act_max', 60)} min/día`\n\n"
+            f"• Actividad Física: `{prom_minutos_mes_act} min/día` / Rango: `{act_min_val} - {act_max_val} min/día`\n\n"
             f"_(Nota: Los rangos de actividad consideran impacto corporal; actividades como aquagym o natación no aplican restricciones de sobrepeso)._\n\n"
             f"📌 Resumen calculado con éxito"
         )
@@ -5243,7 +5235,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(txt_final, reply_markup=reply_markup, parse_mode="Markdown")
 
     except Exception as e:
-        logger.error(f"Error en mostrar_resumen_mes: {e}")
+        logger.error(f"Error en mostrar_resumen_mes: {e}", exc_info=True)
         msg_err = f"⚠️ Ocurrió un error al generar el resumen mensual: {e}"
         if update.callback_query:
             await update.callback_query.edit_message_text(msg_err)
@@ -5485,7 +5477,8 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         await context.bot.send_message(
             chat_id=query.message.chat_id,
             text=f"⚠️ Error al procesar la descarga del PDF: {e}"
-        )                
+        )  
+                      
 #                INICIO                               MENSAJES PROGRAMADOS                          INICIO  
 # ======================================================================================================================================
 
