@@ -4960,7 +4960,7 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
     buffer.seek(0)
     return buffer
 
-#                   INICIO                                    COMANDO SEMANA                            INICIO   DB OK
+#                 INICIO                            COMANDO SEMANA  2026 09 09             INICIO   DB OK
 # ======================================================================================================================================
 
 def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo):
@@ -4980,14 +4980,6 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
     perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
     m = calcular_metricas_mensuales(df_semana, perfil) if 'calcular_metricas_mensuales' in globals() else {}
 
-    # Cálculo seguro de los rangos de actividad según peso actual y de referencia (si la función existe)
-    peso_act_val = float(m.get('peso_actual', 0))
-    peso_ref_val = float(m.get('peso_referencia', 0))
-    if 'calcular_rango_actividad_fisica' in globals():
-        act_min_val, act_max_val = calcular_rango_actividad_fisica(peso_act_val, peso_ref_val)
-    else:
-        act_min_val, act_max_val = 30, 60
-
     minutos_totales_actividad = 0
     if 'Momento' in df_semana.columns and 'Alimento' in df_semana.columns:
         for _, row in df_semana.iterrows():
@@ -4998,9 +4990,6 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
                 match = re.match(r'^(\d+)', alimento_str)
                 if match:
                     minutos_totales_actividad += int(match.group(1))
-
-    # Promedio diario de la semana (dividido entre 7 días del período semanal)
-    prom_minutos_act = int(round(minutos_totales_actividad / 7.0))
 
     prom_alta, prom_baja = None, None
     try:
@@ -5020,25 +5009,62 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
     txt = (
         f"📅 **Resumen Nutricional Semanal:**\n"
         f"ℹ️ *{etiqueta_periodo}*\n\n"
-        f"📈 **Promedios vs. Rangos Saludables:**\n"
-        f"• Calorías: `{m.get('prom_cal', 0)} kcal` / Rango: `{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal`\n"
-        f"• Proteínas: `{m.get('prom_prot', 0)} g` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
-        f"• Grasas: `{m.get('prom_gras', 0)} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
-        f"• Carbohidratos: `{m.get('prom_carb', 0)} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
-        f"• Fibras: `{m.get('prom_fibr', 0)} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
-        f"• Actividad Física: `{prom_minutos_act} min/día` / Rango: `{act_min_val} - {act_max_val} min/día`\n"
+        f"• **Promedio Calorías:** `{m.get('prom_cal', 0)} kcal` / Rango: `{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal`\n"
+        f"• **Proteínas:** `{m.get('prom_prot', 0)} g` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
+        f"• **Grasas:** `{m.get('prom_gras', 0)} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
+        f"• **Carbohidratos:** `{m.get('prom_carb', 0)} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
+        f"• **Fibras:** `{m.get('prom_fibr', 0)} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
     )
     if prom_alta is not None and prom_baja is not None:
         txt += f"• **Presión Arterial Promedio:** `{prom_alta}/{prom_baja} mmHg`\n"
 
     txt += (
-        f"\n• **Calorías Quemadas (Promedio):** `{m.get('prom_quem', 0)} kcal/día`\n"
-        f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`\n\n"
-        f"_(Nota: Los rangos de actividad consideran impacto corporal; actividades como aquagym o natación no aplican restricciones de sobrepeso)._"
+        f"• **Actividad Física:** `{minutos_totales_actividad} minutos` totales\n"
+        f"• **Calorías Quemadas (Promedio):** `{m.get('prom_quem', 0)} kcal/día`\n"
+        f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`"
     )
 
     return txt, m
-                         
+    
+@requiere_registro
+async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await _validar_peso_mes_actual(update=update, context=context):
+        return
+
+    try:
+        user_id = update.effective_user.id
+        msg_espera = await update.message.reply_text("⏳ Procesando resumen nutricional...")
+
+        tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
+        ahora_arg = datetime.now(tz_arg)
+        hoy = ahora_arg.date()
+        dia_semana = ahora_arg.weekday()  # 0: Lunes
+
+        if dia_semana == 0:
+            inicio_rango = hoy - timedelta(days=7)
+            fin_rango = hoy - timedelta(days=1)
+            etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
+        else:
+            inicio_rango = hoy - timedelta(days=dia_semana)
+            fin_rango = hoy - timedelta(days=1)
+            dias_espanol = {1: "Martes", 2: "Miércoles", 3: "Jueves", 4: "Viernes", 5: "Sábado", 6: "Domingo"}
+            nombre_dia_ayer = dias_espanol.get(dia_semana - 1, "")
+            etiqueta_periodo = f"Semana Actual (Lunes a {nombre_dia_ayer})"
+
+        txt, _ = _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo)
+
+        if not txt:
+            await msg_espera.edit_text("⚠️ No hay registros acumulados para los días transcurridos de este período.")
+            return
+
+        await msg_espera.edit_text(txt, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Error en cmd_mensaje: {e}")
+        if 'msg_espera' in locals():
+            await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
+                     
+
 #               INICIO                                COMANDO RESUMEN MENSUAL                        INICIO DB OK
 # ==========================================================================================================================================
 
