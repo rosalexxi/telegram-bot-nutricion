@@ -4820,7 +4820,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/semana`: Estadística semanal (calorías, fibras, etc.).\n\n"
         "📌 **Métodos de Registro:**\n"
         "• **Ingestas con IA:** 📝 Texto, 🎤 Notas de voz, 📸 Fotos.\n"
-        "• **Modificación parcial:** por item y reenvío a la IA\n"
+        "• **Modificación parcial:** por item \n"
         "    `DESCRIPCION` manteniendo el peso recalcula IA.\n"
         "    `DESCRIPCION,PESO` recalculo total por IA.\n"
         "    `,PESO` recalculo sin intervencion de IA\n"
@@ -4922,7 +4922,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         [Paragraph("Comando", body_bold), Paragraph("Descripción Detallada y Formato de Uso", body_bold)],
         [
             Paragraph("<b>/alta</b>", code_style), 
-            Paragraph("<b>Comando de Inicio de Registro:</b> Permite iniciar el proceso de apertura de cuenta y creación de ficha nutricional paso a paso.", body_style)
+            Paragraph("<b>Comando de Inicio de Registro:</b> Permite iniciar el proceso de apertura de cuenta y creación de ficha nutricional.", body_style)
         ],
         [
             Paragraph("<b>ID de Profesional</b>", code_style), 
@@ -4930,7 +4930,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>Nombre y Apellido</b>", code_style), 
-            Paragraph("<b>Identificación:</b> Ingresar el nombre completo o apodo con el que figurará el paciente en el sistema (mínimo 2 caracteres).", body_style)
+            Paragraph("<b>Identificación:</b> Ingresar el nombre o apodo con el que figurará el paciente en el sistema (mínimo 2 caracteres).", body_style)
         ],
         [
             Paragraph("<b>Edad</b>", code_style), 
@@ -4938,11 +4938,11 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>Sexo Biológico</b>", code_style), 
-            Paragraph("<b>Selección por Botón:</b> Elegir entre Masculino (M) o Femenino (F) mediante el teclado interactivo para los cálculos antropométricos.", body_style)
+            Paragraph("<b>Selección por Botón:</b> Elegir entre Masculino (M) o Femenino (F) mediante el teclado interactivo.", body_style)
         ],
         [
             Paragraph("<b>Altura</b>", code_style), 
-            Paragraph("<b>Estatura en centímetros:</b> Ingresar la altura en cm (ejemplo: <code>175</code> para 1,75 m, con un rango válido de 100 a 230 cm).", body_style)
+            Paragraph("<b>Estatura en centímetros:</b> Ingresar altura en cm (ejemplo: <code>175</code> para 1,75 m, con un rango válido de 100 a 230 cm).", body_style)
         ],
         [
             Paragraph("<b>Peso Actual</b>", code_style), 
@@ -4950,7 +4950,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>Muñeca</b>", code_style), 
-            Paragraph("<b>Perímetro de muñeca:</b> Ingresar la medida en cm (ejemplo: <code>16.5</code> cm) para calcular automáticamente la contextura ósea.", body_style)
+            Paragraph("<b>Perímetro de muñeca:</b> Ingresar la medida en cm (ejemplo: <code>16.5</code> cm) para calcular la contextura ósea.", body_style)
         ],
         [
             Paragraph("<b>Ocupación / Actividad</b>", code_style), 
@@ -4962,7 +4962,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>Cancelar</b>", code_style), 
-            Paragraph("<b>Cancelar Registro:</b> Permite abortar el proceso de alta en cualquier momento, limpiando los datos temporales almacenados.", body_style)
+            Paragraph("<b>Cancelar Registro:</b> Permite abortar el proceso de alta en cualquier momento, limpiando los datos temporales.", body_style)
         ],
         [
             Paragraph("<b>/barra</b>", code_style), 
@@ -4974,7 +4974,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ],
         [
             Paragraph("<b>/comidas</b>", code_style), 
-            Paragraph("<b>Planilla de comidas:</b> Visualiza el listado de comidas predeterminadas guardadas en tu planilla personal y permite descargar la plantilla en PDF.", body_style)
+            Paragraph("<b>Planilla de comidas:</b> Visualiza el listado de comidas predeterminadas guardadas en tu planilla personal y permite descargar el PDF detallado.", body_style)
         ],
         [
             Paragraph("<b>/dia</b>", code_style), 
@@ -5105,7 +5105,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
             Paragraph("<b>Código de barras</b>", body_style),
             Paragraph("<code>/barra NUMERO</code>", code_style),
             Paragraph("• <code>/barra 7790742363107</code><br/>"
-                      "Ingresá el número ENA del código de barras del producto y confirmá la ingesta.", body_style)
+                      "Ingresá el número ENA del código de barras del producto, se presenta el detalle de la ingesta en fracciones de 100 gramos para confirmar o modificar la cantidad. Luego se confirma o anula la ingesta.", body_style)
         ]
     ]
 
