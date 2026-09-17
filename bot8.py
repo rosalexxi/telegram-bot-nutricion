@@ -6796,6 +6796,26 @@ def generar_pdf_comidas_bytes(plantillas):
     doc.build(story)
     buffer.seek(0)
     return buffer
+
+@requiere_registro
+async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Envía un botón interactivo y enlace con el user_id apuntando directamente
+    a la página principal (calculadora) para ingresar la comida precargada.
+    """
+    user_id = update.effective_user.id
+    web_app_url = f"https://telegram-bot-nutricion.onrender.com/?user_id={user_id}"
+    
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🍳 Abrir Creador de Recetas", url=web_app_url)]
+    ])
+    
+    mensaje = (
+        f"👋 Hola! Usá el siguiente botón para calcular los valores nutricionales "
+        f"de tu receta e ingresarla directamente en tu planilla personalizada (*Comidas_{user_id}*):"
+    )
+    
+    await update.message.reply_text(mensaje, reply_markup=keyboard, parse_mode="Markdown")
     
 #                INICIO                             MANEJADOR COMIDAS ACTIVIDAD                                 INICIO DB OK
 # =====================================================================================================================================
