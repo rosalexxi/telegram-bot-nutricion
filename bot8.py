@@ -423,7 +423,6 @@ def vista_calculadora():
 
 @app.route('/manual.pdf', methods=['GET'])
 def servir_manual_pdf():
-    """Sirve el manual en PDF directamente desde el directorio actual de Render."""
     try:
         return send_from_directory(directory=os.getcwd(), path='manual.pdf', as_attachment=True)
     except Exception as e:
@@ -432,7 +431,6 @@ def servir_manual_pdf():
 
 @app.route('/api/calcular-receta', methods=['POST'])
 def api_calcular_receta():
-    """Procesa los datos con Groq validando obligatoriamente que venga un user_id válido."""
     try:
         data = request.get_json()
         user_id = data.get('user_id')
@@ -527,7 +525,6 @@ def api_calcular_receta():
 
 @app.route('/api/guardar-comida', methods=['POST'])
 def api_guardar_comida():
-    """Guarda la fila calculada validando el usuario."""
     try:
         data = request.get_json()
         user_id = data.get('user_id')
