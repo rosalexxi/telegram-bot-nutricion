@@ -1205,19 +1205,6 @@ def obtener_registros_presion(u_id):
     return []
 
 
-def obtener_ultima_presion_str(recs_presion_all):
-    presion_str = "S/D"
-    try:
-        if recs_presion_all:
-            ult_pres = recs_presion_all[-1]
-            sys = ult_pres.get("Alta", ult_pres.get("Sistolica", ult_pres.get("sistólica", ult_pres.get("sistolica", ""))))
-            dia = ult_pres.get("Baja", ult_pres.get("Diastolica", ult_pres.get("diastólica", ult_pres.get("diastolica", ""))))
-            if sys and dia:
-                presion_str = f"{sys}/{dia} mmHg"
-    except Exception as e:
-        logger.error(f"Error al formatear última presión: {e}")
-    return presion_str
-
 def obtener_perfil_usuario(user_id, mes_target=None):
     try:
         tabla_nombre = f"Perfil_{user_id}"
@@ -1304,39 +1291,6 @@ def obtener_perfil_usuario(user_id, mes_target=None):
     except Exception as e:
         print(f"Error obteniendo perfil de Supabase para el usuario {user_id}: {e}")
         return None
-
-def obtener_datos_presion_db(user_id):
-    try:
-        tabla_nombre = f"Presion_{user_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="presion")
-        
-        query = f"""
-            SELECT "Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota"
-            FROM "{tabla_nombre}"
-        """
-        df = pd.read_sql(query, conn)
-        
-        cur.close()
-        conn.close()
-        
-        if df.empty:
-            return pd.DataFrame()
-
-        for col in ['Alta', 'Baja', 'Pulsaciones']:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-
-        if 'Fecha_Dia' in df.columns:
-            df['Fecha_Dia'] = df['Fecha_Dia'].astype(str).str.strip()
-
-        if 'Nota' not in df.columns:
-            df['Nota'] = ""
-
-        return df
-    except Exception as e:
-        logger.error(f"Error al obtener datos de presión de Supabase: {e}")
-        return pd.DataFrame()
-        
 
 def obtener_ultimo_peso(user_id: int) -> dict:
     try:
@@ -1889,32 +1843,6 @@ def guardar_comida_precargada_db(user_id, fila):
     
     return codigo_unico
 
-def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
-    """Guarda los registros de presión arterial exclusivamente en Supabase."""
-    ahora = obtener_ahora_arg()
-
-    try:
-        tabla_nombre = f"Presion_{user_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="presion")
-
-        query = f"""
-            INSERT INTO "{tabla_nombre}" ("Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota")
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """
-        valores = (
-            ahora.strftime("%Y-%m-%d"),  # Ahora guarda solo la fecha en la columna Fecha_Hora
-            ahora.strftime("%Y-%m-%d"),  # Fecha_Dia mantiene solo la fecha
-            float(alta), 
-            float(baja), 
-            float(pulsaciones) if pulsaciones is not None else 0.0, 
-            str(nota).strip()
-        )
-        cur.execute(query, valores)
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error al grabar Presión en Supabase (Presion_{user_id}): {e}")
         
 def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     """Guarda y actualiza los datos del perfil y peso del usuario exclusivamente en Supabase."""
@@ -4396,7 +4324,7 @@ async def render_confirmation_screen(msg_or_query, context):
     fecha = context.user_data.get('pending_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
     momento = context.user_data.get('pending_momento', 'Comida')
 
-    # Cambia el título si es una actividad
+    # Título según el tipo de registro
     if momento == 'Actividad':
         txt = f"📝 **Registro de Actividad:**\n📅 Fecha: `{fecha}`\n\n"
     else:
@@ -4409,14 +4337,15 @@ async def render_confirmation_screen(msg_or_query, context):
         grasas_total = item.get('grasas', 0)
         fibras_total = item.get('fibras', 0)
         
-        # Si la plantilla ya tiene display limpio configurado, lo usamos; si no, limpiamos el §
+        # Limpieza del símbolo § si lo hubiera
         alimento_str = item.get('alimento_display') or item.get('alimento', item.get('nombre', ''))
         alimento_limpio = alimento_str.replace('§', '').strip()
 
         if momento == 'Actividad':
+            # Para actividades no mostramos el peso en gramos (queda vacío/cero)
             txt += f"**{idx}. {alimento_limpio}**: `{cal_total:.1f} kcal`\n"
         else:
-            # Mostramos el desglose completo de nutrientes por cada 100g (o el peso registrado)
+            # Desglose completo para comidas
             txt += f"**{idx}. {alimento_limpio}** ({peso_total:.1f}g):\n"
             txt += f"   • Calorías: `{cal_total:.1f} kcal`\n"
             txt += f"   • Proteínas: `{prot_total:.1f} g`\n"
@@ -4425,7 +4354,7 @@ async def render_confirmation_screen(msg_or_query, context):
 
     keyboard = []
     
-    # SOLO agrega la fila de Desayuno/Almuerzo/Merienda/Cena si NO es Actividad
+    # Fila de momentos solo si NO es Actividad
     if momento != 'Actividad':
         m_buttons = []
         for m in ["Desayuno", "Almuerzo", "Merienda", "Cena"]:
@@ -4444,6 +4373,7 @@ async def render_confirmation_screen(msg_or_query, context):
                 InlineKeyboardButton("❌ Anular", callback_data=f"del_item_{idx}")
             ])
 
+    # Botones de selección de fecha (respetando la fecha activa en pending_fecha)
     hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
     ayer_str = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
     mark_hoy = "✅ " if fecha == hoy_str else ""
@@ -4463,6 +4393,7 @@ async def render_confirmation_screen(msg_or_query, context):
 
     markup = InlineKeyboardMarkup(keyboard)
 
+    # Renderizado seguro del mensaje
     if hasattr(msg_or_query, 'edit_message_text'):
         await msg_or_query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
     elif hasattr(msg_or_query, 'edit_text'):
@@ -4489,7 +4420,6 @@ async def render_confirmation_screen(msg_or_query, context):
             nuevo_msg = await msg_or_query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
             context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
             
-
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     items = data_json.get("items", [])
     tipo = data_json.get("tipo", "Comida")
@@ -5483,6 +5413,88 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 #                   INICIO                            COMANDO PRESION                                   INICIO  DB OK
 # ======================================================================================================================================
 
+def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
+    """Guarda los registros de presión arterial exclusivamente en Supabase."""
+    ahora = obtener_ahora_arg()
+
+    try:
+        tabla_nombre = f"Presion_{user_id}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="presion")
+
+        query = f"""
+            INSERT INTO "{tabla_nombre}" ("Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota")
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        valores = (
+            ahora.strftime("%Y-%m-%d"),  # Ahora guarda solo la fecha en la columna Fecha_Hora
+            ahora.strftime("%Y-%m-%d"),  # Fecha_Dia mantiene solo la fecha
+            float(alta), 
+            float(baja), 
+            float(pulsaciones) if pulsaciones is not None else 0.0, 
+            str(nota).strip()
+        )
+        cur.execute(query, valores)
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error al grabar Presión en Supabase (Presion_{user_id}): {e}")
+
+def obtener_registros_presion(u_id):
+    try:
+        df_presion = obtener_datos_presion_db(u_id)
+        if not df_presion.empty:
+            return df_presion.to_dict(orient="records")
+    except Exception as e:
+        logger.error(f"Error al obtener registros de presión en Supabase para {u_id}: {e}")
+    return []
+
+
+def obtener_ultima_presion_str(recs_presion_all):
+    presion_str = "S/D"
+    try:
+        if recs_presion_all:
+            ult_pres = recs_presion_all[-1]
+            sys = ult_pres.get("Alta", ult_pres.get("Sistolica", ult_pres.get("sistólica", ult_pres.get("sistolica", ""))))
+            dia = ult_pres.get("Baja", ult_pres.get("Diastolica", ult_pres.get("diastólica", ult_pres.get("diastolica", ""))))
+            if sys and dia:
+                presion_str = f"{sys}/{dia} mmHg"
+    except Exception as e:
+        logger.error(f"Error al formatear última presión: {e}")
+    return presion_str
+
+def obtener_datos_presion_db(user_id):
+    try:
+        tabla_nombre = f"Presion_{user_id}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="presion")
+        
+        query = f"""
+            SELECT "Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota"
+            FROM "{tabla_nombre}"
+        """
+        df = pd.read_sql(query, conn)
+        
+        cur.close()
+        conn.close()
+        
+        if df.empty:
+            return pd.DataFrame()
+
+        for col in ['Alta', 'Baja', 'Pulsaciones']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+        if 'Fecha_Dia' in df.columns:
+            df['Fecha_Dia'] = df['Fecha_Dia'].astype(str).str.strip()
+
+        if 'Nota' not in df.columns:
+            df['Nota'] = ""
+
+        return df
+    except Exception as e:
+        logger.error(f"Error al obtener datos de presión de Supabase: {e}")
+        return pd.DataFrame()
+        
 def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
@@ -6973,6 +6985,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 #                    FINAL                                    COMANDOS INFORMES                                        FINAL
 # =============================================================================================================================================
 
+
 # ==================================================================================================================================
 #                    INICIO                 COMANDOS COMIDAS Y COMANDOS ACTIVIDAD                                   INCIO  DB OK
 # ==================================================================================================================================
@@ -7236,8 +7249,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 kcal_estimadas = 0.0
                 descripcion_formateada = transcription
 
-            # 🛑 VALIDACIÓN OBLIGATORIA DE MINUTOS
-            match_min = re.search(r'^(\d+)\s*min', descripcion_formateada, re.IGNORECASE)
+            # 🛑 VALIDACIÓN OBLIGATORIA DE MINUTOS Y ORDENAMIENTO ESTRICTO
+            match_min = re.search(r'(\d+)', descripcion_formateada)
             if not match_min or int(match_min.group(1)) <= 0:
                 await msg.edit_text(
                     "⚠️ **Faltan los minutos de la actividad.**\n"
@@ -7247,20 +7260,31 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
+            # Forzar formato estricto: Asegurar que los minutos queden SIEMPRE al principio (Ej: "45 min - Caminata")
+            num_mins = match_min.group(1)
+            resto_desc = descripcion_formateada.replace(num_mins, '').replace('minutos', '').replace('min', '').strip()
+            resto_desc = re.sub(r'^[-–:\s]+', '', resto_desc)
+            if not resto_desc:
+                resto_desc = "Caminata"
+            descripcion_formateada = f"{num_mins} min - {resto_desc}"
+
             calorias_finales = -abs(kcal_estimadas)
 
             item_actividad = {
                 "alimento": descripcion_formateada,
-                "peso": 0,
+                "peso": 0.0,
                 "calorias": calorias_finales,
-                "proteinas": 0,
-                "grasas": 0,
-                "carbohidratos": 0,
-                "fibras": 0
+                "proteinas": 0.0,
+                "grasas": 0.0,
+                "carbohidratos": 0.0,
+                "fibras": 0.0
             }
 
             context.user_data['pending_items'] = [item_actividad]
-            context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+            
+            if not context.user_data.get('pending_fecha'):
+                context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+                
             context.user_data['pending_momento'] = 'Actividad'
 
             await msg.delete()
@@ -7282,6 +7306,59 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not raw_text:
         return
+
+    # 📅 Captura de fecha personalizada (Botón "Otro Día" en la confirmación)
+    if context.user_data.get('awaiting_custom_date'):
+        fecha_parseada = None
+        txt = raw_text.replace('/', '-').replace('.', '-')
+        partes = txt.split('-')
+        
+        try:
+            if len(partes) == 3:
+                if len(partes[0]) == 4:
+                    fecha_parseada = f"{int(partes[0]):04d}-{int(partes[1]):02d}-{int(partes[2]):02d}"
+                else:
+                    fecha_parseada = f"{int(partes[2]):04d}-{int(partes[1]):02d}-{int(partes[0]):02d}"
+            elif len(partes) == 2:
+                anio_actual = obtener_ahora_arg().year
+                fecha_parseada = f"{anio_actual:04d}-{int(partes[1]):02d}-{int(partes[0]):02d}"
+        except Exception:
+            fecha_parseada = None
+
+        msg_solic = context.user_data.pop('msg_solicitud_fecha_id', None)
+        if msg_solic:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
+            except Exception:
+                pass
+
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
+        if fecha_parseada:
+            context.user_data['pending_fecha'] = fecha_parseada
+            context.user_data['awaiting_custom_date'] = False
+            
+            last_menu_msg_id = context.user_data.get('last_menu_msg_id')
+            if last_menu_msg_id:
+                try:
+                    target_msg = await context.bot.get_message(chat_id=chat_id, message_id=last_menu_msg_id)
+                    await render_confirmation_screen(target_msg, context)
+                except Exception:
+                    nuevo_menu = await update.message.reply_text(f"📅 Fecha actualizada a: `{fecha_parseada}`", parse_mode="Markdown")
+                    context.user_data['last_menu_msg_id'] = nuevo_menu.message_id
+                    await render_confirmation_screen(nuevo_menu, context)
+            else:
+                nuevo_menu = await update.message.reply_text(f"📅 Fecha actualizada a: `{fecha_parseada}`", parse_mode="Markdown")
+                context.user_data['last_menu_msg_id'] = nuevo_menu.message_id
+                await render_confirmation_screen(nuevo_menu, context)
+            return
+        else:
+            msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+            context.user_data['msg_solicitud_fecha_id'] = msg_err.message_id
+            return
 
     # Captura el texto cuando el usuario eligió ingresar actividad por texto tras tocar /actividad
     if context.user_data.get('awaiting_activity_text'):
@@ -7323,8 +7400,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 kcal_estimadas = 0.0
                 descripcion_formateada = texto_actividad
             
-            # 🛑 VALIDACIÓN OBLIGATORIA DE MINUTOS
-            match_min = re.search(r'^(\d+)\s*min', descripcion_formateada, re.IGNORECASE)
+            # 🛑 VALIDACIÓN OBLIGATORIA DE MINUTOS Y ORDENAMIENTO ESTRICTO
+            match_min = re.search(r'(\d+)', descripcion_formateada)
             if not match_min or int(match_min.group(1)) <= 0:
                 await msg_espera.edit_text(
                     "⚠️ **Faltan los minutos de la actividad.**\n"
@@ -7334,20 +7411,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
+            # Forzar formato estricto: Asegurar que los minutos queden SIEMPRE al principio (Ej: "45 min - Caminata")
+            num_mins = match_min.group(1)
+            resto_desc = descripcion_formateada.replace(num_mins, '').replace('minutos', '').replace('min', '').strip()
+            resto_desc = re.sub(r'^[-–:\s]+', '', resto_desc)
+            if not resto_desc:
+                resto_desc = "Caminata"
+            descripcion_formateada = f"{num_mins} min - {resto_desc}"
+
             calorias_finales = -abs(kcal_estimadas) # Negativo para restar
 
             item_actividad = {
                 "alimento": descripcion_formateada,
-                "peso": 0,
+                "peso": 0.0,
                 "calorias": calorias_finales,
-                "proteinas": 0,
-                "grasas": 0,
-                "carbohidratos": 0,
-                "fibras": 0
+                "proteinas": 0.0,
+                "grasas": 0.0,
+                "carbohidratos": 0.0,
+                "fibras": 0.0
             }
 
             context.user_data['pending_items'] = [item_actividad]
-            context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+            
+            if not context.user_data.get('pending_fecha'):
+                context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+                
             context.user_data['pending_momento'] = 'Actividad'
 
             await msg_espera.delete()
@@ -7408,7 +7496,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['msg_solicitud_del_fecha_id'] = msg_err.message_id
             return
 
-    # Captura de fecha personalizada para el comando /diario
+    # Captura de fecha personalizada para el comando /diario (RESTAURADA)
     if context.user_data.get('awaiting_diario_custom_date'):
         fecha_parseada = None
         txt = raw_text.replace('/', '-').replace('.', '-')
@@ -7447,76 +7535,55 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['msg_solicitud_diario_fecha_id'] = msg_err.message_id
             return
 
-    # BLOQUE DE EDICIÓN MATEMÁTICA / ACTIVIDAD
+    # BLOQUE DE EDICIÓN MATEMÁTICA
     if context.user_data.get('awaiting_edit_item_val'):
         idx = context.user_data.get('editing_item_idx')
         items = context.user_data.get('pending_items', [])
-        momento_actual = context.user_data.get('pending_momento', 'Comida')
 
         if items and 0 <= idx < len(items):
             item_previo = items[idx]
-            msg_espera = await update.message.reply_text("⏳ Procesando valor...")
+            peso_previo = float(item_previo.get('peso', 0.0))
+            desc_previa = item_previo.get('alimento', '')
 
+            msg_espera = await update.message.reply_text("⏳ Actualizando peso y recalculando...")
             try:
-                if momento_actual == 'Actividad':
-                    calorias_originales_ia = abs(float(item_previo.get('calorias', 0.0)))
-                    texto_limpio = raw_text.replace(',', '.').strip()
-                    nuevo_valor_kcal = float(re.sub(r'[^\d.]', '', texto_limpio))
+                nuevo_peso = peso_previo
+                nueva_desc = desc_previa
 
-                    limite_inferior = calorias_originales_ia * 0.5
-                    limite_superior = calorias_originales_ia * 2.0
-
-                    if limite_inferior <= nuevo_valor_kcal <= limite_superior:
-                        item_actualizado = item_previo.copy()
-                        item_actualizado['calorias'] = -abs(nuevo_valor_kcal)
-                        items[idx] = item_actualizado
-                        context.user_data['pending_items'] = items
-                        await msg_espera.delete()
-                    else:
-                        await msg_espera.edit_text(
-                            f"❌ **Valor no válido.** Las calorías ingresadas (`{nuevo_valor_kcal:.0f} kcal`) están fuera del rango lógico esperado "
-                            f"(debe estar entre `{limite_inferior:.0f}` y `{limite_superior:.0f} kcal`). No se aplicaron cambios.",
-                            parse_mode="Markdown"
-                        )
-                        context.user_data['awaiting_edit_item_val'] = False
-                        context.user_data.pop('editing_item_idx', None)
-                        return
+                if ',' in raw_text:
+                    partes = raw_text.split(',', 1)
+                    parte_desc = partes[0].strip()
+                    parte_peso = partes[1].strip()
+                    
+                    if parte_desc:
+                        nueva_desc = parte_desc
+                    if parte_peso:
+                        nuevo_peso = float(re.sub(r'[^\d.]', '', parte_peso.replace(',', '.')))
                 else:
-                    peso_previo = float(item_previo.get('peso', 0.0))
-                    desc_previa = item_previo.get('alimento', '')
-                    nuevo_peso = peso_previo
-                    nueva_desc = desc_previa
+                    try:
+                        nuevo_peso = float(re.sub(r'[^\d.]', '', raw_text.replace(',', '.')))
+                    except ValueError:
+                        nueva_desc = raw_text
 
-                    if ',' in raw_text:
-                        partes = raw_text.split(',', 1)
-                        parte_desc = partes[0].strip()
-                        parte_peso = partes[1].strip()
-                        if parte_desc:
-                            nueva_desc = parte_desc
-                        if parte_peso:
-                            nuevo_peso = float(re.sub(r'[^\d.]', '', parte_peso.replace(',', '.')))
-                    else:
-                        try:
-                            nuevo_peso = float(re.sub(r'[^\d.]', '', raw_text.replace(',', '.')))
-                        except ValueError:
-                            nueva_desc = raw_text
+                if peso_previo > 0:
+                    factor = nuevo_peso / peso_previo
+                else:
+                    factor = 1.0
 
-                    factor = (nuevo_peso / peso_previo) if peso_previo > 0 else 1.0
-
-                    item_actualizado = {
-                        "alimento": nueva_desc,
-                        "alimento_display": nueva_desc.replace('§', '').strip(),
-                        "peso": nuevo_peso,
-                        "calorias": float(item_previo.get('calorias', 0.0)) * factor,
-                        "proteinas": float(item_previo.get('proteinas', 0.0)) * factor,
-                        "grasas": float(item_previo.get('grasas', 0.0)) * factor,
-                        "carbohidratos": float(item_previo.get('carbohidratos', 0.0)) * factor,
-                        "fibras": float(item_previo.get('fibras', 0.0)) * factor,
-                    }
-                    items[idx] = item_actualizado
-                    context.user_data['pending_items'] = items
-                    await msg_espera.delete()
-
+                item_actualizado = {
+                    "alimento": nueva_desc,
+                    "alimento_display": nueva_desc.replace('§', '').strip(),
+                    "peso": nuevo_peso,
+                    "calorias": float(item_previo.get('calorias', 0.0)) * factor,
+                    "proteinas": float(item_previo.get('proteinas', 0.0)) * factor,
+                    "grasas": float(item_previo.get('grasas', 0.0)) * factor,
+                    "carbohidratos": float(item_previo.get('carbohidratos', 0.0)) * factor,
+                    "fibras": float(item_previo.get('fibras', 0.0)) * factor,
+                }
+                
+                items[idx] = item_actualizado
+                context.user_data['pending_items'] = items
+                await msg_espera.delete()
                 try:
                     await update.message.delete()
                 except Exception:
@@ -7524,7 +7591,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             except Exception as e:
                 print(f"Error editando ítem: {e}")
-                await msg_espera.edit_text(f"❌ Error al procesar el valor ingresado. Asegurate de escribir sólo números (ej: `220`).")
+                await msg_espera.edit_text(f"❌ Error al procesar la edición: {e}")
 
         context.user_data['awaiting_edit_item_val'] = False
         context.user_data.pop('editing_item_idx', None)
@@ -7617,8 +7684,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await procesar_y_mostrar_confirmacion(data, msg, context)
 
     except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar el texto: {e}")        
-
+        await msg.edit_text(f"❌ Error al procesar el texto: {e}")
+                
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
@@ -8187,6 +8254,8 @@ async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEF
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
+
+
 
 # =============================================================================================================================================
 #                INICIO                            COMANDOS PROFESIONALES                             INICIO 
