@@ -628,10 +628,6 @@ def _obtener_conexion_db():
     return psycopg2.connect(db_url)
 
 def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
-    """
-    Crea o asegura la tabla en Supabase. Realiza una búsqueda insensible a mayúsculas/minúsculas 
-    para reutilizar la tabla existente (sea minúscula o mayúscula) y evitar duplicados.
-    """
     conn = _obtener_conexion_db()
     cur = conn.cursor()
 
