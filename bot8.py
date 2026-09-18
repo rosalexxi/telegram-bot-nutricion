@@ -5608,7 +5608,7 @@ async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAUL
 #                   INICIO                                    COMANDO DIARIO                                    INICIO  DB OK
 # =====================================================================================================================================
 
-Fuuuuu@requiere_registro
+@requiere_registro
 async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Manejador del comando /diario.
