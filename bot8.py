@@ -122,78 +122,87 @@ HTML_CALCULADORA_RECETAS = """
             --bg-light: #f4f6f9;
             --text-color: #333;
         }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: var(--bg-light); color: var(--text-color); line-height: 1.6; display: flex; flex-direction: column; min-height: 100vh; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: var(--bg-light); color: var(--text-color); line-height: 1.5; display: flex; flex-direction: column; min-height: 100vh; }
         
         /* Cabecera y Navegación */
         header { background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.05); position: sticky; top: 0; z-index: 1000; }
-        .nav-container { max-width: 1100px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; }
-        .logo { font-size: 22px; font-weight: bold; color: var(--primary); text-decoration: none; }
-        .nav-links a { margin-left: 15px; text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 14px; transition: color 0.2s; }
+        .nav-container { max-width: 1100px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; }
+        .logo { font-size: 20px; font-weight: bold; color: var(--primary); text-decoration: none; }
+        .nav-links a { margin-left: 12px; text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 13px; transition: color 0.2s; }
         .nav-links a:hover, .nav-links a.active { color: var(--primary); }
 
-        /* Contenido Principal */
-        .content-wrapper { max-width: 900px; margin: 40px auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); flex: 1; width: 100%; box-sizing: border-box; }
-        h1 { color: var(--secondary); margin-top: 0; font-size: 32px; }
-        h2 { color: var(--secondary); border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 40px; font-size: 24px; }
-        h3 { color: var(--primary); font-size: 18px; margin-top: 25px; }
-        p { margin-bottom: 15px; color: #555; }
-        ul { margin-bottom: 15px; color: #555; }
-        li { margin-bottom: 8px; }
+        /* Contenido Principal Compacto */
+        .content-wrapper { max-width: 850px; margin: 25px auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); flex: 1; width: 100%; box-sizing: border-box; }
+        h1 { color: var(--secondary); margin-top: 0; font-size: 26px; margin-bottom: 12px; }
+        h2 { color: var(--secondary); border-bottom: 2px solid #eee; padding-bottom: 6px; margin-top: 25px; font-size: 20px; }
+        h3 { color: var(--primary); font-size: 16px; margin-top: 18px; margin-bottom: 6px; }
+        p { margin-bottom: 10px; color: #444; font-size: 14px; }
+        ul { margin-bottom: 10px; color: #444; font-size: 14px; padding-left: 20px; }
+        li { margin-bottom: 4px; }
 
-        /* Estilo para las imágenes de sección */
-        .section-img { width: 100%; max-height: 350px; object-fit: cover; border-radius: 8px; margin: 20px 0; box-shadow: 0 4px 10px rgba(0,0,0,0.08); }
-
-        /* Botón de acción principal (Hero) */
-        .hero-section { text-align: center; padding: 20px 0; }
-        .hero-title { font-size: 36px; font-weight: 800; color: var(--secondary); margin-bottom: 10px; }
-        .hero-subtitle { font-size: 18px; color: #666; max-width: 600px; margin: 0 auto 30px auto; }
-        .btn-telegram { background-color: var(--primary); color: white; padding: 16px 32px; border-radius: 50px; text-decoration: none; font-size: 18px; font-weight: bold; display: inline-block; box-shadow: 0 4px 15px rgba(39, 174, 96, 0.4); transition: background 0.2s; }
-        .btn-telegram:hover { background-color: var(--primary-dark); }
+        /* Contenedor Cuadrado para la Imagen (Mitad de ancho en mobile, alineado) */
+        .img-container {
+            width: 50%;
+            max-width: 250px;
+            aspect-ratio: 1 / 1;
+            margin: 15px auto;
+            border: 2px dashed #cbd5e1;
+            border-radius: 8px;
+            background-color: #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        .img-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
 
         /* Estilos de secciones */
         .section-content { display: none; }
         .section-content.active { display: block; }
 
-        /* Tablas de comandos */
-        .cmd-table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
-        .cmd-table th { background-color: var(--bg-light); color: var(--secondary); text-align: left; padding: 12px; border-bottom: 2px solid #ddd; }
-        .cmd-table td { padding: 12px; border-bottom: 1px solid #eee; vertical-align: top; }
+        /* Tablas de comandos compactas */
+        .cmd-table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }
+        .cmd-table th { background-color: var(--bg-light); color: var(--secondary); text-align: left; padding: 8px 10px; border-bottom: 2px solid #ddd; }
+        .cmd-table td { padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
         .cmd-code { font-family: monospace; background-color: #eee; padding: 2px 4px; border-radius: 3px; color: #c0392b; font-weight: bold; }
 
         /* Estilos de la Calculadora Web */
-        .calculator-section { margin-top: 20px; }
-        label { font-weight: bold; display: block; margin-top: 15px; margin-bottom: 5px; }
-        input[type="text"], input[type="number"], select, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
-        textarea { height: 100px; resize: vertical; }
-        .row { display: flex; gap: 15px; }
+        .calculator-section { margin-top: 10px; }
+        label { font-weight: bold; display: block; margin-top: 10px; margin-bottom: 3px; font-size: 13px; }
+        input[type="text"], input[type="number"], select, textarea { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 13px; }
+        textarea { height: 80px; resize: vertical; }
+        .row { display: flex; gap: 10px; }
         .col { flex: 1; }
-        button.calc-btn { background-color: var(--primary); color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 20px; }
+        button.calc-btn { background-color: var(--primary); color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-size: 14px; font-weight: bold; cursor: pointer; margin-top: 15px; }
         button.calc-btn:hover { background-color: var(--primary-dark); }
-        #loading { display: none; text-align: center; margin-top: 15px; font-style: italic; color: #7f8c8d; }
-        #resultado-section { display: none; margin-top: 25px; border-top: 2px solid #eee; padding-top: 15px; }
-        table.calc-tbl { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
-        table.calc-tbl th, table.calc-tbl td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        #loading { display: none; text-align: center; margin-top: 10px; font-style: italic; color: #7f8c8d; font-size: 13px; }
+        #resultado-section { display: none; margin-top: 20px; border-top: 2px solid #eee; padding-top: 10px; }
+        table.calc-tbl { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+        table.calc-tbl th, table.calc-tbl td { border: 1px solid #ddd; padding: 6px; text-align: center; }
         table.calc-tbl th { background-color: #f2f2f2; }
-        .btn-save { background-color: #8e44ad; margin-top: 15px; color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-weight: bold; cursor: pointer; }
+        .btn-save { background-color: #8e44ad; margin-top: 10px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 13px; }
         .btn-save:hover { background-color: #71368a; }
-        .btn-copy { background-color: #2980b9; margin-top: 10px; color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-weight: bold; cursor: pointer; }
+        .btn-copy { background-color: #2980b9; margin-top: 8px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 13px; }
         .btn-copy:hover { background-color: #1f6391; }
-        .user-badge { background: #e0f2fe; color: #0369a1; padding: 8px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; display: inline-block; margin-bottom: 15px; }
+        .user-badge { background: #e0f2fe; color: #0369a1; padding: 6px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; display: inline-block; margin-bottom: 10px; }
 
         /* Footer */
-        footer { background: var(--secondary); color: white; text-align: center; padding: 30px 20px; margin-top: auto; font-size: 14px; }
-        .footer-links { margin-bottom: 15px; }
-        .footer-links a { color: white; text-decoration: none; margin: 0 15px; font-weight: 600; transition: opacity 0.3s; }
+        footer { background: var(--secondary); color: white; text-align: center; padding: 25px 15px; margin-top: auto; font-size: 13px; }
+        .footer-links { margin-bottom: 12px; display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+        .footer-links a { color: white; text-decoration: none; font-weight: 600; transition: opacity 0.3s; }
         .footer-links a:hover { opacity: 0.7; }
-        .footer-info { opacity: 0.8; font-size: 12px; }
+        .footer-info { opacity: 0.8; font-size: 11px; }
 
         /* Ajustes para mobile */
         @media (max-width: 768px) {
-            .nav-container { flex-direction: column; text-align: center; }
-            .nav-links { margin-top: 15px; }
-            .nav-links a { margin: 0 8px; }
-            .content-wrapper { padding: 20px; margin: 20px; }
-            .hero-title { font-size: 28px; }
+            .nav-container { flex-direction: column; text-align: center; gap: 8px; }
+            .nav-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+            .nav-links a { margin-left: 0; }
+            .content-wrapper { padding: 15px; margin: 10px; }
         }
     </style>
 </head>
@@ -217,100 +226,125 @@ HTML_CALCULADORA_RECETAS = """
 <div class="content-wrapper">
 
     <!-- =========================================
-         Pestaña 1: INICIO
+         Pestaña 1: INICIO (Con más info y foto cuadrada)
          ========================================= -->
     <div id="section-inicio" class="section-content active">
-        <div class="hero-section">
-            <h1 class="hero-title">Tu salud y tus hábitos, en piloto inteligente</h1>
-            <p class="hero-subtitle">Controlá lo que comés, optimizá tu alimentación y entendé tu evolución sin planillas eternas. Asistencia por IA, directo en tu Telegram.</p>
-            <img src="foto1.png" alt="Inicio IA NutriBot" class="section-img">
-            <div style="margin-top: 30px;">
-                <a href="https://t.me/TuBotNombre_bot" target="_blank" class="btn-telegram">💬 Abrir Bot en Telegram</a>
-            </div>
+        <h1>Asistente Inteligente de Nutrición</h1>
+        <p>Bienvenido a <strong>IA NutriBot</strong>, tu herramienta automatizada en Telegram para gestionar hábitos alimentarios, controlar calorías, macronutrientes y evolución física sin planillas complejas[cite: 2]. Diseñado para ofrecer una experiencia fluida, rápida y completamente adaptada a tu rutina diaria.</p>
+        
+        <div class="img-container">
+            <img src="foto1.png" alt="Foto Inicio" onerror="this.style.display='none'">
         </div>
+
+        <h3>¿Por qué elegir IA NutriBot?</h3>
+        <ul>
+            <li><strong>Cero Fricción:</strong> Olvidate de buscar tablas nutricionales manuales; la inteligencia artificial procesa tus requerimientos de forma conversacional[cite: 2].</li>
+            <li><strong>Informes Automatizados:</strong> Generación instantánea de reportes en PDF diarios, semanales y mensuales con estimaciones precisas[cite: 2].</li>
+            <li><strong>Seguimiento Integral:</strong> Control de peso periódico, control de presión arterial y registro de recetas complejas centralizado en un solo lugar[cite: 2].</li>
+        </ul>
         
-        <h2>¿Qué es IA NutriBot?</h2>
-        <p>Es un asistente personal diseñado para cualquier persona que quiera llevar un registro práctico de su alimentación diaria, bajar unos kilos u ordenar sus hábitos de forma sencilla. Olvidate de buscar tablas o anotar ingredientes a mano: solo enviale un mensaje de texto, una nota de voz o una foto de tu plato, y la Inteligencia Artificial procesará tus ingestas y actividades de forma natural.</p>
-        
-        <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; font-size: 13px; color: #856404; margin-top: 30px; border-radius: 4px;">
-            <strong>⚠️ Advertencia Legal:</strong> Este asistente es una herramienta de cálculo automatizado orientada a sumar/restar calorías y registrar nutrientes. No posee un valor médico ni científico y las recomendaciones son generadas por IA. Todo seguimiento clínico formal debe ser realizado por un profesional de la salud[cite: 1].
+        <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; font-size: 12px; color: #856404; margin-top: 15px; border-radius: 4px;">
+            <strong>⚠️ Advertencia Legal:</strong> Herramienta de cálculo automatizado orientada al balance cuantitativo. No reemplaza la consulta clínica formal con un profesional de la salud[cite: 1, 2].
         </div>
     </div>
 
     <!-- =========================================
-         Pestaña 2: EL ALTA
+         Pestaña 2: EL ALTA (Más ampliado y foto cuadrada)
          ========================================= -->
     <div id="section-alta" class="section-content">
-        <h1>Proceso de Alta e Identidad</h1>
-        <img src="foto2.png" alt="Proceso de Alta" class="section-img">
-        <p>El camino hacia una vida más saludable comienza con una configuración inicial guiada de apenas cinco minutos.</p>
+        <h1>Proceso de Alta y Ficha Inicial</h1>
+        <p>El sistema requiere una configuración inicial rápida mediante el comando correspondiente para establecer tus parámetros metabólicos basales y objetivos personalizados[cite: 1, 2].</p>
         
-        <h3>Identidad flexible y Anonimato</h3>
-        <p>Al solicitar el nombre y apellido, el sistema admite un mínimo de 2 caracteres. Puedes utilizar un seudónimo o un apodo si preferís mantener el anonimato total. No recopilamos datos de identificación sensible[cite: 1].</p>
+        <div class="img-container">
+            <img src="foto2.png" alt="Foto Alta" onerror="this.style.display='none'">
+        </div>
 
-        <h3>Datos Biométricos de Precisión</h3>
-        <p>Es fundamental ingresar tus datos físicos con exactitud para que el sistema calcule científicamente tu Tasa Metabólica Basal (TMB) y Gasto Energético Total (GET)[cite: 1].</p>
+        <h3>Detalles del Registro Inicial</h3>
         <ul>
-            <li><strong>Datos físicos:</strong> Edad, Sexo Biológico, Altura y Peso[cite: 1].</li>
-            <li><strong>Perímetro de Muñeca:</strong> Clave para determinar tu contextura ósea automáticamente[cite: 1].</li>
-            <li><strong>Nivel de Actividad Habitual:</strong> Se define por la ocupación diaria sin incluir ejercicio programado[cite: 1].</li>
+            <li><strong>Anonimato y Privacidad:</strong> No se solicitan documentos ni correos electrónicos reales[cite: 1]. Podés utilizar un seudónimo (mínimo 2 caracteres) para operar con absoluta tranquilidad[cite: 1].</li>
+            <li><strong>Parámetros Biométricos:</strong> Se ingresan edad, sexo biológico, altura, peso actual y el perímetro de muñeca, el cual determina automáticamente tu contextura ósea[cite: 1].</li>
+            <li><strong>Nivel de Actividad Habitual:</strong> Se configura en función de tu ocupación diaria general (sedentaria, moderada, intensa) sin contabilizar el ejercicio físico programado[cite: 1].</li>
+            <li><strong>Vinculación Profesional:</strong> Permite asociar el ID de un profesional de la salud o utilizar el código genérico <code>123456789</code> para operar de forma completamente autónoma[cite: 1].</li>
         </ul>
     </div>
 
     <!-- =========================================
-         Pestaña 3: INGRESO DE DATOS
+         Pestaña 3: INGRESO DE DATOS (Más ampliado y foto cuadrada)
          ========================================= -->
     <div id="section-ingreso" class="section-content">
-        <h1>Métodos de Registro Natural</h1>
-        <img src="foto3.png" alt="Ingreso de Datos" class="section-img">
-        <p>Olvidate de memorizar comandos complejos. El asistente ha evolucionado hacia un modelo completamente conversacional e intuitivo.</p>
+        <h1>Formas de Ingreso de Ingestas y Actividades</h1>
+        <p>Registrar tus comidas y movimiento diario es tan sencillo como chatear. El sistema procesa de manera inteligente múltiples formatos sin requerir sintaxis rígidas[cite: 2].</p>
 
-        <h3>1. Texto, Voz y Fotografías</h3>
-        <p>Simplemente escribí, enviá una nota de voz describiendo tu ingesta o mandá una foto directa de tu plato de comida para que la IA procese los ingredientes y calorías automáticamente.</p>
+        <div class="img-container">
+            <img src="foto3.png" alt="Foto Ingreso" onerror="this.style.display='none'">
+        </div>
 
-        <h3>2. Recetas y Códigos Rápidos</h3>
-        <p>Utilizá códigos abreviados o la plantilla de comidas frecuentes para agilizar el registro diario de tus platos habituales en segundos.</p>
+        <h3>Métodos Disponibles</h3>
+        <ul>
+            <li><strong>Mensajes de Texto y Notas de Voz:</strong> Describí de forma coloquial lo que consumiste o realizaste (ej. <em>"Comí 200g de pechuga con ensalada"</em> o <em>"Caminé 40 minutos"</em>)[cite: 2]. La IA detecta automáticamente calorías, macronutrientes y actividad física.</li>
+            <li><strong>Fotografías de Platos:</strong> Envía una foto directa de tu comida acompañada opcionalmente de un texto breve para mejorar la precisión del análisis visual[cite: 2].</li>
+            <li><strong>Códigos de Barras y Plantillas:</strong> Utiliza el escaneo de códigos de barra o plantillas de comidas frecuentes con asterisco para registrar platos repetitivos en segundos.</li>
+        </ul>
     </div>
 
     <!-- =========================================
-         Pestaña 4: GUÍA DE COMANDOS
+         Pestaña 4: GUÍA DE COMANDOS (Lista completa limpia y foto cuadrada)
          ========================================= -->
     <div id="section-comandos" class="section-content">
-        <h1>Resumen de Comandos Principales</h1>
-        <img src="foto4.png" alt="Guía de Comandos" class="section-img">
-        <p>Esta es una referencia rápida de los comandos interactivos disponibles en el chat para gestionar tu cuenta y consultar tus informes.</p>
+        <h1>Referencia de Comandos</h1>
+        <p>Listado completo de comandos disponibles para interactuar directamente en el chat del bot y consultar tus registros.</p>
         
+        <div class="img-container">
+            <img src="foto4.png" alt="Foto Comandos" onerror="this.style.display='none'">
+        </div>
+
         <table class="cmd-table">
             <thead>
                 <tr>
-                    <th>Comando / Atajo</th>
+                    <th>Comando</th>
                     <th>Descripción</th>
                 </tr>
             </thead>
             <tbody>
                 <tr>
-                    <td><span class="cmd-code">/alta</span> o <span class="cmd-code">/inicio</span></td>
-                    <td>Apertura de cuenta y creación de ficha nutricional paso a paso.</td>
+                    <td><span class="cmd-code">/alta</span></td>
+                    <td>Inicia el proceso de apertura de cuenta y ficha nutricional paso a paso.</td>
                 </tr>
                 <tr>
-                    <td><span class="cmd-code">/diario</span> o <span class="cmd-code">/d</span></td>
-                    <td>Resumen diario de consumos, desglose y descarga de PDF detallado.</td>
+                    <td><span class="cmd-code">/diario</span></td>
+                    <td>Genera el resumen diario de consumos y permite descargar el PDF detallado.</td>
                 </tr>
                 <tr>
-                    <td><span class="cmd-code">/semanal</span> o <span class="cmd-code">/s</span></td>
-                    <td>Estadística semanal (lunes a domingo) de calorías, proteínas y actividad.</td>
+                    <td><span class="cmd-code">/semanal</span></td>
+                    <td>Muestra la estadística semanal (lunes a domingo) de calorías y macronutrientes.</td>
                 </tr>
                 <tr>
-                    <td><span class="cmd-code">/mensual</span> o <span class="cmd-code">/m</span></td>
-                    <td>Reporte mensual, estimación de cambio de peso y descarga de informe.</td>
+                    <td><span class="cmd-code">/mensual</span></td>
+                    <td>Despliega el reporte mensual, estimación de cambio de peso e informes.</td>
                 </tr>
                 <tr>
                     <td><span class="cmd-code">/perfil</span></td>
-                    <td>Muestra en pantalla todos los datos biométricos corporales cargados.</td>
+                    <td>Visualiza en pantalla todos los datos biométricos corporales configurados.</td>
                 </tr>
                 <tr>
-                    <td><span class="cmd-code">/peso [VALOR]</span></td>
-                    <td>Actualiza el peso registrado para el mes en curso (ej. <span class="cmd-code">/peso 90</span>).</td>
+                    <td><span class="cmd-code">/peso</span></td>
+                    <td>Actualiza el registro de peso correspondiente al mes en curso.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/presi</span></td>
+                    <td>Registra y consulta los valores mensuales de presión arterial y pulso.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/receta</span></td>
+                    <td>Vincula y gestiona recetas complejas mediante la calculadora web[cite: 2].</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/comidas</span></td>
+                    <td>Muestra el listado de comidas guardadas y su reporte en PDF.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/eliminar</span></td>
+                    <td>Permite dar de baja registros erróneos de ingestas o actividades.</td>
                 </tr>
             </tbody>
         </table>
@@ -323,41 +357,41 @@ HTML_CALCULADORA_RECETAS = """
     <div id="section-calculadora" class="section-content">
         <div class="calculator-section">
             <h2>🍳 Calculadora Nutricional Web</h2>
-            <p>Herramienta avanzada para registrar recetas complejas o combinaciones de alimentos vinculada a tu cuenta personal.</p>
+            <p>Herramienta avanzada para registrar recetas complejas o combinaciones de alimentos vinculada a tu cuenta personal[cite: 2].</p>
 
-            <div class="user-badge">👤 Usuario conectado: {{ user_id }} (Pestaña: Comidas_{{ user_id }})</div>
+            <div class="user-badge">👤 Usuario conectado: {{ user_id }}</div>
             
             <div class="row">
                 <div class="col" style="flex: 0.4;">
-                    <label for="codigo">Código / Nombre (Columna A):</label>
+                    <label for="codigo">Código (Columna A):</label>
                     <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()">
                 </div>
                 <div class="col">
-                    <label for="descripcion">Descripción de la Comida (Columna B):</label>
-                    <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún o torta de chocolate">
+                    <label for="descripcion">Descripción (Columna B):</label>
+                    <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún">
                 </div>
             </div>
 
-            <label for="recetaText">Ingredientes y Cantidades (Receta Completa):</label>
-            <textarea id="recetaText" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca&#10;300 g de azúcar"></textarea>
+            <label for="recetaText">Ingredientes y Cantidades:</label>
+            <textarea id="recetaText" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca"></textarea>
 
             <div class="row">
                 <div class="col">
                     <label for="tipoCalculo">Criterio de División:</label>
                     <select id="tipoCalculo" onchange="toggleCriterio()">
-                        <option value="porciones">Dividir por cantidad de Porciones</option>
-                        <option value="gramos">Dividir de a 100 gramos (Fracción fija 100g)</option>
+                        <option value="porciones">Por cantidad de Porciones</option>
+                        <option value="gramos">Fracción fija de 100 gramos</option>
                     </select>
                 </div>
                 <div class="col" id="colPorciones">
-                    <label for="porciones">Cantidad de Porciones:</label>
+                    <label for="porciones">Porciones:</label>
                     <input type="number" id="porciones" value="1" min="1">
                 </div>
             </div>
 
             <button class="calc-btn" onclick="calcularReceta()">✨ Calcular Fila con IA</button>
 
-            <div id="loading">🔍 Analizando ingredientes con Groq y calculando proporciones...</div>
+            <div id="loading">🔍 Analizando ingredientes con Groq...</div>
 
             <div id="resultado-section">
                 <h3>Fila Generada (Formato Excel x1000)</h3>
@@ -381,8 +415,8 @@ HTML_CALCULADORA_RECETAS = """
                     </table>
                 </div>
 
-                <button class="btn-save" onclick="guardarEnGoogleSheets()">💾 Guardar Directamente en mi Planilla de Comidas</button>
-                <button class="btn-copy" onclick="copiarFilaExcel()">📋 Copiar Fila para Pegar Manualmente en Excel</button>
+                <button class="btn-save" onclick="guardarEnGoogleSheets()">💾 Guardar Directamente en Planilla</button>
+                <button class="btn-copy" onclick="copiarFilaExcel()">📋 Copiar Fila para Excel</button>
             </div>
         </div>
     </div>
@@ -392,8 +426,9 @@ HTML_CALCULADORA_RECETAS = """
 
 <footer>
     <div class="footer-links">
+        <a href="https://t.me/TuBotNombre_bot" target="_blank" style="background: var(--primary); padding: 6px 14px; border-radius: 20px;">💬 Abrir Bot en Telegram</a>
         <a href="https://instagram.com/tucuenta" target="_blank">📸 Instagram</a>
-        <a href="mailto:tu_correo@gmail.com">✉️ Contacto / Mail</a>
+        <a href="mailto:tu_correo@gmail.com">✉️ Mail</a>
         <a href="manual.pdf" target="_blank">📄 Descargar Manual (PDF)</a>
     </div>
     <div class="footer-info">
