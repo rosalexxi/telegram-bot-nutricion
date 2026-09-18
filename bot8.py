@@ -243,7 +243,7 @@ HTML_CALCULADORA_RECETAS = """
         <h1>Asistente Inteligente de Nutrición</h1>
         <div class="article-content">
             <div class="newspaper-img">
-                <img src="foto1.png" alt="Foto Inicio" onerror="this.style.display='none'">
+                <img src="{{ url_for('static', filename='foto1.png') }}" alt="Foto Inicio" onerror="this.style.display='none'">
                 <div class="img-caption">IA NutriBot</div>
             </div>
             
@@ -271,7 +271,7 @@ HTML_CALCULADORA_RECETAS = """
         <h1>Proceso de Alta y Ficha Inicial</h1>
         <div class="article-content">
             <div class="newspaper-img">
-                <img src="foto2.png" alt="Foto Alta" onerror="this.style.display='none'">
+                <img src="{{ url_for('static', filename='foto2.png') }}" alt="Foto Alta" onerror="this.style.display='none'">
                 <div class="img-caption">Ficha Inicial</div>
             </div>
             
@@ -295,7 +295,7 @@ HTML_CALCULADORA_RECETAS = """
         <h1>Formas de Ingreso de Ingestas y Actividades</h1>
         <div class="article-content">
             <div class="newspaper-img">
-                <img src="foto3.png" alt="Foto Ingreso" onerror="this.style.display='none'">
+                <img src="{{ url_for('static', filename='foto3.png') }}" alt="Foto Ingreso" onerror="this.style.display='none'">
                 <div class="img-caption">Registro Natural</div>
             </div>
             
@@ -319,7 +319,7 @@ HTML_CALCULADORA_RECETAS = """
         <h1>Referencia de Comandos</h1>
         <div class="article-content">
             <div class="newspaper-img">
-                <img src="foto4.png" alt="Foto Comandos" onerror="this.style.display='none'">
+                <img src="{{ url_for('static', filename='foto4.png') }}" alt="Foto Comandos" onerror="this.style.display='none'">
                 <div class="img-caption">Atajos</div>
             </div>
             
