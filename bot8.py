@@ -122,30 +122,46 @@ HTML_CALCULADORA_RECETAS = """
             --bg-light: #f4f6f9;
             --text-color: #333;
         }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: var(--bg-light); color: var(--text-color); line-height: 1.6; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: var(--bg-light); color: var(--text-color); line-height: 1.6; display: flex; flex-direction: column; min-height: 100vh; }
+        
+        /* Cabecera y Navegación */
         header { background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.05); position: sticky; top: 0; z-index: 1000; }
-        .nav-container { max-width: 1000px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; }
-        .logo { font-size: 20px; font-weight: bold; color: var(--primary); text-decoration: none; }
-        .nav-links a { margin-left: 20px; text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 14px; }
-        .nav-links a:hover { color: var(--primary); }
+        .nav-container { max-width: 1100px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; }
+        .logo { font-size: 22px; font-weight: bold; color: var(--primary); text-decoration: none; }
+        .nav-links a { margin-left: 15px; text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 14px; transition: color 0.2s; }
+        .nav-links a:hover, .nav-links a.active { color: var(--primary); }
 
-        .hero { background: linear-gradient(135deg, #2c3e50, #1a252f); color: white; text-align: center; padding: 60px 20px; }
-        .hero h1 { font-size: 36px; margin-bottom: 15px; }
-        .hero p { font-size: 18px; max-width: 700px; margin: 0 auto 30px auto; opacity: 0.9; }
-        .btn-telegram { background-color: var(--primary); color: white; padding: 14px 28px; border-radius: 30px; text-decoration: none; font-size: 18px; font-weight: bold; display: inline-block; box-shadow: 0 4px 15px rgba(39, 174, 96, 0.4); transition: background 0.2s; }
+        /* Contenido Principal */
+        .content-wrapper { max-width: 900px; margin: 40px auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); flex: 1; width: 100%; box-sizing: border-box; }
+        h1 { color: var(--secondary); margin-top: 0; font-size: 32px; }
+        h2 { color: var(--secondary); border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 40px; font-size: 24px; }
+        h3 { color: var(--primary); font-size: 18px; margin-top: 25px; }
+        p { margin-bottom: 15px; color: #555; }
+        ul { margin-bottom: 15px; color: #555; }
+        li { margin-bottom: 8px; }
+
+        /* Estilo para las imágenes de sección */
+        .section-img { width: 100%; max-height: 350px; object-fit: cover; border-radius: 8px; margin: 20px 0; box-shadow: 0 4px 10px rgba(0,0,0,0.08); }
+
+        /* Botón de acción principal (Hero) */
+        .hero-section { text-align: center; padding: 20px 0; }
+        .hero-title { font-size: 36px; font-weight: 800; color: var(--secondary); margin-bottom: 10px; }
+        .hero-subtitle { font-size: 18px; color: #666; max-width: 600px; margin: 0 auto 30px auto; }
+        .btn-telegram { background-color: var(--primary); color: white; padding: 16px 32px; border-radius: 50px; text-decoration: none; font-size: 18px; font-weight: bold; display: inline-block; box-shadow: 0 4px 15px rgba(39, 174, 96, 0.4); transition: background 0.2s; }
         .btn-telegram:hover { background-color: var(--primary-dark); }
 
-        .container { max-width: 900px; margin: 40px auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
-        h2 { color: var(--secondary); border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 40px; }
-        
-        .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 30px; }
-        .feature-card { background: #f8fafc; padding: 20px; border-radius: 8px; border-left: 4px solid var(--primary); }
-        .feature-card h3 { margin-top: 0; color: var(--secondary); }
+        /* Estilos de secciones */
+        .section-content { display: none; }
+        .section-content.active { display: block; }
 
-        .legal-box { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; font-size: 13px; color: #856404; margin-top: 30px; border-radius: 4px; }
+        /* Tablas de comandos */
+        .cmd-table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
+        .cmd-table th { background-color: var(--bg-light); color: var(--secondary); text-align: left; padding: 12px; border-bottom: 2px solid #ddd; }
+        .cmd-table td { padding: 12px; border-bottom: 1px solid #eee; vertical-align: top; }
+        .cmd-code { font-family: monospace; background-color: #eee; padding: 2px 4px; border-radius: 3px; color: #c0392b; font-weight: bold; }
 
         /* Estilos de la Calculadora Web */
-        .calculator-section { margin-top: 50px; border-top: 3px solid #eee; padding-top: 40px; }
+        .calculator-section { margin-top: 20px; }
         label { font-weight: bold; display: block; margin-top: 15px; margin-bottom: 5px; }
         input[type="text"], input[type="number"], select, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
         textarea { height: 100px; resize: vertical; }
@@ -153,264 +169,376 @@ HTML_CALCULADORA_RECETAS = """
         .col { flex: 1; }
         button.calc-btn { background-color: var(--primary); color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 20px; }
         button.calc-btn:hover { background-color: var(--primary-dark); }
-        button:disabled { background-color: #95a5a6; cursor: not-allowed; }
         #loading { display: none; text-align: center; margin-top: 15px; font-style: italic; color: #7f8c8d; }
         #resultado-section { display: none; margin-top: 25px; border-top: 2px solid #eee; padding-top: 15px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        th { background-color: #f2f2f2; }
+        table.calc-tbl { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+        table.calc-tbl th, table.calc-tbl td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        table.calc-tbl th { background-color: #f2f2f2; }
         .btn-save { background-color: #8e44ad; margin-top: 15px; color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-weight: bold; cursor: pointer; }
         .btn-save:hover { background-color: #71368a; }
         .btn-copy { background-color: #2980b9; margin-top: 10px; color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-weight: bold; cursor: pointer; }
         .btn-copy:hover { background-color: #1f6391; }
         .user-badge { background: #e0f2fe; color: #0369a1; padding: 8px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; display: inline-block; margin-bottom: 15px; }
-        .error-user { background: #fee2e2; color: #991b1b; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-weight: bold; border-left: 4px solid #dc2626; }
-        footer { text-align: center; padding: 30px; font-size: 13px; color: #7f8c8d; margin-top: 50px; border-top: 1px solid #eee; }
+
+        /* Footer */
+        footer { background: var(--secondary); color: white; text-align: center; padding: 30px 20px; margin-top: auto; font-size: 14px; }
+        .footer-links { margin-bottom: 15px; }
+        .footer-links a { color: white; text-decoration: none; margin: 0 15px; font-weight: 600; transition: opacity 0.3s; }
+        .footer-links a:hover { opacity: 0.7; }
+        .footer-info { opacity: 0.8; font-size: 12px; }
+
+        /* Ajustes para mobile */
+        @media (max-width: 768px) {
+            .nav-container { flex-direction: column; text-align: center; }
+            .nav-links { margin-top: 15px; }
+            .nav-links a { margin: 0 8px; }
+            .content-wrapper { padding: 20px; margin: 20px; }
+            .hero-title { font-size: 28px; }
+        }
     </style>
 </head>
 <body>
 
 <header>
     <div class="nav-container">
-        <a href="#" class="logo">🤖 IA NutriBot</a>
+        <a href="#" class="logo" onclick="showSection('inicio')">🤖 IA NutriBot</a>
         <div class="nav-links">
-            <a href="#inicio">Inicio</a>
-            <a href="#como-funciona">Cómo Funciona</a>
-            <a href="#calculadora">Calculadora Web</a>
+            <a href="#" id="nav-inicio" onclick="showSection('inicio')" class="active">Inicio</a>
+            <a href="#" id="nav-alta" onclick="showSection('alta')">El Alta</a>
+            <a href="#" id="nav-ingreso" onclick="showSection('ingreso')">Ingreso de Datos</a>
+            <a href="#" id="nav-comandos" onclick="showSection('comandos')">Guía de Comandos</a>
+            {% if user_id %}
+            <a href="#" id="nav-calculadora" onclick="showSection('calculadora')">Calculadora Web</a>
+            {% endif %}
         </div>
     </div>
 </header>
 
-<section class="hero" id="inicio">
-    <h1>Tu salud y tus hábitos, en piloto inteligente</h1>
-    <p>Llevá un control real de lo que comés, optimizá tus macronutrientes y entendé tu evolución diaria de forma simple, directa desde Telegram.</p>
-    <a href="https://t.me/TuBotNombre_bot" target="_blank" class="btn-telegram">💬 Abrir Bot en Telegram</a>
-</section>
+<div class="content-wrapper">
 
-<div class="container">
-    <h2 id="como-funciona">¿Qué es IA NutriBot?</h2>
-    <p>Un asistente personal diseñado para cualquier persona que quiera llevar un registro práctico, ordenar su alimentación y cumplir sus objetivos sin planillas eternas ni complicaciones. Con solo enviarle un mensaje de texto, una nota de voz o una foto de tu plato, la Inteligencia Artificial procesa tus ingestas y actividades de forma natural[cite: 2].</p>
-
-    <div class="features-grid">
-        <div class="feature-card">
-            <h3>🎙️ Lenguaje Natural</h3>
-            <p>Hablá o escribí como si hablaras con un asistente humano. El sistema detecta automáticamente si es una comida o una caminata[cite: 2].</p>
+    <!-- =========================================
+         Pestaña 1: INICIO
+         ========================================= -->
+    <div id="section-inicio" class="section-content active">
+        <div class="hero-section">
+            <h1 class="hero-title">Tu salud y tus hábitos, en piloto inteligente</h1>
+            <p class="hero-subtitle">Controlá lo que comés, optimizá tu alimentación y entendé tu evolución sin planillas eternas. Asistencia por IA, directo en tu Telegram.</p>
+            <img src="foto1.png" alt="Inicio IA NutriBot" class="section-img">
+            <div style="margin-top: 30px;">
+                <a href="https://t.me/TuBotNombre_bot" target="_blank" class="btn-telegram">💬 Abrir Bot en Telegram</a>
+            </div>
         </div>
-        <div class="feature-card">
-            <h3>📊 Informes en PDF</h3>
-            <p>Recibí resúmenes diarios, semanales y reportes mensuales con estimaciones de cambio de peso y gráficos de macronutrientes.</p>
-        </div>
-        <div class="feature-card">
-            <h3>❤️ Control de Presión</h3>
-            <p>Registrá tus valores de presión arterial y pulso de forma rápida mediante comandos sencillos para un seguimiento integral.</p>
-        </div>
-    </div>
-
-    <div class="legal-box">
-        <strong>⚠️ Advertencia Legal:</strong> Este asistente es una herramienta de cálculo automatizado orientada al balance cuantitativo de calorías y nutrientes. No posee un valor médico ni científico y no reemplaza la consulta clínica formal con un profesional de la salud competente[cite: 1, 2].
-    </div>
-
-    <!-- SECCIÓN DE LA CALCULADORA WEB -->
-    <div class="calculator-section" id="calculadora">
-        <h2>🍳 Calculadora Nutricional Web</h2>
-        <p>Herramienta avanzada para registrar recetas complejas o combinaciones de alimentos vinculada a tu cuenta personal[cite: 2, 4].</p>
-
-        {% if user_id %}
-            <div class="user-badge">👤 Usuario conectado: {{ user_id }} (Pestaña: Comidas_{{ user_id }})</div>
-        {% else %}
-            <div class="error-user">⚠️ Atención: Acceso anónimo detectado. No se pueden realizar consultas a la IA ni guardar en planillas. Por favor, accedé mediante el link personalizado enviado por el bot de Telegram[cite: 3].</div>
-        {% endif %}
         
-        <div class="row">
-            <div class="col" style="flex: 0.4;">
-                <label for="codigo">Código / Nombre (Columna A):</label>
-                <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()" {% if not user_id %}disabled{% endif %}>
-            </div>
-            <div class="col">
-                <label for="descripcion">Descripción de la Comida (Columna B):</label>
-                <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún o torta de chocolate" {% if not user_id %}disabled{% endif %}>
-            </div>
-        </div>
-
-        <label for="recetaText">Ingredientes y Cantidades (Receta Completa):</label>
-        <textarea id="recetaText" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca&#10;300 g de azúcar" {% if not user_id %}disabled{% endif %}></textarea>
-
-        <div class="row">
-            <div class="col">
-                <label for="tipoCalculo">Criterio de División:</label>
-                <select id="tipoCalculo" onchange="toggleCriterio()" {% if not user_id %}disabled{% endif %}>
-                    <option value="porciones">Dividir por cantidad de Porciones</option>
-                    <option value="gramos">Dividir de a 100 gramos (Fracción fija 100g)</option>
-                </select>
-            </div>
-            <div class="col" id="colPorciones">
-                <label for="porciones">Cantidad de Porciones:</label>
-                <input type="number" id="porciones" value="1" min="1" {% if not user_id %}disabled{% endif %}>
-            </div>
-        </div>
-
-        <button class="calc-btn" onclick="calcularReceta()" {% if not user_id %}disabled title="Acceso restringido a usuarios registrados vía Telegram"{% endif %}>✨ Calcular Fila con IA</button>
-
-        <div id="loading">🔍 Analizando ingredientes con Groq y calculando proporciones...</div>
-
-        <div id="resultado-section">
-            <h3>Fila Generada (Formato Excel x1000)</h3>
-            <div style="overflow-x: auto;">
-                <table id="tablaNutricional">
-                    <thead>
-                        <tr>
-                            <th>Nombre (A)</th>
-                            <th>Descripción (B)</th>
-                            <th>Peso (C)</th>
-                            <th>Calorías (D)</th>
-                            <th>Proteínas (E)</th>
-                            <th>Grasas (F)</th>
-                            <th>Carbohidratos (G)</th>
-                            <th>Fibras (H)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- Fila cargada mediante JS -->
-                    </tbody>
-                </table>
-            </div>
-
-            {% if user_id %}
-                <button class="btn-save" onclick="guardarEnGoogleSheets()">💾 Guardar Directamente en mi Planilla de Comidas</button>
-            {% endif %}
-            <button class="btn-copy" onclick="copiarFilaExcel()">📋 Copiar Fila para Pegar Manualmente en Excel</button>
+        <h2>¿Qué es IA NutriBot?</h2>
+        <p>Es un asistente personal diseñado para cualquier persona que quiera llevar un registro práctico de su alimentación diaria, bajar unos kilos u ordenar sus hábitos de forma sencilla. Olvidate de buscar tablas o anotar ingredientes a mano: solo enviale un mensaje de texto, una nota de voz o una foto de tu plato, y la Inteligencia Artificial procesará tus ingestas y actividades de forma natural.</p>
+        
+        <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; font-size: 13px; color: #856404; margin-top: 30px; border-radius: 4px;">
+            <strong>⚠️ Advertencia Legal:</strong> Este asistente es una herramienta de cálculo automatizado orientada a sumar/restar calorías y registrar nutrientes. No posee un valor médico ni científico y las recomendaciones son generadas por IA. Todo seguimiento clínico formal debe ser realizado por un profesional de la salud[cite: 1].
         </div>
     </div>
+
+    <!-- =========================================
+         Pestaña 2: EL ALTA
+         ========================================= -->
+    <div id="section-alta" class="section-content">
+        <h1>Proceso de Alta e Identidad</h1>
+        <img src="foto2.png" alt="Proceso de Alta" class="section-img">
+        <p>El camino hacia una vida más saludable comienza con una configuración inicial guiada de apenas cinco minutos.</p>
+        
+        <h3>Identidad flexible y Anonimato</h3>
+        <p>Al solicitar el nombre y apellido, el sistema admite un mínimo de 2 caracteres. Puedes utilizar un seudónimo o un apodo si preferís mantener el anonimato total. No recopilamos datos de identificación sensible[cite: 1].</p>
+
+        <h3>Datos Biométricos de Precisión</h3>
+        <p>Es fundamental ingresar tus datos físicos con exactitud para que el sistema calcule científicamente tu Tasa Metabólica Basal (TMB) y Gasto Energético Total (GET)[cite: 1].</p>
+        <ul>
+            <li><strong>Datos físicos:</strong> Edad, Sexo Biológico, Altura y Peso[cite: 1].</li>
+            <li><strong>Perímetro de Muñeca:</strong> Clave para determinar tu contextura ósea automáticamente[cite: 1].</li>
+            <li><strong>Nivel de Actividad Habitual:</strong> Se define por la ocupación diaria sin incluir ejercicio programado[cite: 1].</li>
+        </ul>
+    </div>
+
+    <!-- =========================================
+         Pestaña 3: INGRESO DE DATOS
+         ========================================= -->
+    <div id="section-ingreso" class="section-content">
+        <h1>Métodos de Registro Natural</h1>
+        <img src="foto3.png" alt="Ingreso de Datos" class="section-img">
+        <p>Olvidate de memorizar comandos complejos. El asistente ha evolucionado hacia un modelo completamente conversacional e intuitivo.</p>
+
+        <h3>1. Texto, Voz y Fotografías</h3>
+        <p>Simplemente escribí, enviá una nota de voz describiendo tu ingesta o mandá una foto directa de tu plato de comida para que la IA procese los ingredientes y calorías automáticamente.</p>
+
+        <h3>2. Recetas y Códigos Rápidos</h3>
+        <p>Utilizá códigos abreviados o la plantilla de comidas frecuentes para agilizar el registro diario de tus platos habituales en segundos.</p>
+    </div>
+
+    <!-- =========================================
+         Pestaña 4: GUÍA DE COMANDOS
+         ========================================= -->
+    <div id="section-comandos" class="section-content">
+        <h1>Resumen de Comandos Principales</h1>
+        <img src="foto4.png" alt="Guía de Comandos" class="section-img">
+        <p>Esta es una referencia rápida de los comandos interactivos disponibles en el chat para gestionar tu cuenta y consultar tus informes.</p>
+        
+        <table class="cmd-table">
+            <thead>
+                <tr>
+                    <th>Comando / Atajo</th>
+                    <th>Descripción</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><span class="cmd-code">/alta</span> o <span class="cmd-code">/inicio</span></td>
+                    <td>Apertura de cuenta y creación de ficha nutricional paso a paso.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/diario</span> o <span class="cmd-code">/d</span></td>
+                    <td>Resumen diario de consumos, desglose y descarga de PDF detallado.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/semanal</span> o <span class="cmd-code">/s</span></td>
+                    <td>Estadística semanal (lunes a domingo) de calorías, proteínas y actividad.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/mensual</span> o <span class="cmd-code">/m</span></td>
+                    <td>Reporte mensual, estimación de cambio de peso y descarga de informe.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/perfil</span></td>
+                    <td>Muestra en pantalla todos los datos biométricos corporales cargados.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/peso [VALOR]</span></td>
+                    <td>Actualiza el peso registrado para el mes en curso (ej. <span class="cmd-code">/peso 90</span>).</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    {% if user_id %}
+    <!-- =========================================
+         Pestaña 5: CALCULADORA WEB (Solo usuarios con ID)
+         ========================================= -->
+    <div id="section-calculadora" class="section-content">
+        <div class="calculator-section">
+            <h2>🍳 Calculadora Nutricional Web</h2>
+            <p>Herramienta avanzada para registrar recetas complejas o combinaciones de alimentos vinculada a tu cuenta personal.</p>
+
+            <div class="user-badge">👤 Usuario conectado: {{ user_id }} (Pestaña: Comidas_{{ user_id }})</div>
+            
+            <div class="row">
+                <div class="col" style="flex: 0.4;">
+                    <label for="codigo">Código / Nombre (Columna A):</label>
+                    <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()">
+                </div>
+                <div class="col">
+                    <label for="descripcion">Descripción de la Comida (Columna B):</label>
+                    <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún o torta de chocolate">
+                </div>
+            </div>
+
+            <label for="recetaText">Ingredientes y Cantidades (Receta Completa):</label>
+            <textarea id="recetaText" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca&#10;300 g de azúcar"></textarea>
+
+            <div class="row">
+                <div class="col">
+                    <label for="tipoCalculo">Criterio de División:</label>
+                    <select id="tipoCalculo" onchange="toggleCriterio()">
+                        <option value="porciones">Dividir por cantidad de Porciones</option>
+                        <option value="gramos">Dividir de a 100 gramos (Fracción fija 100g)</option>
+                    </select>
+                </div>
+                <div class="col" id="colPorciones">
+                    <label for="porciones">Cantidad de Porciones:</label>
+                    <input type="number" id="porciones" value="1" min="1">
+                </div>
+            </div>
+
+            <button class="calc-btn" onclick="calcularReceta()">✨ Calcular Fila con IA</button>
+
+            <div id="loading">🔍 Analizando ingredientes con Groq y calculando proporciones...</div>
+
+            <div id="resultado-section">
+                <h3>Fila Generada (Formato Excel x1000)</h3>
+                <div style="overflow-x: auto;">
+                    <table class="calc-tbl" id="tablaNutricional">
+                        <thead>
+                            <tr>
+                                <th>Nombre (A)</th>
+                                <th>Descripción (B)</th>
+                                <th>Peso (C)</th>
+                                <th>Calorías (D)</th>
+                                <th>Proteínas (E)</th>
+                                <th>Grasas (F)</th>
+                                <th>Carbohidratos (G)</th>
+                                <th>Fibras (H)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Fila cargada mediante JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <button class="btn-save" onclick="guardarEnGoogleSheets()">💾 Guardar Directamente en mi Planilla de Comidas</button>
+                <button class="btn-copy" onclick="copiarFilaExcel()">📋 Copiar Fila para Pegar Manualmente en Excel</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
 </div>
 
 <footer>
-    <p>IA NutriBot &copy; 2026 - Todos los derechos reservados. Desarrollado con inteligencia artificial.</p>
+    <div class="footer-links">
+        <a href="https://instagram.com/tucuenta" target="_blank">📸 Instagram</a>
+        <a href="mailto:tu_correo@gmail.com">✉️ Contacto / Mail</a>
+        <a href="manual.pdf" target="_blank">📄 Descargar Manual (PDF)</a>
+    </div>
+    <div class="footer-info">
+        IA NutriBot &copy; 2026 - Todos los derechos reservados.
+    </div>
 </footer>
 
 <script>
-const currentUserId = "{{ user_id }}";
-let ultimoResultadoCalculado = null;
-
-function toggleCriterio() {
-    const tipo = document.getElementById('tipoCalculo').value;
-    const colPorciones = document.getElementById('colPorciones');
-    if (tipo === 'gramos') {
-        colPorciones.style.display = 'none';
-    } else {
-        colPorciones.style.display = 'block';
-    }
-}
-
-async function calcularReceta() {
-    if (!currentUserId) {
-        alert("Acción no permitida para usuarios no registrados.");
-        return;
-    }
-
-    const codigo = document.getElementById('codigo').value.trim();
-    const descripcion = document.getElementById('descripcion').value.trim();
-    const receta = document.getElementById('recetaText').value.trim();
-    const tipoCalculo = document.getElementById('tipoCalculo').value;
-    const porciones = document.getElementById('porciones').value;
-
-    if (!codigo || !descripcion || !receta) {
-        alert("Por favor completa el código, la descripción y los ingredientes.");
-        return;
-    }
-
-    document.getElementById('loading').style.display = 'block';
-    document.getElementById('resultado-section').style.display = 'none';
-
-    try {
-        const response = await fetch('/api/calcular-receta', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                user_id: currentUserId,
-                codigo, 
-                descripcion, 
-                receta, 
-                tipoCalculo, 
-                porciones: parseInt(porciones || 1) 
-            })
+    function showSection(sectionId) {
+        document.querySelectorAll('.section-content').forEach(el => {
+            el.classList.remove('active');
         });
-
-        const data = await response.json();
+        document.querySelectorAll('.nav-links a').forEach(el => {
+            el.classList.remove('active');
+        });
         
-        if (response.ok) {
-            ultimoResultadoCalculado = data;
-            const tbody = document.querySelector('#tablaNutricional tbody');
-            tbody.innerHTML = `
-                <tr id="filaExcel">
-                    <td>${data.nombre}</td>
-                    <td>${data.descripcion}</td>
-                    <td>${data.peso}</td>
-                    <td>${data.calorias}</td>
-                    <td>${data.proteinas}</td>
-                    <td>${data.grasas}</td>
-                    <td>${data.carbohidratos}</td>
-                    <td>${data.fibras}</td>
-                </tr>
-            `;
-            document.getElementById('resultado-section').style.display = 'block';
-        } else {
-            alert("Error al calcular: " + (data.error || "Intente nuevamente."));
+        const targetSection = document.getElementById('section-' + sectionId);
+        const targetNav = document.getElementById('nav-' + sectionId);
+        
+        if (targetSection) targetSection.classList.add('active');
+        if (targetNav) targetNav.classList.add('active');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    const currentUserId = "{{ user_id }}";
+    let ultimoResultadoCalculado = null;
+
+    function toggleCriterio() {
+        const tipo = document.getElementById('tipoCalculo').value;
+        const colPorciones = document.getElementById('colPorciones');
+        if (colPorciones) {
+            colPorciones.style.display = (tipo === 'gramos') ? 'none' : 'block';
         }
-    } catch (err) {
-        alert("Error de conexión con el servidor.");
-    } finally {
-        document.getElementById('loading').style.display = 'none';
-    }
-}
-
-async function guardarEnGoogleSheets() {
-    if (!currentUserId) {
-        alert("No hay ID de usuario asociado.");
-        return;
-    }
-    if (!ultimoResultadoCalculado) {
-        alert("Primero calculá la receta antes de guardar.");
-        return;
     }
 
-    try {
-        const response = await fetch('/api/guardar-comida', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                user_id: currentUserId,
-                fila: ultimoResultadoCalculado
-            })
-        });
+    async function calcularReceta() {
+        if (!currentUserId) {
+            alert("Acción no permitida para usuarios no registrados.");
+            return;
+        }
 
-        const res = await response.json();
-        if (response.ok) {
-            if (res.codigo_guardado) {
-                ultimoResultadoCalculado.nombre = res.codigo_guardado;
-                const tdNombre = document.querySelector('#filaExcel td:first-child');
-                if (tdNombre) tdNombre.innerText = res.codigo_guardado;
+        const codigo = document.getElementById('codigo').value.trim();
+        const descripcion = document.getElementById('descripcion').value.trim();
+        const receta = document.getElementById('recetaText').value.trim();
+        const tipoCalculo = document.getElementById('tipoCalculo').value;
+        const porciones = document.getElementById('porciones').value;
+
+        if (!codigo || !descripcion || !receta) {
+            alert("Por favor completa el código, la descripción y los ingredientes.");
+            return;
+        }
+
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('resultado-section').style.display = 'none';
+
+        try {
+            const response = await fetch('/api/calcular-receta', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    user_id: currentUserId,
+                    codigo, 
+                    descripcion, 
+                    receta, 
+                    tipoCalculo, 
+                    porciones: parseInt(porciones || 1) 
+                })
+            });
+
+            const data = await response.json();
+            
+            if (response.ok) {
+                ultimoResultadoCalculado = data;
+                const tbody = document.querySelector('#tablaNutricional tbody');
+                tbody.innerHTML = `
+                    <tr id="filaExcel">
+                        <td>${data.nombre}</td>
+                        <td>${data.descripcion}</td>
+                        <td>${data.peso}</td>
+                        <td>${data.calorias}</td>
+                        <td>${data.proteinas}</td>
+                        <td>${data.grasas}</td>
+                        <td>${data.carbohidratos}</td>
+                        <td>${data.fibras}</td>
+                    </tr>
+                `;
+                document.getElementById('resultado-section').style.display = 'block';
+            } else {
+                alert("Error al calcular: " + (data.error || "Intente nuevamente."));
             }
-            alert("✅ ¡Éxito! " + res.message);
-        } else {
-            alert("❌ Error al guardar: " + (res.error || "Error desconocido."));
+        } catch (err) {
+            alert("Error de conexión con el servidor.");
+        } finally {
+            document.getElementById('loading').style.display = 'none';
         }
-    } catch (e) {
-        alert("Error de conexión al intentar guardar.");
     }
-}
 
-function copiarFilaExcel() {
-    const fila = document.getElementById('filaExcel');
-    if (!fila) return;
-    const celdas = Array.from(fila.querySelectorAll('td')).map(td => td.innerText);
-    const textoCopiable = celdas.join('\t');
+    async function guardarEnGoogleSheets() {
+        if (!currentUserId) {
+            alert("No hay ID de usuario asociado.");
+            return;
+        }
+        if (!ultimoResultadoCalculado) {
+            alert("Primero calculá la receta antes de guardar.");
+            return;
+        }
 
-    navigator.clipboard.writeText(textoCopiable).then(() => {
-        alert("¡Fila copiada! Podés pegarla en tu Excel con Ctrl + V.");
-    }).catch(err => {
-        alert("Error al copiar al portapapeles.");
-    });
-}
+        try {
+            const response = await fetch('/api/guardar-comida', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: currentUserId,
+                    fila: ultimoResultadoCalculado
+                })
+            });
+
+            const res = await response.json();
+            if (response.ok) {
+                if (res.codigo_guardado) {
+                    ultimoResultadoCalculado.nombre = res.codigo_guardado;
+                    const tdNombre = document.querySelector('#filaExcel td:first-child');
+                    if (tdNombre) tdNombre.innerText = res.codigo_guardado;
+                }
+                alert("✅ ¡Éxito! " + res.message);
+            } else {
+                alert("❌ Error al guardar: " + (res.error || "Error desconocido."));
+            }
+        } catch (e) {
+            alert("Error de conexión al intentar guardar.");
+        }
+    }
+
+    function copiarFilaExcel() {
+        const fila = document.getElementById('filaExcel');
+        if (!fila) return;
+        const celdas = Array.from(fila.querySelectorAll('td')).map(td => td.innerText);
+        const textoCopiable = celdas.join('\\t');
+
+        navigator.clipboard.writeText(textoCopiable).then(() => {
+            alert("¡Fila copiada! Podés pegarla en tu Excel con Ctrl + V.");
+        }).catch(err => {
+            alert("Error al copiar al portapapeles.");
+        });
+    }
 </script>
 
 </body>
@@ -420,7 +548,7 @@ function copiarFilaExcel() {
 
 @app.route('/', methods=['GET'])
 def vista_calculadora():
-    """Renderiza la calculadora de recetas como única página principal, recibiendo el user_id por URL."""
+    """Renderiza la página principal con solapas, recibiendo el user_id por URL."""
     user_id = request.args.get('user_id', '')
     return render_template_string(HTML_CALCULADORA_RECETAS, user_id=user_id)
 
