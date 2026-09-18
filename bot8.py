@@ -7211,94 +7211,6 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =====================================================================================================================================
 
 @requiere_registro
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = await update.message.reply_text("🎙️ Procesando audio con IA...")
-    try:
-        file = await context.bot.get_file(update.message.voice.file_id)
-        audio_bytes = await file.download_as_bytearray()
-        
-        audio_file = io.BytesIO(audio_bytes)
-        audio_file.name = "audio.ogg"
-        
-        transcription = client_ai.audio.transcriptions.create(
-            file=(audio_file.name, audio_file.read()),
-            model=GROQ_AUDIO,
-            response_format="text"
-        )
-        
-        if context.user_data.get('awaiting_activity_voice'):
-            context.user_data['awaiting_activity_voice'] = False
-            user_id = update.effective_user.id
-            
-            perfil_biometrico = obtener_perfil_usuario(user_id)
-            
-            prompt_ia = (
-                f"El usuario realizó una actividad física descrita por voz. Transcripción: '{transcription}'. "
-                f"Calcula las calorías gastadas utilizando estrictamente su perfil biométrico: {perfil_biometrico}.\n"
-                f"REGLA OBLIGATORIA 1: El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de 'min' y una descripción clara (ej: '50 min - Caminata rápida').\n"
-                f"REGLA OBLIGATORIA 2: El campo 'calorias' debe ser un número positivo que luego transformaremos en negativo.\n"
-                f"Devolvé un JSON con los campos 'alimento' y 'calorias'."
-            )
-
-            resultado_ia = analizar_con_groq(prompt_ia)
-            items_ia = resultado_ia.get('items', [])
-            if items_ia:
-                kcal_estimadas = float(items_ia[0].get('calorias', 0))
-                descripcion_formateada = str(items_ia[0].get('alimento', transcription))
-            else:
-                kcal_estimadas = 0.0
-                descripcion_formateada = transcription
-
-            # 🛑 VALIDACIÓN OBLIGATORIA DE MINUTOS Y ORDENAMIENTO ESTRICTO
-            match_min = re.search(r'(\d+)', descripcion_formateada)
-            if not match_min or int(match_min.group(1)) <= 0:
-                await msg.edit_text(
-                    "⚠️ **Faltan los minutos de la actividad.**\n"
-                    "Para poder calcular las calorías y realizar tus resúmenes semanales/mensuales, es obligatorio indicar la duración en minutos "
-                    "(Ej: *'Caminé 3000 metros en 45 minutos'*). Por favor, volví a intentarlo.",
-                    parse_mode="Markdown"
-                )
-                return
-
-            # Forzar formato estricto: Asegurar que los minutos queden SIEMPRE al principio (Ej: "45 min - Caminata")
-            num_mins = match_min.group(1)
-            resto_desc = descripcion_formateada.replace(num_mins, '').replace('minutos', '').replace('min', '').strip()
-            resto_desc = re.sub(r'^[-–:\s]+', '', resto_desc)
-            if not resto_desc:
-                resto_desc = "Caminata"
-            descripcion_formateada = f"{num_mins} min - {resto_desc}"
-
-            calorias_finales = -abs(kcal_estimadas)
-
-            item_actividad = {
-                "alimento": descripcion_formateada,
-                "peso": 0.0,
-                "calorias": calorias_finales,
-                "proteinas": 0.0,
-                "grasas": 0.0,
-                "carbohidratos": 0.0,
-                "fibras": 0.0
-            }
-
-            context.user_data['pending_items'] = [item_actividad]
-            
-            if not context.user_data.get('pending_fecha'):
-                context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
-                
-            context.user_data['pending_momento'] = 'Actividad'
-
-            await msg.delete()
-            msg_menu = await update.message.reply_text("📋 Actividad analizada por audio:")
-            context.user_data['last_menu_msg_id'] = msg_menu.message_id
-            await render_confirmation_screen(msg_menu, context)
-            return
-
-        data = analizar_con_groq(transcription)
-        await procesar_y_mostrar_confirmacion(data, msg, context)
-    except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar audio: {e}")
-        
-@requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
@@ -7307,7 +7219,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not raw_text:
         return
 
-    # 📅 Captura de fecha personalizada (Botón "Otro Día" en la confirmación)
+    # 📅 1. CAPTURA DE FECHA PERSONALIZADA (Botón "Otro Día") - PRIMERO QUE NADA
     if context.user_data.get('awaiting_custom_date'):
         fecha_parseada = None
         txt = raw_text.replace('/', '-').replace('.', '-')
@@ -7360,7 +7272,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['msg_solicitud_fecha_id'] = msg_err.message_id
             return
 
-    # Captura el texto cuando el usuario eligió ingresar actividad por texto tras tocar /actividad
+    # 🏃 2. CAPTURA DE ACTIVIDAD POR TEXTO
     if context.user_data.get('awaiting_activity_text'):
         texto_actividad = raw_text.strip()
         
@@ -7385,7 +7297,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             prompt_ia = (
                 f"El usuario realizó una actividad física. Analiza la descripción y calcula las calorías gastadas "
                 f"utilizando estrictamente su perfil biométrico: {perfil_biometrico}.\n"
-                f"REGLA OBLIGATORIA 1: El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de 'min' y una descripción clara (ej: '50 min - Caminata a velocidad moderada').\n"
+                f"REGLA OBLIGATORIA 1: El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de 'min' y una descripción clara (ej: '45 min - Caminata 4000 metros').\n"
                 f"REGLA OBLIGATORIA 2: El campo 'calorias' debe ser un número positivo que luego transformaremos en negativo.\n"
                 f"Descripción del usuario: '{texto_actividad}'\n"
                 f"Devolvé un JSON con los campos 'alimento' y 'calorias'."
@@ -7400,26 +7312,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 kcal_estimadas = 0.0
                 descripcion_formateada = texto_actividad
             
-            # 🛑 VALIDACIÓN OBLIGATORIA DE MINUTOS Y ORDENAMIENTO ESTRICTO
-            match_min = re.search(r'(\d+)', descripcion_formateada)
+            # Búsqueda precisa de minutos (buscando específicamente el número al lado de 'min' o 'minutos')
+            match_min = re.search(r'(\d+)\s*(?:min|minutos)', descripcion_formateada, re.IGNORECASE)
+            if not match_min:
+                match_min = re.search(r'\b([1-9]\d{0,2})\b', descripcion_formateada)
+
             if not match_min or int(match_min.group(1)) <= 0:
                 await msg_espera.edit_text(
                     "⚠️ **Faltan los minutos de la actividad.**\n"
-                    "Para poder calcular las calorías y mantener tus reportes al día, es obligatorio indicar el tiempo en minutos "
-                    "(Ej: *'45 min - Caminata de 3000 metros'*). Por favor, ingresá la actividad nuevamente especificando el tiempo.",
+                    "Por favor, indicá el tiempo en minutos (Ej: *'Caminé 4000 metros en 45 min'*).",
                     parse_mode="Markdown"
                 )
                 return
 
-            # Forzar formato estricto: Asegurar que los minutos queden SIEMPRE al principio (Ej: "45 min - Caminata")
             num_mins = match_min.group(1)
-            resto_desc = descripcion_formateada.replace(num_mins, '').replace('minutos', '').replace('min', '').strip()
-            resto_desc = re.sub(r'^[-–:\s]+', '', resto_desc)
+            resto_desc = re.sub(r'(\d+)\s*(?:min|minutos)', '', descripcion_formateada, flags=re.IGNORECASE)
+            resto_desc = re.sub(r'\b' + num_mins + r'\b', '', resto_desc)
+            resto_desc = re.sub(r'^[-–:\s]+|[–-]\s*$', '', resto_desc).strip()
             if not resto_desc:
                 resto_desc = "Caminata"
+            
             descripcion_formateada = f"{num_mins} min - {resto_desc}"
-
-            calorias_finales = -abs(kcal_estimadas) # Negativo para restar
+            calorias_finales = -abs(kcal_estimadas)
 
             item_actividad = {
                 "alimento": descripcion_formateada,
@@ -7496,7 +7410,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['msg_solicitud_del_fecha_id'] = msg_err.message_id
             return
 
-    # Captura de fecha personalizada para el comando /diario (RESTAURADA)
+    # Captura de fecha personalizada para el comando /diario
     if context.user_data.get('awaiting_diario_custom_date'):
         fecha_parseada = None
         txt = raw_text.replace('/', '-').replace('.', '-')
@@ -7539,51 +7453,72 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('awaiting_edit_item_val'):
         idx = context.user_data.get('editing_item_idx')
         items = context.user_data.get('pending_items', [])
+        momento_actual = context.user_data.get('pending_momento', 'Comida')
 
         if items and 0 <= idx < len(items):
             item_previo = items[idx]
-            peso_previo = float(item_previo.get('peso', 0.0))
-            desc_previa = item_previo.get('alimento', '')
+            msg_espera = await update.message.reply_text("⏳ Procesando valor...")
 
-            msg_espera = await update.message.reply_text("⏳ Actualizando peso y recalculando...")
             try:
-                nuevo_peso = peso_previo
-                nueva_desc = desc_previa
+                if momento_actual == 'Actividad':
+                    calorias_originales_ia = abs(float(item_previo.get('calorias', 0.0)))
+                    texto_limpio = raw_text.replace(',', '.').strip()
+                    nuevo_valor_kcal = float(re.sub(r'[^\d.]', '', texto_limpio))
 
-                if ',' in raw_text:
-                    partes = raw_text.split(',', 1)
-                    parte_desc = partes[0].strip()
-                    parte_peso = partes[1].strip()
-                    
-                    if parte_desc:
-                        nueva_desc = parte_desc
-                    if parte_peso:
-                        nuevo_peso = float(re.sub(r'[^\d.]', '', parte_peso.replace(',', '.')))
+                    limite_inferior = calorias_originales_ia * 0.5
+                    limite_superior = calorias_originales_ia * 2.0
+
+                    if limite_inferior <= nuevo_valor_kcal <= limite_superior:
+                        item_actualizado = item_previo.copy()
+                        item_actualizado['calorias'] = -abs(nuevo_valor_kcal)
+                        items[idx] = item_actualizado
+                        context.user_data['pending_items'] = items
+                        await msg_espera.delete()
+                    else:
+                        await msg_espera.edit_text(
+                            f"❌ **Valor no válido.** Las calorías ingresadas (`{nuevo_valor_kcal:.0f} kcal`) están fuera del rango lógico esperado "
+                            f"(debe estar entre `{limite_inferior:.0f}` y `{limite_superior:.0f} kcal`). No se aplicaron cambios.",
+                            parse_mode="Markdown"
+                        )
+                        context.user_data['awaiting_edit_item_val'] = False
+                        context.user_data.pop('editing_item_idx', None)
+                        return
                 else:
-                    try:
-                        nuevo_peso = float(re.sub(r'[^\d.]', '', raw_text.replace(',', '.')))
-                    except ValueError:
-                        nueva_desc = raw_text
+                    peso_previo = float(item_previo.get('peso', 0.0))
+                    desc_previa = item_previo.get('alimento', '')
+                    nuevo_peso = peso_previo
+                    nueva_desc = desc_previa
 
-                if peso_previo > 0:
-                    factor = nuevo_peso / peso_previo
-                else:
-                    factor = 1.0
+                    if ',' in raw_text:
+                        partes = raw_text.split(',', 1)
+                        parte_desc = partes[0].strip()
+                        parte_peso = partes[1].strip()
+                        if parte_desc:
+                            nueva_desc = parte_desc
+                        if parte_peso:
+                            nuevo_peso = float(re.sub(r'[^\d.]', '', parte_peso.replace(',', '.')))
+                    else:
+                        try:
+                            nuevo_peso = float(re.sub(r'[^\d.]', '', raw_text.replace(',', '.')))
+                        except ValueError:
+                            nueva_desc = raw_text
 
-                item_actualizado = {
-                    "alimento": nueva_desc,
-                    "alimento_display": nueva_desc.replace('§', '').strip(),
-                    "peso": nuevo_peso,
-                    "calorias": float(item_previo.get('calorias', 0.0)) * factor,
-                    "proteinas": float(item_previo.get('proteinas', 0.0)) * factor,
-                    "grasas": float(item_previo.get('grasas', 0.0)) * factor,
-                    "carbohidratos": float(item_previo.get('carbohidratos', 0.0)) * factor,
-                    "fibras": float(item_previo.get('fibras', 0.0)) * factor,
-                }
-                
-                items[idx] = item_actualizado
-                context.user_data['pending_items'] = items
-                await msg_espera.delete()
+                    factor = (nuevo_peso / peso_previo) if peso_previo > 0 else 1.0
+
+                    item_actualizado = {
+                        "alimento": nueva_desc,
+                        "alimento_display": nueva_desc.replace('§', '').strip(),
+                        "peso": nuevo_peso,
+                        "calorias": float(item_previo.get('calorias', 0.0)) * factor,
+                        "proteinas": float(item_previo.get('proteinas', 0.0)) * factor,
+                        "grasas": float(item_previo.get('grasas', 0.0)) * factor,
+                        "carbohidratos": float(item_previo.get('carbohidratos', 0.0)) * factor,
+                        "fibras": float(item_previo.get('fibras', 0.0)) * factor,
+                    }
+                    items[idx] = item_actualizado
+                    context.user_data['pending_items'] = items
+                    await msg_espera.delete()
+
                 try:
                     await update.message.delete()
                 except Exception:
@@ -7591,7 +7526,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             except Exception as e:
                 print(f"Error editando ítem: {e}")
-                await msg_espera.edit_text(f"❌ Error al procesar la edición: {e}")
+                await msg_espera.edit_text(f"❌ Error al procesar el valor ingresado. Asegurate de escribir sólo números (ej: `220`).")
 
         context.user_data['awaiting_edit_item_val'] = False
         context.user_data.pop('editing_item_idx', None)
@@ -7685,7 +7620,97 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar el texto: {e}")
+
+
+@requiere_registro
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = await update.message.reply_text("🎙️ Procesando audio con IA...")
+    try:
+        file = await context.bot.get_file(update.message.voice.file_id)
+        audio_bytes = await file.download_as_bytearray()
+        
+        audio_file = io.BytesIO(audio_bytes)
+        audio_file.name = "audio.ogg"
+        
+        transcription = client_ai.audio.transcriptions.create(
+            file=(audio_file.name, audio_file.read()),
+            model=GROQ_AUDIO,
+            response_format="text"
+        )
+        
+        if context.user_data.get('awaiting_activity_voice'):
+            context.user_data['awaiting_activity_voice'] = False
+            user_id = update.effective_user.id
+            
+            perfil_biometrico = obtener_perfil_usuario(user_id)
+            
+            prompt_ia = (
+                f"El usuario realizó una actividad física descrita por voz. Transcripción: '{transcription}'. "
+                f"Calcula las calorías gastadas utilizando estrictamente su perfil biométrico: {perfil_biometrico}.\n"
+                f"REGLA OBLIGATORIA 1: El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de 'min' y una descripción clara.\n"
+                f"REGLA OBLIGATORIA 2: El campo 'calorias' debe ser un número positivo que luego transformaremos en negativo.\n"
+                f"Devolvé un JSON con los campos 'alimento' y 'calorias'."
+            )
+
+            resultado_ia = analizar_con_groq(prompt_ia)
+            items_ia = resultado_ia.get('items', [])
+            if items_ia:
+                kcal_estimadas = float(items_ia[0].get('calorias', 0))
+                descripcion_formateada = str(items_ia[0].get('alimento', transcription))
+            else:
+                kcal_estimadas = 0.0
+                descripcion_formateada = transcription
+
+            match_min = re.search(r'(\d+)\s*(?:min|minutos)', descripcion_formateada, re.IGNORECASE)
+            if not match_min:
+                match_min = re.search(r'\b([1-9]\d{0,2})\b', descripcion_formateada)
+
+            if not match_min or int(match_min.group(1)) <= 0:
+                await msg.edit_text(
+                    "⚠️ **Faltan los minutos de la actividad en el audio.** Intentá de nuevo.",
+                    parse_mode="Markdown"
+                )
+                return
+
+            num_mins = match_min.group(1)
+            resto_desc = re.sub(r'(\d+)\s*(?:min|minutos)', '', descripcion_formateada, flags=re.IGNORECASE)
+            resto_desc = re.sub(r'\b' + num_mins + r'\b', '', resto_desc)
+            resto_desc = re.sub(r'^[-–:\s]+|[–-]\s*$', '', resto_desc).strip()
+            if not resto_desc:
+                resto_desc = "Caminata"
+            
+            descripcion_formateada = f"{num_mins} min - {resto_desc}"
+            calorias_finales = -abs(kcal_estimadas)
+
+            item_actividad = {
+                "alimento": descripcion_formateada,
+                "peso": 0.0,
+                "calorias": calorias_finales,
+                "proteinas": 0.0,
+                "grasas": 0.0,
+                "carbohidratos": 0.0,
+                "fibras": 0.0
+            }
+
+            context.user_data['pending_items'] = [item_actividad]
+            
+            if not context.user_data.get('pending_fecha'):
+                context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
                 
+            context.user_data['pending_momento'] = 'Actividad'
+
+            await msg.delete()
+            msg_menu = await update.message.reply_text("📋 Actividad analizada por audio:")
+            context.user_data['last_menu_msg_id'] = msg_menu.message_id
+            await render_confirmation_screen(msg_menu, context)
+            return
+
+        data = analizar_con_groq(transcription)
+        await procesar_y_mostrar_confirmacion(data, msg, context)
+    except Exception as e:
+        await msg.edit_text(f"❌ Error al procesar audio: {e}")
+        
+                        
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
