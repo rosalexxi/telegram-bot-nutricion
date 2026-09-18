@@ -122,46 +122,52 @@ HTML_CALCULADORA_RECETAS = """
             --bg-light: #f4f6f9;
             --text-color: #333;
         }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: var(--bg-light); color: var(--text-color); line-height: 1.5; display: flex; flex-direction: column; min-height: 100vh; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: var(--bg-light); color: var(--text-color); line-height: 1.6; display: flex; flex-direction: column; min-height: 100vh; }
         
         /* Cabecera y Navegación */
         header { background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.05); position: sticky; top: 0; z-index: 1000; }
-        .nav-container { max-width: 900px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; }
+        .nav-container { max-width: 1100px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; }
         .logo { font-size: 20px; font-weight: bold; color: var(--primary); text-decoration: none; }
         .nav-links a { margin-left: 12px; text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 13px; transition: color 0.2s; }
         .nav-links a:hover, .nav-links a.active { color: var(--primary); }
 
-        /* Contenedor Blanco Principal */
-        .content-wrapper { max-width: 850px; margin: 30px auto; background: white; padding: 35px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); flex: 1; width: 92%; box-sizing: border-box; }
-        h1 { color: var(--secondary); margin-top: 0; font-size: 26px; margin-bottom: 12px; }
+        /* Contenedor Principal */
+        .content-wrapper { max-width: 900px; margin: 30px auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); flex: 1; width: 90%; box-sizing: border-box; }
+        h1 { color: var(--secondary); margin-top: 0; font-size: 26px; margin-bottom: 15px; }
         h2 { color: var(--secondary); border-bottom: 2px solid #eee; padding-bottom: 6px; margin-top: 25px; font-size: 20px; }
         h3 { color: var(--primary); font-size: 16px; margin-top: 15px; margin-bottom: 6px; }
-        p { margin-bottom: 10px; color: #444; font-size: 14px; text-align: justify; }
-        ul { margin-bottom: 10px; color: #444; font-size: 14px; padding-left: 20px; }
-        li { margin-bottom: 5px; }
+        p { margin-bottom: 14px; color: #444; font-size: 14px; text-align: justify; }
+        ul { margin-bottom: 14px; color: #444; font-size: 14px; padding-left: 20px; }
+        li { margin-bottom: 6px; }
 
-        /* Diseño interno: Imagen al costado y texto rellenando */
-        .content-grid { display: flex; gap: 20px; align-items: flex-start; margin-top: 15px; }
-        .text-side { flex: 1; }
-        .image-side { width: 200px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; }
-
-        /* Cuadro de Imagen Prolijo */
-        .img-container {
-            width: 100%;
-            aspect-ratio: 1 / 1;
+        /* ESTILO CUADRADO EXACTO (Ocupa la mitad de ancho y alto proporcional) */
+        .article-content {
+            overflow: hidden; 
+        }
+        .newspaper-img {
+            float: left; 
+            width: 48%; /* Ocupa prácticamente la mitad exacta del ancho */
+            margin-right: 20px; 
+            margin-bottom: 15px;
+            background-color: #f8fafc;
             border: 2px dashed #cbd5e1;
             border-radius: 8px;
-            background-color: #f8fafc;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-            margin-bottom: 5px;
+            padding: 6px;
+            box-sizing: border-box;
         }
-        .img-container img {
+        .newspaper-img img {
             width: 100%;
-            height: 100%;
+            aspect-ratio: 1 / 1; /* Forzar formato cuadrado perfecto (Ancho = Alto) */
             object-fit: cover;
+            border-radius: 4px;
+            display: block;
+        }
+        .img-caption {
+            font-size: 11px;
+            color: #666;
+            text-align: center;
+            margin-top: 6px;
+            font-style: italic;
         }
 
         /* Estilos de secciones */
@@ -201,14 +207,13 @@ HTML_CALCULADORA_RECETAS = """
         .footer-link:hover { background: rgba(255,255,255,0.2); }
         .footer-info { opacity: 0.8; font-size: 11px; }
 
-        /* Ajustes para mobile (Se apila verticalmente de forma limpia si la pantalla es muy chica) */
+        /* Ajustes para pantallas chicas */
         @media (max-width: 600px) {
             .nav-container { flex-direction: column; text-align: center; gap: 8px; }
             .nav-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
             .nav-links a { margin-left: 0; }
-            .content-wrapper { padding: 15px; margin: 10px; width: 95%; }
-            .content-grid { flex-direction: column-reverse; }
-            .image-side { width: 50%; margin: 0 auto 10px auto; }
+            .content-wrapper { padding: 20px; margin: 10px; width: 95%; }
+            .newspaper-img { width: 48%; } /* Mantiene exactamente la mitad en celular */
         }
     </style>
 </head>
@@ -236,27 +241,25 @@ HTML_CALCULADORA_RECETAS = """
          ========================================= -->
     <div id="section-inicio" class="section-content active">
         <h1>Asistente Inteligente de Nutrición</h1>
-        <div class="content-grid">
-            <div class="text-side">
-                <p>Bienvenido a <strong>IA NutriBot</strong>, tu herramienta automatizada en Telegram para gestionar hábitos alimentarios, controlar calorías, macronutrientes y evolución física sin planillas complejas[cite: 2]. Diseñado para ofrecer una experiencia fluida, rápida y completamente adaptada a tu rutina diaria.</p>
-                <p>El sistema opera de forma totalmente autónoma mediante inteligencia artificial, permitiéndote registrar tus ingestas con lenguaje natural, ya sea escribiendo, enviando audios o fotografiando tus platos[cite: 2]. Olvidate de buscar tablas nutricionales manuales o perder tiempo calculando porciones.</p>
-                
-                <h3>Ventajas Principales</h3>
-                <ul>
-                    <li><strong>Cero Fricción:</strong> Interacción natural y directa por chat[cite: 2].</li>
-                    <li><strong>Informes en PDF:</strong> Resúmenes diarios, semanales y mensuales detallados[cite: 2].</li>
-                    <li><strong>Control de Salud:</strong> Registro integrado de presión arterial y pulso[cite: 2].</li>
-                </ul>
+        <div class="article-content">
+            <div class="newspaper-img">
+                <img src="foto1.png" alt="Foto Inicio" onerror="this.style.display='none'">
+                <div class="img-caption">IA NutriBot</div>
             </div>
-            <div class="image-side">
-                <div class="img-container">
-                    <img src="foto1.png" alt="Foto Inicio" onerror="this.style.display='none'">
-                </div>
-                <div style="font-size: 11px; color: #666; text-align: center;">IA NutriBot</div>
-            </div>
+            
+            <p>Bienvenido a <strong>IA NutriBot</strong>, tu herramienta automatizada en Telegram para gestionar hábitos alimentarios, controlar calorías, macronutrientes y evolución física sin planillas complejas[cite: 2]. Diseñado para ofrecer una experiencia fluida, rápida y completamente adaptada a tu rutina diaria.</p>
+            <p>El sistema opera de forma totalmente autónoma mediante inteligencia artificial, permitiéndote registrar tus ingestas con lenguaje natural, ya sea escribiendo, enviando audios o fotografiando tus platos[cite: 2]. Olvidate de buscar tablas nutricionales manuales o perder tiempo calculando porciones.</p>
+            <p>Gracias a su arquitectura moderna, el bot procesa toda la información al instante y te devuelve un desglose detallado para que mantener una alimentación equilibrada deje de ser una carga mental y se convierta en un hábito automatizado de todos los días.</p>
+            
+            <h3>Ventajas Principales</h3>
+            <ul>
+                <li><strong>Cero Fricción:</strong> Interacción natural y directa por chat[cite: 2].</li>
+                <li><strong>Informes en PDF:</strong> Resúmenes diarios, semanales y mensuales detallados[cite: 2].</li>
+                <li><strong>Control de Salud:</strong> Registro integrado de presión arterial y pulso[cite: 2].</li>
+            </ul>
         </div>
         
-        <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; font-size: 12px; color: #856404; margin-top: 15px; border-radius: 4px;">
+        <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; font-size: 12px; color: #856404; margin-top: 15px; border-radius: 4px; clear: both;">
             <strong>⚠️ Advertencia Legal:</strong> Herramienta de cálculo automatizado orientada al balance cuantitativo. No reemplaza la consulta clínica formal con un profesional de la salud[cite: 1, 2].
         </div>
     </div>
@@ -266,24 +269,22 @@ HTML_CALCULADORA_RECETAS = """
          ========================================= -->
     <div id="section-alta" class="section-content">
         <h1>Proceso de Alta y Ficha Inicial</h1>
-        <div class="content-grid">
-            <div class="text-side">
-                <p>El sistema requiere una configuración inicial rápida mediante el comando correspondiente para establecer tus parámetros metabólicos basales y objetivos personalizados[cite: 1, 2].</p>
-                
-                <h3>Detalles del Registro Inicial</h3>
-                <ul>
-                    <li><strong>Anonimato y Privacidad:</strong> No se solicitan documentos ni correos electrónicos reales[cite: 1]. Podés utilizar un seudónimo (mínimo 2 caracteres) para operar con absoluta tranquilidad[cite: 1].</li>
-                    <li><strong>Parámetros Biométricos:</strong> Se ingresan edad, sexo biológico, altura, peso actual y el perímetro de muñeca, el cual determina automáticamente tu contextura ósea[cite: 1].</li>
-                    <li><strong>Nivel de Actividad Habitual:</strong> Se configura en función de tu ocupación diaria general (sedentaria, moderada, intensa) sin contabilizar el ejercicio físico programado[cite: 1].</li>
-                    <li><strong>Vinculación Profesional:</strong> Permite asociar el ID de un profesional de la salud o utilizar el código genérico <code>123456789</code> para operar de forma completamente autónoma[cite: 1].</li>
-                </ul>
+        <div class="article-content">
+            <div class="newspaper-img">
+                <img src="foto2.png" alt="Foto Alta" onerror="this.style.display='none'">
+                <div class="img-caption">Ficha Inicial</div>
             </div>
-            <div class="image-side">
-                <div class="img-container">
-                    <img src="foto2.png" alt="Foto Alta" onerror="this.style.display='none'">
-                </div>
-                <div style="font-size: 11px; color: #666; text-align: center;">Ficha Inicial</div>
-            </div>
+            
+            <p>El sistema requiere una configuración inicial rápida mediante el comando correspondiente para establecer tus parámetros metabólicos basales y objetivos personalizados[cite: 1, 2]. Este circuito inicial sienta las bases de todo tu seguimiento automatizado.</p>
+            <p>No se solicitan datos sensibles ni correos reales; podés utilizar un seudónimo para operar con total tranquilidad y privacidad[cite: 1].</p>
+            
+            <h3>Detalles del Registro Inicial</h3>
+            <ul>
+                <li><strong>Anonimato y Privacidad:</strong> Operá con un apodo o seudónimo (mínimo 2 caracteres)[cite: 1].</li>
+                <li><strong>Parámetros Biométricos:</strong> Edad, sexo biológico, altura, peso actual y perímetro de muñeca para calcular contextura ósea[cite: 1].</li>
+                <li><strong>Nivel de Actividad Habitual:</strong> Ocupación diaria general sin contabilizar ejercicio programado[cite: 1].</li>
+                <li><strong>Vinculación Profesional:</strong> Asociá un profesional o usá el código genérico <code>123456789</code>[cite: 1].</li>
+            </ul>
         </div>
     </div>
 
@@ -292,24 +293,22 @@ HTML_CALCULADORA_RECETAS = """
          ========================================= -->
     <div id="section-ingreso" class="section-content">
         <h1>Formas de Ingreso de Ingestas y Actividades</h1>
-        <div class="content-grid">
-            <div class="text-side">
-                <p>Registrar tus comidas y movimiento diario es tan sencillo como chatear. El sistema procesa de manera inteligente múltiples formatos sin requerir sintaxis rígidas[cite: 2].</p>
+        <div class="article-content">
+            <div class="newspaper-img">
+                <img src="foto3.png" alt="Foto Ingreso" onerror="this.style.display='none'">
+                <div class="img-caption">Registro Natural</div>
+            </div>
+            
+            <p>Registrar tus comidas y movimiento diario es tan sencillo como chatear con un conocido. El sistema procesa de manera inteligente múltiples formatos sin requerir sintaxis rígidas ni planillas engorrosas[cite: 2].</p>
+            <p>Ya sea que prefieras mandar un audio detallando tu plato, escribir un mensaje rápido o sacar una foto directa a la comida, la inteligencia artificial se encarga del resto en segundos.</p>
 
-                <h3>Métodos Disponibles</h3>
-                <ul>
-                    <li><strong>Mensajes de Texto y Notas de Voz:</strong> Describí de forma coloquial lo que consumiste o realizaste (ej. <em>"Comí 200g de pechuga con ensalada"</em> o <em>"Caminé 40 minutos"</em>)[cite: 2]. La IA detecta automáticamente calorías, macronutrientes y actividad física.</li>
-                    <li><strong>Fotografías de Platos:</strong> Envía una foto directa de tu comida acompañada opcionalmente de un texto breve para mejorar la precisión del análisis visual[cite: 2].</li>
-                    <li><strong>Códigos de Barras y Plantillas:</strong> Utiliza el escaneo de códigos de barra o plantillas de comidas frecuentes con asterisco para registrar platos repetitivos en segundos.</li>
-                    <li><strong>Recetas Complejas:</strong> Gestión avanzada de preparaciones mediante la calculadora web vinculada[cite: 2].</li>
-                </ul>
-            </div>
-            <div class="image-side">
-                <div class="img-container">
-                    <img src="foto3.png" alt="Foto Ingreso" onerror="this.style.display='none'">
-                </div>
-                <div style="font-size: 11px; color: #666; text-align: center;">Registro Natural</div>
-            </div>
+            <h3>Métodos Disponibles</h3>
+            <ul>
+                <li><strong>Texto y Voz:</strong> Describí coloquialmente lo consumido o realizado[cite: 2].</li>
+                <li><strong>Fotografías:</strong> Envía una foto de tu plato para análisis visual directo[cite: 2].</li>
+                <li><strong>Códigos de Barras:</strong> Escaneo rápido y ajuste de porciones al instante.</li>
+                <li><strong>Recetas Complejas:</strong> Gestión avanzada desde la calculadora web[cite: 2].</li>
+            </ul>
         </div>
     </div>
 
@@ -318,68 +317,66 @@ HTML_CALCULADORA_RECETAS = """
          ========================================= -->
     <div id="section-comandos" class="section-content">
         <h1>Referencia de Comandos</h1>
-        <div class="content-grid">
-            <div class="text-side" style="flex: 1; width: 100%;">
-                <p>Listado completo de comandos disponibles para interactuar directamente en el chat del bot y consultar tus registros con total agilidad.</p>
-                
-                <table class="cmd-table">
-                    <thead>
-                        <tr>
-                            <th>Comando</th>
-                            <th>Descripción</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><span class="cmd-code">/alta</span></td>
-                            <td>Inicia el proceso de apertura de cuenta y ficha nutricional paso a paso.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="cmd-code">/diario</span></td>
-                            <td>Genera el resumen diario de consumos y permite descargar el PDF detallado.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="cmd-code">/semanal</span></td>
-                            <td>Muestra la estadística semanal (lunes a domingo) de calorías y macronutrientes.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="cmd-code">/mensual</span></td>
-                            <td>Despliega el reporte mensual, estimación de cambio de peso e informes.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="cmd-code">/perfil</span></td>
-                            <td>Visualiza en pantalla todos los datos biométricos corporales configurados.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="cmd-code">/peso</span></td>
-                            <td>Actualiza el registro de peso correspondiente al mes en curso.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="cmd-code">/presi</span></td>
-                            <td>Registra y consulta los valores mensuales de presión arterial y pulso.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="cmd-code">/receta</span></td>
-                            <td>Vincula y gestiona recetas complejas mediante la calculadora web[cite: 2].</td>
-                        </tr>
-                        <tr>
-                            <td><span class="cmd-code">/comidas</span></td>
-                            <td>Muestra el listado de comidas guardadas y su reporte en PDF.</td>
-                        </tr>
-                        <tr>
-                            <td><span class="cmd-code">/eliminar</span></td>
-                            <td>Permite dar de baja registros erróneos de ingestas o actividades.</td>
-                        </tr>
-                    </tbody>
-                </table>
+        <div class="article-content">
+            <div class="newspaper-img">
+                <img src="foto4.png" alt="Foto Comandos" onerror="this.style.display='none'">
+                <div class="img-caption">Atajos</div>
             </div>
-            <div class="image-side" style="width: 160px;">
-                <div class="img-container">
-                    <img src="foto4.png" alt="Foto Comandos" onerror="this.style.display='none'">
-                </div>
-                <div style="font-size: 11px; color: #666; text-align: center;">Atajos</div>
-            </div>
+            
+            <p>Listado completo de comandos disponibles para interactuar directamente en el chat del bot y consultar tus registros con total agilidad y reportes automatizados.</p>
+            <p>Cada comando agiliza una tarea específica de consulta o control para que tengas toda tu información organizada al alcance de la mano en todo momento.</p>
         </div>
+
+        <table class="cmd-table">
+            <thead>
+                <tr>
+                    <th>Comando</th>
+                    <th>Descripción</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><span class="cmd-code">/alta</span></td>
+                    <td>Inicia el proceso de apertura de cuenta y ficha nutricional paso a paso.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/diario</span></td>
+                    <td>Genera el resumen diario de consumos y permite descargar el PDF detallado.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/semanal</span></td>
+                    <td>Muestra la estadística semanal (lunes a domingo) de calorías y macronutrientes.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/mensual</span></td>
+                    <td>Despliega el reporte mensual, estimación de cambio de peso e informes.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/perfil</span></td>
+                    <td>Visualiza en pantalla todos los datos biométricos corporales configurados.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/peso</span></td>
+                    <td>Actualiza el registro de peso correspondiente al mes en curso.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/presi</span></td>
+                    <td>Registra y consulta los valores mensuales de presión arterial y pulso.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/receta</span></td>
+                    <td>Vincula y gestiona recetas complejas mediante la calculadora web[cite: 2].</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/comidas</span></td>
+                    <td>Muestra el listado de comidas guardadas y su reporte en PDF.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/eliminar</span></td>
+                    <td>Permite dar de baja registros erróneos de ingestas o actividades.</td>
+                </tr>
+            </tbody>
+        </table>
     </div>
 
     {% if user_id %}
