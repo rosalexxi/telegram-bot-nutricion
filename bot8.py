@@ -1902,8 +1902,8 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
             VALUES (%s, %s, %s, %s, %s, %s)
         """
         valores = (
-            ahora.strftime("%Y-%m-%d %H:%M:%S"), 
-            ahora.strftime("%Y-%m-%d"), 
+            ahora.strftime("%Y-%m-%d"),  # Ahora guarda solo la fecha en la columna Fecha_Hora
+            ahora.strftime("%Y-%m-%d"),  # Fecha_Dia mantiene solo la fecha
             float(alta), 
             float(baja), 
             float(pulsaciones) if pulsaciones is not None else 0.0, 
@@ -1915,7 +1915,7 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
         conn.close()
     except Exception as e:
         logger.error(f"Error al grabar Presión en Supabase (Presion_{user_id}): {e}")
-
+        
 def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     """Guarda y actualiza los datos del perfil y peso del usuario exclusivamente en Supabase."""
     ahora = obtener_ahora_arg()
@@ -1938,7 +1938,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                 UPDATE "{tabla_nombre}"
                 SET "PESO" = %s, "Fecha_Actualizacion" = %s
                 WHERE "MES" = %s
-            """, (peso_real, ahora.strftime("%Y-%m-%d %H:%M:%S"), str(mes)))
+            """, (peso_real, ahora.strftime("%Y-%m-%d), str(mes)))
         else:
             cur.execute(f"""
                 INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
@@ -7193,7 +7193,8 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(mensaje, reply_markup=keyboard, parse_mode="Markdown")
     
-#                INICIO                             MANEJADOR COMIDAS ACTIVIDAD                                 INICIO DB OK
+
+#                INICIO                             MANEJADOR COMIDAS MANEJADOR ACTIVIDAD                                 INICIO DB OK
 # =====================================================================================================================================
 
 @requiere_registro
@@ -7234,6 +7235,17 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 kcal_estimadas = 0.0
                 descripcion_formateada = transcription
+
+            # 🛑 VALIDACIÓN OBLIGATORIA DE MINUTOS
+            match_min = re.search(r'^(\d+)\s*min', descripcion_formateada, re.IGNORECASE)
+            if not match_min or int(match_min.group(1)) <= 0:
+                await msg.edit_text(
+                    "⚠️ **Faltan los minutos de la actividad.**\n"
+                    "Para poder calcular las calorías y realizar tus resúmenes semanales/mensuales, es obligatorio indicar la duración en minutos "
+                    "(Ej: *'Caminé 3000 metros en 45 minutos'*). Por favor, volví a intentarlo.",
+                    parse_mode="Markdown"
+                )
+                return
 
             calorias_finales = -abs(kcal_estimadas)
 
@@ -7311,6 +7323,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 kcal_estimadas = 0.0
                 descripcion_formateada = texto_actividad
             
+            # 🛑 VALIDACIÓN OBLIGATORIA DE MINUTOS
+            match_min = re.search(r'^(\d+)\s*min', descripcion_formateada, re.IGNORECASE)
+            if not match_min or int(match_min.group(1)) <= 0:
+                await msg_espera.edit_text(
+                    "⚠️ **Faltan los minutos de la actividad.**\n"
+                    "Para poder calcular las calorías y mantener tus reportes al día, es obligatorio indicar el tiempo en minutos "
+                    "(Ej: *'45 min - Caminata de 3000 metros'*). Por favor, ingresá la actividad nuevamente especificando el tiempo.",
+                    parse_mode="Markdown"
+                )
+                return
+
             calorias_finales = -abs(kcal_estimadas) # Negativo para restar
 
             item_actividad = {
@@ -7594,8 +7617,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await procesar_y_mostrar_confirmacion(data, msg, context)
 
     except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar el texto: {e}")
-        
+        await msg.edit_text(f"❌ Error al procesar el texto: {e}")        
+
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
