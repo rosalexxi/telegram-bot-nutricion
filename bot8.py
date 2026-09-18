@@ -758,7 +758,7 @@ def requiere_registro(func):
         return await func(update, context, *args, **kwargs)
     return wrapper
 
-#              INICIO                     4 FUNCIONES BIOMETRIA Y PRESION                       INICIO
+#              INICIO                     4 FUNCIONES BIOMETRIA Y FUNCIONES PRESION                       INICIO
 # =============================================================================================================================================
 
 def calcular_rango_actividad_fisica(peso_actual: float, peso_referencia: float) -> tuple[int, int]:
@@ -782,7 +782,33 @@ def calcular_rango_actividad_fisica(peso_actual: float, peso_referencia: float) 
         max_minutos = max(60, min(90, max_minutos))
 
     return min_minutos, max_minutos
-    
+
+def aplicar_calibracion_reloj(factor_previo: float, get_reloj: float, tmb: float, max_variacion_pct: float = 0.10) -> float:
+    """
+    Calibra el factor de actividad usando el GET medido por un reloj inteligente,
+    aplicando topes de seguridad relativos (porcentaje máximo de cambio) y absolutos.
+    """
+    if tmb <= 0 or get_reloj <= 0:
+        return factor_previo if factor_previo and factor_previo > 0 else 1.375
+
+    # 1. Despejamos el factor de actividad crudo que sugiere el reloj
+    factor_crudo = get_reloj / tmb
+
+    # 2. Aplicamos topes absolutos biológicos (ej. entre 1.1 y 2.0)
+    factor_crudo = max(1.1, min(2.0, factor_crudo))
+
+    # 3. Si tenemos un factor previo válido, aplicamos el límite de variación relativa (ej. 10%)
+    if factor_previo and factor_previo > 0:
+        limite_inferior = factor_previo * (1.0 - max_variacion_pct)
+        limite_superior = factor_previo * (1.0 + max_variacion_pct)
+        
+        # Acotamos el factor dentro del margen permitido respecto al anterior
+        factor_final = max(limite_inferior, min(limite_superior, factor_crudo))
+    else:
+        factor_final = factor_crudo
+
+    return round(factor_final, 4)
+        
 def obtener_datos_usuario(user_id):
     try:
         tabla_nombre = f"User_{user_id}"
@@ -1717,7 +1743,58 @@ async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error crítico en migración local: {e}", exc_info=True)
         await update.message.reply_text(f"⚠️ Error general en la migración: {e}")
+        
+def obtener_datos_usuario_general(user_id):
+    """Obtiene los datos generales del usuario desde la tabla 'Usuarios'."""
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        query = """
+            SELECT "User ID", "ocupacion", "reloj_actualizado_mes"
+            FROM "Usuarios"
+        """
+        cur.execute(query)
+        filas = cur.fetchall()
+        cur.close()
+        conn.close()
 
+        user_id_str = str(user_id).strip()
+        for fila in filas:
+            raw_id = fila[0]
+            if raw_id and str(raw_id).split('.')[0].strip() == user_id_str:
+                return {
+                    "user_id": fila[0],
+                    "ocupacion": fila[1],
+                    "reloj_actualizado_mes": fila[2]
+                }
+        return {}
+    except Exception as e:
+        logger.error(f"Error al obtener datos generales de usuario para {user_id}: {e}")
+        return {}
+        
+def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=None):
+    """Actualiza el factor de ocupación y registra la calibración del reloj en la tabla 'Usuarios'."""
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        
+        query = """
+            UPDATE "Usuarios"
+            SET "ocupacion" = %s, "reloj_actualizado_mes" = %s
+            WHERE "User ID" = %s
+        """
+        user_id_str = str(user_id).strip()
+        mes_marca = str(reloj_actualizado) if reloj_actualizado else str(mes_actual)
+        
+        cur.execute(query, (float(nuevo_factor), mes_marca, user_id_str))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error al guardar ocupación y control de reloj en Supabase para {user_id}: {e}")
+        if 'cur' in locals() and cur:
+            cur.close()
+        if 'conn' in locals() and conn:
+            conn.close()
+            
 # =============================================================================================================================================
 #              FINAL                            FUNCIONES SUPABASE                 FINAL
 # =============================================================================================================================================
@@ -5364,6 +5441,24 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Limpia el comando /factor o /fac
     raw_text = re.sub(r'^/(factor|fac)\w*(@\w+)?', '', update.message.text, flags=re.IGNORECASE).strip()
 
+    ahora = obtener_ahora_arg()
+    mes_actual = ahora.strftime("%Y-%m")
+
+    # 1. Control mensual: Verificamos en la tabla general si ya usó el reloj este mes
+    # (Asegúrate de tener una función que consulte la tabla de usuarios general, o usa tu método habitual)
+    info_usuario = obtener_datos_usuario_general(user_id) if 'obtener_datos_usuario_general' in globals() else obtener_perfil_usuario(user_id, mes_target=mes_actual)
+    
+    if info_usuario:
+        mes_ultimo_cambio = str(info_usuario.get('reloj_actualizado_mes', '')).strip()
+        if mes_ultimo_cambio == mes_actual:
+            await update.message.reply_text(
+                "⏳ **Límite mensual alcanzado:**\n\n"
+                "Ya utilizaste el reloj inteligente para calibrar tu gasto este mes. "
+                "Para mantener la estabilidad del plan, solo se permite un ajuste por período.",
+                parse_mode="Markdown"
+            )
+            return
+
     if not raw_text:
         await update.message.reply_text(
             "Ingresá las calorías totales que registró tu reloj en 24 horas. Ejemplo:\n\n"
@@ -5378,9 +5473,6 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("⚠️ Ingresá un valor de calorías realista (entre 1000 y 6000 kcal).", parse_mode="Markdown")
             return
 
-        ahora = obtener_ahora_arg()
-        mes_actual = ahora.strftime("%Y-%m")
-
         # Obtener el perfil actual del mes
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
         if not perfil:
@@ -5392,23 +5484,43 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         edad = parse_raw_val(perfil.get('EDAD', perfil.get('Edad', 40)))
         genero = str(perfil.get('GENERO', perfil.get('Genero', 'masculino')))
 
-        # Factor anterior registrado
-        factor_anterior_raw = parse_raw_val(perfil.get('OCUPACION', perfil.get('Ocupacion', 1375)))
-        factor_anterior = factor_anterior_raw / 1000.0 if factor_anterior_raw > 10 else factor_anterior_raw
+        # Factor anterior registrado internamente (como float limpio)
+        factor_anterior = parse_raw_val(perfil.get('OCUPACION', perfil.get('Ocupacion', 1.375)))
+        if factor_anterior <= 0:
+            factor_anterior = 1.375
 
-        # Calcular TMB base (reutilizando la función existente)
-        tmb, _ = calcular_tmb_y_get(peso, altura, edad, genero, actividad=1375)
+        # Calcular TMB base y GET anterior
+        tmb, get_anterior = calcular_tmb_y_get(peso, altura, edad, genero, actividad=factor_anterior)
         
         if tmb <= 0:
             await update.message.reply_text("❌ Error al calcular la TMB base.", parse_mode="Markdown")
             return
 
-        # Cálculo matemático del nuevo factor
-        nuevo_factor = round(calorias_reloj / tmb, 3)
-        ocupacion_valor = int(round(nuevo_factor * 1000))
+        # Factor crudo que sugiere el reloj (para controles internos)
+        factor_crudo_reloj = round(calorias_reloj / tmb, 3)
 
-        # Almacenar de forma temporal en context.user_data sin alterar estructuras externas
-        context.user_data['temp_nuevo_factor'] = ocupacion_valor
+        # Aplicar calibración con seguridad (tope del 10% y límites biológicos) de forma interna
+        nuevo_factor = aplicar_calibracion_reloj(
+            factor_previo=factor_anterior, 
+            get_reloj=calorias_reloj, 
+            tmb=tmb, 
+            max_variacion_pct=0.10
+        )
+
+        # Calcular el nuevo GET resultante para mostrárselo al usuario en calorías
+        _, get_nuevo = calcular_tmb_y_get(peso, altura, edad, genero, actividad=nuevo_factor)
+
+        # Verificar si el filtro de seguridad tuvo que actuar
+        aviso_tope = ""
+        if abs(nuevo_factor - factor_crudo_reloj) > 0.005:
+            aviso_tope = (
+                "\n⚠️ *Nota de seguridad:* El valor del reloj se apartaba más del "
+                "10% de tu tendencia habitual. Se aplicó un ajuste máximo permitido "
+                "para proteger la estabilidad de tu plan.\n"
+            )
+
+        # Guardar temporalmente el factor internamente en context.user_data
+        context.user_data['temp_nuevo_factor'] = nuevo_factor
 
         keyboard = InlineKeyboardMarkup([
             [
@@ -5418,12 +5530,13 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         ])
 
         msg_texto = (
-            f"📊 **Validación de Factor de Actividad (Reloj):**\n\n"
-            f"• Calorías reportadas del reloj: `{calorias_reloj:.0f} kcal`\n"
+            f"📊 **Calibración de Gasto Energético (Reloj):**\n\n"
+            f"• Calorías reportadas por el reloj: `{calorias_reloj:.0f} kcal`\n"
             f"• TMB Base estimada: `{tmb:.0f} kcal`\n\n"
-            f"• **Factor anterior:** `{factor_anterior:.3f}`\n"
-            f"• **Nuevo factor calculado:** `{nuevo_factor:.3f}`\n\n"
-            f"¿Deseás actualizar tu perfil con este nuevo valor?"
+            f"• **Gasto Diario Anterior:** `{get_anterior:.0f} kcal`\n"
+            f"• **Nuevo Gasto Diario Ajustado:** `{get_nuevo:.0f} kcal`\n\n"
+            f"{aviso_tope}"
+            f"¿Deseás actualizar tu gasto diario con este valor?"
         )
 
         await update.message.reply_text(msg_texto, reply_markup=keyboard, parse_mode="Markdown")
@@ -5444,7 +5557,7 @@ async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAUL
 
     if data == "confirmar_factor_no":
         context.user_data.pop('temp_nuevo_factor', None)
-        await query.edit_message_text("🚫 Operación cancelada. No se modificó tu factor de actividad.", parse_mode="Markdown")
+        await query.edit_message_text("🚫 Operación cancelada. No se modificó tu gasto energético.", parse_mode="Markdown")
         return
 
     if data == "confirmar_factor_si":
@@ -5458,21 +5571,32 @@ async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAUL
         mes_actual = ahora.strftime("%Y-%m")
 
         try:
-            guardar_ocupacion_db(user_id, nuevo_factor_val, mes_actual)
+            # Guardamos el factor y actualizamos la tabla general con el mes actual en la columna de control
+            # (Ajusta esta función o llamada a Supabase según cómo guardes los datos generales en tu base)
+            guardar_ocupacion_db(user_id, nuevo_factor_val, mes_actual, reloj_actualizado=mes_actual)
             
-            factor_decimal = nuevo_factor_val / 1000.0
+            # Obtenemos el perfil para calcular el GET final a mostrar en el mensaje de éxito
+            perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
+            peso = parse_raw_val(perfil.get('PESO', perfil.get('Peso', 70))) if perfil else 70
+            altura = parse_raw_val(perfil.get('ALTURA', perfil.get('Altura', 170))) if perfil else 170
+            edad = parse_raw_val(perfil.get('EDAD', perfil.get('Edad', 40))) if perfil else 40
+            genero = str(perfil.get('GENERO', perfil.get('Genero', 'masculino'))) if perfil else 'masculino'
+            
+            _, get_final = calcular_tmb_y_get(peso, altura, edad, genero, actividad=nuevo_factor_val)
+
             await query.edit_message_text(
-                f"✅ **¡Factor de actividad actualizado con éxito!**\n\n"
-                f"• Nuevo Factor NAF asignado: `{factor_decimal:.3f}`\n"
-                f"• Período actualizado: `{mes_actual}`",
+                f"✅ **¡Gasto energético actualizado con éxito!**\n\n"
+                f"• Nuevo Gasto Diario asignado: `{get_final:.0f} kcal`\n"
+                f"• Período actualizado: `{mes_actual}`\n"
+                f"• Estado: Calibración mensual registrada.",
                 parse_mode="Markdown"
             )
         except Exception as e:
             logger.error(f"Error al guardar el factor confirmado para {user_id}: {e}")
-            await query.edit_message_text(f"⚠️ Ocurrió un error al guardar en la planilla: {e}", parse_mode="Markdown")
+            await query.edit_message_text(f"⚠️ Ocurrió un error al guardar en la base de datos: {e}", parse_mode="Markdown")
         
         context.user_data.pop('temp_nuevo_factor', None)
-
+        
 # ======================================================================================================================================
 #                       FINAL                                       COMANDOS INGRESOS                                      FINAL
 # ======================================================================================================================================
@@ -5484,7 +5608,7 @@ async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAUL
 #                   INICIO                                    COMANDO DIARIO                                    INICIO  DB OK
 # =====================================================================================================================================
 
-@requiere_registro
+Fuuuuu@requiere_registro
 async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Manejador del comando /diario.
