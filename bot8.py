@@ -417,7 +417,6 @@ function copiarFilaExcel() {
 
 @app.route('/', methods=['GET'])
 def vista_calculadora():
-    """Renderiza la calculadora de recetas como única página principal, recibiendo el user_id por URL."""
     user_id = request.args.get('user_id', '')
     return render_template_string(HTML_CALCULADORA_RECETAS, user_id=user_id)
 
