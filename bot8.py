@@ -1938,7 +1938,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                 UPDATE "{tabla_nombre}"
                 SET "PESO" = %s, "Fecha_Actualizacion" = %s
                 WHERE "MES" = %s
-            """, (peso_real, ahora.strftime("%Y-%m-%d), str(mes)))
+            """, (peso_real, ahora.strftime("%Y-%m-%d"), str(mes)))
         else:
             cur.execute(f"""
                 INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
