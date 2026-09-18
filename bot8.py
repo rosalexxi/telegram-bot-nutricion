@@ -112,103 +112,179 @@ HTML_CALCULADORA_RECETAS = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generador de Comidas Precargadas - Bot Nutricional</title>
+    <title>IA NutriBot - Asistente Personal de Nutrición por IA</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 30px; background-color: #f4f6f9; color: #333; }
-        .container { max-width: 850px; margin: auto; background: white; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        h2 { color: #2c3e50; text-align: center; }
+        :root {
+            --primary: #27ae60;
+            --primary-dark: #219150;
+            --secondary: #2c3e50;
+            --bg-light: #f4f6f9;
+            --text-color: #333;
+        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: var(--bg-light); color: var(--text-color); line-height: 1.6; }
+        header { background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.05); position: sticky; top: 0; z-index: 1000; }
+        .nav-container { max-width: 1000px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; }
+        .logo { font-size: 20px; font-weight: bold; color: var(--primary); text-decoration: none; }
+        .nav-links a { margin-left: 20px; text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 14px; }
+        .nav-links a:hover { color: var(--primary); }
+
+        .hero { background: linear-gradient(135deg, #2c3e50, #1a252f); color: white; text-align: center; padding: 60px 20px; }
+        .hero h1 { font-size: 36px; margin-bottom: 15px; }
+        .hero p { font-size: 18px; max-width: 700px; margin: 0 auto 30px auto; opacity: 0.9; }
+        .btn-telegram { background-color: var(--primary); color: white; padding: 14px 28px; border-radius: 30px; text-decoration: none; font-size: 18px; font-weight: bold; display: inline-block; box-shadow: 0 4px 15px rgba(39, 174, 96, 0.4); transition: background 0.2s; }
+        .btn-telegram:hover { background-color: var(--primary-dark); }
+
+        .container { max-width: 900px; margin: 40px auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        h2 { color: var(--secondary); border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 40px; }
+        
+        .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 30px; }
+        .feature-card { background: #f8fafc; padding: 20px; border-radius: 8px; border-left: 4px solid var(--primary); }
+        .feature-card h3 { margin-top: 0; color: var(--secondary); }
+
+        .legal-box { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; font-size: 13px; color: #856404; margin-top: 30px; border-radius: 4px; }
+
+        /* Estilos de la Calculadora Web */
+        .calculator-section { margin-top: 50px; border-top: 3px solid #eee; padding-top: 40px; }
         label { font-weight: bold; display: block; margin-top: 15px; margin-bottom: 5px; }
         input[type="text"], input[type="number"], select, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
         textarea { height: 100px; resize: vertical; }
         .row { display: flex; gap: 15px; }
         .col { flex: 1; }
-        button { background-color: #27ae60; color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 20px; transition: background 0.2s; }
-        button:hover { background-color: #219150; }
+        button.calc-btn { background-color: var(--primary); color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 20px; }
+        button.calc-btn:hover { background-color: var(--primary-dark); }
         button:disabled { background-color: #95a5a6; cursor: not-allowed; }
         #loading { display: none; text-align: center; margin-top: 15px; font-style: italic; color: #7f8c8d; }
         #resultado-section { display: none; margin-top: 25px; border-top: 2px solid #eee; padding-top: 15px; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
         th { background-color: #f2f2f2; }
-        .btn-save { background-color: #8e44ad; margin-top: 15px; }
+        .btn-save { background-color: #8e44ad; margin-top: 15px; color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-weight: bold; cursor: pointer; }
         .btn-save:hover { background-color: #71368a; }
-        .btn-copy { background-color: #2980b9; margin-top: 10px; }
+        .btn-copy { background-color: #2980b9; margin-top: 10px; color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-weight: bold; cursor: pointer; }
         .btn-copy:hover { background-color: #1f6391; }
-        .user-badge { background: #e0f2fe; color: #0369a1; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; display: inline-block; margin-bottom: 15px; }
+        .user-badge { background: #e0f2fe; color: #0369a1; padding: 8px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; display: inline-block; margin-bottom: 15px; }
         .error-user { background: #fee2e2; color: #991b1b; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-weight: bold; border-left: 4px solid #dc2626; }
+        footer { text-align: center; padding: 30px; font-size: 13px; color: #7f8c8d; margin-top: 50px; border-top: 1px solid #eee; }
     </style>
 </head>
 <body>
 
+<header>
+    <div class="nav-container">
+        <a href="#" class="logo">🤖 IA NutriBot</a>
+        <div class="nav-links">
+            <a href="#inicio">Inicio</a>
+            <a href="#como-funciona">Cómo Funciona</a>
+            <a href="#calculadora">Calculadora Web</a>
+        </div>
+    </div>
+</header>
+
+<section class="hero" id="inicio">
+    <h1>Tu salud y tus hábitos, en piloto inteligente</h1>
+    <p>Llevá un control real de lo que comés, optimizá tus macronutrientes y entendé tu evolución diaria de forma simple, directa desde Telegram.</p>
+    <a href="https://t.me/TuBotNombre_bot" target="_blank" class="btn-telegram">💬 Abrir Bot en Telegram</a>
+</section>
+
 <div class="container">
-    {% if user_id %}
-        <div class="user-badge">👤 Usuario conectado: {{ user_id }} (Pestaña: Comidas_{{ user_id }})</div>
-    {% else %}
-        <div class="error-user">⚠️ Atención: Acceso anónimo detectado. No se pueden realizar consultas a la IA ni guardar en planillas. Por favor, accedé mediante el link personalizado enviado por el bot de Telegram.</div>
-    {% endif %}
+    <h2 id="como-funciona">¿Qué es IA NutriBot?</h2>
+    <p>Un asistente personal diseñado para cualquier persona que quiera llevar un registro práctico, ordenar su alimentación y cumplir sus objetivos sin planillas eternas ni complicaciones. Con solo enviarle un mensaje de texto, una nota de voz o una foto de tu plato, la Inteligencia Artificial procesa tus ingestas y actividades de forma natural[cite: 2].</p>
 
-    <h2>🍳 Generador de Comidas Precargadas</h2>
-    
-    <div class="row">
-        <div class="col" style="flex: 0.4;">
-            <label for="codigo">Código / Nombre (Columna A):</label>
-            <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()" {% if not user_id %}disabled{% endif %}>
+    <div class="features-grid">
+        <div class="feature-card">
+            <h3>🎙️ Lenguaje Natural</h3>
+            <p>Hablá o escribí como si hablaras con un asistente humano. El sistema detecta automáticamente si es una comida o una caminata[cite: 2].</p>
         </div>
-        <div class="col">
-            <label for="descripcion">Descripción de la Comida (Columna B):</label>
-            <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún o torta de chocolate" {% if not user_id %}disabled{% endif %}>
+        <div class="feature-card">
+            <h3>📊 Informes en PDF</h3>
+            <p>Recibí resúmenes diarios, semanales y reportes mensuales con estimaciones de cambio de peso y gráficos de macronutrientes.</p>
         </div>
-    </div>
-
-    <label for="recetaText">Ingredientes y Cantidades (Receta Completa):</label>
-    <textarea id="recetaText" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca&#10;300 g de azúcar" {% if not user_id %}disabled{% endif %}></textarea>
-
-    <div class="row">
-        <div class="col">
-            <label for="tipoCalculo">Criterio de División:</label>
-            <select id="tipoCalculo" onchange="toggleCriterio()" {% if not user_id %}disabled{% endif %}>
-                <option value="porciones">Dividir por cantidad de Porciones</option>
-                <option value="gramos">Dividir de a 100 gramos (Fracción fija 100g)</option>
-            </select>
-        </div>
-        <div class="col" id="colPorciones">
-            <label for="porciones">Cantidad de Porciones:</label>
-            <input type="number" id="porciones" value="1" min="1" {% if not user_id %}disabled{% endif %}>
+        <div class="feature-card">
+            <h3>❤️ Control de Presión</h3>
+            <p>Registrá tus valores de presión arterial y pulso de forma rápida mediante comandos sencillos para un seguimiento integral.</p>
         </div>
     </div>
 
-    <button onclick="calcularReceta()" {% if not user_id %}disabled title="Acceso restringido a usuarios registrados vía Telegram"{% endif %}>✨ Calcular Fila con IA</button>
+    <div class="legal-box">
+        <strong>⚠️ Advertencia Legal:</strong> Este asistente es una herramienta de cálculo automatizado orientada al balance cuantitativo de calorías y nutrientes. No posee un valor médico ni científico y no reemplaza la consulta clínica formal con un profesional de la salud competente[cite: 1, 2].
+    </div>
 
-    <div id="loading">🔍 Analizando ingredientes con Groq y calculando proporciones...</div>
-
-    <div id="resultado-section">
-        <h3>Fila Generada (Formato Excel x1000)</h3>
-        <div style="overflow-x: auto;">
-            <table id="tablaNutricional">
-                <thead>
-                    <tr>
-                        <th>Nombre (A)</th>
-                        <th>Descripción (B)</th>
-                        <th>Peso (C)</th>
-                        <th>Calorías (D)</th>
-                        <th>Proteínas (E)</th>
-                        <th>Grasas (F)</th>
-                        <th>Carbohidratos (G)</th>
-                        <th>Fibras (H)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <!-- Fila cargada mediante JS -->
-                </tbody>
-            </table>
-        </div>
+    <!-- SECCIÓN DE LA CALCULADORA WEB -->
+    <div class="calculator-section" id="calculadora">
+        <h2>🍳 Calculadora Nutricional Web</h2>
+        <p>Herramienta avanzada para registrar recetas complejas o combinaciones de alimentos vinculada a tu cuenta personal[cite: 2, 4].</p>
 
         {% if user_id %}
-            <button class="btn-save" onclick="guardarEnGoogleSheets()">💾 Guardar Directamente en mi Planilla de Comidas</button>
+            <div class="user-badge">👤 Usuario conectado: {{ user_id }} (Pestaña: Comidas_{{ user_id }})</div>
+        {% else %}
+            <div class="error-user">⚠️ Atención: Acceso anónimo detectado. No se pueden realizar consultas a la IA ni guardar en planillas. Por favor, accedé mediante el link personalizado enviado por el bot de Telegram[cite: 3].</div>
         {% endif %}
-        <button class="btn-copy" onclick="copiarFilaExcel()">📋 Copiar Fila para Pegar Manualmente en Excel</button>
+        
+        <div class="row">
+            <div class="col" style="flex: 0.4;">
+                <label for="codigo">Código / Nombre (Columna A):</label>
+                <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()" {% if not user_id %}disabled{% endif %}>
+            </div>
+            <div class="col">
+                <label for="descripcion">Descripción de la Comida (Columna B):</label>
+                <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún o torta de chocolate" {% if not user_id %}disabled{% endif %}>
+            </div>
+        </div>
+
+        <label for="recetaText">Ingredientes y Cantidades (Receta Completa):</label>
+        <textarea id="recetaText" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca&#10;300 g de azúcar" {% if not user_id %}disabled{% endif %}></textarea>
+
+        <div class="row">
+            <div class="col">
+                <label for="tipoCalculo">Criterio de División:</label>
+                <select id="tipoCalculo" onchange="toggleCriterio()" {% if not user_id %}disabled{% endif %}>
+                    <option value="porciones">Dividir por cantidad de Porciones</option>
+                    <option value="gramos">Dividir de a 100 gramos (Fracción fija 100g)</option>
+                </select>
+            </div>
+            <div class="col" id="colPorciones">
+                <label for="porciones">Cantidad de Porciones:</label>
+                <input type="number" id="porciones" value="1" min="1" {% if not user_id %}disabled{% endif %}>
+            </div>
+        </div>
+
+        <button class="calc-btn" onclick="calcularReceta()" {% if not user_id %}disabled title="Acceso restringido a usuarios registrados vía Telegram"{% endif %}>✨ Calcular Fila con IA</button>
+
+        <div id="loading">🔍 Analizando ingredientes con Groq y calculando proporciones...</div>
+
+        <div id="resultado-section">
+            <h3>Fila Generada (Formato Excel x1000)</h3>
+            <div style="overflow-x: auto;">
+                <table id="tablaNutricional">
+                    <thead>
+                        <tr>
+                            <th>Nombre (A)</th>
+                            <th>Descripción (B)</th>
+                            <th>Peso (C)</th>
+                            <th>Calorías (D)</th>
+                            <th>Proteínas (E)</th>
+                            <th>Grasas (F)</th>
+                            <th>Carbohidratos (G)</th>
+                            <th>Fibras (H)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Fila cargada mediante JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            {% if user_id %}
+                <button class="btn-save" onclick="guardarEnGoogleSheets()">💾 Guardar Directamente en mi Planilla de Comidas</button>
+            {% endif %}
+            <button class="btn-copy" onclick="copiarFilaExcel()">📋 Copiar Fila para Pegar Manualmente en Excel</button>
+        </div>
     </div>
 </div>
+
+<footer>
+    <p>IA NutriBot &copy; 2026 - Todos los derechos reservados. Desarrollado con inteligencia artificial.</p>
+</footer>
 
 <script>
 const currentUserId = "{{ user_id }}";
@@ -315,10 +391,10 @@ async function guardarEnGoogleSheets() {
             }
             alert("✅ ¡Éxito! " + res.message);
         } else {
-            alert("❌ Error al guardar en Google Sheets: " + (res.error || "Error desconocido."));
+            alert("❌ Error al guardar: " + (res.error || "Error desconocido."));
         }
     } catch (e) {
-        alert("Error de conexión al intentar guardar en la planilla.");
+        alert("Error de conexión al intentar guardar.");
     }
 }
 
@@ -338,7 +414,6 @@ function copiarFilaExcel() {
 
 </body>
 </html>
-"""
 
 @app.route('/', methods=['GET'])
 def vista_calculadora():
