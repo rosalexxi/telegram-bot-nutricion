@@ -447,26 +447,23 @@ def api_calcular_receta():
         tipo_calculo = data.get('tipoCalculo', 'porciones')  
         porciones = int(data.get('porciones', 1))
 
-        prompt = f"""
-        Actúa como un experto en nutrición. Se te proporciona una receta completa con sus ingredientes y sus cantidades.
-        
-        Receta: {descripcion}
-        Ingredientes y cantidades:
-        {receta}
-        
-        Instrucciones:
-        1. Calcula la información nutricional TOTAL de la receta completa (peso total en gramos, calorías, proteínas, grasas, carbohidratos, fibras).
-        2. Devuelve los valores numéricos reales en gramos/kcal para el total acumulado de la receta.
-        3. Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
-        {{
-            "peso_total": número,
-            "calorias_total": número,
-            "proteinas_total": número,
-            "grasas_total": número,
-            "carbohidratos_total": número,
-            "fibras_total": número
-        }}
-        """
+        prompt = (
+            "Actúa como un experto en nutrición. Se te proporciona una receta completa con sus ingredientes y sus cantidades.\n\n"
+            f"Receta: {descripcion}\n"
+            f"Ingredientes y cantidades:\n{receta}\n\n"
+            "Instrucciones:\n"
+            "1. Calcula la información nutricional TOTAL de la receta completa (peso total en gramos, calorías, proteínas, grasas, carbohidratos, fibras).\n"
+            "2. Devuelve los valores numéricos reales en gramos/kcal para el total acumulado de la receta.\n"
+            "3. Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:\n"
+            "{\n"
+            '    "peso_total": número,\n'
+            '    "calorias_total": número,\n'
+            '    "proteinas_total": número,\n'
+            '    "grasas_total": número,\n'
+            '    "carbohidratos_total": número,\n'
+            '    "fibras_total": número\n'
+            "}"
+        )
 
         chat_completion = client_ai.chat.completions.create(
             messages=[
