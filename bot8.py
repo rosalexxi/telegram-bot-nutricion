@@ -107,6 +107,7 @@ def run_flask():
 app = Flask(__name__)
 
 HTML_CALCULADORA_RECETAS = """
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -415,14 +416,18 @@ function copiarFilaExcel() {
 </body>
 </html>
 
+"""
+
 @app.route('/', methods=['GET'])
 def vista_calculadora():
+    """Renderiza la calculadora de recetas como única página principal, recibiendo el user_id por URL."""
     user_id = request.args.get('user_id', '')
     return render_template_string(HTML_CALCULADORA_RECETAS, user_id=user_id)
 
 
 @app.route('/manual.pdf', methods=['GET'])
 def servir_manual_pdf():
+    """Sirve el manual en PDF directamente desde el directorio actual de Render."""
     try:
         return send_from_directory(directory=os.getcwd(), path='manual.pdf', as_attachment=True)
     except Exception as e:
@@ -431,6 +436,7 @@ def servir_manual_pdf():
 
 @app.route('/api/calcular-receta', methods=['POST'])
 def api_calcular_receta():
+    """Procesa los datos con Groq validando obligatoriamente que venga un user_id válido."""
     try:
         data = request.get_json()
         user_id = data.get('user_id')
@@ -447,23 +453,26 @@ def api_calcular_receta():
         tipo_calculo = data.get('tipoCalculo', 'porciones')  
         porciones = int(data.get('porciones', 1))
 
-        prompt = (
-            "Actúa como un experto en nutrición. Se te proporciona una receta completa con sus ingredientes y sus cantidades.\n\n"
-            f"Receta: {descripcion}\n"
-            f"Ingredientes y cantidades:\n{receta}\n\n"
-            "Instrucciones:\n"
-            "1. Calcula la información nutricional TOTAL de la receta completa (peso total en gramos, calorías, proteínas, grasas, carbohidratos, fibras).\n"
-            "2. Devuelve los valores numéricos reales en gramos/kcal para el total acumulado de la receta.\n"
-            "3. Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:\n"
-            "{\n"
-            '    "peso_total": número,\n'
-            '    "calorias_total": número,\n'
-            '    "proteinas_total": número,\n'
-            '    "grasas_total": número,\n'
-            '    "carbohidratos_total": número,\n'
-            '    "fibras_total": número\n'
-            "}"
-        )
+        prompt = f"""
+        Actúa como un experto en nutrición. Se te proporciona una receta completa con sus ingredientes y sus cantidades.
+        
+        Receta: {descripcion}
+        Ingredientes y cantidades:
+        {receta}
+        
+        Instrucciones:
+        1. Calcula la información nutricional TOTAL de la receta completa (peso total en gramos, calorías, proteínas, grasas, carbohidratos, fibras).
+        2. Devuelve los valores numéricos reales en gramos/kcal para el total acumulado de la receta.
+        3. Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
+        {{
+            "peso_total": número,
+            "calorias_total": número,
+            "proteinas_total": número,
+            "grasas_total": número,
+            "carbohidratos_total": número,
+            "fibras_total": número
+        }}
+        """
 
         chat_completion = client_ai.chat.completions.create(
             messages=[
@@ -522,6 +531,7 @@ def api_calcular_receta():
 
 @app.route('/api/guardar-comida', methods=['POST'])
 def api_guardar_comida():
+    """Guarda la fila calculada validando el usuario."""
     try:
         data = request.get_json()
         user_id = data.get('user_id')
@@ -593,6 +603,7 @@ def get_or_create_worksheet(spreadsheet, title):
             return spreadsheet.add_worksheet(title=title, rows="200", cols="10")
 
 def get_user_worksheet(user_id):
+    """Obtiene o crea una pestaña dinámica 'Comidas_<user_id>' dentro de la planilla."""
     gc = get_gspread_client()
     sh = gc.open(SPREADSHEET_NAME)
     
@@ -628,6 +639,10 @@ def _obtener_conexion_db():
     return psycopg2.connect(db_url)
 
 def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
+    """
+    Crea o asegura la tabla en Supabase. Realiza una búsqueda insensible a mayúsculas/minúsculas 
+    para reutilizar la tabla existente (sea minúscula o mayúscula) y evitar duplicados.
+    """
     conn = _obtener_conexion_db()
     cur = conn.cursor()
 
