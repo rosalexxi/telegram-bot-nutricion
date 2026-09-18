@@ -593,7 +593,6 @@ def get_or_create_worksheet(spreadsheet, title):
             return spreadsheet.add_worksheet(title=title, rows="200", cols="10")
 
 def get_user_worksheet(user_id):
-    """Obtiene o crea una pestaña dinámica 'Comidas_<user_id>' dentro de la planilla."""
     gc = get_gspread_client()
     sh = gc.open(SPREADSHEET_NAME)
     
