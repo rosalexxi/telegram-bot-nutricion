@@ -1667,7 +1667,7 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
             VALUES (%s, %s, %s, %s, %s, %s)
         """
         valores = (
-            ahora.strftime("%Y-%m-%d %H:%M:%S"), 
+            ahora.strftime("%Y-%m-%d"), 
             ahora.strftime("%Y-%m-%d"), 
             float(alta), 
             float(baja), 
@@ -1703,7 +1703,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                 UPDATE "{tabla_nombre}"
                 SET "PESO" = %s, "Fecha_Actualizacion" = %s
                 WHERE "MES" = %s
-            """, (peso_real, ahora.strftime("%Y-%m-%d %H:%M:%S"), str(mes)))
+            """, (peso_real, ahora.strftime("%Y-%m-%d"), str(mes)))
         else:
             cur.execute(f"""
                 INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
@@ -1715,7 +1715,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                 str(genero) if genero else "M",
                 float(ocupacion) if ocupacion is not None else 1.375,
                 str(mes),
-                ahora.strftime("%Y-%m-%d %H:%M:%S"),
+                ahora.strftime("%Y-%m-%d"),
                 0.0,
                 ""
             ))
@@ -2231,8 +2231,8 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
             
             formatos = [
                 "%d/%m/%Y", "%Y-%m-%d", "%d/%m/%y",
-                "%Y-%m", "%m/%Y", "%Y-%m-%d %H:%M:%S",
-                "%d/%m/%Y %H:%M:%S", "%Y-%m-%d %H:%M"
+                "%Y-%m", "%m/%Y", "%Y-%m-%d",
+                "%d/%m/%Y", "%Y-%m-%d"
             ]
 
             fecha_dt = None
@@ -4553,7 +4553,7 @@ def cmd_nueva_cuenta(datos_usuario):
     profesional = datos_usuario.get("profesional", "")
 
     mes_actual = datetime.now(ARG_TZ).strftime("%Y-%m")
-    fecha_act = datetime.now(ARG_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    fecha_act = datetime.now(ARG_TZ).strftime("%Y-%m-%d")
     fecha_alta = datetime.now(ARG_TZ).strftime("%Y-%m-%d")
 
     # 1. Guardar perfil inicial en la tabla Perfil_<user_id> de Supabase
@@ -8045,7 +8045,7 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elements = []
 
         elements.append(Paragraph(f"<b>Reporte Clínico Consolidado ({especialidad_prof})</b>", styles['Heading1']))
-        elements.append(Paragraph(f"Generado el: {ahora.strftime('%Y-%m-%d %H:%M')} | Período analizado: Últimos 6 meses", styles['Normal']))
+        elements.append(Paragraph(f"Generado el: {ahora.strftime('%Y-%m-%d')} | Período analizado: Últimos 6 meses", styles['Normal']))
         elements.append(Spacer(1, 15))
 
         elements.append(Paragraph("<b>Evolución Mensual por Paciente (Calorías, Proteínas, Grasas y Presión)</b>", styles['Heading2']))
