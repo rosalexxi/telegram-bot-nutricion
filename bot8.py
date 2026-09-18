@@ -122,17 +122,49 @@ HTML_CALCULADORA_RECETAS = """
             --bg-light: #f4f6f9;
             --text-color: #333;
         }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: var(--bg-light); color: var(--text-color); line-height: 1.6; display: flex; flex-direction: column; min-height: 100vh; }
         
-        /* Cabecera y Navegación */
-        header { background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.05); position: sticky; top: 0; z-index: 1000; }
+        /* Fijamos la altura de la pantalla completa y evitamos el scroll general del body */
+        html, body { 
+            height: 100vh; 
+            margin: 0; 
+            padding: 0; 
+            overflow: hidden; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background-color: var(--bg-light); 
+            color: var(--text-color); 
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Cabecera fija arriba */
+        header { 
+            background: white; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
+            flex-shrink: 0;
+            z-index: 1000; 
+        }
         .nav-container { max-width: 1100px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; }
         .logo { font-size: 20px; font-weight: bold; color: var(--primary); text-decoration: none; }
         .nav-links a { margin-left: 12px; text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 13px; transition: color 0.2s; }
         .nav-links a:hover, .nav-links a.active { color: var(--primary); }
 
-        /* Contenedor Principal */
-        .content-wrapper { max-width: 900px; margin: 30px auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); flex: 1; width: 90%; box-sizing: border-box; }
+        /* Contenedor Principal con Scroll Propio en el medio */
+        .content-wrapper { 
+            max-width: 900px; 
+            margin: 15px auto; 
+            background: white; 
+            padding: 30px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05); 
+            width: 90%; 
+            box-sizing: border-box; 
+            flex: 1;                /* Ocupa todo el espacio libre del medio */
+            overflow-y: auto;       /* Activa el scroll SOLO acá adentro */
+        }
+
         h1 { color: var(--secondary); margin-top: 0; font-size: 26px; margin-bottom: 15px; }
         h2 { color: var(--secondary); border-bottom: 2px solid #eee; padding-bottom: 6px; margin-top: 25px; font-size: 20px; }
         h3 { color: var(--primary); font-size: 16px; margin-top: 15px; margin-bottom: 6px; }
@@ -140,13 +172,13 @@ HTML_CALCULADORA_RECETAS = """
         ul { margin-bottom: 14px; color: #444; font-size: 14px; padding-left: 20px; }
         li { margin-bottom: 6px; }
 
-        /* ESTILO CUADRADO EXACTO (Ocupa la mitad de ancho y alto proporcional) */
+        /* ESTILO CUADRADO EXACTO */
         .article-content {
             overflow: hidden; 
         }
         .newspaper-img {
             float: left; 
-            width: 48%; /* Ocupa prácticamente la mitad exacta del ancho */
+            width: 60%; 
             margin-right: 20px; 
             margin-bottom: 15px;
             background-color: #f8fafc;
@@ -157,7 +189,7 @@ HTML_CALCULADORA_RECETAS = """
         }
         .newspaper-img img {
             width: 100%;
-            aspect-ratio: 1 / 1; /* Forzar formato cuadrado perfecto (Ancho = Alto) */
+            aspect-ratio: 1 / 1; 
             object-fit: cover;
             border-radius: 4px;
             display: block;
@@ -200,20 +232,28 @@ HTML_CALCULADORA_RECETAS = """
         .btn-copy:hover { background-color: #1f6391; }
         .user-badge { background: #e0f2fe; color: #0369a1; padding: 6px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; display: inline-block; margin-bottom: 10px; }
 
-        /* Footer con links unificados */
-        footer { background: var(--secondary); color: white; text-align: center; padding: 25px 15px; margin-top: auto; font-size: 13px; }
-        .footer-links { margin-bottom: 12px; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
-        .footer-link { color: white; text-decoration: none; font-weight: 600; padding: 6px 14px; background: rgba(255,255,255,0.1); border-radius: 4px; font-size: 13px; transition: background 0.2s; display: inline-block; }
+        /* Footer fijo abajo */
+        footer { 
+            background: var(--secondary); 
+            color: white; 
+            text-align: center; 
+            padding: 15px; 
+            flex-shrink: 0;
+            font-size: 13px; 
+        }
+        .footer-links { margin-bottom: 8px; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+        .footer-link { color: white; text-decoration: none; font-weight: 600; padding: 5px 12px; background: rgba(255,255,255,0.1); border-radius: 4px; font-size: 12px; transition: background 0.2s; display: inline-block; }
         .footer-link:hover { background: rgba(255,255,255,0.2); }
         .footer-info { opacity: 0.8; font-size: 11px; }
 
         /* Ajustes para pantallas chicas */
         @media (max-width: 600px) {
-            .nav-container { flex-direction: column; text-align: center; gap: 8px; }
-            .nav-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
-            .nav-links a { margin-left: 0; }
-            .content-wrapper { padding: 20px; margin: 10px; width: 95%; }
-            .newspaper-img { width: 48%; } /* Mantiene exactamente la mitad en celular */
+            .nav-container { flex-direction: column; text-align: center; gap: 6px; padding: 8px 10px; }
+            .nav-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
+            .nav-links a { margin-left: 0; font-size: 12px; }
+            .content-wrapper { padding: 15px; margin: 8px auto; width: 95%; }
+            .newspaper-img { width: 48%; }
+            footer { padding: 10px; }
         }
     </style>
 </head>
@@ -247,20 +287,20 @@ HTML_CALCULADORA_RECETAS = """
                 <div class="img-caption">IA NutriBot</div>
             </div>
             
-            <p>Bienvenido a <strong>IA NutriBot</strong>, tu herramienta automatizada en Telegram para gestionar hábitos alimentarios, controlar calorías, macronutrientes y evolución física sin planillas complejas[cite: 2]. Diseñado para ofrecer una experiencia fluida, rápida y completamente adaptada a tu rutina diaria.</p>
-            <p>El sistema opera de forma totalmente autónoma mediante inteligencia artificial, permitiéndote registrar tus ingestas con lenguaje natural, ya sea escribiendo, enviando audios o fotografiando tus platos[cite: 2]. Olvidate de buscar tablas nutricionales manuales o perder tiempo calculando porciones.</p>
+            <p>Bienvenido a <strong>IA NutriBot</strong>, tu herramienta automatizada en Telegram para gestionar hábitos alimentarios, controlar calorías, macronutrientes y evolución física sin planillas complejas. Diseñado para ofrecer una experiencia fluida, rápida y completamente adaptada a tu rutina diaria.</p>
+            <p>El sistema opera de forma totalmente autónoma mediante inteligencia artificial, permitiéndote registrar tus ingestas con lenguaje natural, ya sea escribiendo, enviando audios o fotografiando tus platos. Olvidate de buscar tablas nutricionales manuales o perder tiempo calculando porciones.</p>
             <p>Gracias a su arquitectura moderna, el bot procesa toda la información al instante y te devuelve un desglose detallado para que mantener una alimentación equilibrada deje de ser una carga mental y se convierta en un hábito automatizado de todos los días.</p>
             
             <h3>Ventajas Principales</h3>
             <ul>
-                <li><strong>Cero Fricción:</strong> Interacción natural y directa por chat[cite: 2].</li>
-                <li><strong>Informes en PDF:</strong> Resúmenes diarios, semanales y mensuales detallados[cite: 2].</li>
-                <li><strong>Control de Salud:</strong> Registro integrado de presión arterial y pulso[cite: 2].</li>
+                <li><strong>Cero Fricción:</strong> Interacción natural y directa por chat.</li>
+                <li><strong>Informes en PDF:</strong> Resúmenes diarios, semanales y mensuales detallados.</li>
+                <li><strong>Control de Salud:</strong> Registro integrado de presión arterial y pulso.</li>
             </ul>
         </div>
         
         <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; font-size: 12px; color: #856404; margin-top: 15px; border-radius: 4px; clear: both;">
-            <strong>⚠️ Advertencia Legal:</strong> Herramienta de cálculo automatizado orientada al balance cuantitativo. No reemplaza la consulta clínica formal con un profesional de la salud[cite: 1, 2].
+            <strong>⚠️ Advertencia Legal:</strong> Herramienta de cálculo automatizado orientada al balance cuantitativo. No reemplaza la consulta clínica formal con un profesional de la salud.
         </div>
     </div>
 
@@ -275,15 +315,15 @@ HTML_CALCULADORA_RECETAS = """
                 <div class="img-caption">Ficha Inicial</div>
             </div>
             
-            <p>El sistema requiere una configuración inicial rápida mediante el comando correspondiente para establecer tus parámetros metabólicos basales y objetivos personalizados[cite: 1, 2]. Este circuito inicial sienta las bases de todo tu seguimiento automatizado.</p>
-            <p>No se solicitan datos sensibles ni correos reales; podés utilizar un seudónimo para operar con total tranquilidad y privacidad[cite: 1].</p>
+            <p>El sistema requiere una configuración inicial rápida mediante el comando correspondiente para establecer tus parámetros metabólicos basales y objetivos personalizados. Este circuito inicial sienta las bases de todo tu seguimiento automatizado.</p>
+            <p>No se solicitan datos sensibles ni correos reales; podés utilizar un seudónimo para operar con total tranquilidad y privacidad.</p>
             
             <h3>Detalles del Registro Inicial</h3>
             <ul>
-                <li><strong>Anonimato y Privacidad:</strong> Operá con un apodo o seudónimo (mínimo 2 caracteres)[cite: 1].</li>
-                <li><strong>Parámetros Biométricos:</strong> Edad, sexo biológico, altura, peso actual y perímetro de muñeca para calcular contextura ósea[cite: 1].</li>
-                <li><strong>Nivel de Actividad Habitual:</strong> Ocupación diaria general sin contabilizar ejercicio programado[cite: 1].</li>
-                <li><strong>Vinculación Profesional:</strong> Asociá un profesional o usá el código genérico <code>123456789</code>[cite: 1].</li>
+                <li><strong>Anonimato y Privacidad:</strong> Operá con un apodo o seudónimo (mínimo 2 caracteres).</li>
+                <li><strong>Parámetros Biométricos:</strong> Edad, sexo biológico, altura, peso actual y perímetro de muñeca para calcular contextura ósea.</li>
+                <li><strong>Nivel de Actividad Habitual:</strong> Ocupación diaria general sin contabilizar ejercicio programado.</li>
+                <li><strong>Vinculación Profesional:</strong> Asociá un profesional o usá el código genérico <code>123456789</code>.</li>
             </ul>
         </div>
     </div>
@@ -299,15 +339,15 @@ HTML_CALCULADORA_RECETAS = """
                 <div class="img-caption">Registro Natural</div>
             </div>
             
-            <p>Registrar tus comidas y movimiento diario es tan sencillo como chatear con un conocido. El sistema procesa de manera inteligente múltiples formatos sin requerir sintaxis rígidas ni planillas engorrosas[cite: 2].</p>
+            <p>Registrar tus comidas y movimiento diario es tan sencillo como chatear con un conocido. El sistema procesa de manera inteligente múltiples formatos sin requerir sintaxis rígidas ni planillas engorrosas.</p>
             <p>Ya sea que prefieras mandar un audio detallando tu plato, escribir un mensaje rápido o sacar una foto directa a la comida, la inteligencia artificial se encarga del resto en segundos.</p>
 
             <h3>Métodos Disponibles</h3>
             <ul>
-                <li><strong>Texto y Voz:</strong> Describí coloquialmente lo consumido o realizado[cite: 2].</li>
-                <li><strong>Fotografías:</strong> Envía una foto de tu plato para análisis visual directo[cite: 2].</li>
+                <li><strong>Texto y Voz:</strong> Describí coloquialmente lo consumido o realizado.</li>
+                <li><strong>Fotografías:</strong> Envía una foto de tu plato para análisis visual directo.</li>
                 <li><strong>Códigos de Barras:</strong> Escaneo rápido y ajuste de porciones al instante.</li>
-                <li><strong>Recetas Complejas:</strong> Gestión avanzada desde la calculadora web[cite: 2].</li>
+                <li><strong>Recetas Complejas:</strong> Gestión avanzada desde la calculadora web.</li>
             </ul>
         </div>
     </div>
@@ -365,7 +405,7 @@ HTML_CALCULADORA_RECETAS = """
                 </tr>
                 <tr>
                     <td><span class="cmd-code">/receta</span></td>
-                    <td>Vincula y gestiona recetas complejas mediante la calculadora web[cite: 2].</td>
+                    <td>Vincula y gestiona recetas complejas mediante la calculadora web.</td>
                 </tr>
                 <tr>
                     <td><span class="cmd-code">/comidas</span></td>
@@ -386,7 +426,7 @@ HTML_CALCULADORA_RECETAS = """
     <div id="section-calculadora" class="section-content">
         <div class="calculator-section">
             <h2>🍳 Calculadora Nutricional Web</h2>
-            <p>Herramienta avanzada para registrar recetas complejas o combinaciones de alimentos vinculada a tu cuenta personal[cite: 2].</p>
+            <p>Herramienta avanzada para registrar recetas complejas o combinaciones de alimentos vinculada a tu cuenta personal.</p>
 
             <div class="user-badge">👤 Usuario conectado: {{ user_id }}</div>
             
@@ -479,7 +519,10 @@ HTML_CALCULADORA_RECETAS = """
         
         if (targetSection) targetSection.classList.add('active');
         if (targetNav) targetNav.classList.add('active');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        
+        // Al cambiar de solapa, reseteamos el scroll de la caja del medio hacia arriba
+        const wrapper = document.querySelector('.content-wrapper');
+        if (wrapper) wrapper.scrollTop = 0;
     }
 
     const currentUserId = "{{ user_id }}";
