@@ -122,530 +122,295 @@ HTML_CALCULADORA_RECETAS = """
             --bg-light: #f4f6f9;
             --text-color: #333;
         }
-        
-        /* Fijamos la altura de la pantalla completa y evitamos el scroll general del body */
-        html, body { 
-            height: 100vh; 
-            margin: 0; 
-            padding: 0; 
-            overflow: hidden; 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            background-color: var(--bg-light); 
-            color: var(--text-color); 
-        }
-
-        body {
-            display: flex;
-            flex-direction: column;
-        }
-        
-        /* Cabecera fija arriba */
-        header { 
-            background: white; 
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
-            flex-shrink: 0;
-            z-index: 1000; 
-        }
-        .nav-container { max-width: 1100px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: var(--bg-light); color: var(--text-color); line-height: 1.6; }
+        header { background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.05); position: sticky; top: 0; z-index: 1000; }
+        .nav-container { max-width: 1000px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; }
         .logo { font-size: 20px; font-weight: bold; color: var(--primary); text-decoration: none; }
-        .nav-links a { margin-left: 12px; text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 13px; transition: color 0.2s; }
-        .nav-links a:hover, .nav-links a.active { color: var(--primary); }
+        .nav-links a { margin-left: 20px; text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 14px; }
+        .nav-links a:hover { color: var(--primary); }
 
-        /* Contenedor Principal con Scroll Propio en el medio */
-        .content-wrapper { 
-            max-width: 900px; 
-            margin: 15px auto; 
-            background: white; 
-            padding: 30px; 
-            border-radius: 12px; 
-            box-shadow: 0 4px 15px rgba(0,0,0,0.05); 
-            width: 90%; 
-            box-sizing: border-box; 
-            flex: 1;                /* Ocupa todo el espacio libre del medio */
-            overflow-y: auto;       /* Activa el scroll SOLO acá adentro */
-        }
+        .hero { background: linear-gradient(135deg, #2c3e50, #1a252f); color: white; text-align: center; padding: 60px 20px; }
+        .hero h1 { font-size: 36px; margin-bottom: 15px; }
+        .hero p { font-size: 18px; max-width: 700px; margin: 0 auto 30px auto; opacity: 0.9; }
+        .btn-telegram { background-color: var(--primary); color: white; padding: 14px 28px; border-radius: 30px; text-decoration: none; font-size: 18px; font-weight: bold; display: inline-block; box-shadow: 0 4px 15px rgba(39, 174, 96, 0.4); transition: background 0.2s; }
+        .btn-telegram:hover { background-color: var(--primary-dark); }
 
-        h1 { color: var(--secondary); margin-top: 0; font-size: 26px; margin-bottom: 15px; }
-        h2 { color: var(--secondary); border-bottom: 2px solid #eee; padding-bottom: 6px; margin-top: 25px; font-size: 20px; }
-        h3 { color: var(--primary); font-size: 16px; margin-top: 15px; margin-bottom: 6px; }
-        p { margin-bottom: 14px; color: #444; font-size: 14px; text-align: justify; }
-        ul { margin-bottom: 14px; color: #444; font-size: 14px; padding-left: 20px; }
-        li { margin-bottom: 6px; }
+        .container { max-width: 900px; margin: 40px auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        h2 { color: var(--secondary); border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 40px; }
+        
+        .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 30px; }
+        .feature-card { background: #f8fafc; padding: 20px; border-radius: 8px; border-left: 4px solid var(--primary); }
+        .feature-card h3 { margin-top: 0; color: var(--secondary); }
 
-        /* ESTILO CUADRADO EXACTO */
-        .article-content {
-            overflow: hidden; 
-        }
-        .newspaper-img {
-            float: left; 
-            width: 60%; 
-            margin-right: 20px; 
-            margin-bottom: 15px;
-            background-color: #f8fafc;
-            border: 2px dashed #cbd5e1;
-            border-radius: 8px;
-            padding: 6px;
-            box-sizing: border-box;
-        }
-        .newspaper-img img {
-            width: 100%;
-            aspect-ratio: 1 / 1; 
-            object-fit: cover;
-            border-radius: 4px;
-            display: block;
-        }
-        .img-caption {
-            font-size: 11px;
-            color: #666;
-            text-align: center;
-            margin-top: 6px;
-            font-style: italic;
-        }
-
-        /* Estilos de secciones */
-        .section-content { display: none; }
-        .section-content.active { display: block; }
-
-        /* Tablas de comandos compactas */
-        .cmd-table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }
-        .cmd-table th { background-color: var(--bg-light); color: var(--secondary); text-align: left; padding: 8px 10px; border-bottom: 2px solid #ddd; }
-        .cmd-table td { padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
-        .cmd-code { font-family: monospace; background-color: #eee; padding: 2px 4px; border-radius: 3px; color: #c0392b; font-weight: bold; }
+        .legal-box { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; font-size: 13px; color: #856404; margin-top: 30px; border-radius: 4px; }
 
         /* Estilos de la Calculadora Web */
-        .calculator-section { margin-top: 10px; }
-        label { font-weight: bold; display: block; margin-top: 10px; margin-bottom: 3px; font-size: 13px; }
-        input[type="text"], input[type="number"], select, textarea { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 13px; }
-        textarea { height: 80px; resize: vertical; }
-        .row { display: flex; gap: 10px; }
+        .calculator-section { margin-top: 50px; border-top: 3px solid #eee; padding-top: 40px; }
+        label { font-weight: bold; display: block; margin-top: 15px; margin-bottom: 5px; }
+        input[type="text"], input[type="number"], select, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+        textarea { height: 100px; resize: vertical; }
+        .row { display: flex; gap: 15px; }
         .col { flex: 1; }
-        button.calc-btn { background-color: var(--primary); color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-size: 14px; font-weight: bold; cursor: pointer; margin-top: 15px; }
+        button.calc-btn { background-color: var(--primary); color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 20px; }
         button.calc-btn:hover { background-color: var(--primary-dark); }
-        #loading { display: none; text-align: center; margin-top: 10px; font-style: italic; color: #7f8c8d; font-size: 13px; }
-        #resultado-section { display: none; margin-top: 20px; border-top: 2px solid #eee; padding-top: 10px; }
-        table.calc-tbl { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
-        table.calc-tbl th, table.calc-tbl td { border: 1px solid #ddd; padding: 6px; text-align: center; }
-        table.calc-tbl th { background-color: #f2f2f2; }
-        .btn-save { background-color: #8e44ad; margin-top: 10px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 13px; }
+        button:disabled { background-color: #95a5a6; cursor: not-allowed; }
+        #loading { display: none; text-align: center; margin-top: 15px; font-style: italic; color: #7f8c8d; }
+        #resultado-section { display: none; margin-top: 25px; border-top: 2px solid #eee; padding-top: 15px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        th { background-color: #f2f2f2; }
+        .btn-save { background-color: #8e44ad; margin-top: 15px; color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-weight: bold; cursor: pointer; }
         .btn-save:hover { background-color: #71368a; }
-        .btn-copy { background-color: #2980b9; margin-top: 8px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 13px; }
+        .btn-copy { background-color: #2980b9; margin-top: 10px; color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-weight: bold; cursor: pointer; }
         .btn-copy:hover { background-color: #1f6391; }
-        .user-badge { background: #e0f2fe; color: #0369a1; padding: 6px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; display: inline-block; margin-bottom: 10px; }
-
-        /* Footer fijo abajo */
-        footer { 
-            background: var(--secondary); 
-            color: white; 
-            text-align: center; 
-            padding: 15px; 
-            flex-shrink: 0;
-            font-size: 13px; 
-        }
-        .footer-links { margin-bottom: 8px; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
-        .footer-link { color: white; text-decoration: none; font-weight: 600; padding: 5px 12px; background: rgba(255,255,255,0.1); border-radius: 4px; font-size: 12px; transition: background 0.2s; display: inline-block; }
-        .footer-link:hover { background: rgba(255,255,255,0.2); }
-        .footer-info { opacity: 0.8; font-size: 11px; }
-
-        /* Ajustes para pantallas chicas */
-        @media (max-width: 600px) {
-            .nav-container { flex-direction: column; text-align: center; gap: 6px; padding: 8px 10px; }
-            .nav-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
-            .nav-links a { margin-left: 0; font-size: 12px; }
-            .content-wrapper { padding: 15px; margin: 8px auto; width: 95%; }
-            .newspaper-img { width: 48%; }
-            footer { padding: 10px; }
-        }
+        .user-badge { background: #e0f2fe; color: #0369a1; padding: 8px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; display: inline-block; margin-bottom: 15px; }
+        .error-user { background: #fee2e2; color: #991b1b; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-weight: bold; border-left: 4px solid #dc2626; }
+        footer { text-align: center; padding: 30px; font-size: 13px; color: #7f8c8d; margin-top: 50px; border-top: 1px solid #eee; }
     </style>
 </head>
 <body>
 
 <header>
     <div class="nav-container">
-        <a href="#" class="logo" onclick="showSection('inicio')">🤖 IA NutriBot</a>
+        <a href="#" class="logo">🤖 IA NutriBot</a>
         <div class="nav-links">
-            <a href="#" id="nav-inicio" onclick="showSection('inicio')" class="active">Inicio</a>
-            <a href="#" id="nav-alta" onclick="showSection('alta')">El Alta</a>
-            <a href="#" id="nav-ingreso" onclick="showSection('ingreso')">Ingreso de Datos</a>
-            <a href="#" id="nav-comandos" onclick="showSection('comandos')">Guía de Comandos</a>
-            {% if user_id %}
-            <a href="#" id="nav-calculadora" onclick="showSection('calculadora')">Calculadora Web</a>
-            {% endif %}
+            <a href="#inicio">Inicio</a>
+            <a href="#como-funciona">Cómo Funciona</a>
+            <a href="#calculadora">Calculadora Web</a>
         </div>
     </div>
 </header>
 
-<div class="content-wrapper">
+<section class="hero" id="inicio">
+    <h1>Tu salud y tus hábitos, en piloto inteligente</h1>
+    <p>Llevá un control real de lo que comés, optimizá tus macronutrientes y entendé tu evolución diaria de forma simple, directa desde Telegram.</p>
+    <a href="https://t.me/TuBotNombre_bot" target="_blank" class="btn-telegram">💬 Abrir Bot en Telegram</a>
+</section>
 
-    <!-- =========================================
-         Pestaña 1: INICIO
-         ========================================= -->
-    <div id="section-inicio" class="section-content active">
-        <h1>Asistente Inteligente de Nutrición</h1>
-        <div class="article-content">
-            <div class="newspaper-img">
-                <img src="{{ url_for('static', filename='foto1.png') }}" alt="Foto Inicio" onerror="this.style.display='none'">
-                <div class="img-caption">IA NutriBot</div>
-            </div>
-            
-            <p>Bienvenido a <strong>IA NutriBot</strong>, tu herramienta automatizada en Telegram para gestionar hábitos alimentarios, controlar calorías, macronutrientes y evolución física sin planillas complejas. Diseñado para ofrecer una experiencia fluida, rápida y completamente adaptada a tu rutina diaria.</p>
-            <p>El sistema opera de forma totalmente autónoma mediante inteligencia artificial, permitiéndote registrar tus ingestas con lenguaje natural, ya sea escribiendo, enviando audios o fotografiando tus platos. Olvidate de buscar tablas nutricionales manuales o perder tiempo calculando porciones.</p>
-            <p>Gracias a su arquitectura moderna, el bot procesa toda la información al instante y te devuelve un desglose detallado para que mantener una alimentación equilibrada deje de ser una carga mental y se convierta en un hábito automatizado de todos los días.</p>
-            
-            <h3>Ventajas Principales</h3>
-            <ul>
-                <li><strong>Cero Fricción:</strong> Interacción natural y directa por chat.</li>
-                <li><strong>Informes en PDF:</strong> Resúmenes diarios, semanales y mensuales detallados.</li>
-                <li><strong>Control de Salud:</strong> Registro integrado de presión arterial y pulso.</li>
-            </ul>
+<div class="container">
+    <h2 id="como-funciona">¿Qué es IA NutriBot?</h2>
+    <p>Un asistente personal diseñado para cualquier persona que quiera llevar un registro práctico, ordenar su alimentación y cumplir sus objetivos sin planillas eternas ni complicaciones. Con solo enviarle un mensaje de texto, una nota de voz o una foto de tu plato, la Inteligencia Artificial procesa tus ingestas y actividades de forma natural[cite: 2].</p>
+
+    <div class="features-grid">
+        <div class="feature-card">
+            <h3>🎙️ Lenguaje Natural</h3>
+            <p>Hablá o escribí como si hablaras con un asistente humano. El sistema detecta automáticamente si es una comida o una caminata[cite: 2].</p>
         </div>
+        <div class="feature-card">
+            <h3>📊 Informes en PDF</h3>
+            <p>Recibí resúmenes diarios, semanales y reportes mensuales con estimaciones de cambio de peso y gráficos de macronutrientes.</p>
+        </div>
+        <div class="feature-card">
+            <h3>❤️ Control de Presión</h3>
+            <p>Registrá tus valores de presión arterial y pulso de forma rápida mediante comandos sencillos para un seguimiento integral.</p>
+        </div>
+    </div>
+
+    <div class="legal-box">
+        <strong>⚠️ Advertencia Legal:</strong> Este asistente es una herramienta de cálculo automatizado orientada al balance cuantitativo de calorías y nutrientes. No posee un valor médico ni científico y no reemplaza la consulta clínica formal con un profesional de la salud competente[cite: 1, 2].
+    </div>
+
+    <!-- SECCIÓN DE LA CALCULADORA WEB -->
+    <div class="calculator-section" id="calculadora">
+        <h2>🍳 Calculadora Nutricional Web</h2>
+        <p>Herramienta avanzada para registrar recetas complejas o combinaciones de alimentos vinculada a tu cuenta personal[cite: 2, 4].</p>
+
+        {% if user_id %}
+            <div class="user-badge">👤 Usuario conectado: {{ user_id }} (Pestaña: Comidas_{{ user_id }})</div>
+        {% else %}
+            <div class="error-user">⚠️ Atención: Acceso anónimo detectado. No se pueden realizar consultas a la IA ni guardar en planillas. Por favor, accedé mediante el link personalizado enviado por el bot de Telegram[cite: 3].</div>
+        {% endif %}
         
-        <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; font-size: 12px; color: #856404; margin-top: 15px; border-radius: 4px; clear: both;">
-            <strong>⚠️ Advertencia Legal:</strong> Herramienta de cálculo automatizado orientada al balance cuantitativo. No reemplaza la consulta clínica formal con un profesional de la salud.
-        </div>
-    </div>
-
-    <!-- =========================================
-         Pestaña 2: EL ALTA
-         ========================================= -->
-    <div id="section-alta" class="section-content">
-        <h1>Proceso de Alta y Ficha Inicial</h1>
-        <div class="article-content">
-            <div class="newspaper-img">
-                <img src="{{ url_for('static', filename='foto2.png') }}" alt="Foto Alta" onerror="this.style.display='none'">
-                <div class="img-caption">Ficha Inicial</div>
+        <div class="row">
+            <div class="col" style="flex: 0.4;">
+                <label for="codigo">Código / Nombre (Columna A):</label>
+                <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()" {% if not user_id %}disabled{% endif %}>
             </div>
-            
-            <p>El sistema requiere una configuración inicial rápida mediante el comando correspondiente para establecer tus parámetros metabólicos basales y objetivos personalizados. Este circuito inicial sienta las bases de todo tu seguimiento automatizado.</p>
-            <p>No se solicitan datos sensibles ni correos reales; podés utilizar un seudónimo para operar con total tranquilidad y privacidad.</p>
-            
-            <h3>Detalles del Registro Inicial</h3>
-            <ul>
-                <li><strong>Anonimato y Privacidad:</strong> Operá con un apodo o seudónimo (mínimo 2 caracteres).</li>
-                <li><strong>Parámetros Biométricos:</strong> Edad, sexo biológico, altura, peso actual y perímetro de muñeca para calcular contextura ósea.</li>
-                <li><strong>Nivel de Actividad Habitual:</strong> Ocupación diaria general sin contabilizar ejercicio programado.</li>
-                <li><strong>Vinculación Profesional:</strong> Asociá un profesional o usá el código genérico <code>123456789</code>.</li>
-            </ul>
-        </div>
-    </div>
-
-    <!-- =========================================
-         Pestaña 3: INGRESO DE DATOS
-         ========================================= -->
-    <div id="section-ingreso" class="section-content">
-        <h1>Formas de Ingreso de Ingestas y Actividades</h1>
-        <div class="article-content">
-            <div class="newspaper-img">
-                <img src="{{ url_for('static', filename='foto3.png') }}" alt="Foto Ingreso" onerror="this.style.display='none'">
-                <div class="img-caption">Registro Natural</div>
-            </div>
-            
-            <p>Registrar tus comidas y movimiento diario es tan sencillo como chatear con un conocido. El sistema procesa de manera inteligente múltiples formatos sin requerir sintaxis rígidas ni planillas engorrosas.</p>
-            <p>Ya sea que prefieras mandar un audio detallando tu plato, escribir un mensaje rápido o sacar una foto directa a la comida, la inteligencia artificial se encarga del resto en segundos.</p>
-
-            <h3>Métodos Disponibles</h3>
-            <ul>
-                <li><strong>Texto y Voz:</strong> Describí coloquialmente lo consumido o realizado.</li>
-                <li><strong>Fotografías:</strong> Envía una foto de tu plato para análisis visual directo.</li>
-                <li><strong>Códigos de Barras:</strong> Escaneo rápido y ajuste de porciones al instante.</li>
-                <li><strong>Recetas Complejas:</strong> Gestión avanzada desde la calculadora web.</li>
-            </ul>
-        </div>
-    </div>
-
-    <!-- =========================================
-         Pestaña 4: GUÍA DE COMANDOS
-         ========================================= -->
-    <div id="section-comandos" class="section-content">
-        <h1>Referencia de Comandos</h1>
-        <div class="article-content">
-            <div class="newspaper-img">
-                <img src="{{ url_for('static', filename='foto4.png') }}" alt="Foto Comandos" onerror="this.style.display='none'">
-                <div class="img-caption">Atajos</div>
-            </div>
-            
-            <p>Listado completo de comandos disponibles para interactuar directamente en el chat del bot y consultar tus registros con total agilidad y reportes automatizados.</p>
-            <p>Cada comando agiliza una tarea específica de consulta o control para que tengas toda tu información organizada al alcance de la mano en todo momento.</p>
-        </div>
-
-        <table class="cmd-table">
-            <thead>
-                <tr>
-                    <th>Comando</th>
-                    <th>Descripción</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td><span class="cmd-code">/alta</span></td>
-                    <td>Inicia el proceso de apertura de cuenta y ficha nutricional paso a paso.</td>
-                </tr>
-                <tr>
-                    <td><span class="cmd-code">/diario</span></td>
-                    <td>Genera el resumen diario de consumos y permite descargar el PDF detallado.</td>
-                </tr>
-                <tr>
-                    <td><span class="cmd-code">/semanal</span></td>
-                    <td>Muestra la estadística semanal (lunes a domingo) de calorías y macronutrientes.</td>
-                </tr>
-                <tr>
-                    <td><span class="cmd-code">/mensual</span></td>
-                    <td>Despliega el reporte mensual, estimación de cambio de peso e informes.</td>
-                </tr>
-                <tr>
-                    <td><span class="cmd-code">/perfil</span></td>
-                    <td>Visualiza en pantalla todos los datos biométricos corporales configurados.</td>
-                </tr>
-                <tr>
-                    <td><span class="cmd-code">/peso</span></td>
-                    <td>Actualiza el registro de peso correspondiente al mes en curso.</td>
-                </tr>
-                <tr>
-                    <td><span class="cmd-code">/presi</span></td>
-                    <td>Registra y consulta los valores mensuales de presión arterial y pulso.</td>
-                </tr>
-                <tr>
-                    <td><span class="cmd-code">/receta</span></td>
-                    <td>Vincula y gestiona recetas complejas mediante la calculadora web.</td>
-                </tr>
-                <tr>
-                    <td><span class="cmd-code">/comidas</span></td>
-                    <td>Muestra el listado de comidas guardadas y su reporte en PDF.</td>
-                </tr>
-                <tr>
-                    <td><span class="cmd-code">/eliminar</span></td>
-                    <td>Permite dar de baja registros erróneos de ingestas o actividades.</td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-
-    {% if user_id %}
-    <!-- =========================================
-         Pestaña 5: CALCULADORA WEB (Solo usuarios con ID)
-         ========================================= -->
-    <div id="section-calculadora" class="section-content">
-        <div class="calculator-section">
-            <h2>🍳 Calculadora Nutricional Web</h2>
-            <p>Herramienta avanzada para registrar recetas complejas o combinaciones de alimentos vinculada a tu cuenta personal.</p>
-
-            <div class="user-badge">👤 Usuario conectado: {{ user_id }}</div>
-            
-            <div class="row">
-                <div class="col" style="flex: 0.4;">
-                    <label for="codigo">Código (Columna A):</label>
-                    <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()">
-                </div>
-                <div class="col">
-                    <label for="descripcion">Descripción (Columna B):</label>
-                    <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún">
-                </div>
-            </div>
-
-            <label for="recetaText">Ingredientes y Cantidades:</label>
-            <textarea id="recetaText" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca"></textarea>
-
-            <div class="row">
-                <div class="col">
-                    <label for="tipoCalculo">Criterio de División:</label>
-                    <select id="tipoCalculo" onchange="toggleCriterio()">
-                        <option value="porciones">Por cantidad de Porciones</option>
-                        <option value="gramos">Fracción fija de 100 gramos</option>
-                    </select>
-                </div>
-                <div class="col" id="colPorciones">
-                    <label for="porciones">Porciones:</label>
-                    <input type="number" id="porciones" value="1" min="1">
-                </div>
-            </div>
-
-            <button class="calc-btn" onclick="calcularReceta()">✨ Calcular Fila con IA</button>
-
-            <div id="loading">🔍 Analizando ingredientes con Groq...</div>
-
-            <div id="resultado-section">
-                <h3>Fila Generada (Formato Excel x1000)</h3>
-                <div style="overflow-x: auto;">
-                    <table class="calc-tbl" id="tablaNutricional">
-                        <thead>
-                            <tr>
-                                <th>Nombre (A)</th>
-                                <th>Descripción (B)</th>
-                                <th>Peso (C)</th>
-                                <th>Calorías (D)</th>
-                                <th>Proteínas (E)</th>
-                                <th>Grasas (F)</th>
-                                <th>Carbohidratos (G)</th>
-                                <th>Fibras (H)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <!-- Fila cargada mediante JS -->
-                        </tbody>
-                    </table>
-                </div>
-
-                <button class="btn-save" onclick="guardarEnGoogleSheets()">💾 Guardar Directamente en Planilla</button>
-                <button class="btn-copy" onclick="copiarFilaExcel()">📋 Copiar Fila para Excel</button>
+            <div class="col">
+                <label for="descripcion">Descripción de la Comida (Columna B):</label>
+                <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún o torta de chocolate" {% if not user_id %}disabled{% endif %}>
             </div>
         </div>
-    </div>
-    {% endif %}
 
+        <label for="recetaText">Ingredientes y Cantidades (Receta Completa):</label>
+        <textarea id="recetaText" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca&#10;300 g de azúcar" {% if not user_id %}disabled{% endif %}></textarea>
+
+        <div class="row">
+            <div class="col">
+                <label for="tipoCalculo">Criterio de División:</label>
+                <select id="tipoCalculo" onchange="toggleCriterio()" {% if not user_id %}disabled{% endif %}>
+                    <option value="porciones">Dividir por cantidad de Porciones</option>
+                    <option value="gramos">Dividir de a 100 gramos (Fracción fija 100g)</option>
+                </select>
+            </div>
+            <div class="col" id="colPorciones">
+                <label for="porciones">Cantidad de Porciones:</label>
+                <input type="number" id="porciones" value="1" min="1" {% if not user_id %}disabled{% endif %}>
+            </div>
+        </div>
+
+        <button class="calc-btn" onclick="calcularReceta()" {% if not user_id %}disabled title="Acceso restringido a usuarios registrados vía Telegram"{% endif %}>✨ Calcular Fila con IA</button>
+
+        <div id="loading">🔍 Analizando ingredientes con Groq y calculando proporciones...</div>
+
+        <div id="resultado-section">
+            <h3>Fila Generada (Formato Excel x1000)</h3>
+            <div style="overflow-x: auto;">
+                <table id="tablaNutricional">
+                    <thead>
+                        <tr>
+                            <th>Nombre (A)</th>
+                            <th>Descripción (B)</th>
+                            <th>Peso (C)</th>
+                            <th>Calorías (D)</th>
+                            <th>Proteínas (E)</th>
+                            <th>Grasas (F)</th>
+                            <th>Carbohidratos (G)</th>
+                            <th>Fibras (H)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Fila cargada mediante JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            {% if user_id %}
+                <button class="btn-save" onclick="guardarEnGoogleSheets()">💾 Guardar Directamente en mi Planilla de Comidas</button>
+            {% endif %}
+            <button class="btn-copy" onclick="copiarFilaExcel()">📋 Copiar Fila para Pegar Manualmente en Excel</button>
+        </div>
+    </div>
 </div>
 
 <footer>
-    <div class="footer-links">
-        <a href="https://t.me/TuBotNombre_bot" target="_blank" class="footer-link">💬 Abrir Bot en Telegram</a>
-        <a href="https://instagram.com/tucuenta" target="_blank" class="footer-link">📸 Instagram</a>
-        <a href="mailto:tu_correo@gmail.com" class="footer-link">✉️ Mail de Contacto</a>
-        <a href="manual.pdf" target="_blank" class="footer-link">📄 Descargar Manual (PDF)</a>
-    </div>
-    <div class="footer-info">
-        IA NutriBot &copy; 2026 - Todos los derechos reservados.
-    </div>
+    <p>IA NutriBot &copy; 2026 - Todos los derechos reservados. Desarrollado con inteligencia artificial.</p>
 </footer>
 
 <script>
-    function showSection(sectionId) {
-        document.querySelectorAll('.section-content').forEach(el => {
-            el.classList.remove('active');
-        });
-        document.querySelectorAll('.nav-links a').forEach(el => {
-            el.classList.remove('active');
-        });
-        
-        const targetSection = document.getElementById('section-' + sectionId);
-        const targetNav = document.getElementById('nav-' + sectionId);
-        
-        if (targetSection) targetSection.classList.add('active');
-        if (targetNav) targetNav.classList.add('active');
-        
-        // Al cambiar de solapa, reseteamos el scroll de la caja del medio hacia arriba
-        const wrapper = document.querySelector('.content-wrapper');
-        if (wrapper) wrapper.scrollTop = 0;
+const currentUserId = "{{ user_id }}";
+let ultimoResultadoCalculado = null;
+
+function toggleCriterio() {
+    const tipo = document.getElementById('tipoCalculo').value;
+    const colPorciones = document.getElementById('colPorciones');
+    if (tipo === 'gramos') {
+        colPorciones.style.display = 'none';
+    } else {
+        colPorciones.style.display = 'block';
+    }
+}
+
+async function calcularReceta() {
+    if (!currentUserId) {
+        alert("Acción no permitida para usuarios no registrados.");
+        return;
     }
 
-    const currentUserId = "{{ user_id }}";
-    let ultimoResultadoCalculado = null;
+    const codigo = document.getElementById('codigo').value.trim();
+    const descripcion = document.getElementById('descripcion').value.trim();
+    const receta = document.getElementById('recetaText').value.trim();
+    const tipoCalculo = document.getElementById('tipoCalculo').value;
+    const porciones = document.getElementById('porciones').value;
 
-    function toggleCriterio() {
-        const tipo = document.getElementById('tipoCalculo').value;
-        const colPorciones = document.getElementById('colPorciones');
-        if (colPorciones) {
-            colPorciones.style.display = (tipo === 'gramos') ? 'none' : 'block';
-        }
+    if (!codigo || !descripcion || !receta) {
+        alert("Por favor completa el código, la descripción y los ingredientes.");
+        return;
     }
 
-    async function calcularReceta() {
-        if (!currentUserId) {
-            alert("Acción no permitida para usuarios no registrados.");
-            return;
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('resultado-section').style.display = 'none';
+
+    try {
+        const response = await fetch('/api/calcular-receta', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                user_id: currentUserId,
+                codigo, 
+                descripcion, 
+                receta, 
+                tipoCalculo, 
+                porciones: parseInt(porciones || 1) 
+            })
+        });
+
+        const data = await response.json();
+        
+        if (response.ok) {
+            ultimoResultadoCalculado = data;
+            const tbody = document.querySelector('#tablaNutricional tbody');
+            tbody.innerHTML = `
+                <tr id="filaExcel">
+                    <td>${data.nombre}</td>
+                    <td>${data.descripcion}</td>
+                    <td>${data.peso}</td>
+                    <td>${data.calorias}</td>
+                    <td>${data.proteinas}</td>
+                    <td>${data.grasas}</td>
+                    <td>${data.carbohidratos}</td>
+                    <td>${data.fibras}</td>
+                </tr>
+            `;
+            document.getElementById('resultado-section').style.display = 'block';
+        } else {
+            alert("Error al calcular: " + (data.error || "Intente nuevamente."));
         }
+    } catch (err) {
+        alert("Error de conexión con el servidor.");
+    } finally {
+        document.getElementById('loading').style.display = 'none';
+    }
+}
 
-        const codigo = document.getElementById('codigo').value.trim();
-        const descripcion = document.getElementById('descripcion').value.trim();
-        const receta = document.getElementById('recetaText').value.trim();
-        const tipoCalculo = document.getElementById('tipoCalculo').value;
-        const porciones = document.getElementById('porciones').value;
+async function guardarEnGoogleSheets() {
+    if (!currentUserId) {
+        alert("No hay ID de usuario asociado.");
+        return;
+    }
+    if (!ultimoResultadoCalculado) {
+        alert("Primero calculá la receta antes de guardar.");
+        return;
+    }
 
-        if (!codigo || !descripcion || !receta) {
-            alert("Por favor completa el código, la descripción y los ingredientes.");
-            return;
-        }
+    try {
+        const response = await fetch('/api/guardar-comida', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: currentUserId,
+                fila: ultimoResultadoCalculado
+            })
+        });
 
-        document.getElementById('loading').style.display = 'block';
-        document.getElementById('resultado-section').style.display = 'none';
-
-        try {
-            const response = await fetch('/api/calcular-receta', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    user_id: currentUserId,
-                    codigo, 
-                    descripcion, 
-                    receta, 
-                    tipoCalculo, 
-                    porciones: parseInt(porciones || 1) 
-                })
-            });
-
-            const data = await response.json();
-            
-            if (response.ok) {
-                ultimoResultadoCalculado = data;
-                const tbody = document.querySelector('#tablaNutricional tbody');
-                tbody.innerHTML = `
-                    <tr id="filaExcel">
-                        <td>${data.nombre}</td>
-                        <td>${data.descripcion}</td>
-                        <td>${data.peso}</td>
-                        <td>${data.calorias}</td>
-                        <td>${data.proteinas}</td>
-                        <td>${data.grasas}</td>
-                        <td>${data.carbohidratos}</td>
-                        <td>${data.fibras}</td>
-                    </tr>
-                `;
-                document.getElementById('resultado-section').style.display = 'block';
-            } else {
-                alert("Error al calcular: " + (data.error || "Intente nuevamente."));
+        const res = await response.json();
+        if (response.ok) {
+            if (res.codigo_guardado) {
+                ultimoResultadoCalculado.nombre = res.codigo_guardado;
+                const tdNombre = document.querySelector('#filaExcel td:first-child');
+                if (tdNombre) tdNombre.innerText = res.codigo_guardado;
             }
-        } catch (err) {
-            alert("Error de conexión con el servidor.");
-        } finally {
-            document.getElementById('loading').style.display = 'none';
+            alert("✅ ¡Éxito! " + res.message);
+        } else {
+            alert("❌ Error al guardar: " + (res.error || "Error desconocido."));
         }
+    } catch (e) {
+        alert("Error de conexión al intentar guardar.");
     }
+}
 
-    async function guardarEnGoogleSheets() {
-        if (!currentUserId) {
-            alert("No hay ID de usuario asociado.");
-            return;
-        }
-        if (!ultimoResultadoCalculado) {
-            alert("Primero calculá la receta antes de guardar.");
-            return;
-        }
+function copiarFilaExcel() {
+    const fila = document.getElementById('filaExcel');
+    if (!fila) return;
+    const celdas = Array.from(fila.querySelectorAll('td')).map(td => td.innerText);
+    const textoCopiable = celdas.join('\t');
 
-        try {
-            const response = await fetch('/api/guardar-comida', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    user_id: currentUserId,
-                    fila: ultimoResultadoCalculado
-                })
-            });
-
-            const res = await response.json();
-            if (response.ok) {
-                if (res.codigo_guardado) {
-                    ultimoResultadoCalculado.nombre = res.codigo_guardado;
-                    const tdNombre = document.querySelector('#filaExcel td:first-child');
-                    if (tdNombre) tdNombre.innerText = res.codigo_guardado;
-                }
-                alert("✅ ¡Éxito! " + res.message);
-            } else {
-                alert("❌ Error al guardar: " + (res.error || "Error desconocido."));
-            }
-        } catch (e) {
-            alert("Error de conexión al intentar guardar.");
-        }
-    }
-
-    function copiarFilaExcel() {
-        const fila = document.getElementById('filaExcel');
-        if (!fila) return;
-        const celdas = Array.from(fila.querySelectorAll('td')).map(td => td.innerText);
-        const textoCopiable = celdas.join('\\t');
-
-        navigator.clipboard.writeText(textoCopiable).then(() => {
-            alert("¡Fila copiada! Podés pegarla en tu Excel con Ctrl + V.");
-        }).catch(err => {
-            alert("Error al copiar al portapapeles.");
-        });
-    }
+    navigator.clipboard.writeText(textoCopiable).then(() => {
+        alert("¡Fila copiada! Podés pegarla en tu Excel con Ctrl + V.");
+    }).catch(err => {
+        alert("Error al copiar al portapapeles.");
+    });
+}
 </script>
 
 </body>
@@ -655,7 +420,7 @@ HTML_CALCULADORA_RECETAS = """
 
 @app.route('/', methods=['GET'])
 def vista_calculadora():
-    """Renderiza la página principal con solapas, recibiendo el user_id por URL."""
+    """Renderiza la calculadora de recetas como única página principal, recibiendo el user_id por URL."""
     user_id = request.args.get('user_id', '')
     return render_template_string(HTML_CALCULADORA_RECETAS, user_id=user_id)
 
@@ -1205,6 +970,19 @@ def obtener_registros_presion(u_id):
     return []
 
 
+def obtener_ultima_presion_str(recs_presion_all):
+    presion_str = "S/D"
+    try:
+        if recs_presion_all:
+            ult_pres = recs_presion_all[-1]
+            sys = ult_pres.get("Alta", ult_pres.get("Sistolica", ult_pres.get("sistólica", ult_pres.get("sistolica", ""))))
+            dia = ult_pres.get("Baja", ult_pres.get("Diastolica", ult_pres.get("diastólica", ult_pres.get("diastolica", ""))))
+            if sys and dia:
+                presion_str = f"{sys}/{dia} mmHg"
+    except Exception as e:
+        logger.error(f"Error al formatear última presión: {e}")
+    return presion_str
+
 def obtener_perfil_usuario(user_id, mes_target=None):
     try:
         tabla_nombre = f"Perfil_{user_id}"
@@ -1291,6 +1069,39 @@ def obtener_perfil_usuario(user_id, mes_target=None):
     except Exception as e:
         print(f"Error obteniendo perfil de Supabase para el usuario {user_id}: {e}")
         return None
+
+def obtener_datos_presion_db(user_id):
+    try:
+        tabla_nombre = f"Presion_{user_id}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="presion")
+        
+        query = f"""
+            SELECT "Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota"
+            FROM "{tabla_nombre}"
+        """
+        df = pd.read_sql(query, conn)
+        
+        cur.close()
+        conn.close()
+        
+        if df.empty:
+            return pd.DataFrame()
+
+        for col in ['Alta', 'Baja', 'Pulsaciones']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+        if 'Fecha_Dia' in df.columns:
+            df['Fecha_Dia'] = df['Fecha_Dia'].astype(str).str.strip()
+
+        if 'Nota' not in df.columns:
+            df['Nota'] = ""
+
+        return df
+    except Exception as e:
+        logger.error(f"Error al obtener datos de presión de Supabase: {e}")
+        return pd.DataFrame()
+        
 
 def obtener_ultimo_peso(user_id: int) -> dict:
     try:
@@ -1843,7 +1654,33 @@ def guardar_comida_precargada_db(user_id, fila):
     
     return codigo_unico
 
-        
+def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
+    """Guarda los registros de presión arterial exclusivamente en Supabase."""
+    ahora = obtener_ahora_arg()
+
+    try:
+        tabla_nombre = f"Presion_{user_id}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="presion")
+
+        query = f"""
+            INSERT INTO "{tabla_nombre}" ("Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota")
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        valores = (
+            ahora.strftime("%Y-%m-%d %H:%M:%S"), 
+            ahora.strftime("%Y-%m-%d"), 
+            float(alta), 
+            float(baja), 
+            float(pulsaciones) if pulsaciones is not None else 0.0, 
+            str(nota).strip()
+        )
+        cur.execute(query, valores)
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error al grabar Presión en Supabase (Presion_{user_id}): {e}")
+
 def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     """Guarda y actualiza los datos del perfil y peso del usuario exclusivamente en Supabase."""
     ahora = obtener_ahora_arg()
@@ -1866,7 +1703,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                 UPDATE "{tabla_nombre}"
                 SET "PESO" = %s, "Fecha_Actualizacion" = %s
                 WHERE "MES" = %s
-            """, (peso_real, ahora.strftime("%Y-%m-%d"), str(mes)))
+            """, (peso_real, ahora.strftime("%Y-%m-%d %H:%M:%S"), str(mes)))
         else:
             cur.execute(f"""
                 INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
@@ -4324,7 +4161,7 @@ async def render_confirmation_screen(msg_or_query, context):
     fecha = context.user_data.get('pending_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
     momento = context.user_data.get('pending_momento', 'Comida')
 
-    # Título según el tipo de registro
+    # Cambia el título si es una actividad
     if momento == 'Actividad':
         txt = f"📝 **Registro de Actividad:**\n📅 Fecha: `{fecha}`\n\n"
     else:
@@ -4337,15 +4174,14 @@ async def render_confirmation_screen(msg_or_query, context):
         grasas_total = item.get('grasas', 0)
         fibras_total = item.get('fibras', 0)
         
-        # Limpieza del símbolo § si lo hubiera
+        # Si la plantilla ya tiene display limpio configurado, lo usamos; si no, limpiamos el §
         alimento_str = item.get('alimento_display') or item.get('alimento', item.get('nombre', ''))
         alimento_limpio = alimento_str.replace('§', '').strip()
 
         if momento == 'Actividad':
-            # Para actividades no mostramos el peso en gramos (queda vacío/cero)
             txt += f"**{idx}. {alimento_limpio}**: `{cal_total:.1f} kcal`\n"
         else:
-            # Desglose completo para comidas
+            # Mostramos el desglose completo de nutrientes por cada 100g (o el peso registrado)
             txt += f"**{idx}. {alimento_limpio}** ({peso_total:.1f}g):\n"
             txt += f"   • Calorías: `{cal_total:.1f} kcal`\n"
             txt += f"   • Proteínas: `{prot_total:.1f} g`\n"
@@ -4354,7 +4190,7 @@ async def render_confirmation_screen(msg_or_query, context):
 
     keyboard = []
     
-    # Fila de momentos solo si NO es Actividad
+    # SOLO agrega la fila de Desayuno/Almuerzo/Merienda/Cena si NO es Actividad
     if momento != 'Actividad':
         m_buttons = []
         for m in ["Desayuno", "Almuerzo", "Merienda", "Cena"]:
@@ -4373,7 +4209,6 @@ async def render_confirmation_screen(msg_or_query, context):
                 InlineKeyboardButton("❌ Anular", callback_data=f"del_item_{idx}")
             ])
 
-    # Botones de selección de fecha (respetando la fecha activa en pending_fecha)
     hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
     ayer_str = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
     mark_hoy = "✅ " if fecha == hoy_str else ""
@@ -4393,7 +4228,6 @@ async def render_confirmation_screen(msg_or_query, context):
 
     markup = InlineKeyboardMarkup(keyboard)
 
-    # Renderizado seguro del mensaje
     if hasattr(msg_or_query, 'edit_message_text'):
         await msg_or_query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
     elif hasattr(msg_or_query, 'edit_text'):
@@ -4420,6 +4254,7 @@ async def render_confirmation_screen(msg_or_query, context):
             nuevo_msg = await msg_or_query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
             context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
             
+
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     items = data_json.get("items", [])
     tipo = data_json.get("tipo", "Comida")
@@ -5413,88 +5248,6 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 #                   INICIO                            COMANDO PRESION                                   INICIO  DB OK
 # ======================================================================================================================================
 
-def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
-    """Guarda los registros de presión arterial exclusivamente en Supabase."""
-    ahora = obtener_ahora_arg()
-
-    try:
-        tabla_nombre = f"Presion_{user_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="presion")
-
-        query = f"""
-            INSERT INTO "{tabla_nombre}" ("Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota")
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """
-        valores = (
-            ahora.strftime("%Y-%m-%d"),  # Ahora guarda solo la fecha en la columna Fecha_Hora
-            ahora.strftime("%Y-%m-%d"),  # Fecha_Dia mantiene solo la fecha
-            float(alta), 
-            float(baja), 
-            float(pulsaciones) if pulsaciones is not None else 0.0, 
-            str(nota).strip()
-        )
-        cur.execute(query, valores)
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error al grabar Presión en Supabase (Presion_{user_id}): {e}")
-
-def obtener_registros_presion(u_id):
-    try:
-        df_presion = obtener_datos_presion_db(u_id)
-        if not df_presion.empty:
-            return df_presion.to_dict(orient="records")
-    except Exception as e:
-        logger.error(f"Error al obtener registros de presión en Supabase para {u_id}: {e}")
-    return []
-
-
-def obtener_ultima_presion_str(recs_presion_all):
-    presion_str = "S/D"
-    try:
-        if recs_presion_all:
-            ult_pres = recs_presion_all[-1]
-            sys = ult_pres.get("Alta", ult_pres.get("Sistolica", ult_pres.get("sistólica", ult_pres.get("sistolica", ""))))
-            dia = ult_pres.get("Baja", ult_pres.get("Diastolica", ult_pres.get("diastólica", ult_pres.get("diastolica", ""))))
-            if sys and dia:
-                presion_str = f"{sys}/{dia} mmHg"
-    except Exception as e:
-        logger.error(f"Error al formatear última presión: {e}")
-    return presion_str
-
-def obtener_datos_presion_db(user_id):
-    try:
-        tabla_nombre = f"Presion_{user_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="presion")
-        
-        query = f"""
-            SELECT "Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota"
-            FROM "{tabla_nombre}"
-        """
-        df = pd.read_sql(query, conn)
-        
-        cur.close()
-        conn.close()
-        
-        if df.empty:
-            return pd.DataFrame()
-
-        for col in ['Alta', 'Baja', 'Pulsaciones']:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-
-        if 'Fecha_Dia' in df.columns:
-            df['Fecha_Dia'] = df['Fecha_Dia'].astype(str).str.strip()
-
-        if 'Nota' not in df.columns:
-            df['Nota'] = ""
-
-        return df
-    except Exception as e:
-        logger.error(f"Error al obtener datos de presión de Supabase: {e}")
-        return pd.DataFrame()
-        
 def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
@@ -6985,7 +6738,6 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 #                    FINAL                                    COMANDOS INFORMES                                        FINAL
 # =============================================================================================================================================
 
-
 # ==================================================================================================================================
 #                    INICIO                 COMANDOS COMIDAS Y COMANDOS ACTIVIDAD                                   INCIO  DB OK
 # ==================================================================================================================================
@@ -7206,10 +6958,75 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(mensaje, reply_markup=keyboard, parse_mode="Markdown")
     
-
-#                INICIO                             MANEJADOR COMIDAS MANEJADOR ACTIVIDAD                                 INICIO DB OK
+#                INICIO                             MANEJADOR COMIDAS ACTIVIDAD                                 INICIO DB OK
 # =====================================================================================================================================
 
+@requiere_registro
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = await update.message.reply_text("🎙️ Procesando audio con IA...")
+    try:
+        file = await context.bot.get_file(update.message.voice.file_id)
+        audio_bytes = await file.download_as_bytearray()
+        
+        audio_file = io.BytesIO(audio_bytes)
+        audio_file.name = "audio.ogg"
+        
+        transcription = client_ai.audio.transcriptions.create(
+            file=(audio_file.name, audio_file.read()),
+            model=GROQ_AUDIO,
+            response_format="text"
+        )
+        
+        if context.user_data.get('awaiting_activity_voice'):
+            context.user_data['awaiting_activity_voice'] = False
+            user_id = update.effective_user.id
+            
+            perfil_biometrico = obtener_perfil_usuario(user_id)
+            
+            prompt_ia = (
+                f"El usuario realizó una actividad física descrita por voz. Transcripción: '{transcription}'. "
+                f"Calcula las calorías gastadas utilizando estrictamente su perfil biométrico: {perfil_biometrico}.\n"
+                f"REGLA OBLIGATORIA 1: El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de 'min' y una descripción clara (ej: '50 min - Caminata rápida').\n"
+                f"REGLA OBLIGATORIA 2: El campo 'calorias' debe ser un número positivo que luego transformaremos en negativo.\n"
+                f"Devolvé un JSON con los campos 'alimento' y 'calorias'."
+            )
+
+            resultado_ia = analizar_con_groq(prompt_ia)
+            items_ia = resultado_ia.get('items', [])
+            if items_ia:
+                kcal_estimadas = float(items_ia[0].get('calorias', 0))
+                descripcion_formateada = str(items_ia[0].get('alimento', transcription))
+            else:
+                kcal_estimadas = 0.0
+                descripcion_formateada = transcription
+
+            calorias_finales = -abs(kcal_estimadas)
+
+            item_actividad = {
+                "alimento": descripcion_formateada,
+                "peso": 0,
+                "calorias": calorias_finales,
+                "proteinas": 0,
+                "grasas": 0,
+                "carbohidratos": 0,
+                "fibras": 0
+            }
+
+            context.user_data['pending_items'] = [item_actividad]
+            context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+            context.user_data['pending_momento'] = 'Actividad'
+
+            await msg.delete()
+            msg_menu = await update.message.reply_text("📋 Actividad analizada por audio:")
+            context.user_data['last_menu_msg_id'] = msg_menu.message_id
+            await render_confirmation_screen(msg_menu, context)
+            return
+
+        data = analizar_con_groq(transcription)
+        await procesar_y_mostrar_confirmacion(data, msg, context)
+    except Exception as e:
+        await msg.edit_text(f"❌ Error al procesar audio: {e}")
+        
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -7219,60 +7036,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not raw_text:
         return
 
-    # 📅 1. CAPTURA DE FECHA PERSONALIZADA (Botón "Otro Día") - PRIMERO QUE NADA
-    if context.user_data.get('awaiting_custom_date'):
-        fecha_parseada = None
-        txt = raw_text.replace('/', '-').replace('.', '-')
-        partes = txt.split('-')
-        
-        try:
-            if len(partes) == 3:
-                if len(partes[0]) == 4:
-                    fecha_parseada = f"{int(partes[0]):04d}-{int(partes[1]):02d}-{int(partes[2]):02d}"
-                else:
-                    fecha_parseada = f"{int(partes[2]):04d}-{int(partes[1]):02d}-{int(partes[0]):02d}"
-            elif len(partes) == 2:
-                anio_actual = obtener_ahora_arg().year
-                fecha_parseada = f"{anio_actual:04d}-{int(partes[1]):02d}-{int(partes[0]):02d}"
-        except Exception:
-            fecha_parseada = None
-
-        msg_solic = context.user_data.pop('msg_solicitud_fecha_id', None)
-        if msg_solic:
-            try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
-            except Exception:
-                pass
-
-        try:
-            await update.message.delete()
-        except Exception:
-            pass
-
-        if fecha_parseada:
-            context.user_data['pending_fecha'] = fecha_parseada
-            context.user_data['awaiting_custom_date'] = False
-            
-            last_menu_msg_id = context.user_data.get('last_menu_msg_id')
-            if last_menu_msg_id:
-                try:
-                    target_msg = await context.bot.get_message(chat_id=chat_id, message_id=last_menu_msg_id)
-                    await render_confirmation_screen(target_msg, context)
-                except Exception:
-                    nuevo_menu = await update.message.reply_text(f"📅 Fecha actualizada a: `{fecha_parseada}`", parse_mode="Markdown")
-                    context.user_data['last_menu_msg_id'] = nuevo_menu.message_id
-                    await render_confirmation_screen(nuevo_menu, context)
-            else:
-                nuevo_menu = await update.message.reply_text(f"📅 Fecha actualizada a: `{fecha_parseada}`", parse_mode="Markdown")
-                context.user_data['last_menu_msg_id'] = nuevo_menu.message_id
-                await render_confirmation_screen(nuevo_menu, context)
-            return
-        else:
-            msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
-            context.user_data['msg_solicitud_fecha_id'] = msg_err.message_id
-            return
-
-    # 🏃 2. CAPTURA DE ACTIVIDAD POR TEXTO
+    # Captura el texto cuando el usuario eligió ingresar actividad por texto tras tocar /actividad
     if context.user_data.get('awaiting_activity_text'):
         texto_actividad = raw_text.strip()
         
@@ -7297,7 +7061,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             prompt_ia = (
                 f"El usuario realizó una actividad física. Analiza la descripción y calcula las calorías gastadas "
                 f"utilizando estrictamente su perfil biométrico: {perfil_biometrico}.\n"
-                f"REGLA OBLIGATORIA 1: El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de 'min' y una descripción clara (ej: '45 min - Caminata 4000 metros').\n"
+                f"REGLA OBLIGATORIA 1: El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de 'min' y una descripción clara (ej: '50 min - Caminata a velocidad moderada').\n"
                 f"REGLA OBLIGATORIA 2: El campo 'calorias' debe ser un número positivo que luego transformaremos en negativo.\n"
                 f"Descripción del usuario: '{texto_actividad}'\n"
                 f"Devolvé un JSON con los campos 'alimento' y 'calorias'."
@@ -7312,44 +7076,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 kcal_estimadas = 0.0
                 descripcion_formateada = texto_actividad
             
-            # Búsqueda precisa de minutos (buscando específicamente el número al lado de 'min' o 'minutos')
-            match_min = re.search(r'(\d+)\s*(?:min|minutos)', descripcion_formateada, re.IGNORECASE)
-            if not match_min:
-                match_min = re.search(r'\b([1-9]\d{0,2})\b', descripcion_formateada)
-
-            if not match_min or int(match_min.group(1)) <= 0:
-                await msg_espera.edit_text(
-                    "⚠️ **Faltan los minutos de la actividad.**\n"
-                    "Por favor, indicá el tiempo en minutos (Ej: *'Caminé 4000 metros en 45 min'*).",
-                    parse_mode="Markdown"
-                )
-                return
-
-            num_mins = match_min.group(1)
-            resto_desc = re.sub(r'(\d+)\s*(?:min|minutos)', '', descripcion_formateada, flags=re.IGNORECASE)
-            resto_desc = re.sub(r'\b' + num_mins + r'\b', '', resto_desc)
-            resto_desc = re.sub(r'^[-–:\s]+|[–-]\s*$', '', resto_desc).strip()
-            if not resto_desc:
-                resto_desc = "Caminata"
-            
-            descripcion_formateada = f"{num_mins} min - {resto_desc}"
-            calorias_finales = -abs(kcal_estimadas)
+            calorias_finales = -abs(kcal_estimadas) # Negativo para restar
 
             item_actividad = {
                 "alimento": descripcion_formateada,
-                "peso": 0.0,
+                "peso": 0,
                 "calorias": calorias_finales,
-                "proteinas": 0.0,
-                "grasas": 0.0,
-                "carbohidratos": 0.0,
-                "fibras": 0.0
+                "proteinas": 0,
+                "grasas": 0,
+                "carbohidratos": 0,
+                "fibras": 0
             }
 
             context.user_data['pending_items'] = [item_actividad]
-            
-            if not context.user_data.get('pending_fecha'):
-                context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
-                
+            context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
             context.user_data['pending_momento'] = 'Actividad'
 
             await msg_espera.delete()
@@ -7449,7 +7189,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['msg_solicitud_diario_fecha_id'] = msg_err.message_id
             return
 
-    # BLOQUE DE EDICIÓN MATEMÁTICA
+    # BLOQUE DE EDICIÓN MATEMÁTICA / ACTIVIDAD
     if context.user_data.get('awaiting_edit_item_val'):
         idx = context.user_data.get('editing_item_idx')
         items = context.user_data.get('pending_items', [])
@@ -7620,97 +7360,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar el texto: {e}")
-
-
-@requiere_registro
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = await update.message.reply_text("🎙️ Procesando audio con IA...")
-    try:
-        file = await context.bot.get_file(update.message.voice.file_id)
-        audio_bytes = await file.download_as_bytearray()
         
-        audio_file = io.BytesIO(audio_bytes)
-        audio_file.name = "audio.ogg"
-        
-        transcription = client_ai.audio.transcriptions.create(
-            file=(audio_file.name, audio_file.read()),
-            model=GROQ_AUDIO,
-            response_format="text"
-        )
-        
-        if context.user_data.get('awaiting_activity_voice'):
-            context.user_data['awaiting_activity_voice'] = False
-            user_id = update.effective_user.id
-            
-            perfil_biometrico = obtener_perfil_usuario(user_id)
-            
-            prompt_ia = (
-                f"El usuario realizó una actividad física descrita por voz. Transcripción: '{transcription}'. "
-                f"Calcula las calorías gastadas utilizando estrictamente su perfil biométrico: {perfil_biometrico}.\n"
-                f"REGLA OBLIGATORIA 1: El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de 'min' y una descripción clara.\n"
-                f"REGLA OBLIGATORIA 2: El campo 'calorias' debe ser un número positivo que luego transformaremos en negativo.\n"
-                f"Devolvé un JSON con los campos 'alimento' y 'calorias'."
-            )
-
-            resultado_ia = analizar_con_groq(prompt_ia)
-            items_ia = resultado_ia.get('items', [])
-            if items_ia:
-                kcal_estimadas = float(items_ia[0].get('calorias', 0))
-                descripcion_formateada = str(items_ia[0].get('alimento', transcription))
-            else:
-                kcal_estimadas = 0.0
-                descripcion_formateada = transcription
-
-            match_min = re.search(r'(\d+)\s*(?:min|minutos)', descripcion_formateada, re.IGNORECASE)
-            if not match_min:
-                match_min = re.search(r'\b([1-9]\d{0,2})\b', descripcion_formateada)
-
-            if not match_min or int(match_min.group(1)) <= 0:
-                await msg.edit_text(
-                    "⚠️ **Faltan los minutos de la actividad en el audio.** Intentá de nuevo.",
-                    parse_mode="Markdown"
-                )
-                return
-
-            num_mins = match_min.group(1)
-            resto_desc = re.sub(r'(\d+)\s*(?:min|minutos)', '', descripcion_formateada, flags=re.IGNORECASE)
-            resto_desc = re.sub(r'\b' + num_mins + r'\b', '', resto_desc)
-            resto_desc = re.sub(r'^[-–:\s]+|[–-]\s*$', '', resto_desc).strip()
-            if not resto_desc:
-                resto_desc = "Caminata"
-            
-            descripcion_formateada = f"{num_mins} min - {resto_desc}"
-            calorias_finales = -abs(kcal_estimadas)
-
-            item_actividad = {
-                "alimento": descripcion_formateada,
-                "peso": 0.0,
-                "calorias": calorias_finales,
-                "proteinas": 0.0,
-                "grasas": 0.0,
-                "carbohidratos": 0.0,
-                "fibras": 0.0
-            }
-
-            context.user_data['pending_items'] = [item_actividad]
-            
-            if not context.user_data.get('pending_fecha'):
-                context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
-                
-            context.user_data['pending_momento'] = 'Actividad'
-
-            await msg.delete()
-            msg_menu = await update.message.reply_text("📋 Actividad analizada por audio:")
-            context.user_data['last_menu_msg_id'] = msg_menu.message_id
-            await render_confirmation_screen(msg_menu, context)
-            return
-
-        data = analizar_con_groq(transcription)
-        await procesar_y_mostrar_confirmacion(data, msg, context)
-    except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar audio: {e}")
-        
-                        
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
@@ -8279,8 +7929,6 @@ async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEF
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
-
-
 
 # =============================================================================================================================================
 #                INICIO                            COMANDOS PROFESIONALES                             INICIO 
