@@ -1426,7 +1426,7 @@ def eliminar_comida_precargada_db(user_id, nombre_a_borrar):
 #                    INICIO                  6 FUNCIONES LECTURA PROFESIONALES                      INICIO
 # =======================================================================================================================================
 
-async def _verificar_y_obtener_profesional(update: Update)
+async def _verificar_y_obtener_profesional(update: Update):
     prof_id = str(update.effective_user.id).strip()
     try:
         conn, cur = _asegurar_tabla_y_conectar("Profesionales", tipo_tabla="profesionales")
@@ -1949,7 +1949,7 @@ def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
         )
 
 
-def calcular_contextura(sexo: str, altura_cm: float, muneca_cm: float)
+def calcular_contextura(sexo: str, altura_cm: float, muneca_cm: float):
     """Calcula la contextura física según la relación Altura / Muñeca."""
     if muneca_cm <= 0: return "Mediana"
     r = altura_cm / muneca_cm
@@ -2517,7 +2517,7 @@ async def generar_recomendacion_mensual_para_pdf(user_id: int, mes_str: str, df_
         logger.error(f"Error en generar_recomendacion_mensual_para_pdf para {user_id}: {e}")
         return "<b>⚠️ Error al compilar la recomendación de IA para el reporte.</b>"
         
-async def generar_recomendacion_semanal_ia(m: dict, etiqueta_periodo: str)
+async def generar_recomendacion_semanal_ia(m: dict, etiqueta_periodo: str):
     prompt_semana = (
         f"Actúa como un nutricionista clínico experto, constructivo y equilibrado. "
         f"Analiza la evolución nutricional de la {etiqueta_periodo} basándote en los promedios reales frente a los rangos saludables:\n\n"
@@ -2543,7 +2543,7 @@ async def generar_recomendacion_semanal_ia(m: dict, etiqueta_periodo: str)
         
     return "⚠️ Análisis nutricional no disponible temporalmente."
     
-def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4, system_prompt: str = None, modelo_override: str = None)
+def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4, system_prompt: str = None, modelo_override: str = None):
     try:
         client = globals().get('client_ai') or globals().get('groq_client')
         if not client:
@@ -2862,7 +2862,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
 
     return None
     
-async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False)
+async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False):
     if es_semanal:
         prompt = (
             f"Actúa como un coach nutricional breve y conciso. "
