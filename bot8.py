@@ -840,7 +840,6 @@ def api_guardar_comida():
             "message": f"Comida agregada en pestaña Comidas_{user_id}{msg_extra}."
         }), 200
 
-    cesept = Exception
     except Exception as e:
         logger.error(f"Error al guardar en Supabase: {e}")
         return jsonify({"error": str(e)}), 500
