@@ -1,0 +1,7 @@
+Bienvenido a I A NutriBot, tu asistente personal inteligente en Telegram para gestionar tus hábitos alimentarios y tu salud de forma simple y automatizada. 
+
+Con este sistema no necesitás planillas complejas ni tablas manuales. Podés registrar todo lo que consumís usando lenguaje natural: simplemente escribiendo un mensaje, enviando una nota de voz o sacando una foto de tu plato. El bot se encargará de calcular las calorías y los macronutrientes al instante.
+
+Además, podés registrar tu actividad física diaria, controlar tus valores de presión arterial, y consultar tus reportes y resúmenes diarios o mensuales directamente en formato PDF. 
+
+Para ver la lista completa de comandos rápidos, podés revisar la sección de guía en esta misma página o escribir en cualquier momento en el chat de Telegram. Gracias por confiar en nosotros para acompañarte en tu bienestar diario.
