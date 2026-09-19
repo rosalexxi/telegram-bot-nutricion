@@ -3841,6 +3841,12 @@ async def _sub_manejar_foto_presion(update, context, res_presion, msg):
         f"*(Si escribís **cancelar**, se anulará el ingreso)*",
         parse_mode="Markdown"
     )
+    
+async def _sub_manejar_foto_plato_ia(update, context, base64_image, user_caption, msg):
+    await msg.edit_text("🤖 Analizando plato con Inteligencia Artificial...")
+    data = analizar_imagen_con_groq(base64_image, user_caption)
+    await procesar_y_mostrar_confirmacion(data, msg, context)
+
 # ======================================================================================================================================
 #                INICIO                                      FUNCIONES DE BOTONES                        FINAL
 # ======================================================================================================================================
