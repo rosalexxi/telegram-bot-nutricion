@@ -500,7 +500,7 @@ def api_calcular_receta():
             gras_unitario = gras_tot * factor
             carb_unitario = carb_tot * factor
             fibr_unitario = fibr_tot * factor
-            desc_final = f"{descripcion} porcion 100 g"
+            desc_final = f"{descripcion} porcion 100 g §"
         else:
             div = porciones if porciones > 0 else 1
             peso_unitario = peso_tot / div
@@ -509,7 +509,7 @@ def api_calcular_receta():
             gras_unitario = gras_tot / div
             carb_unitario = carb_tot / div
             fibr_unitario = fibr_tot / div
-            desc_final = f"{descripcion} porcion {int(round(peso_unitario))} g"
+            desc_final = f"{descripcion} porcion {int(round(peso_unitario))} g §"
 
         resultado_excel = {
             "nombre": codigo_nombre,
@@ -527,7 +527,7 @@ def api_calcular_receta():
     except Exception as e:
         logger.error(f"Error calculando receta web con Groq: {e}")
         return jsonify({"error": str(e)}), 500
-
+        
 @app.route('/api/guardar-comida', methods=['POST'])
 def api_guardar_comida():
     """Guarda la fila calculada validando el usuario."""
@@ -2898,10 +2898,14 @@ def analizar_con_groq(prompt_text):
         "Sos un asistente inteligente de salud. Analiza el texto ingresado por el usuario y clasifícalo en una de estas tres categorías:\n"
         "1. COMIDA: Si el usuario menciona alimentos, platos o bebidas para ingerir.\n"
         "2. ACTIVIDAD: Si el usuario menciona cualquier tipo de ejercicio, deporte, movimiento físico o actividad en movimiento.\n"
-        "3. RECHAZO: Si el usuario nombra objetos inanimados, productos de limpieza (como detergente, jabón), ropa o cosas que no se comen ni se entrenan.\n\n"
+        "3. RECHAZO: Si el usuario nombra objetos inanimados, productos de limpieza, ropa o cosas que no se comen ni se entrenan.\n\n"
         "REGLAS:\n"
         "- Si es COMIDA, desglósalo con pesos y calorías positivas.\n"
-        "- Si es ACTIVIDAD, estima los minutos y calorías gastadas con valores positivos (el sistema después los hace negativos).\n"
+        "- Si es ACTIVIDAD:\n"
+        "  * Calcula el tiempo total en minutos (ej: 'una hora' = 60, 'media hora' = 30, 'hora y media' = 90).\n"
+        "  * El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de un espacio y la descripción original (Ejemplo estricto: '30 caminata de 3000 metros en 30 minutos'). Esto es vital para que el sistema contabilice las estadísticas semanales.\n"
+        "  * El campo 'peso' debe ser estrictamente 0.0.\n"
+        "  * Estima las calorías gastadas con valor positivo.\n"
         "- Si es RECHAZO, devolvé la lista de 'items' vacía ([ ]).\n\n"
         "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
         "{\n"
@@ -2922,7 +2926,17 @@ def analizar_con_groq(prompt_text):
         response_format={"type": "json_object"}
     )
     return json.loads(response.choices[0].message.content)
-                
+
+    response = client_ai.chat.completions.create(
+        model=globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile"),
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt_text}
+        ],
+        temperature=0.1,
+        response_format={"type": "json_object"}
+    )
+    return json.loads(response.choices[0].message.content)                
 def analizar_imagen_con_groq(base64_image, user_caption=""):
     client_ai = globals().get('client_ai')
     if not client_ai:
@@ -3105,6 +3119,10 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     if tipo == "Actividad":
         momento = "Actividad"
         for item in items:
+            # 🟢 Forzar estrictamente el peso en 0 para que no guarde nada en la columna de Peso
+            item["peso"] = 0
+            
+            # Asegurar que las calorías de la actividad sean negativas
             if item.get("calorias", 0) > 0:
                 item["calorias"] = -abs(item["calorias"])
     else:
@@ -3115,8 +3133,7 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     context.user_data['pending_momento'] = momento
 
     await render_confirmation_screen(msg_obj, context)
-
-
+    
 # ======================================================================================================================================
 #               MANEJADORES INDEPENDIENTES Y EXCLUSIVOS PARA CADA GRUPO DE BOTONES (CERO COMPARTIDOS)
 # ======================================================================================================================================
@@ -3322,11 +3339,9 @@ async def _sub_manejar_texto_actividad(update, context, raw_text, chat_id):
         kcal = float(items[0].get('calorias', 0)) if items else 0.0
         desc = str(items[0].get('alimento', raw_text)) if items else raw_text
         
-        if not re.match(r'^\d+\s*min', desc, re.IGNORECASE):
-            match_num = re.search(r'(\d+)\s*(?:min|m|minuto)', raw_text, re.IGNORECASE)
-            desc = f"{match_num.group(1)} min - {desc}" if match_num else f"Actividad - {desc}"
-
+        # Se eliminó la validación vieja de 'min' para respetar el formato limpio de la IA
         item_act = {"alimento": desc, "peso": 0, "calorias": -abs(kcal), "proteinas": 0, "grasas": 0, "carbohidratos": 0, "fibras": 0}
+        
         context.user_data.update({'pending_items': [item_act], 'pending_fecha': obtener_ahora_arg().strftime("%Y-%m-%d"), 'pending_momento': 'Actividad'})
         await msg_espera.delete()
         msg_menu = await update.message.reply_text("📋 Actividad analizada:")
@@ -3334,7 +3349,7 @@ async def _sub_manejar_texto_actividad(update, context, raw_text, chat_id):
         await render_confirmation_screen(msg_menu, context)
     except Exception as e:
         await msg_espera.edit_text(f"❌ Error al procesar actividad: {e}")
-
+                
 async def _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id):
     fecha_parseada = parsear_fecha_flexible(raw_text)
     msg_solic = context.user_data.pop('msg_solicitud_del_fecha_id', None)
@@ -3455,19 +3470,28 @@ async def _sub_manejar_plantilla_comida(update, context, raw_text, user_id):
 
     if plantilla:
         p_b, c_b, pr_b, g_b, cb_b, f_b = plantilla.get('Peso', 0), plantilla.get('Calorias', 0), plantilla.get('Proteinas', 0), plantilla.get('Grasas', 0), plantilla.get('Carbohidratos', 0), plantilla.get('Fibras', 0)
-        desc = plantilla.get('Descripcion', plantilla.get('Nombre', 'Comida')).replace('§', '').strip()
+        
+        # 🟢 Limpiar descripción y armar el formato final: Descripción + " x Mult"
+        desc_limpia = (plantilla.get('Descripcion') or plantilla.get('Nombre', 'Comida')).replace('§', '').strip()
         mult_str = f"{int(mult)}" if mult.is_integer() else f"{mult}"
         
+        descripcion_final = f"{desc_limpia} x {mult_str}"
+        
         item_gen = {
-            "alimento": f"(x{mult_str}) {desc} §", "alimento_display": f"(x{mult_str}) {desc}",
-            "peso": p_b * mult, "calorias": c_b * mult, "proteinas": pr_b * mult,
-            "grasas": g_b * mult, "carbohidratos": cb_b * mult, "fibras": f_b * mult
+            "alimento": descripcion_final, 
+            "alimento_display": descripcion_final,
+            "peso": p_b * mult, 
+            "calorias": c_b * mult, 
+            "proteinas": pr_b * mult,
+            "grasas": g_b * mult, 
+            "carbohidratos": cb_b * mult, 
+            "fibras": f_b * mult
         }
         msg = await update.message.reply_text("⏳ Procesando comida predeterminada...")
         await procesar_y_mostrar_confirmacion({"items": [item_gen], "tipo": "Comida"}, msg, context)
     else:
         await update.message.reply_text(f"❌ No se encontró la comida `*{nombre_plantilla}` en tu planilla `Comidas_{user_id}`.", parse_mode="Markdown")
-
+        
 async def _sub_manejar_ingesta_libre_ia(update, context, raw_text):
     msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
     try:
@@ -3500,22 +3524,16 @@ async def _sub_manejar_voz_actividad(update, context, transcription, msg):
     kcal_estimadas = float(items_ia[0].get('calorias', 0)) if items_ia else 0.0
     desc = str(items_ia[0].get('alimento', transcription)) if items_ia else transcription
     
-    if not re.match(r'^\d+\s*min', desc, re.IGNORECASE):
-        match_num = re.search(r'(\d+)\s*(?:min|m|minuto)', transcription, re.IGNORECASE)
-        desc = f"{match_num.group(1)} min - {desc}" if match_num else f"Actividad - {desc}"
-
+    # Se eliminó la validación vieja de 'min' para respetar el formato limpio de la IA
     item_actividad = {"alimento": desc, "peso": 0, "calorias": -abs(kcal_estimadas), "proteinas": 0, "grasas": 0, "carbohidratos": 0, "fibras": 0}
+    
     context.user_data.update({'pending_items': [item_actividad], 'pending_fecha': obtener_ahora_arg().strftime("%Y-%m-%d"), 'pending_momento': 'Actividad'})
 
     await msg.delete()
     msg_menu = await update.message.reply_text("📋 Actividad analizada por audio:")
     context.user_data['last_menu_msg_id'] = msg_menu.message_id
     await render_confirmation_screen(msg_menu, context)
-
-async def _sub_manejar_voz_ingesta(update, context, transcription, msg):
-    data = analizar_con_groq(transcription)
-    await procesar_y_mostrar_confirmacion(data, msg, context)
-
+    
 def analizar_foto_presion_con_groq(base64_image: str) -> dict:
     client_ai = globals().get('client_ai')
     if not client_ai: return {"es_presion": False}
@@ -3661,8 +3679,7 @@ async def callback_btn_guardar_registro(update: Update, context: ContextTypes.DE
 
 def construir_texto_listado_comidas(user_id, comidas):
     """
-    Construye y retorna el texto en formato HTML con el listado de comidas del usuario.
-    Reutilizable tanto para ver las comidas como para el flujo de borrado.
+    Construye y retorna el texto en formato HTML con el listado de comidas del usuario sin el caracter '§'.
     """
     if not comidas:
         return f"📋 No hay comidas predeterminadas registradas en la hoja 'Comidas_{user_id}'."
@@ -3673,6 +3690,7 @@ def construir_texto_listado_comidas(user_id, comidas):
         nombre_raw = str(p.get('Nombre', ''))
         desc_raw = str(p.get('Descripcion') or p.get('Momento', ''))
         
+        # 🟢 Eliminación estricta del caracter '§'
         nombre = nombre_raw.replace('§', '').replace('<', '').replace('>', '').strip()
         descripcion = desc_raw.replace('§', '').replace('<', '').replace('>', '').strip()
         
@@ -3688,8 +3706,7 @@ def construir_texto_listado_comidas(user_id, comidas):
         txt += linea
         
     return txt
-
-
+    
 @requiere_registro
 async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -3894,7 +3911,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not raw_text: 
         return
 
-    # 🟢 CORREGIDO: Enrutamiento seguro vinculado a las subfunciones con prefijo _sub_manejar_
+    # 🟢 CORREGIDO: Se agregó la validación pendiente para capturar la fecha personalizada ("Otro Día")
+    if context.user_data.get('awaiting_custom_date'):
+        await _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id)
+        return
     if context.user_data.get('awaiting_activity_text'):
         await _sub_manejar_texto_actividad(update, context, raw_text, chat_id)
         return
@@ -3916,7 +3936,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data = analizar_con_groq(raw_text)
         await procesar_y_mostrar_confirmacion(data, msg, context)
     except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar el texto: {e}")        
+        await msg.edit_text(f"❌ Error al procesar el texto: {e}")
 
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4790,7 +4810,16 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
 
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer("Generando PDF con análisis de IA... ⏳")
+    
+    # 1. 🟢 Aviso inicial automático al usuario de que se está preparando el documento
+    await query.answer("¡Recibido! Prepararemos el documento y cuando esté listo lo recibirá automáticamente. ⏳", show_alert=True)
+    
+    # Opcional: También podés enviar un mensaje de texto en el chat para que quede constancia visual
+    mensaje_espera = await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text="🔄 **Generando reporte mensual con IA...** Por favor aguarde unos momentos, le enviaremos el documento en cuanto esté listo.",
+        parse_mode="Markdown"
+    )
 
     try:
         user_id = query.from_user.id
@@ -4805,15 +4834,12 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         dia_actual = ahora.day
 
         if mes_str == mes_actual_str and 1 <= dia_actual <= 7:
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text="⚠️ No se encuentra disponible el reporte en PDF del mes actual durante los primeros 7 días del mes.",
-                parse_mode="Markdown"
-            )
+            await mensaje_espera.edit_text("⚠️ No se encuentra disponible el reporte en PDF del mes actual durante los primeros 7 días del mes.")
             return
 
         if mes_str == mes_actual_str:
             if not await _validar_peso_mes_actual(update, context):
+                await mensaje_espera.delete()
                 return
 
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
@@ -4833,11 +4859,7 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
             df_mes = pd.DataFrame()
 
         if df_mes.empty:
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=f"⚠️ No hay registros de días en el mes `{mes_str}` para generar el PDF.",
-                parse_mode="Markdown"
-            )
+            await mensaje_espera.edit_text(f"⚠️ No hay registros de días en el mes `{mes_str}` para generar el PDF.")
             return
 
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
@@ -4846,6 +4868,7 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
 
         m = calcular_metricas_mensuales(df_mes, perfil)
 
+        # Generación de la recomendación mediante IA (el paso que demora)
         recomendacion_pdf = await generar_recomendacion_mensual_para_pdf(user_id, mes_str, df_mes, perfil, m, context)
 
         pdf_buffer = await asyncio.to_thread(
@@ -4859,21 +4882,25 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
             user_id
         )
 
+        # 2. 🟢 Envío automático del PDF una vez finalizado el proceso
         await context.bot.send_document(
             chat_id=query.message.chat_id,
             document=pdf_buffer,
             filename=f"Reporte_Nutricional_{mes_str}.pdf",
-            caption=f"📄 Reporte mensual auditado correspondiente a **{mes_str}**.",
+            caption=f"✅ ¡Su documento está listo! Reporte mensual auditado correspondiente a **{mes_str}**.",
             parse_mode="Markdown"
         )
+        
+        # Borramos el mensaje de espera temporal para mantener limpio el chat
+        try:
+            await mensaje_espera.delete()
+        except Exception:
+            pass
 
     except Exception as e:
         logger.error(f"Error al enviar PDF: {e}", exc_info=True)
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text=f"⚠️ Error al procesar la descarga del PDF: {e}"
-        )                
-
+        await mensaje_espera.edit_text(f"⚠️ Error al procesar la descarga del PDF: {e}")
+        
 async def recordatorio_lunes_presion(context):
     try:
         records = obtener_todos_usuarios()
@@ -6589,7 +6616,9 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
-        
+
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_reportes_pdf, pattern="^(resumen_|descargar_pdf_|enviar_inf_)"))        
+
         # Enrutadores de botones interactivos para texto, voz, fotos y confirmación
         app_bot.add_handler(CallbackQueryHandler(callback_handler_actividades, pattern="^act_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_momentos, pattern="^set_m_"))
