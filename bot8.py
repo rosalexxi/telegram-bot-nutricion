@@ -98,12 +98,11 @@ def run_flask():
 #                FINAL                                   CABECERA                                       FINAL
 # =====================================================================================================================================
 
-
 # =====================================================================================================================================
 #              INICIO                                  PAGINA WEB (CALCULADORA UNICA)                        INICIO  DB OK
 # ======================================================================================================================================
 
-# 🟢 NOTA: Se eliminó la línea `app = Flask(__name__)` redundante para usar la instancia global definida en la cabecera.
+app = Flask(__name__)
 
 HTML_CALCULADORA_RECETAS = """
 
@@ -121,443 +120,542 @@ HTML_CALCULADORA_RECETAS = """
             --bg-light: #f4f6f9;
             --text-color: #333;
         }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: var(--bg-light); color: var(--text-color); line-height: 1.6; }
-        header { background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.05); position: sticky; top: 0; z-index: 1000; }
-        .nav-container { max-width: 1000px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; }
-        .logo { font-size: 20px; font-weight: bold; color: var(--primary); text-decoration: none; }
-        .nav-links a { margin-left: 20px; text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 14px; }
-        .nav-links a:hover { color: var(--primary); }
-
-        .hero { background: linear-gradient(135deg, #2c3e50, #1a252f); color: white; text-align: center; padding: 60px 20px; }
-        .hero h1 { font-size: 36px; margin-bottom: 15px; }
-        .hero p { font-size: 18px; max-width: 700px; margin: 0 auto 30px auto; opacity: 0.9; }
-        .btn-telegram { background-color: var(--primary); color: white; padding: 14px 28px; border-radius: 30px; text-decoration: none; font-size: 18px; font-weight: bold; display: inline-block; box-shadow: 0 4px 15px rgba(39, 174, 96, 0.4); transition: background 0.2s; }
-        .btn-telegram:hover { background-color: var(--primary-dark); }
-
-        .container { max-width: 900px; margin: 40px auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
-        h2 { color: var(--secondary); border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 40px; }
         
-        .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 30px; }
-        .feature-card { background: #f8fafc; padding: 20px; border-radius: 8px; border-left: 4px solid var(--primary); }
-        .feature-card h3 { margin-top: 0; color: var(--secondary); }
+        /* Fijamos la altura de la pantalla completa y evitamos el scroll general del body */
+        html, body { 
+            height: 100vh; 
+            margin: 0; 
+            padding: 0; 
+            overflow: hidden; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background-color: var(--bg-light); 
+            color: var(--text-color); 
+        }
 
-        .legal-box { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; font-size: 13px; color: #856404; margin-top: 30px; border-radius: 4px; }
+        body {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Cabecera fija arriba */
+        header { 
+            background: white; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
+            flex-shrink: 0;
+            z-index: 1000; 
+        }
+        .nav-container { max-width: 1100px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; }
+        .logo { font-size: 1.25rem; font-weight: bold; color: var(--primary); text-decoration: none; }
+        .nav-links a { margin-left: 12px; text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 0.85rem; transition: color 0.2s; }
+        .nav-links a:hover, .nav-links a.active { color: var(--primary); }
+
+        /* Contenedor Principal con Scroll Propio en el medio */
+        .content-wrapper { 
+            max-width: 900px; 
+            margin: 15px auto; 
+            background: white; 
+            padding: 30px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05); 
+            width: 90%; 
+            box-sizing: border-box; 
+            flex: 1;                /* Ocupa todo el espacio libre del medio */
+            overflow-y: auto;       /* Activa el scroll SOLO acá adentro */
+        }
+
+        h1 { color: var(--secondary); margin-top: 0; font-size: 1.6rem; margin-bottom: 15px; }
+        h2 { color: var(--secondary); border-bottom: 2px solid #eee; padding-bottom: 6px; margin-top: 25px; font-size: 1.25rem; }
+        h3 { color: var(--primary); font-size: 1rem; margin-top: 15px; margin-bottom: 6px; }
+        p { margin-bottom: 14px; color: #444; font-size: 0.95rem; text-align: justify; }
+        ul { margin-bottom: 14px; color: #444; font-size: 0.95rem; padding-left: 20px; }
+        li { margin-bottom: 6px; }
+
+        /* ESTILO CUADRADO EXACTO */
+        .article-content {
+            overflow: hidden; 
+        }
+        .newspaper-img {
+            float: left; 
+            width: 60%; 
+            margin-right: 20px; 
+            margin-bottom: 15px;
+            background-color: #f8fafc;
+            border: 2px dashed #cbd5e1;
+            border-radius: 8px;
+            padding: 6px;
+            box-sizing: border-box;
+        }
+        .newspaper-img img {
+            width: 100%;
+            aspect-ratio: 1 / 1; 
+            object-fit: cover;
+            border-radius: 4px;
+            display: block;
+        }
+        .img-caption {
+            font-size: 0.75rem;
+            color: #666;
+            text-align: center;
+            margin-top: 6px;
+            font-style: italic;
+        }
+
+        /* Estilos de secciones */
+        .section-content { display: none; }
+        .section-content.active { display: block; }
+
+        /* Tablas de comandos compactas */
+        .cmd-table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.85rem; }
+        .cmd-table th { background-color: var(--bg-light); color: var(--secondary); text-align: left; padding: 8px 10px; border-bottom: 2px solid #ddd; }
+        .cmd-table td { padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+        .cmd-code { font-family: monospace; background-color: #eee; padding: 2px 4px; border-radius: 3px; color: #c0392b; font-weight: bold; }
 
         /* Estilos de la Calculadora Web */
-        .calculator-section { margin-top: 50px; border-top: 3px solid #eee; padding-top: 40px; }
-        label { font-weight: bold; display: block; margin-top: 15px; margin-bottom: 5px; }
-        input[type="text"], input[type="number"], select, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
-        textarea { height: 100px; resize: vertical; }
-        .row { display: flex; gap: 15px; }
+        .calculator-section { margin-top: 10px; }
+        label { font-weight: bold; display: block; margin-top: 10px; margin-bottom: 3px; font-size: 0.85rem; }
+        input[type="text"], input[type="number"], select, textarea { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 0.85rem; }
+        textarea { height: 80px; resize: vertical; }
+        .row { display: flex; gap: 10px; }
         .col { flex: 1; }
-        button.calc-btn { background-color: var(--primary); color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 20px; }
+        button.calc-btn { background-color: var(--primary); color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-size: 0.9rem; font-weight: bold; cursor: pointer; margin-top: 15px; }
         button.calc-btn:hover { background-color: var(--primary-dark); }
-        button:disabled { background-color: #95a5a6; cursor: not-allowed; }
-        #loading { display: none; text-align: center; margin-top: 15px; font-style: italic; color: #7f8c8d; }
-        #resultado-section { display: none; margin-top: 25px; border-top: 2px solid #eee; padding-top: 15px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        th { background-color: #f2f2f2; }
-        .btn-save { background-color: #8e44ad; margin-top: 15px; color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-weight: bold; cursor: pointer; }
+        #loading { display: none; text-align: center; margin-top: 10px; font-style: italic; color: #7f8c8d; font-size: 0.85rem; }
+        #resultado-section { display: none; margin-top: 20px; border-top: 2px solid #eee; padding-top: 10px; }
+        table.calc-tbl { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.8rem; }
+        table.calc-tbl th, table.calc-tbl td { border: 1px solid #ddd; padding: 6px; text-align: center; }
+        table.calc-tbl th { background-color: #f2f2f2; }
+        .btn-save { background-color: #8e44ad; margin-top: 10px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
         .btn-save:hover { background-color: #71368a; }
-        .btn-copy { background-color: #2980b9; margin-top: 10px; color: white; padding: 12px; border: none; border-radius: 5px; width: 100%; font-weight: bold; cursor: pointer; }
+        .btn-copy { background-color: #2980b9; margin-top: 8px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
         .btn-copy:hover { background-color: #1f6391; }
-        .user-badge { background: #e0f2fe; color: #0369a1; padding: 8px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; display: inline-block; margin-bottom: 15px; }
-        .error-user { background: #fee2e2; color: #991b1b; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-weight: bold; border-left: 4px solid #dc2626; }
-        footer { text-align: center; padding: 30px; font-size: 13px; color: #7f8c8d; margin-top: 50px; border-top: 1px solid #eee; }
+        .user-badge { background: #e0f2fe; color: #0369a1; padding: 6px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; display: inline-block; margin-bottom: 10px; }
+
+        /* Footer fijo abajo */
+        footer { 
+            background: var(--secondary); 
+            color: white; 
+            text-align: center; 
+            padding: 15px; 
+            flex-shrink: 0;
+            font-size: 0.85rem; 
+        }
+        .footer-links { margin-bottom: 8px; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+        .footer-link { color: white; text-decoration: none; font-weight: 600; padding: 5px 12px; background: rgba(255,255,255,0.1); border-radius: 4px; font-size: 0.8rem; transition: background 0.2s; display: inline-block; }
+        .footer-link:hover { background: rgba(255,255,255,0.2); }
+        .footer-info { opacity: 0.8; font-size: 0.75rem; }
+
+        /* Ajustes para pantallas chicas */
+        @media (max-width: 600px) {
+            .nav-container { flex-direction: column; text-align: center; gap: 6px; padding: 8px 10px; }
+            .nav-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
+            .nav-links a { margin-left: 0; font-size: 0.8rem; }
+            .content-wrapper { padding: 15px; margin: 8px auto; width: 95%; }
+            .newspaper-img { width: 48%; }
+            footer { padding: 10px; }
+        }
     </style>
 </head>
 <body>
 
 <header>
     <div class="nav-container">
-        <a href="#" class="logo">🤖 IA NutriBot</a>
+        <a href="#" class="logo" onclick="showSection('inicio')">🤖 IA NutriBot</a>
         <div class="nav-links">
-            <a href="#inicio">Inicio</a>
-            <a href="#como-funciona">Cómo Funciona</a>
-            <a href="#calculadora">Calculadora Web</a>
+            <a href="#" id="nav-inicio" onclick="showSection('inicio')" class="active">Inicio</a>
+            <a href="#" id="nav-alta" onclick="showSection('alta')">El Alta</a>
+            <a href="#" id="nav-ingreso" onclick="showSection('ingreso')">Ingreso de Datos</a>
+            <a href="#" id="nav-comandos" onclick="showSection('comandos')">Guía de Comandos</a>
+            {% if user_id %}
+            <a href="#" id="nav-calculadora" onclick="showSection('calculadora')">Calculadora Web</a>
+            {% endif %}
         </div>
     </div>
 </header>
 
-<section class="hero" id="inicio">
-    <h1>Tu salud y tus hábitos, en piloto inteligente</h1>
-    <p>Llevá un control real de lo que comés, optimizá tus macronutrientes y entendé tu evolución diaria de forma simple, directa desde Telegram.</p>
-    <a href="https://t.me/TuBotNombre_bot" target="_blank" class="btn-telegram">💬 Abrir Bot en Telegram</a>
-</section>
+<div class="content-wrapper">
 
-<div class="container">
-    <h2 id="como-funciona">¿Qué es IA NutriBot?</h2>
-    <p>Un asistente personal diseñado para cualquier persona que quiera llevar un registro práctico, ordenar su alimentación y cumplir sus objetivos sin planillas eternas ni complicaciones. Con solo enviarle un mensaje de texto, una nota de voz o una foto de tu plato, la Inteligencia Artificial procesa tus ingestas y actividades de forma natural.</p>
-
-    <div class="features-grid">
-        <div class="feature-card">
-            <h3>🎙️ Lenguaje Natural</h3>
-            <p>Hablá o escribí como si hablaras con un asistente humano. El sistema detecta automáticamente si es una comida o una caminata.</p>
+    <!-- =========================================
+         Pestaña 1: INICIO
+         ========================================= -->
+    <div id="section-inicio" class="section-content active">
+        <h1>Asistente Inteligente de Nutrición</h1>
+        <div class="article-content">
+            <div class="newspaper-img">
+                <img src="{{ url_for('static', filename='foto1.png') }}" alt="Foto Inicio" onerror="this.style.display='none'">
+                <div class="img-caption">IA NutriBot</div>
+            </div>
+            
+            <p>Bienvenido a <strong>IA NutriBot</strong>, tu herramienta automatizada en Telegram para gestionar hábitos alimentarios, controlar calorías, macronutrientes y evolución física sin planillas complejas. Diseñado para ofrecer una experiencia fluida, rápida y completamente adaptada a tu rutina diaria.</p>
+            <p>El sistema opera de forma totalmente autónoma mediante inteligencia artificial, permitiéndote registrar tus ingestas con lenguaje natural, ya sea escribiendo, enviando audios o fotografiando tus platos. Olvidate de buscar tablas nutricionales manuales o perder tiempo calculando porciones.</p>
+            <p>Gracias a su arquitectura moderna, el bot procesa toda la información al instante y te devuelve un desglose detallado para que mantener una alimentación equilibrada deje de ser una carga mental y se convierta en un hábito automatizado de todos los días.</p>
+            
+            <h3>Ventajas Principales</h3>
+            <ul>
+                <li><strong>Cero Fricción:</strong> Interacción natural y directa por chat.</li>
+                <li><strong>Informes en PDF:</strong> Resúmenes diarios, semanales y mensuales detallados.</li>
+                <li><strong>Control de Salud:</strong> Registro integrado de presión arterial y pulso.</li>
+            </ul>
         </div>
-        <div class="feature-card">
-            <h3>📊 Informes en PDF</h3>
-            <p>Recibí resúmenes diarios, semanales y reportes mensuales con estimaciones de cambio de peso y gráficos de macronutrientes.</p>
-        </div>
-        <div class="feature-card">
-            <h3>❤️ Control de Presión</h3>
-            <p>Registrá tus valores de presión arterial y pulso de forma rápida mediante comandos sencillos para un seguimiento integral.</p>
-        </div>
-    </div>
-
-    <div class="legal-box">
-        <strong>⚠️ Advertencia Legal:</strong> Este asistente es una herramienta de cálculo automatizado orientada al balance cuantitativo de calorías y nutrientes. No posee un valor médico ni científico y no reemplaza la consulta clínica formal con un profesional de la salud competente.
-    </div>
-
-    <!-- SECCIÓN DE LA CALCULADORA WEB -->
-    <div class="calculator-section" id="calculadora">
-        <h2>🍳 Calculadora Nutricional Web</h2>
-        <p>Herramienta avanzada para registrar recetas complejas o combinaciones de alimentos vinculada a tu cuenta personal.</p>
-
-        {% if user_id %}
-            <div class="user-badge">👤 Usuario conectado: {{ user_id }} (Pestaña: Comidas_{{ user_id }})</div>
-        {% else %}
-            <div class="error-user">⚠️ Atención: Acceso anónimo detectado. No se pueden realizar consultas a la IA ni guardar en planillas. Por favor, accedé mediante el link personalizado enviado por el bot de Telegram.</div>
-        {% endif %}
         
-        <div class="row">
-            <div class="col" style="flex: 0.4;">
-                <label for="codigo">Código / Nombre (Columna A):</label>
-                <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()" {% if not user_id %}disabled{% endif %}>
-            </div>
-            <div class="col">
-                <label for="descripcion">Descripción de la Comida (Columna B):</label>
-                <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún o torta de chocolate" {% if not user_id %}disabled{% endif %}>
-            </div>
-        </div>
-
-        <label for="recetaText">Ingredientes y Cantidades (Receta Completa):</label>
-        <textarea id="recetaText" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca&#10;300 g de azúcar" {% if not user_id %}disabled{% endif %}></textarea>
-
-        <div class="row">
-            <div class="col">
-                <label for="tipoCalculo">Criterio de División:</label>
-                <select id="tipoCalculo" onchange="toggleCriterio()" {% if not user_id %}disabled{% endif %}>
-                    <option value="porciones">Dividir por cantidad de Porciones</option>
-                    <option value="gramos">Dividir de a 100 gramos (Fracción fija 100g)</option>
-                </select>
-            </div>
-            <div class="col" id="colPorciones">
-                <label for="porciones">Cantidad de Porciones:</label>
-                <input type="number" id="porciones" value="1" min="1" {% if not user_id %}disabled{% endif %}>
-            </div>
-        </div>
-
-        <button class="calc-btn" onclick="calcularReceta()" {% if not user_id %}disabled title="Acceso restringido a usuarios registrados vía Telegram"{% endif %}>✨ Calcular Fila con IA</button>
-
-        <div id="loading">🔍 Analizando ingredientes con Groq y calculando proporciones...</div>
-
-        <div id="resultado-section">
-            <h3>Fila Generada (Formato Excel x1000)</h3>
-            <div style="overflow-x: auto;">
-                <table id="tablaNutricional">
-                    <thead>
-                        <tr>
-                            <th>Nombre (A)</th>
-                            <th>Descripción (B)</th>
-                            <th>Peso (C)</th>
-                            <th>Calorías (D)</th>
-                            <th>Proteínas (E)</th>
-                            <th>Grasas (F)</th>
-                            <th>Carbohidratos (G)</th>
-                            <th>Fibras (H)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- Fila cargada mediante JS -->
-                    </tbody>
-                </table>
-            </div>
-
-            {% if user_id %}
-                <button class="btn-save" onclick="guardarEnGoogleSheets()">💾 Guardar Directamente en mi Planilla de Comidas</button>
-            {% endif %}
-            <button class="btn-copy" onclick="copiarFilaExcel()">📋 Copiar Fila para Pegar Manualmente en Excel</button>
+        <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; font-size: 0.8rem; color: #856404; margin-top: 15px; border-radius: 4px; clear: both;">
+            <strong>⚠️ Advertencia Legal:</strong> Herramienta de cálculo automatizado orientada al balance cuantitativo. No reemplaza la consulta clínica formal con un profesional de la salud.
         </div>
     </div>
+
+    <!-- =========================================
+         Pestaña 2: EL ALTA
+         ========================================= -->
+    <div id="section-alta" class="section-content">
+        <h1>Proceso de Alta y Ficha Inicial</h1>
+        <div class="article-content">
+            <div class="newspaper-img">
+                <img src="{{ url_for('static', filename='foto2.png') }}" alt="Foto Alta" onerror="this.style.display='none'">
+                <div class="img-caption">Ficha Inicial</div>
+            </div>
+            
+            <p>El sistema requiere una configuración inicial rápida mediante el comando correspondiente para establecer tus parámetros metabólicos basales y objetivos personalizados. Este circuito inicial sienta las bases de todo tu seguimiento automatizado.</p>
+            <p>No se solicitan datos sensibles ni correos reales; podés utilizar un seudónimo para operar con total tranquilidad y privacidad.</p>
+            
+            <h3>Detalles del Registro Inicial</h3>
+            <ul>
+                <li><strong>Anonimato y Privacidad:</strong> Operá con un apodo o seudónimo (mínimo 2 caracteres).</li>
+                <li><strong>Parámetros Biométricos:</strong> Edad, sexo biológico, altura, peso actual y perímetro de muñeca para calcular contextura ósea.</li>
+                <li><strong>Nivel de Actividad Habitual:</strong> Ocupación diaria general sin contabilizar ejercicio programado.</li>
+                <li><strong>Vinculación Profesional:</strong> Asociá un profesional o usá el código genérico <code>123456789</code>.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- =========================================
+         Pestaña 3: INGRESO DE DATOS
+         ========================================= -->
+    <div id="section-ingreso" class="section-content">
+        <h1>Formas de Ingreso de Ingestas y Actividades</h1>
+        <div class="article-content">
+            <div class="newspaper-img">
+                <img src="{{ url_for('static', filename='foto3.png') }}" alt="Foto Ingreso" onerror="this.style.display='none'">
+                <div class="img-caption">Registro Natural</div>
+            </div>
+            
+            <p>Registrar tus comidas y movimiento diario es tan sencillo como chatear con un conocido. El sistema procesa de manera inteligente múltiples formatos sin requerir sintaxis rígidas ni planillas engorrosas.</p>
+            <p>Ya sea que prefieras mandar un audio detallando tu plato, escribir un mensaje rápido o sacar una foto directa a la comida, la inteligencia artificial se encarga del resto en segundos.</p>
+
+            <h3>Métodos Disponibles</h3>
+            <ul>
+                <li><strong>Texto y Voz:</strong> Describí coloquialmente lo consumido o realizado.</li>
+                <li><strong>Fotografías:</strong> Envía una foto de tu plato para análisis visual directo.</li>
+                <li><strong>Códigos de Barras:</strong> Escaneo rápido y ajuste de porciones al instante.</li>
+                <li><strong>Recetas Complejas:</strong> Gestión avanzada desde la calculadora web.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- =========================================
+         Pestaña 4: GUÍA DE COMANDOS
+         ========================================= -->
+    <div id="section-comandos" class="section-content">
+        <h1>Referencia de Comandos</h1>
+        <div class="article-content">
+            <div class="newspaper-img">
+                <img src="{{ url_for('static', filename='foto4.png') }}" alt="Foto Comandos" onerror="this.style.display='none'">
+                <div class="img-caption">Atajos</div>
+            </div>
+            
+            <p>Listado completo de comandos disponibles para interactuar directamente en el chat del bot y consultar tus registros con total agilidad y reportes automatizados.</p>
+            <p>Cada comando agiliza una tarea específica de consulta o control para que tengas toda tu información organizada al alcance de la mano en todo momento.</p>
+        </div>
+
+        <table class="cmd-table">
+            <thead>
+                <tr>
+                    <th>Comando</th>
+                    <th>Descripción</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><span class="cmd-code">/alta</span></td>
+                    <td>Inicia el proceso de apertura de cuenta y ficha nutricional paso a paso.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/diario</span></td>
+                    <td>Genera el resumen diario de consumos y permite descargar el PDF detallado.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/semanal</span></td>
+                    <td>Muestra la estadística semanal (lunes a domingo) de calorías y macronutrientes.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/mensual</span></td>
+                    <td>Despliega el reporte mensual, estimación de cambio de peso e informes.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/perfil</span></td>
+                    <td>Visualiza en pantalla todos los datos biométricos corporales configurados.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/peso</span></td>
+                    <td>Actualiza el registro de peso correspondiente al mes en curso.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/presi</span></td>
+                    <td>Registra y consulta los valores mensuales de presión arterial y pulso.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/receta</span></td>
+                    <td>Vincula y gestiona recetas complejas mediante la calculadora web.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/comidas</span></td>
+                    <td>Muestra el listado de comidas guardadas y su reporte en PDF.</td>
+                </tr>
+                <tr>
+                    <td><span class="cmd-code">/eliminar</span></td>
+                    <td>Permite dar de baja registros erróneos de ingestas o actividades.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    {% if user_id %}
+    <!-- =========================================
+         Pestaña 5: CALCULADORA WEB (Solo usuarios con ID)
+         ========================================= -->
+    <div id="section-calculadora" class="section-content">
+        <div class="calculator-section">
+            <h2>🍳 Calculadora Nutricional Web</h2>
+            <p>Herramienta avanzada para registrar recetas complejas o combinaciones de alimentos vinculada a tu cuenta personal.</p>
+
+            <div class="user-badge">👤 Usuario conectado: {{ user_id }}</div>
+            
+            <div class="row">
+                <div class="col" style="flex: 0.4;">
+                    <label for="codigo">Código (Columna A):</label>
+                    <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()">
+                </div>
+                <div class="col">
+                    <label for="descripcion">Descripción (Columna B):</label>
+                    <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún">
+                </div>
+            </div>
+
+            <label for="recetaText">Ingredientes y Cantidades:</label>
+            <textarea id="recetaText" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca"></textarea>
+
+            <div class="row">
+                <div class="col">
+                    <label for="tipoCalculo">Criterio de División:</label>
+                    <select id="tipoCalculo" onchange="toggleCriterio()">
+                        <option value="porciones">Por cantidad de Porciones</option>
+                        <option value="gramos">Fracción fija de 100 gramos</option>
+                    </select>
+                </div>
+                <div class="col" id="colPorciones">
+                    <label for="porciones">Porciones:</label>
+                    <input type="number" id="porciones" value="1" min="1">
+                </div>
+            </div>
+
+            <button class="calc-btn" onclick="calcularReceta()">✨ Calcular Fila con IA</button>
+
+            <div id="loading">🔍 Analizando ingredientes con Groq...</div>
+
+            <div id="resultado-section">
+                <h3>Fila Generada (Formato Excel x1000)</h3>
+                <div style="overflow-x: auto;">
+                    <table class="calc-tbl" id="tablaNutricional">
+                        <thead>
+                            <tr>
+                                <th>Nombre (A)</th>
+                                <th>Descripción (B)</th>
+                                <th>Peso (C)</th>
+                                <th>Calorías (D)</th>
+                                <th>Proteínas (E)</th>
+                                <th>Grasas (F)</th>
+                                <th>Carbohidratos (G)</th>
+                                <th>Fibras (H)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Fila cargada mediante JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <button class="btn-save" onclick="guardarEnGoogleSheets()">💾 Guardar Directamente en Planilla</button>
+                <button class="btn-copy" onclick="copiarFilaExcel()">📋 Copiar Fila para Excel</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
 </div>
 
 <footer>
-    <p>IA NutriBot &copy; 2026 - Todos los derechos reservados. Desarrollado con inteligencia artificial.</p>
+    <div class="footer-links">
+        <a href="https://t.me/TuBotNombre_bot" target="_blank" class="footer-link">💬 Abrir Bot en Telegram</a>
+        <a href="https://instagram.com/tucuenta" target="_blank" class="footer-link">📸 Instagram</a>
+        <a href="mailto:tu_correo@gmail.com" class="footer-link">✉️ Mail de Contacto</a>
+        <a href="manual.pdf" target="_blank" class="footer-link">📄 Descargar Manual (PDF)</a>
+    </div>
+    <div class="footer-info">
+        IA NutriBot &copy; 2026 - Todos los derechos reservados.
+    </div>
 </footer>
 
 <script>
-const currentUserId = "{{ user_id }}";
-let ultimoResultadoCalculado = null;
 
-function toggleCriterio() {
-    const tipo = document.getElementById('tipoCalculo').value;
-    const colPorciones = document.getElementById('colPorciones');
-    if (tipo === 'gramos') {
-        colPorciones.style.display = 'none';
-    } else {
-        colPorciones.style.display = 'block';
-    }
-}
-
-async function calcularReceta() {
-    if (!currentUserId) {
-        alert("Acción no permitida para usuarios no registrados.");
-        return;
-    }
-
-    const codigo = document.getElementById('codigo').value.trim();
-    const descripcion = document.getElementById('descripcion').value.trim();
-    const receta = document.getElementById('recetaText').value.trim();
-    const tipoCalculo = document.getElementById('tipoCalculo').value;
-    const porciones = document.getElementById('porciones').value;
-
-    if (!codigo || !descripcion || !receta) {
-        alert("Por favor completa el código, la descripción y los ingredientes.");
-        return;
-    }
-
-    document.getElementById('loading').style.display = 'block';
-    document.getElementById('resultado-section').style.display = 'none';
-
-    try {
-        const response = await fetch('/api/calcular-receta', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                user_id: currentUserId,
-                codigo, 
-                descripcion, 
-                receta, 
-                tipoCalculo, 
-                porciones: parseInt(porciones || 1) 
-            })
-        });
-
-        const data = await response.json();
-        
-        if (response.ok) {
-            ultimoResultadoCalculado = data;
-            const tbody = document.querySelector('#tablaNutricional tbody');
-            tbody.innerHTML = `
-                <tr id="filaExcel">
-                    <td>${data.nombre}</td>
-                    <td>${data.descripcion}</td>
-                    <td>${data.peso}</td>
-                    <td>${data.calorias}</td>
-                    <td>${data.proteinas}</td>
-                    <td>${data.grasas}</td>
-                    <td>${data.carbohidratos}</td>
-                    <td>${data.fibras}</td>
-                </tr>
-            `;
-            document.getElementById('resultado-section').style.display = 'block';
-        } else {
-            alert("Error al calcular: " + (data.error || "Intente nuevamente."));
-        }
-    } catch (err) {
-        alert("Error de conexión con el servidor.");
-    } finally {
-        document.getElementById('loading').style.display = 'none';
-    }
-}
-
-async function guardarEnGoogleSheets() {
-    if (!currentUserId) {
-        alert("No hay ID de usuario asociado.");
-        return;
-    }
-    if (!ultimoResultadoCalculado) {
-        alert("Primero calculá la receta antes de guardar.");
-        return;
-    }
-
-    try {
-        const response = await fetch('/api/guardar-comida', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                user_id: currentUserId,
-                fila: ultimoResultadoCalculado
-            })
-        });
-
-        const res = await response.json();
-        if (response.ok) {
-            if (res.codigo_guardado) {
-                ultimoResultadoCalculado.nombre = res.codigo_guardado;
-                const tdNombre = document.querySelector('#filaExcel td:first-child');
-                if (tdNombre) tdNombre.innerText = res.codigo_guardado;
-            }
-            alert("✅ ¡Éxito! " + res.message);
-        } else {
-            alert("❌ Error al guardar: " + (res.error || "Error desconocido."));
-        }
-    } catch (e) {
-        alert("Error de conexión al intentar guardar.");
-    }
-}
-
-function copiarFilaExcel() {
-    const fila = document.getElementById('filaExcel');
-    if (!fila) return;
-    const celdas = Array.from(fila.querySelectorAll('td')).map(td => td.innerText);
-    const textoCopiable = celdas.join('\t');
-
-    navigator.clipboard.writeText(textoCopiable).then(() => {
-        alert("¡Fila copiada! Podés pegarla en tu Excel con Ctrl + V.");
-    }).catch(err => {
-        alert("Error al copiar al portapapeles.");
+// Detecta si la URL trae el hash #calculadora al cargar la página y abre esa solapa automáticamente
+    window.addEventListener('DOMContentLoaded', () => {
+    if (window.location.hash === '#calculadora') {
+        showSection('calculadora');
+       }
     });
-}
+    function showSection(sectionId) {
+        document.querySelectorAll('.section-content').forEach(el => {
+            el.classList.remove('active');
+        });
+        document.querySelectorAll('.nav-links a').forEach(el => {
+            el.classList.remove('active');
+        });
+        
+        const targetSection = document.getElementById('section-' + sectionId);
+        const targetNav = document.getElementById('nav-' + sectionId);
+        
+        if (targetSection) targetSection.classList.add('active');
+        if (targetNav) targetNav.classList.add('active');
+        
+        const wrapper = document.querySelector('.content-wrapper');
+        if (wrapper) wrapper.scrollTop = 0;
+    }
+
+    const currentUserId = "{{ user_id }}";
+    let ultimoResultadoCalculado = null;
+
+    function toggleCriterio() {
+        const tipo = document.getElementById('tipoCalculo').value;
+        const colPorciones = document.getElementById('colPorciones');
+        if (colPorciones) {
+            colPorciones.style.display = (tipo === 'gramos') ? 'none' : 'block';
+        }
+    }
+
+    async function calcularReceta() {
+        if (!currentUserId) {
+            alert("Acción no permitida para usuarios no registrados.");
+            return;
+        }
+
+        const codigo = document.getElementById('codigo').value.trim();
+        const descripcion = document.getElementById('descripcion').value.trim();
+        const receta = document.getElementById('recetaText').value.trim();
+        const tipoCalculo = document.getElementById('tipoCalculo').value;
+        const porciones = document.getElementById('porciones').value;
+
+        if (!codigo || !descripcion || !receta) {
+            alert("Por favor completa el código, la descripción y los ingredientes.");
+            return;
+        }
+
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('resultado-section').style.display = 'none';
+
+        try {
+            const response = await fetch('/api/calcular-receta', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    user_id: currentUserId,
+                    codigo, 
+                    descripcion, 
+                    receta, 
+                    tipoCalculo, 
+                    porciones: parseInt(porciones || 1) 
+                })
+            });
+
+            const data = await response.json();
+            
+            if (response.ok) {
+                ultimoResultadoCalculado = data;
+                const tbody = document.querySelector('#tablaNutricional tbody');
+                tbody.innerHTML = `
+                    <tr id="filaExcel">
+                        <td>${data.nombre}</td>
+                        <td>${data.descripcion}</td>
+                        <td>${data.peso}</td>
+                        <td>${data.calorias}</td>
+                        <td>${data.proteinas}</td>
+                        <td>${data.grasas}</td>
+                        <td>${data.carbohidratos}</td>
+                        <td>${data.fibras}</td>
+                    </tr>
+                `;
+                document.getElementById('resultado-section').style.display = 'block';
+            } else {
+                alert("Error al calcular: " + (data.error || "Intente nuevamente."));
+            }
+        } catch (err) {
+            alert("Error de conexión con el servidor.");
+        } finally {
+            document.getElementById('loading').style.display = 'none';
+        }
+    }
+
+    async function guardarEnGoogleSheets() {
+        if (!currentUserId) {
+            alert("No hay ID de usuario asociado.");
+            return;
+        }
+        if (!ultimoResultadoCalculado) {
+            alert("Primero calculá la receta antes de guardar.");
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/guardar-comida', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: currentUserId,
+                    fila: ultimoResultadoCalculado
+                })
+            });
+
+            const res = await response.json();
+            if (response.ok) {
+                if (res.codigo_guardado) {
+                    ultimoResultadoCalculado.nombre = res.codigo_guardado;
+                    const tdNombre = document.querySelector('#filaExcel td:first-child');
+                    if (tdNombre) tdNombre.innerText = res.codigo_guardado;
+                }
+                alert("✅ ¡Éxito! " + res.message);
+            } else {
+                alert("❌ Error al guardar: " + (res.error || "Error desconocido."));
+            }
+        } catch (e) {
+            alert("Error de conexión al intentar guardar.");
+        }
+    }
+
+    function copiarFilaExcel() {
+        const fila = document.getElementById('filaExcel');
+        if (!fila) return;
+        const celdas = Array.from(fila.querySelectorAll('td')).map(td => td.innerText);
+        const textoCopiable = celdas.join('\\t');
+
+        navigator.clipboard.writeText(textoCopiable).then(() => {
+            alert("¡Fila copiada! Podés pegarla en tu Excel con Ctrl + V.");
+        }).catch(err => {
+            alert("Error al copiar al portapapeles.");
+        });
+    }
 </script>
 
 </body>
 </html>
 
 """
-
-@app.route('/', methods=['GET'])
-def vista_calculadora():
-    """Renderiza la calculadora de recetas como única página principal, recibiendo el user_id por URL."""
-    user_id = request.args.get('user_id', '')
-    return render_template_string(HTML_CALCULADORA_RECETAS, user_id=user_id)
-
-
-@app.route('/manual.pdf', methods=['GET'])
-def servir_manual_pdf():
-    """Sirve el manual en PDF directamente desde el directorio actual de Render."""
-    try:
-        return send_from_directory(directory=os.getcwd(), path='manual.pdf', as_attachment=True)
-    except Exception as e:
-        return jsonify({"error": "No se encontró el archivo manual.pdf en el servidor."}), 404
-
-
-@app.route('/api/calcular-receta', methods=['POST'])
-def api_calcular_receta():
-    """Procesa los datos con Groq validando obligatoriamente que venga un user_id válido."""
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id')
-
-        if not user_id:
-            return jsonify({"error": "Acceso denegado. Se requiere un usuario válido de Telegram para usar la IA."}), 403
-
-        if not client_ai:
-            return jsonify({"error": "GROQ_API_KEY no está configurada en el servidor."}), 500
-
-        codigo_nombre = data.get('codigo', '').strip().upper()
-        descripcion = data.get('descripcion', '').strip()
-        receta = data.get('receta', '').strip()
-        tipo_calculo = data.get('tipoCalculo', 'porciones')  
-        porciones = int(data.get('porciones', 1))
-
-        prompt = f"""
-        Actúa como un experto en nutrición. Se te proporciona una receta completa con sus ingredientes y sus cantidades.
-        
-        Receta: {descripcion}
-        Ingredientes y cantidades:
-        {receta}
-        
-        Instrucciones:
-        1. Calcula la información nutricional TOTAL de la receta completa (peso total en gramos, calorías, proteínas, grasas, carbohidratos, fibras).
-        2. Devuelve los valores numéricos reales en gramos/kcal para el total acumulado de la receta.
-        3. Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
-        {{
-            "peso_total": número,
-            "calorias_total": número,
-            "proteinas_total": número,
-            "grasas_total": número,
-            "carbohidratos_total": número,
-            "fibras_total": número
-        }}
-        """
-
-        chat_completion = client_ai.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "Sos un asistente nutricional que responde strictly en formato JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            model=GROQ_TEXTO,
-            response_format={"type": "json_object"}
-        )
-
-        raw_text = chat_completion.choices[0].message.content.strip()
-        datos_total = json.loads(raw_text)
-
-        peso_tot = float(datos_total.get('peso_total', 0))
-        cal_tot = float(datos_total.get('calorias_total', 0))
-        prot_tot = float(datos_total.get('proteinas_total', 0))
-        gras_tot = float(datos_total.get('grasas_total', 0))
-        carb_tot = float(datos_total.get('carbohidratos_total', 0))
-        fibr_tot = float(datos_total.get('fibras_total', 0))
-
-        if tipo_calculo == 'gramos':
-            factor = 100.0 / peso_tot if peso_tot > 0 else 1.0
-            peso_unitario = 100.0
-            cal_unitario = cal_tot * factor
-            prot_unitario = prot_tot * factor
-            gras_unitario = gras_tot * factor
-            carb_unitario = carb_tot * factor
-            fibr_unitario = fibr_tot * factor
-            desc_final = f"{descripcion} porcion 100 g §"
-        else:
-            div = porciones if porciones > 0 else 1
-            peso_unitario = peso_tot / div
-            cal_unitario = cal_tot / div
-            prot_unitario = prot_tot / div
-            gras_unitario = gras_tot / div
-            carb_unitario = carb_tot / div
-            fibr_unitario = fibr_tot / div
-            desc_final = f"{descripcion} porcion {int(round(peso_unitario))} g §"
-
-        resultado_excel = {
-            "nombre": codigo_nombre,
-            "descripcion": desc_final,
-            "peso": int(round(peso_unitario * 1000)),
-            "calorias": int(round(cal_unitario * 1000)),
-            "proteinas": int(round(prot_unitario * 1000)),
-            "grasas": int(round(gras_unitario * 1000)),
-            "carbohidratos": int(round(carb_unitario * 1000)),
-            "fibras": int(round(fibr_unitario * 1000))
-        }
-
-        return jsonify(resultado_excel), 200
-
-    except Exception as e:
-        logger.error(f"Error calculando receta web con Groq: {e}")
-        return jsonify({"error": str(e)}), 500
-        
-@app.route('/api/guardar-comida', methods=['POST'])
-def api_guardar_comida():
-    """Guarda la fila calculada validando el usuario."""
-    try:
-        data = request.get_json()
-        user_id = data.get('user_id')
-        fila = data.get('fila')
-
-        if not user_id or not fila:
-            return jsonify({"error": "Faltan parámetros obligatorios (user_id o fila)."}), 400
-
-        codigo_unico = guardar_comida_precargada_db(user_id, fila)
-        
-        codigo_original = fila.get('nombre', '')
-        msg_extra = f" con el código asignado '{codigo_unico}'" if codigo_unico != codigo_original else ""
-        
-        return jsonify({
-            "status": "ok", 
-            "codigo_guardado": codigo_unico,
-            "message": f"Comida agregada en pestaña Comidas_{user_id}{msg_extra}."
-        }), 200
-
-    except Exception as e:
-        logger.error(f"Error al guardar en Google Sheets: {e}")
-        return jsonify({"error": str(e)}), 500
-
-# =============================================================================================================================================
-#                    FINAL                                   PAGINA WEB                                     FINAL
-# =============================================================================================================================================
-
 # =============================================================================================================================================
 #              INICIO                                   FUNCIONES SUPABASE                           INICIO
 # =============================================================================================================================================
@@ -3986,14 +4084,15 @@ def generar_pdf_comidas_bytes(plantillas):
 @requiere_registro
 async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    web_app_url = f"https://telegram-bot-nutricion.onrender.com/?user_id={user_id}"
+    # El link incluye el parámetro user_id y el hash #calculadora para abrir directo en esa sección
+    web_app_url = f"https://telegram-bot-nutricion.onrender.com/?user_id={user_id}#calculadora"
     
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🍳 Abrir Creador de Recetas", url=web_app_url)]
     ])
     
     mensaje = (
-        f"👋 Hola! Usá el siguiente botón para calcular los valores nutricionales "
+        f"👋 ¡Hola! Usá el siguiente botón para calcular los valores nutricionales "
         f"de tu receta e ingresarla directamente en tu planilla personalizada (*Comidas_{user_id}*):"
     )
     
@@ -5053,6 +5152,57 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         logger.error(f"Error al enviar PDF: {e}", exc_info=True)
         await mensaje_espera.edit_text(f"⚠️ Error al procesar la descarga del PDF: {e}")
         
+#                INICIO                               MENSAJES PROGRAMADOS                          INICIO  
+# ======================================================================================================================================
+
+async def job_buenas_noches(context):
+    """Envía un mensajito de buenas noches empático basado en lo que registró el usuario hoy."""
+    try:
+        registros_usuarios = obtener_todos_usuarios()
+        if not registros_usuarios:
+            return
+
+        ahora_dt = obtener_ahora_arg()
+        str_hoy = ahora_dt.strftime("%Y-%m-%d")
+
+        for index, u in enumerate(registros_usuarios):
+            try:
+                estado_raw = str(u.get("Estado", u.get("estado", "0"))).strip().lower()
+                notif = str(u.get("Notificaciones", "")).strip().lower()
+                raw_user_id = u.get("User ID", u.get("user_id", ""))
+                
+                if not raw_user_id or estado_raw in ['baja', 'suspendido', '3'] or notif not in ["si", "sí"]:
+                    continue
+                
+                user_id = int(str(raw_user_id).split('.')[0].strip())
+                
+                # Buscar si registró algo el día de hoy
+                registros_u = obtener_registros_usuario(user_id)
+                registros_hoy = [r for r in registros_u if str(r.get("Fecha", "")).strip() == str_hoy]
+                
+                # Si el usuario tuvo actividad hoy, le mandamos el cierre motivador
+                if registros_hoy:
+                    resumen_texto = ", ".join([f"{r.get('Momento/Actividad') or r.get('Momento', '')}: {r.get('Alimento/Detalle') or r.get('Alimento', '')}" for r in registros_hoy])
+                    
+                    prompt_noches = (
+                        f"Actúa como un coach nutricional súper empático, cálido y amigable. "
+                        f"Esto registró el usuario hoy: {resumen_texto}. "
+                        f"Escríbete un mensaje de buenas noches brevísimo (máximo 2 o 3 líneas), recontra motivador, "
+                        f"sin ningún regaño, destacando el esfuerzo del día y deseándole un buen descanso."
+                    )
+                    
+                    mensaje_ia = ejecutar_consulta_ia(prompt_noches, max_tokens=150, temperature=0.5)
+                    if mensaje_ia:
+                        texto_final = f"🌙 **Buenas noches:**\n\n{mensaje_ia}"
+                        await context.bot.send_message(chat_id=user_id, text=texto_final, parse_mode="Markdown")
+                        
+                        if index < len(registros_usuarios) - 1:
+                            await asyncio.sleep(5)
+            except Exception as e_user:
+                logger.error(f"Error en buenas noches para usuario {u}: {e_user}")
+    except Exception as e:
+        logger.error(f"Error general en job_buenas_noches: {e}")
+        
 async def recordatorio_lunes_presion(context):
     try:
         records = obtener_todos_usuarios()
@@ -5197,7 +5347,11 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
                         await context.bot.send_message(
                             chat_id=user_id,
-                            text="❌ **Su usuario ha sido dado de baja / suspendido** por acumular tres semanas consecutivas sin registro completo de ingestas. Ya no podrá registrar más comidas ni recibir resúmenes.",
+                            text=(
+                                "Hola. Vimos que pasaron varias semanas sin actividad en el bot y por ahora pausamos tu seguimiento automático para no llenarte de avisos. "
+                                "Cuando tengas ganas de retomar y ordenar tus hábitos de nuevo, simplemente escribinos o usá `/alta` para reactivar tu ficha. "
+                                "¡Acá vamos a estar esperándote sin juzgar a nadie!"
+                            ),
                             parse_mode="Markdown"
                         )
                         continue
@@ -5208,10 +5362,10 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                         await context.bot.send_message(
                             chat_id=user_id,
                             text=(
-                                f"⚠️ **Aviso de Ingesta Incompleta (Semana Pasada)**\n\n"
-                                f"Notamos que la semana pasada no se completaron los registros mínimos de comidas con al menos una comida principal ({dias_str}). "
-                                f"Acumulás una advertencia (Estado actual: {actual_puntos}/3).\n"
-                                f"Recordá que al llegar a 3 semanas consecutivas sin registrar, el usuario quedará suspendido."
+                                f"¡Hola! ☕ Notamos que la semana pasada se nos complicó un poquito el registro de las comidas ({dias_str}). "
+                                f"¡No pasa nada! Los baches son totalmente normales y a todos nos pasa.\n\n"
+                                f"Queremos acompañarte de la mejor manera, pero para que los reportes semanales salgan bien afinados necesitamos un mínimo de constancia. "
+                                f"¿Te parece si arrancamos de nuevo hoy con toda la energía?"
                             ),
                             parse_mode="Markdown"
                         )
@@ -5401,7 +5555,8 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                 logger.info(f"Recordatorio de comidas ({momento}) enviado a {user_id}")
 
         except Exception as e:
-            logger.error(f"Error procesando usuario {user_id}: {e}")                        
+            logger.error(f"Error procesando usuario {user_id}: {e}")
+                                 
 
 # =============================================================================================================================================
 #                    FINAL                                    COMANDOS INFORMES                                        FINAL
@@ -6856,6 +7011,13 @@ def main():
                 job_recordatorio_tarde, 
                 time=time(hour=18, minute=0, second=0, tzinfo=tz),
                 name="recordatorio_comidas_tarde"
+            )
+
+            # 🌙 Nueva tarea automática de Buenas Noches
+            job_queue.run_daily(
+                job_buenas_noches, 
+                time=time(hour=21, minute=30, second=0, tzinfo=tz),
+                name="recordatorio_buenas_noches"
             )
         else:
             print("⚠️ Advertencia: job_queue no está disponible. Verifique que 'python-telegram-bot[job-queue]' esté instalado.")
