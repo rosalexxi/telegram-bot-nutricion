@@ -2185,8 +2185,7 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
     try:
         ultimo_registro = obtener_ultimo_peso(uid) if 'obtener_ultimo_peso' in globals() else None
     except Exception as e:
-        if 'log_error' in globals():
-            await log_error("validar_peso_mes_actual", e, user_id=uid)
+        logger.error(f"Error en validar_peso_mes_actual para User {uid}: {e}")
         ultimo_registro = None
 
     peso_valido = False
@@ -2227,7 +2226,7 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
                     peso_valido = True
                     
     return peso_valido
-    
+        
 #              INICIO                     12 FUNCIONES COMIDAS                           INICIO
 # =============================================================================================================================================
 
@@ -2383,7 +2382,80 @@ def procesar_foto_codigo_barras(base64_image: str) -> dict | bool:
 #              INICIO                        13 FUNCIONES LOGGING Y TELEGRAM                           INICIO
 # =============================================================================================================================================
 
-async def enviar_mensaje_largo(context, chat_id, texto, parse_mode="HTML"):
+def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
+    """
+    Verifica si existe la fila del mes actual en la tabla Perfil_<user_id> en Supabase.
+    Si no existe (ej: 1 de cada mes), toma los datos vigentes del último registro
+    y crea la nueva fila inicializada de forma transparente.
+    """
+    mes_actual_str = ahora_dt.strftime("%Y-%m")
+    tabla_nombre = f"Perfil_{user_id}"
+
+    try:
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+        
+        # 1. Verificar si ya existe el mes actual
+        cur.execute(f'SELECT id FROM "{tabla_nombre}" WHERE "MES" = %s', (str(mes_actual_str),))
+        fila_existente = cur.fetchone()
+        
+        if fila_existente:
+            cur.close()
+            conn.close()
+            return
+
+        logger.info(f"Inicializando nueva fila mensual ({mes_actual_str}) para User {user_id} en Supabase...")
+
+        # 2. Buscar el último registro histórico para heredar el último peso y datos base
+        cur.execute(f'SELECT "EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "Peso_ideal", "Cumple" FROM "{tabla_nombre}" ORDER BY id DESC LIMIT 1')
+        ultima_fila = cur.fetchone()
+        
+        if ultima_fila:
+            edad_val = ultima_fila[0] or "64"
+            peso_val = ultima_fila[1] or 70.0
+            altura_val = ultima_fila[2] or 1.70
+            genero_val = ultima_fila[3] or "M"
+            ocupacion_val = ultima_fila[4] or 1.375
+            peso_ideal_val = ultima_fila[5] or 0.0
+            cumple_val = ultima_fila[6] or ""
+        else:
+            edad_val = "64"
+            peso_val = 70.0
+            altura_val = 1.70
+            genero_val = "M"
+            ocupacion_val = 1.375
+            peso_ideal_val = 0.0
+            cumple_val = ""
+
+        # 3. Insertar la nueva fila para el mes actual en Supabase
+        cur.execute(f"""
+            INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            str(edad_val),
+            float(peso_val),
+            float(altura_val),
+            str(genero_val),
+            float(ocupacion_val),
+            str(mes_actual_str),
+            ahora_dt.strftime("%Y-%m-%d"),
+            float(peso_ideal_val),
+            str(cumple_val)
+        ))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        logger.info(f"Fila del mes {mes_actual_str} creada exitosamente en Supabase para User {user_id}")
+
+    except Exception as e:
+        logger.error(f"Error al garantizar fila mensual en Supabase para User {user_id}: {e}")
+        if 'cur' in locals() and cur:
+            cur.close()
+        if 'conn' in locals() and conn:
+            conn.close()
+            
+async def enviar_mensaje_largo(context, chat_id
+, texto, parse_mode="HTML"):
     limite = 4000
     if len(texto) <= limite:
         await context.bot.send_message(chat_id=chat_id, text=texto, parse_mode=parse_mode)
@@ -3511,6 +3583,22 @@ def parsear_fecha_flexible(raw_text):
             return f"{obtener_ahora_arg().year:04d}-{int(partes[1]):02d}-{int(partes[0]):02d}"
     except Exception: pass
     return None
+
+async def _sub_manejar_voz_ingesta(update, context, transcription, msg):
+    """
+    Procesa la transcripción de una nota de voz de ingesta alimentaria,
+    la analiza con IA y muestra la pantalla de confirmación.
+    """
+    try:
+        # Envía la transcripción al analizador de texto/ingestas de Groq
+        data = analizar_con_groq(transcription)
+        
+        # Pasa el resultado al procesador y renderizador de confirmación
+        await procesar_y_mostrar_confirmacion(data, msg, context)
+        
+    except Exception as e:
+        logger.error(f"Error procesando voz de ingesta: {e}")
+        await msg.edit_text(f"❌ Error al procesar el audio con IA: {e}")
 
 async def _sub_manejar_voz_actividad(update, context, transcription, msg):
     context.user_data['awaiting_activity_voice'] = False
