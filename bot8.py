@@ -1,3 +1,5 @@
+
+
 # =============================================================================================================================================
 #                                 INICIO                                   CABECERA 2026 09 05                                    INICIO
 #                                  https://github.com/rosalexxi/telegram-bot-nutricion
@@ -101,8 +103,6 @@ def run_flask():
 # =====================================================================================================================================
 #              INICIO                                  PAGINA WEB (CALCULADORA UNICA)                        INICIO  DB OK
 # ======================================================================================================================================
-
-app = Flask(__name__)
 
 HTML_CALCULADORA_RECETAS = """
 
@@ -518,14 +518,12 @@ HTML_CALCULADORA_RECETAS = """
 </footer>
 
 <script>
-    // Detecta si la URL trae el hash #calculadora al cargar la página y abre esa solapa automáticamente
     window.addEventListener('DOMContentLoaded', () => {
         if (window.location.hash === '#calculadora') {
             showSection('calculadora');
         }
     });
 
-    // Función para reproducir la audioguía leyendo el contenido de guia.txt en voz alta
     async function reproducirAudioguia() {
         if ('speechSynthesis' in window) {
             window.speechSynthesis.cancel();
@@ -560,7 +558,6 @@ HTML_CALCULADORA_RECETAS = """
         if (targetSection) targetSection.classList.add('active');
         if (targetNav) targetNav.classList.add('active');
         
-        // Vuelve arriba de la página al cambiar de solapa
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
@@ -609,17 +606,14 @@ HTML_CALCULADORA_RECETAS = """
                 })
             });
 
-            // 1. Obtenemos la respuesta como texto plano primero
             const responseText = await response.text();
 
-            // 2. Verificamos si el servidor devolvió HTML por error (ej: <!DOCTYPE html>)
             if (responseText.trim().startsWith('<')) {
                 console.error("Error del servidor (HTML):", responseText);
-                alert("❌ El servidor falló (Código HTTP: " + response.status + "). Revisa los logs en el panel de Render para ver el error exacto de Python.");
+                alert("❌ El servidor falló (Código HTTP: " + response.status + "). Revisa los logs en el panel de Render.");
                 return;
             }
 
-            // 3. Si no es HTML, lo convertimos a JSON de forma segura
             const data = JSON.parse(responseText);
             
             if (response.ok) {
@@ -726,9 +720,133 @@ def servir_guia_txt():
         return send_from_directory(directory=os.path.join(os.getcwd(), 'static'), path='guia.txt', as_attachment=False)
     except Exception as e:
         return jsonify({"error": "No se encontró el archivo guia.txt en la carpeta static."}), 404
+
+
+@app.route('/api/calcular-receta', methods=['POST'])
+def api_calcular_receta():
+    """Procesa los datos con Groq validando obligatoriamente que venga un user_id válido."""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+
+        if not user_id:
+            return jsonify({"error": "Acceso denegado. Se requiere un usuario válido de Telegram para usar la IA."}), 403
+
+        if not client_ai:
+            return jsonify({"error": "GROQ_API_KEY no está configurada en el servidor."}), 500
+
+        codigo_nombre = data.get('codigo', '').strip().upper()
+        descripcion = data.get('descripcion', '').strip()
+        receta = data.get('receta', '').strip()
+        tipo_calculo = data.get('tipoCalculo', 'porciones')  
+        porciones = int(data.get('porciones', 1))
+
+        prompt = f"""
+        Actúa como un experto en nutrición. Se te proporciona una receta completa con sus ingredientes y sus cantidades.
         
+        Receta: {descripcion}
+        Ingredientes y cantidades:
+        {receta}
+        
+        Instrucciones:
+        1. Calcula la información nutricional TOTAL de la receta completa (peso total en gramos, calorías, proteínas, grasas, carbohidratos, fibras).
+        2. Devuelve los valores numéricos reales en gramos/kcal para el total acumulado de la receta.
+        3. Responde ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
+        {{
+            "peso_total": número,
+            "calorias_total": número,
+            "proteinas_total": número,
+            "grasas_total": número,
+            "carbohidratos_total": número,
+            "fibras_total": número
+        }}
+        """
+
+        chat_completion = client_ai.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "Sos un asistente nutricional que responde strictly en formato JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            model=GROQ_TEXTO,
+            response_format={"type": "json_object"}
+        )
+
+        raw_text = chat_completion.choices[0].message.content.strip()
+        datos_total = json.loads(raw_text)
+
+        peso_tot = float(datos_total.get('peso_total', 0))
+        cal_tot = float(datos_total.get('calorias_total', 0))
+        prot_tot = float(datos_total.get('proteinas_total', 0))
+        gras_tot = float(datos_total.get('grasas_total', 0))
+        carb_tot = float(datos_total.get('carbohidratos_total', 0))
+        fibr_tot = float(datos_total.get('fibras_total', 0))
+
+        if tipo_calculo == 'gramos':
+            factor = 100.0 / peso_tot if peso_tot > 0 else 1.0
+            peso_unitario = 100.0
+            cal_unitario = cal_tot * factor
+            prot_unitario = prot_tot * factor
+            gras_unitario = gras_tot * factor
+            carb_unitario = carb_tot * factor
+            fibr_unitario = fibr_tot * factor
+            desc_final = f"{descripcion} porcion 100 g §"
+        else:
+            div = porciones if porciones > 0 else 1
+            peso_unitario = peso_tot / div
+            cal_unitario = cal_tot / div
+            prot_unitario = prot_tot / div
+            gras_unitario = gras_tot / div
+            carb_unitario = carb_tot / div
+            fibr_unitario = fibr_tot / div
+            desc_final = f"{descripcion} porcion {int(round(peso_unitario))} g §"
+
+        resultado_excel = {
+            "nombre": codigo_nombre,
+            "descripcion": desc_final,
+            "peso": int(round(peso_unitario * 1000)),
+            "calorias": int(round(cal_unitario * 1000)),
+            "proteinas": int(round(prot_unitario * 1000)),
+            "grasas": int(round(gras_unitario * 1000)),
+            "carbohidratos": int(round(carb_unitario * 1000)),
+            "fibras": int(round(fibr_unitario * 1000))
+        }
+
+        return jsonify(resultado_excel), 200
+
+    except Exception as e:
+        logger.error(f"Error calculando receta web con Groq: {e}")
+        return jsonify({"error": str(e)}), 500
+        
+
+@app.route('/api/guardar-comida', methods=['POST'])
+def api_guardar_comida():
+    """Guarda la fila calculada validando el usuario."""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        fila = data.get('fila')
+
+        if not user_id or not fila:
+            return jsonify({"error": "Faltan parámetros obligatorios (user_id o fila)."}), 400
+
+        codigo_unico = guardar_comida_precargada_db(user_id, fila)
+        
+        codigo_original = fila.get('nombre', '')
+        msg_extra = f" con el código asignado '{codigo_unico}'" if codigo_unico != codigo_original else ""
+        
+        return jsonify({
+            "status": "ok", 
+            "codigo_guardado": codigo_unico,
+            "message": f"Comida agregada en pestaña Comidas_{user_id}{msg_extra}."
+        }), 200
+
+    cesept = Exception
+    except Exception as e:
+        logger.error(f"Error al guardar en Supabase: {e}")
+        return jsonify({"error": str(e)}), 500
+
 # =====================================================================================================================================
-#              INICIO                                  PAGINA WEB (CALCULADORA UNICA)                        INICIO  DB OK
+#              FINAL                                  PAGINA WEB (CALCULADORA UNICA)                        FINAL
 # ======================================================================================================================================
 
 # =============================================================================================================================================
