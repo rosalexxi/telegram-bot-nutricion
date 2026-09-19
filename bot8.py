@@ -121,18 +121,14 @@ HTML_CALCULADORA_RECETAS = """
             --text-color: #333;
         }
         
-        /* Fijamos la altura de la pantalla completa y evitamos el scroll general del body */
+        /* Permitimos flujo normal de scroll en la página para evitar solapamientos */
         html, body { 
-            height: 100vh; 
+            min-height: 100vh; 
             margin: 0; 
             padding: 0; 
-            overflow: hidden; 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
             background-color: var(--bg-light); 
             color: var(--text-color); 
-        }
-
-        body {
             display: flex;
             flex-direction: column;
         }
@@ -149,18 +145,17 @@ HTML_CALCULADORA_RECETAS = """
         .nav-links a { margin-left: 12px; text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 0.85rem; transition: color 0.2s; }
         .nav-links a:hover, .nav-links a.active { color: var(--primary); }
 
-        /* Contenedor Principal con Scroll Propio en el medio */
+        /* Contenedor Principal con flujo natural */
         .content-wrapper { 
             max-width: 900px; 
-            margin: 15px auto; 
+            margin: 20px auto; 
             background: white; 
             padding: 30px; 
             border-radius: 12px; 
             box-shadow: 0 4px 15px rgba(0,0,0,0.05); 
             width: 90%; 
             box-sizing: border-box; 
-            flex: 1;                /* Ocupa todo el espacio libre del medio */
-            overflow-y: auto;       /* Activa el scroll SOLO acá adentro */
+            flex: 1;
         }
 
         h1 { color: var(--secondary); margin-top: 0; font-size: 1.6rem; margin-bottom: 15px; }
@@ -230,17 +225,35 @@ HTML_CALCULADORA_RECETAS = """
         .btn-copy:hover { background-color: #1f6391; }
         .user-badge { background: #e0f2fe; color: #0369a1; padding: 6px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; display: inline-block; margin-bottom: 10px; }
 
-        /* Footer fijo abajo */
+        /* Footer adaptable y visible */
         footer { 
             background: var(--secondary); 
             color: white; 
             text-align: center; 
-            padding: 15px; 
+            padding: 20px 15px; 
             flex-shrink: 0;
             font-size: 0.85rem; 
+            margin-top: auto;
         }
-        .footer-links { margin-bottom: 8px; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
-        .footer-link { color: white; text-decoration: none; font-weight: 600; padding: 5px 12px; background: rgba(255,255,255,0.1); border-radius: 4px; font-size: 0.8rem; transition: background 0.2s; display: inline-block; cursor: pointer; }
+        .footer-links { 
+            margin-bottom: 10px; 
+            display: flex; 
+            flex-wrap: wrap; 
+            justify-content: center; 
+            gap: 8px; 
+        }
+        .footer-link { 
+            color: white; 
+            text-decoration: none; 
+            font-weight: 600; 
+            padding: 6px 12px; 
+            background: rgba(255,255,255,0.1); 
+            border-radius: 4px; 
+            font-size: 0.8rem; 
+            transition: background 0.2s; 
+            display: inline-block; 
+            cursor: pointer; 
+        }
         .footer-link:hover { background: rgba(255,255,255,0.2); }
         .footer-info { opacity: 0.8; font-size: 0.75rem; }
 
@@ -249,9 +262,9 @@ HTML_CALCULADORA_RECETAS = """
             .nav-container { flex-direction: column; text-align: center; gap: 6px; padding: 8px 10px; }
             .nav-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
             .nav-links a { margin-left: 0; font-size: 0.8rem; }
-            .content-wrapper { padding: 15px; margin: 8px auto; width: 95%; }
-            .newspaper-img { width: 48%; }
-            footer { padding: 10px; }
+            .content-wrapper { padding: 15px; margin: 10px auto; width: 95%; }
+            .newspaper-img { width: 100%; float: none; margin-right: 0; }
+            footer { padding: 15px 10px; }
         }
     </style>
 </head>
@@ -493,9 +506,11 @@ HTML_CALCULADORA_RECETAS = """
 
 <footer>
     <div class="footer-links">
-        <a href="https://t.me/TuBotNombre_bot" target="_blank" class="footer-link">💬 Abrir Bot en Telegram</a>
-        <a onclick="reproducirAudioguia()" class="footer-link">🔊 Audioguía</a>
-        <a href="manual.pdf" target="_blank" class="footer-link">📄 Descargar Manual (PDF)</a>
+        <a href="https://ianutribot.com" target="_blank" class="footer-link">💬 Sitio Web</a>
+        <a href="guia.txt" target="_blank" class="footer-link">🔊 Guía (TXT)</a>
+        <a href="manual.pdf" target="_blank" class="footer-link">📄 Manual (PDF)</a>
+        <a href="https://instagram.com/ianutribot" target="_blank" class="footer-link">📸 Instagram</a>
+        <a href="mailto:ianutribot@gmail.com" class="footer-link">✉️ Mail</a>
     </div>
     <div class="footer-info">
         IA NutriBot &copy; 2026 - Todos los derechos reservados.
@@ -545,8 +560,7 @@ HTML_CALCULADORA_RECETAS = """
         if (targetSection) targetSection.classList.add('active');
         if (targetNav) targetNav.classList.add('active');
         
-        const wrapper = document.querySelector('.content-wrapper');
-        if (wrapper) wrapper.scrollTop = 0;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     const currentUserId = "{{ user_id }}";
@@ -683,6 +697,7 @@ def vista_calculadora():
     user_id = request.args.get('user_id', '')
     return render_template_string(HTML_CALCULADORA_RECETAS, user_id=user_id)
 
+
 @app.route('/manual.pdf', methods=['GET'])
 def servir_manual_pdf():
     """Sirve el manual en PDF ubicado de forma segura en la carpeta static."""
@@ -690,6 +705,7 @@ def servir_manual_pdf():
         return send_from_directory(directory=os.path.join(os.getcwd(), 'static'), path='manual.pdf', as_attachment=True)
     except Exception as e:
         return jsonify({"error": "No se encontró el archivo manual.pdf en la carpeta static."}), 404
+
 
 @app.route('/guia.txt', methods=['GET'])
 def servir_guia_txt():
