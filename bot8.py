@@ -240,7 +240,7 @@ HTML_CALCULADORA_RECETAS = """
             font-size: 0.85rem; 
         }
         .footer-links { margin-bottom: 8px; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
-        .footer-link { color: white; text-decoration: none; font-weight: 600; padding: 5px 12px; background: rgba(255,255,255,0.1); border-radius: 4px; font-size: 0.8rem; transition: background 0.2s; display: inline-block; }
+        .footer-link { color: white; text-decoration: none; font-weight: 600; padding: 5px 12px; background: rgba(255,255,255,0.1); border-radius: 4px; font-size: 0.8rem; transition: background 0.2s; display: inline-block; cursor: pointer; }
         .footer-link:hover { background: rgba(255,255,255,0.2); }
         .footer-info { opacity: 0.8; font-size: 0.75rem; }
 
@@ -494,8 +494,7 @@ HTML_CALCULADORA_RECETAS = """
 <footer>
     <div class="footer-links">
         <a href="https://t.me/TuBotNombre_bot" target="_blank" class="footer-link">💬 Abrir Bot en Telegram</a>
-        <a href="https://instagram.com/tucuenta" target="_blank" class="footer-link">📸 Instagram</a>
-        <a href="mailto:tu_correo@gmail.com" class="footer-link">✉️ Mail de Contacto</a>
+        <a onclick="reproducirAudioguia()" class="footer-link">🔊 Audioguía</a>
         <a href="manual.pdf" target="_blank" class="footer-link">📄 Descargar Manual (PDF)</a>
     </div>
     <div class="footer-info">
@@ -504,13 +503,34 @@ HTML_CALCULADORA_RECETAS = """
 </footer>
 
 <script>
-
-// Detecta si la URL trae el hash #calculadora al cargar la página y abre esa solapa automáticamente
+    // Detecta si la URL trae el hash #calculadora al cargar la página y abre esa solapa automáticamente
     window.addEventListener('DOMContentLoaded', () => {
-    if (window.location.hash === '#calculadora') {
-        showSection('calculadora');
-       }
+        if (window.location.hash === '#calculadora') {
+            showSection('calculadora');
+        }
     });
+
+    // Función para reproducir la audioguía leyendo el archivo guia.txt del servidor
+    async function reproducirAudioguia() {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+            try {
+                const response = await fetch('/guia.txt');
+                if (!response.ok) throw new Error("No se pudo cargar el archivo guia.txt en el servidor.");
+                const textoGuia = await response.text();
+                
+                const utterance = new SpeechSynthesisUtterance(textoGuia);
+                utterance.lang = 'es-AR';
+                utterance.rate = 1.0;
+                window.speechSynthesis.speak(utterance);
+            } catch (error) {
+                alert("Error al reproducir la audioguía: " + error.message);
+            }
+        } else {
+            alert("Tu navegador no soporta la función de lectura de voz.");
+        }
+    }
+
     function showSection(sectionId) {
         document.querySelectorAll('.section-content').forEach(el => {
             el.classList.remove('active');
@@ -656,6 +676,33 @@ HTML_CALCULADORA_RECETAS = """
 </html>
 
 """
+
+@app.route('/', methods=['GET'])
+def vista_calculadora():
+    """Renderiza la página principal con solapas, recibiendo el user_id por URL."""
+    user_id = request.args.get('user_id', '')
+    return render_template_string(HTML_CALCULADORA_RECETAS, user_id=user_id)
+
+@app.route('/manual.pdf', methods=['GET'])
+def servir_manual_pdf():
+    """Sirve el manual en PDF ubicado de forma segura en la carpeta static."""
+    try:
+        return send_from_directory(directory=os.path.join(os.getcwd(), 'static'), path='manual.pdf', as_attachment=True)
+    except Exception as e:
+        return jsonify({"error": "No se encontró el archivo manual.pdf en la carpeta static."}), 404
+
+@app.route('/guia.txt', methods=['GET'])
+def servir_guia_txt():
+    """Sirve el archivo guia.txt ubicado de forma segura en la carpeta static."""
+    try:
+        return send_from_directory(directory=os.path.join(os.getcwd(), 'static'), path='guia.txt', as_attachment=False)
+    except Exception as e:
+        return jsonify({"error": "No se encontró el archivo guia.txt en la carpeta static."}), 404
+        
+# =====================================================================================================================================
+#              FINAL                                  PAGINA WEB (CALCULADORA UNICA)                        FINAL
+# ======================================================================================================================================
+
 # =============================================================================================================================================
 #              INICIO                                   FUNCIONES SUPABASE                           INICIO
 # =============================================================================================================================================
