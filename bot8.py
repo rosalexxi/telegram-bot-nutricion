@@ -121,11 +121,12 @@ HTML_CALCULADORA_RECETAS = """
             --text-color: #333;
         }
         
-        /* Permitimos flujo normal de scroll en la página para evitar solapamientos */
+        /* Fijamos la altura de pantalla completa y evitamos el scroll general del body */
         html, body { 
-            min-height: 100vh; 
+            height: 100vh; 
             margin: 0; 
             padding: 0; 
+            overflow: hidden; 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
             background-color: var(--bg-light); 
             color: var(--text-color); 
@@ -140,30 +141,31 @@ HTML_CALCULADORA_RECETAS = """
             flex-shrink: 0;
             z-index: 1000; 
         }
-        .nav-container { max-width: 1100px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; }
-        .logo { font-size: 1.25rem; font-weight: bold; color: var(--primary); text-decoration: none; }
+        .nav-container { max-width: 1100px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; }
+        .logo { font-size: 1.2rem; font-weight: bold; color: var(--primary); text-decoration: none; }
         .nav-links a { margin-left: 12px; text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 0.85rem; transition: color 0.2s; }
         .nav-links a:hover, .nav-links a.active { color: var(--primary); }
 
-        /* Contenedor Principal con flujo natural */
+        /* Contenedor Principal con Scroll Propio en el medio */
         .content-wrapper { 
             max-width: 900px; 
-            margin: 20px auto; 
+            margin: 12px auto; 
             background: white; 
-            padding: 30px; 
+            padding: 25px; 
             border-radius: 12px; 
             box-shadow: 0 4px 15px rgba(0,0,0,0.05); 
             width: 90%; 
             box-sizing: border-box; 
-            flex: 1;
+            flex: 1;                /* Ocupa todo el espacio libre del medio */
+            overflow-y: auto;       /* Activa el scroll SOLO acá adentro */
         }
 
-        h1 { color: var(--secondary); margin-top: 0; font-size: 1.6rem; margin-bottom: 15px; }
-        h2 { color: var(--secondary); border-bottom: 2px solid #eee; padding-bottom: 6px; margin-top: 25px; font-size: 1.25rem; }
-        h3 { color: var(--primary); font-size: 1rem; margin-top: 15px; margin-bottom: 6px; }
-        p { margin-bottom: 14px; color: #444; font-size: 0.95rem; text-align: justify; }
-        ul { margin-bottom: 14px; color: #444; font-size: 0.95rem; padding-left: 20px; }
-        li { margin-bottom: 6px; }
+        h1 { color: var(--secondary); margin-top: 0; font-size: 1.5rem; margin-bottom: 12px; }
+        h2 { color: var(--secondary); border-bottom: 2px solid #eee; padding-bottom: 6px; margin-top: 20px; font-size: 1.2rem; }
+        h3 { color: var(--primary); font-size: 0.95rem; margin-top: 12px; margin-bottom: 5px; }
+        p { margin-bottom: 12px; color: #444; font-size: 0.9rem; text-align: justify; }
+        ul { margin-bottom: 12px; color: #444; font-size: 0.9rem; padding-left: 20px; }
+        li { margin-bottom: 5px; }
 
         /* ESTILO CUADRADO EXACTO */
         .article-content {
@@ -172,8 +174,8 @@ HTML_CALCULADORA_RECETAS = """
         .newspaper-img {
             float: left; 
             width: 60%; 
-            margin-right: 20px; 
-            margin-bottom: 15px;
+            margin-right: 15px; 
+            margin-bottom: 12px;
             background-color: #f8fafc;
             border: 2px dashed #cbd5e1;
             border-radius: 8px;
@@ -191,7 +193,7 @@ HTML_CALCULADORA_RECETAS = """
             font-size: 0.75rem;
             color: #666;
             text-align: center;
-            margin-top: 6px;
+            margin-top: 5px;
             font-style: italic;
         }
 
@@ -200,43 +202,42 @@ HTML_CALCULADORA_RECETAS = """
         .section-content.active { display: block; }
 
         /* Tablas de comandos compactas */
-        .cmd-table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.85rem; }
-        .cmd-table th { background-color: var(--bg-light); color: var(--secondary); text-align: left; padding: 8px 10px; border-bottom: 2px solid #ddd; }
-        .cmd-table td { padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+        .cmd-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.85rem; }
+        .cmd-table th { background-color: var(--bg-light); color: var(--secondary); text-align: left; padding: 6px 8px; border-bottom: 2px solid #ddd; }
+        .cmd-table td { padding: 6px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
         .cmd-code { font-family: monospace; background-color: #eee; padding: 2px 4px; border-radius: 3px; color: #c0392b; font-weight: bold; }
 
         /* Estilos de la Calculadora Web */
-        .calculator-section { margin-top: 10px; }
-        label { font-weight: bold; display: block; margin-top: 10px; margin-bottom: 3px; font-size: 0.85rem; }
-        input[type="text"], input[type="number"], select, textarea { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 0.85rem; }
-        textarea { height: 80px; resize: vertical; }
+        .calculator-section { margin-top: 5px; }
+        label { font-weight: bold; display: block; margin-top: 8px; margin-bottom: 2px; font-size: 0.85rem; }
+        input[type="text"], input[type="number"], select, textarea { width: 100%; padding: 7px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 0.85rem; }
+        textarea { height: 70px; resize: vertical; }
         .row { display: flex; gap: 10px; }
         .col { flex: 1; }
-        button.calc-btn { background-color: var(--primary); color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-size: 0.9rem; font-weight: bold; cursor: pointer; margin-top: 15px; }
+        button.calc-btn { background-color: var(--primary); color: white; padding: 9px; border: none; border-radius: 4px; width: 100%; font-size: 0.9rem; font-weight: bold; cursor: pointer; margin-top: 12px; }
         button.calc-btn:hover { background-color: var(--primary-dark); }
-        #loading { display: none; text-align: center; margin-top: 10px; font-style: italic; color: #7f8c8d; font-size: 0.85rem; }
-        #resultado-section { display: none; margin-top: 20px; border-top: 2px solid #eee; padding-top: 10px; }
-        table.calc-tbl { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.8rem; }
-        table.calc-tbl th, table.calc-tbl td { border: 1px solid #ddd; padding: 6px; text-align: center; }
+        #loading { display: none; text-align: center; margin-top: 8px; font-style: italic; color: #7f8c8d; font-size: 0.85rem; }
+        #resultado-section { display: none; margin-top: 15px; border-top: 2px solid #eee; padding-top: 8px; }
+        table.calc-tbl { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 0.8rem; }
+        table.calc-tbl th, table.calc-tbl td { border: 1px solid #ddd; padding: 5px; text-align: center; }
         table.calc-tbl th { background-color: #f2f2f2; }
-        .btn-save { background-color: #8e44ad; margin-top: 10px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
+        .btn-save { background-color: #8e44ad; margin-top: 8px; color: white; padding: 9px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
         .btn-save:hover { background-color: #71368a; }
-        .btn-copy { background-color: #2980b9; margin-top: 8px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
+        .btn-copy { background-color: #2980b9; margin-top: 6px; color: white; padding: 9px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
         .btn-copy:hover { background-color: #1f6391; }
-        .user-badge { background: #e0f2fe; color: #0369a1; padding: 6px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; display: inline-block; margin-bottom: 10px; }
+        .user-badge { background: #e0f2fe; color: #0369a1; padding: 5px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; display: inline-block; margin-bottom: 8px; }
 
-        /* Footer adaptable y visible */
+        /* Footer con espacio inferior holgado para evitar que se corte */
         footer { 
             background: var(--secondary); 
             color: white; 
             text-align: center; 
-            padding: 20px 15px; 
+            padding: 16px 15px 24px 15px; 
             flex-shrink: 0;
-            font-size: 0.85rem; 
-            margin-top: auto;
+            font-size: 0.8rem; 
         }
         .footer-links { 
-            margin-bottom: 10px; 
+            margin-bottom: 8px; 
             display: flex; 
             flex-wrap: wrap; 
             justify-content: center; 
@@ -246,25 +247,25 @@ HTML_CALCULADORA_RECETAS = """
             color: white; 
             text-decoration: none; 
             font-weight: 600; 
-            padding: 6px 12px; 
+            padding: 5px 12px; 
             background: rgba(255,255,255,0.1); 
             border-radius: 4px; 
-            font-size: 0.8rem; 
+            font-size: 0.75rem; 
             transition: background 0.2s; 
             display: inline-block; 
             cursor: pointer; 
         }
         .footer-link:hover { background: rgba(255,255,255,0.2); }
-        .footer-info { opacity: 0.8; font-size: 0.75rem; }
+        .footer-info { opacity: 0.8; font-size: 0.7rem; }
 
         /* Ajustes para pantallas chicas */
         @media (max-width: 600px) {
-            .nav-container { flex-direction: column; text-align: center; gap: 6px; padding: 8px 10px; }
-            .nav-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
-            .nav-links a { margin-left: 0; font-size: 0.8rem; }
-            .content-wrapper { padding: 15px; margin: 10px auto; width: 95%; }
+            .nav-container { flex-direction: column; text-align: center; gap: 4px; padding: 6px 10px; }
+            .nav-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+            .nav-links a { margin-left: 0; font-size: 0.75rem; }
+            .content-wrapper { padding: 12px; margin: 6px auto; width: 95%; }
             .newspaper-img { width: 100%; float: none; margin-right: 0; }
-            footer { padding: 15px 10px; }
+            footer { padding: 14px 10px 22px 10px; }
         }
     </style>
 </head>
@@ -310,7 +311,7 @@ HTML_CALCULADORA_RECETAS = """
             </ul>
         </div>
         
-        <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 10px; font-size: 0.8rem; color: #856404; margin-top: 15px; border-radius: 4px; clear: both;">
+        <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 8px; font-size: 0.8rem; color: #856404; margin-top: 10px; border-radius: 4px; clear: both;">
             <strong>⚠️ Advertencia Legal:</strong> Herramienta de cálculo automatizado orientada al balance cuantitativo. No reemplaza la consulta clínica formal con un profesional de la salud.
         </div>
     </div>
@@ -506,8 +507,7 @@ HTML_CALCULADORA_RECETAS = """
 
 <footer>
     <div class="footer-links">
-        <a href="https://ianutribot.com" target="_blank" class="footer-link">💬 Sitio Web</a>
-        <a href="guia.txt" target="_blank" class="footer-link">🔊 Guía (TXT)</a>
+        <a onclick="reproducirAudioguia()" class="footer-link">🔊 Audioguía</a>
         <a href="manual.pdf" target="_blank" class="footer-link">📄 Manual (PDF)</a>
         <a href="https://instagram.com/ianutribot" target="_blank" class="footer-link">📸 Instagram</a>
         <a href="mailto:ianutribot@gmail.com" class="footer-link">✉️ Mail</a>
@@ -525,13 +525,13 @@ HTML_CALCULADORA_RECETAS = """
         }
     });
 
-    // Función para reproducir la audioguía leyendo el archivo guia.txt del servidor
+    // Función para reproducir la audioguía leyendo el contenido de guia.txt en voz alta
     async function reproducirAudioguia() {
         if ('speechSynthesis' in window) {
             window.speechSynthesis.cancel();
             try {
                 const response = await fetch('/guia.txt');
-                if (!response.ok) throw new Error("No se pudo cargar el archivo guia.txt en el servidor.");
+                if (!response.ok) throw new Error("No se pudo cargar el archivo guia.txt.");
                 const textoGuia = await response.text();
                 
                 const utterance = new SpeechSynthesisUtterance(textoGuia);
@@ -560,7 +560,9 @@ HTML_CALCULADORA_RECETAS = """
         if (targetSection) targetSection.classList.add('active');
         if (targetNav) targetNav.classList.add('active');
         
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        // Resetea el scroll SOLO dentro de la caja central hacia arriba
+        const wrapper = document.querySelector('.content-wrapper');
+        if (wrapper) wrapper.scrollTop = 0;
     }
 
     const currentUserId = "{{ user_id }}";
@@ -714,9 +716,9 @@ def servir_guia_txt():
         return send_from_directory(directory=os.path.join(os.getcwd(), 'static'), path='guia.txt', as_attachment=False)
     except Exception as e:
         return jsonify({"error": "No se encontró el archivo guia.txt en la carpeta static."}), 404
-        
+
 # =====================================================================================================================================
-#              FINAL                                  PAGINA WEB (CALCULADORA UNICA)                        FINAL
+#              INICIO                                  PAGINA WEB (CALCULADORA UNICA)                        INICIO  DB OK
 # ======================================================================================================================================
 
 # =============================================================================================================================================
