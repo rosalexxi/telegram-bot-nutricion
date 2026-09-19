@@ -609,6 +609,7 @@ HTML_CALCULADORA_RECETAS = """
                 })
             });
 
+            // Intentamos leer siempre el JSON, incluso si hubo error en el servidor
             const data = await response.json();
             
             if (response.ok) {
@@ -628,10 +629,12 @@ HTML_CALCULADORA_RECETAS = """
                 `;
                 document.getElementById('resultado-section').style.display = 'block';
             } else {
-                alert("Error al calcular: " + (data.error || "Intente nuevamente."));
+                // Muestra el error exacto que viene de Flask o Groq
+                alert("❌ Error del servidor: " + (data.error || "Desconocido"));
             }
         } catch (err) {
-            alert("Error de conexión con el servidor.");
+            // Muestra errores reales de red o de parseo
+            alert("❌ Error de conexión o formato: " + err.message);
         } finally {
             document.getElementById('loading').style.display = 'none';
         }
