@@ -1,5 +1,4 @@
 
-
 # =============================================================================================================================================
 #                                 INICIO                                   CABECERA 2026 09 05                                    INICIO
 #                                  https://github.com/rosalexxi/telegram-bot-nutricion
@@ -121,7 +120,6 @@ HTML_CALCULADORA_RECETAS = """
             --text-color: #333;
         }
         
-        /* Uso de min-height con dvh para adaptarse de forma óptima a las barras del celular */
         html, body { 
             min-height: 100dvh; 
             margin: 0; 
@@ -133,7 +131,6 @@ HTML_CALCULADORA_RECETAS = """
             flex-direction: column;
         }
         
-        /* Cabecera fija arriba */
         header { 
             background: white; 
             box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
@@ -146,7 +143,6 @@ HTML_CALCULADORA_RECETAS = """
         .nav-links a { margin-left: 12px; text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 0.85rem; transition: color 0.2s; }
         .nav-links a:hover, .nav-links a.active { color: var(--primary); }
 
-        /* Contenedor Principal con flujo natural y flexible */
         .content-wrapper { 
             max-width: 900px; 
             margin: 20px auto; 
@@ -166,10 +162,7 @@ HTML_CALCULADORA_RECETAS = """
         ul { margin-bottom: 12px; color: #444; font-size: 0.9rem; padding-left: 20px; }
         li { margin-bottom: 5px; }
 
-        /* ESTILO CUADRADO EXACTO */
-        .article-content {
-            overflow: hidden; 
-        }
+        .article-content { overflow: hidden; }
         .newspaper-img {
             float: left; 
             width: 60%; 
@@ -196,17 +189,14 @@ HTML_CALCULADORA_RECETAS = """
             font-style: italic;
         }
 
-        /* Estilos de secciones */
         .section-content { display: none; }
         .section-content.active { display: block; }
 
-        /* Tablas de comandos compactas */
         .cmd-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.85rem; }
         .cmd-table th { background-color: var(--bg-light); color: var(--secondary); text-align: left; padding: 6px 8px; border-bottom: 2px solid #ddd; }
         .cmd-table td { padding: 6px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
         .cmd-code { font-family: monospace; background-color: #eee; padding: 2px 4px; border-radius: 3px; color: #c0392b; font-weight: bold; }
 
-        /* Estilos de la Calculadora Web */
         .calculator-section { margin-top: 5px; }
         label { font-weight: bold; display: block; margin-top: 8px; margin-bottom: 2px; font-size: 0.85rem; }
         input[type="text"], input[type="number"], select, textarea { width: 100%; padding: 7px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 0.85rem; }
@@ -226,7 +216,6 @@ HTML_CALCULADORA_RECETAS = """
         .btn-copy:hover { background-color: #1f6391; }
         .user-badge { background: #e0f2fe; color: #0369a1; padding: 5px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; display: inline-block; margin-bottom: 8px; }
 
-        /* Footer con espacio inferior holgado y seguro para celulares */
         footer { 
             background: var(--secondary); 
             color: white; 
@@ -258,7 +247,6 @@ HTML_CALCULADORA_RECETAS = """
         .footer-link:hover { background: rgba(255,255,255,0.2); }
         .footer-info { opacity: 0.8; font-size: 0.7rem; }
 
-        /* Ajustes para pantallas chicas */
         @media (max-width: 600px) {
             .nav-container { flex-direction: column; text-align: center; gap: 4px; padding: 6px 10px; }
             .nav-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
@@ -288,9 +276,6 @@ HTML_CALCULADORA_RECETAS = """
 
 <div class="content-wrapper">
 
-    <!-- =========================================
-         Pestaña 1: INICIO
-         ========================================= -->
     <div id="section-inicio" class="section-content active">
         <h1>Asistente Inteligente de Nutrición</h1>
         <div class="article-content">
@@ -316,9 +301,6 @@ HTML_CALCULADORA_RECETAS = """
         </div>
     </div>
 
-    <!-- =========================================
-         Pestaña 2: EL ALTA
-         ========================================= -->
     <div id="section-alta" class="section-content">
         <h1>Proceso de Alta y Ficha Inicial</h1>
         <div class="article-content">
@@ -340,9 +322,6 @@ HTML_CALCULADORA_RECETAS = """
         </div>
     </div>
 
-    <!-- =========================================
-         Pestaña 3: INGRESO DE DATOS
-         ========================================= -->
     <div id="section-ingreso" class="section-content">
         <h1>Formas de Ingreso de Ingestas y Actividades</h1>
         <div class="article-content">
@@ -364,9 +343,6 @@ HTML_CALCULADORA_RECETAS = """
         </div>
     </div>
 
-    <!-- =========================================
-         Pestaña 4: GUÍA DE COMANDOS
-         ========================================= -->
     <div id="section-comandos" class="section-content">
         <h1>Referencia de Comandos</h1>
         <div class="article-content">
@@ -432,9 +408,6 @@ HTML_CALCULADORA_RECETAS = """
     </div>
 
     {% if user_id %}
-    <!-- =========================================
-         Pestaña 5: CALCULADORA WEB (Solo usuarios con ID)
-         ========================================= -->
     <div id="section-calculadora" class="section-content">
         <div class="calculator-section">
             <h2>🍳 Calculadora Nutricional Web</h2>
@@ -475,7 +448,7 @@ HTML_CALCULADORA_RECETAS = """
             <div id="loading">🔍 Analizando ingredientes con Groq...</div>
 
             <div id="resultado-section">
-                <h3>Fila Generada (Formato Excel x1000)</h3>
+                <h3>Fila Generada</h3>
                 <div style="overflow-x: auto;">
                     <table class="calc-tbl" id="tablaNutricional">
                         <thead>
@@ -699,14 +672,12 @@ HTML_CALCULADORA_RECETAS = """
 
 @app.route('/', methods=['GET'])
 def vista_calculadora():
-    """Renderiza la página principal con solapas, recibiendo el user_id por URL."""
     user_id = request.args.get('user_id', '')
     return render_template_string(HTML_CALCULADORA_RECETAS, user_id=user_id)
 
 
 @app.route('/manual.pdf', methods=['GET'])
 def servir_manual_pdf():
-    """Sirve el manual en PDF ubicado de forma segura en la carpeta static."""
     try:
         return send_from_directory(directory=os.path.join(os.getcwd(), 'static'), path='manual.pdf', as_attachment=True)
     except Exception as e:
@@ -715,7 +686,6 @@ def servir_manual_pdf():
 
 @app.route('/guia.txt', methods=['GET'])
 def servir_guia_txt():
-    """Sirve el archivo guia.txt ubicado de forma segura en la carpeta static."""
     try:
         return send_from_directory(directory=os.path.join(os.getcwd(), 'static'), path='guia.txt', as_attachment=False)
     except Exception as e:
@@ -724,7 +694,6 @@ def servir_guia_txt():
 
 @app.route('/api/calcular-receta', methods=['POST'])
 def api_calcular_receta():
-    """Procesa los datos con Groq validando obligatoriamente que venga un user_id válido."""
     try:
         data = request.get_json()
         user_id = data.get('user_id')
@@ -800,18 +769,19 @@ def api_calcular_receta():
             fibr_unitario = fibr_tot / div
             desc_final = f"{descripcion} porcion {int(round(peso_unitario))} g §"
 
-        resultado_excel = {
+        # Valores reales sin multiplicar por 1000
+        resultado_real = {
             "nombre": codigo_nombre,
             "descripcion": desc_final,
-            "peso": int(round(peso_unitario * 1000)),
-            "calorias": int(round(cal_unitario * 1000)),
-            "proteinas": int(round(prot_unitario * 1000)),
-            "grasas": int(round(gras_unitario * 1000)),
-            "carbohidratos": int(round(carb_unitario * 1000)),
-            "fibras": int(round(fibr_unitario * 1000))
+            "peso": round(peso_unitario, 1),
+            "calorias": round(cal_unitario, 1),
+            "proteinas": round(prot_unitario, 1),
+            "grasas": round(gras_unitario, 1),
+            "carbohidratos": round(carb_unitario, 1),
+            "fibras": round(fibr_unitario, 1)
         }
 
-        return jsonify(resultado_excel), 200
+        return jsonify(resultado_real), 200
 
     except Exception as e:
         logger.error(f"Error calculando receta web con Groq: {e}")
@@ -837,7 +807,7 @@ def api_guardar_comida():
         return jsonify({
             "status": "ok", 
             "codigo_guardado": codigo_unico,
-            "message": f"Comida agregada en pestaña Comidas_{user_id}{msg_extra}."
+            "message": f"Comida agregada en la base de datos para el usuario {user_id}{msg_extra}."
         }), 200
 
     except Exception as e:
