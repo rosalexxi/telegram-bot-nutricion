@@ -609,8 +609,18 @@ HTML_CALCULADORA_RECETAS = """
                 })
             });
 
-            // Intentamos leer siempre el JSON, incluso si hubo error en el servidor
-            const data = await response.json();
+            // 1. Obtenemos la respuesta como texto plano primero
+            const responseText = await response.text();
+
+            // 2. Verificamos si el servidor devolvió HTML por error (ej: <!DOCTYPE html>)
+            if (responseText.trim().startsWith('<')) {
+                console.error("Error del servidor (HTML):", responseText);
+                alert("❌ El servidor falló (Código HTTP: " + response.status + "). Revisa los logs en el panel de Render para ver el error exacto de Python.");
+                return;
+            }
+
+            // 3. Si no es HTML, lo convertimos a JSON de forma segura
+            const data = JSON.parse(responseText);
             
             if (response.ok) {
                 ultimoResultadoCalculado = data;
@@ -629,12 +639,10 @@ HTML_CALCULADORA_RECETAS = """
                 `;
                 document.getElementById('resultado-section').style.display = 'block';
             } else {
-                // Muestra el error exacto que viene de Flask o Groq
-                alert("❌ Error del servidor: " + (data.error || "Desconocido"));
+                alert("❌ Error al calcular: " + (data.error || "Intente nuevamente."));
             }
         } catch (err) {
-            // Muestra errores reales de red o de parseo
-            alert("❌ Error de conexión o formato: " + err.message);
+            alert("❌ Error de procesamiento: " + err.message);
         } finally {
             document.getElementById('loading').style.display = 'none';
         }
