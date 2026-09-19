@@ -4031,7 +4031,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not raw_text: 
         return
 
-    # 🟢 NUEVO: Intercepta el texto para la nota de la presión
+    # 🟢 NUEVO: Intercepta el texto para la nota de la presión (sin botones)
     if context.user_data.get('awaiting_presion_nota'):
         context.user_data.pop('awaiting_presion_nota', None)
         datos_presion = context.user_data.pop('pending_presion_foto', None)
@@ -4045,7 +4045,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             alta = datos_presion.get("alta")
             baja = datos_presion.get("baja")
             pulsaciones = datos_presion.get("pulsaciones")
-            nota = raw_text  # Todo lo que escriba pasa a ser la nota
+            nota = raw_text  # Todo lo que escriba pasa a ser la nota aclaratoria
 
             # Guardamos en Supabase con la nota ingresada
             guardar_presion_db(user_id, alta, baja, pulsaciones, nota=nota)
@@ -4062,9 +4062,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Los datos temporales de la presión expiraron.")
         return
 
-    # Resto de validaciones existentes (actividades, fechas, etc.)...
+    # 🟢 CORREGIDO: Se agregó la validación pendiente para capturar la fecha personalizada ("Otro Día")
     if context.user_data.get('awaiting_custom_date'):
-        # ... (código existente)
+        await _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id)
+        return
+    if context.user_data.get('awaiting_activity_text'):
+        await _sub_manejar_texto_actividad(update, context, raw_text, chat_id)
+        return
+    if context.user_data.get('awaiting_del_custom_date'):
+        await _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id)
+        return
+    if context.user_data.get('awaiting_diario_custom_date'):
+        await _sub_manejar_fecha_diario(update, context, raw_text, chat_id)
+        return
+    if context.user_data.get('awaiting_edit_item_val'):
+        await _sub_manejar_edicion_item(update, context, raw_text, chat_id)
+        return
+    if raw_text.startswith('*'):
+        await _sub_manejar_plantilla_comida(update, context, raw_text, user_id)
+        return
+
+    msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
+    try:
+        data = analizar_con_groq(raw_text)
+        await procesar_y_mostrar_confirmacion(data, msg, context)
+    except Exception as e:
+        await msg.edit_text(f"❌ Error al procesar el texto: {e}")
+        
         
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
