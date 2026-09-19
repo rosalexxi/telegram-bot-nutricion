@@ -1827,28 +1827,55 @@ def obtener_datos_usuario_general(user_id):
         return {}
         
 def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=None):
-    """Actualiza el factor de ocupación y registra la calibración del reloj en la tabla 'Usuarios'."""
+    """Actualiza el factor de ocupación en la tabla Perfil_<user_id> y el control en Usuarios."""
+    user_id_str = str(user_id).strip()
+    mes_marca = str(reloj_actualizado) if reloj_actualizado else str(mes_actual)
+
+    # 1. Actualizar en la tabla maestra 'Usuarios' (para el control de límite mensual del reloj)
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        
-        query = """
+        query_u = """
             UPDATE "Usuarios"
             SET "ocupacion" = %s, "reloj_actualizado_mes" = %s
             WHERE "User ID" = %s
         """
-        user_id_str = str(user_id).strip()
-        mes_marca = str(reloj_actualizado) if reloj_actualizado else str(mes_actual)
-        
-        cur.execute(query, (float(nuevo_factor), mes_marca, user_id_str))
+        cur.execute(query_u, (float(nuevo_factor), mes_marca, user_id_str))
         conn.commit()
         cur.close()
         conn.close()
     except Exception as e:
-        logger.error(f"Error al guardar ocupación y control de reloj en Supabase para {user_id}: {e}")
-        if 'cur' in locals() and cur:
-            cur.close()
-        if 'conn' in locals() and conn:
-            conn.close()
+        logger.error(f"Error al actualizar la tabla Usuarios en Supabase para {user_id}: {e}")
+
+    # 2. Actualizar en la tabla 'Perfil_<user_id>' (que es de donde el comando /perfil y las métricas leen la ocupación del mes)
+    try:
+        tabla_perfil = f"Perfil_{user_id}"
+        conn_p, cur_p = _asegurar_tabla_y_conectar(tabla_perfil, tipo_tabla="perfil")
+        
+        # Intentar actualizar el registro del mes actual
+        query_p = f"""
+            UPDATE "{tabla_perfil}"
+            SET "ocupacion" = %s
+            WHERE "MES" = %s
+        """
+        cur_p.execute(query_p, (float(nuevo_factor), str(mes_actual)))
+        
+        # Si por alguna razón no existía una fila para este mes en la tabla de perfil, la insertamos
+        if cur_p.rowcount == 0:
+            cur_p.execute(f'SELECT id FROM "{tabla_perfil}" WHERE "MES" = %s', (str(mes_actual),))
+            if not cur_p.fetchone():
+                cur_p.execute(f"""
+                    INSERT INTO "{tabla_perfil}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, ("64", 0.0, 167.0, "M", float(nuevo_factor), str(mes_actual), obtener_ahora_arg().strftime("%Y-%m-%d"), 0.0, ""))
+            else:
+                cur_p.execute(query_p, (float(nuevo_factor), str(mes_actual)))
+                
+        conn_p.commit()
+        cur_p.close()
+        conn_p.close()
+    except Exception as e:
+        logger.error(f"Error al actualizar la tabla Perfil_{user_id} en Supabase: {e}")
+        
             
 # =============================================================================================================================================
 #              FINAL                            FUNCIONES SUPABASE                 FINAL
