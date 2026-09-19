@@ -3243,6 +3243,38 @@ async def callback_handler_momentos(update: Update, context: ContextTypes.DEFAUL
         await render_confirmation_screen(query, context)
 
 @requiere_registro
+async def callback_handler_presion_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    user_id = query.from_user.id
+
+    if data == "presion_ind_si":
+        datos_presion = context.user_data.get('pending_presion_foto')
+        if datos_presion:
+            alta = datos_presion.get("alta")
+            baja = datos_presion.get("baja")
+            pulsaciones = datos_presion.get("pulsaciones")
+            
+            # Llama directamente a la función que graba en Supabase
+            guardar_presion_db(user_id, alta, baja, pulsaciones, nota="Registro por foto de tensiómetro")
+            
+            pul_txt = f"\n• Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
+            await query.edit_message_text(
+                f"✅ **¡Presión arterial registrada con éxito!**\n\n"
+                f"• Presión Alta: `{alta:.0f} mmHg`\n"
+                f"• Presión Baja: `{baja:.0f} mmHg`{pul_txt}",
+                parse_mode="Markdown"
+            )
+        else:
+            await query.edit_message_text("⚠️ No se encontraron los datos temporales de la presión.")
+        context.user_data.pop('pending_presion_foto', None)
+
+    elif data == "presion_ind_no":
+        context.user_data.pop('pending_presion_foto', None)
+        await query.edit_message_text("❌ Registro de presión cancelado.")
+xºxº        
+@requiere_registro
 async def callback_handler_fechas_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -5766,12 +5798,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📌 **Comandos Principales:**\n"
         "• `/alta`: Apertura de cuenta ingresando los datos.\n"
         "• `/barra`: Ingresa por código de barras un comestible.\n"
-        "• `/comidas`: Planilla de comidas precargadas y PDF.\n"
         "• `/borracomida`: Borra una comida de la Planilla.\n"
+        "• `/comidas`: Planilla de comidas precargadas y PDF.\n"
         "• `/dia`: Ingestas del día, detalle nutricional y PDF.\n"
         "• `/eliminar`: Borra ingestas y actividades.\n"
         "• `/GET`: Actualiza GET por medio del reloj inteligente.\n"
-        "• `/inicio`: Resumen de los comandos y PDF del manual.\n"
+        "• `/inicio`: Resumen de comandos y PDF del manual.\n"
         "• `/mes`: Reporte con estimación de peso y PDF.\n"
         "• `/perfil`: Consulta de datos biométricos.\n"
         "• `/peso`: Actualiza el peso del mes .\n"
@@ -5995,7 +6027,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR)
     ]))
     story.append(t_receta)
-    story.append(PageBreak())
+    story.append(PageBreak())ffff
 
     story.append(crear_encabezado())
     story.append(Spacer(1, 4))
@@ -6004,7 +6036,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     cmds_data = [
         [Paragraph("Comando", body_bold_white), Paragraph("Descripción Detallada y Formato de Uso", body_bold_white)],
         [Paragraph("<b>/barra</b>", code_style), Paragraph("<b>Código de barras:</b> Ingresa un código de barras y se presenta por pantalla un comestible en fracciones de 100 g.", body_style)],
-        [Paragraph("<b>/borrarcomida</b>", code_style), Paragraph("<b>Borra una comida de la planilla:</b> Visualiza el listado de comidas predeterminadas y permite la eliminación de una ingresando el comando seguido del nombre de la comida.", body_style)],
+        [Paragraph("<b>/borrafcomida</b>", code_style), Paragraph("<b>Borra una comida de la planilla:</b> Visualiza el listado de comidas predeterminadas y permite la eliminación de una ingresando el comando seguido del nombre de la comida.", body_style)],
         [Paragraph("<b>/comidas</b>", code_style), Paragraph("<b>Planilla de comidas:</b> Visualiza el listado de comidas predeterminadas guardadas en tu planilla personal y permite descargar el PDF detallado.", body_style)],
         [Paragraph("<b>/dia</b>", code_style), Paragraph("<b>Resumen diario:</b> Permite seleccionar el día de consulta. Muestra por pantalla los consumos del día y descarga el PDF detallado con todas las ingestas.", body_style)],
         [Paragraph("<b>/eliminar</b>", code_style), Paragraph("<b>Borrar registros:</b> Permite eliminar ingestas y actividades seleccionando el día.", body_style)],
@@ -6683,6 +6715,8 @@ def main():
 
         # --- HANDLERS DE COMANDOS ---
         app_bot.add_handler(CommandHandler(["pacientes"], cmd_pacientes))
+        app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
+
         app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
         app_bot.add_handler(CommandHandler(["comidas", "comida"], cmd_comidas))
         app_bot.add_handler(CommandHandler(["perfil", "peso"], cmd_perfil))
@@ -6691,7 +6725,6 @@ def main():
         app_bot.add_handler(CommandHandler(["mes", "mensual", "m"], cmd_resumen))
         app_bot.add_handler(CommandHandler(["semana", "semanal", "s"], cmd_mensaje))
         app_bot.add_handler(CommandHandler(["receta", "planilla"], cmd_cargar_receta))
-        app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
         app_bot.add_handler(CommandHandler(["factor", "get", "GET"], cmd_factor_handler))
         app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
         app_bot.add_handler(CommandHandler("migrar", cmd_migrar))
@@ -6706,6 +6739,11 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
 
         app_bot.add_handler(CallbackQueryHandler(callback_handler_reportes_pdf, pattern="^(resumen_|descargar_pdf_|enviar_inf_)"))        
+
+        # 🟢 NUEVO: Enrutador exclusivo para los botones de la foto del tensiómetro
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^presion_ind_"))
+        
+        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_"))
 
         # Enrutadores de botones interactivos para texto, voz, fotos y confirmación
         app_bot.add_handler(CallbackQueryHandler(callback_handler_actividades, pattern="^act_"))
