@@ -121,12 +121,11 @@ HTML_CALCULADORA_RECETAS = """
             --text-color: #333;
         }
         
-        /* Fijamos la altura de pantalla completa y evitamos el scroll general del body */
+        /* Uso de min-height con dvh para adaptarse de forma óptima a las barras del celular */
         html, body { 
-            height: 100vh; 
+            min-height: 100dvh; 
             margin: 0; 
             padding: 0; 
-            overflow: hidden; 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
             background-color: var(--bg-light); 
             color: var(--text-color); 
@@ -138,7 +137,8 @@ HTML_CALCULADORA_RECETAS = """
         header { 
             background: white; 
             box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
-            flex-shrink: 0;
+            position: sticky;
+            top: 0;
             z-index: 1000; 
         }
         .nav-container { max-width: 1100px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; }
@@ -146,18 +146,17 @@ HTML_CALCULADORA_RECETAS = """
         .nav-links a { margin-left: 12px; text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 0.85rem; transition: color 0.2s; }
         .nav-links a:hover, .nav-links a.active { color: var(--primary); }
 
-        /* Contenedor Principal con Scroll Propio en el medio */
+        /* Contenedor Principal con flujo natural y flexible */
         .content-wrapper { 
             max-width: 900px; 
-            margin: 12px auto; 
+            margin: 20px auto; 
             background: white; 
             padding: 25px; 
             border-radius: 12px; 
             box-shadow: 0 4px 15px rgba(0,0,0,0.05); 
             width: 90%; 
             box-sizing: border-box; 
-            flex: 1;                /* Ocupa todo el espacio libre del medio */
-            overflow-y: auto;       /* Activa el scroll SOLO acá adentro */
+            flex: 1;
         }
 
         h1 { color: var(--secondary); margin-top: 0; font-size: 1.5rem; margin-bottom: 12px; }
@@ -227,14 +226,15 @@ HTML_CALCULADORA_RECETAS = """
         .btn-copy:hover { background-color: #1f6391; }
         .user-badge { background: #e0f2fe; color: #0369a1; padding: 5px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; display: inline-block; margin-bottom: 8px; }
 
-        /* Footer con espacio inferior holgado para evitar que se corte */
+        /* Footer con espacio inferior holgado y seguro para celulares */
         footer { 
             background: var(--secondary); 
             color: white; 
             text-align: center; 
-            padding: 16px 15px 24px 15px; 
+            padding: 18px 15px 35px 15px; 
             flex-shrink: 0;
             font-size: 0.8rem; 
+            margin-top: auto;
         }
         .footer-links { 
             margin-bottom: 8px; 
@@ -247,7 +247,7 @@ HTML_CALCULADORA_RECETAS = """
             color: white; 
             text-decoration: none; 
             font-weight: 600; 
-            padding: 5px 12px; 
+            padding: 6px 14px; 
             background: rgba(255,255,255,0.1); 
             border-radius: 4px; 
             font-size: 0.75rem; 
@@ -265,7 +265,7 @@ HTML_CALCULADORA_RECETAS = """
             .nav-links a { margin-left: 0; font-size: 0.75rem; }
             .content-wrapper { padding: 12px; margin: 6px auto; width: 95%; }
             .newspaper-img { width: 100%; float: none; margin-right: 0; }
-            footer { padding: 14px 10px 22px 10px; }
+            footer { padding: 16px 10px 32px 10px; }
         }
     </style>
 </head>
@@ -560,9 +560,8 @@ HTML_CALCULADORA_RECETAS = """
         if (targetSection) targetSection.classList.add('active');
         if (targetNav) targetNav.classList.add('active');
         
-        // Resetea el scroll SOLO dentro de la caja central hacia arriba
-        const wrapper = document.querySelector('.content-wrapper');
-        if (wrapper) wrapper.scrollTop = 0;
+        // Vuelve arriba de la página al cambiar de solapa
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     const currentUserId = "{{ user_id }}";
@@ -716,7 +715,7 @@ def servir_guia_txt():
         return send_from_directory(directory=os.path.join(os.getcwd(), 'static'), path='guia.txt', as_attachment=False)
     except Exception as e:
         return jsonify({"error": "No se encontró el archivo guia.txt en la carpeta static."}), 404
-
+        
 # =====================================================================================================================================
 #              INICIO                                  PAGINA WEB (CALCULADORA UNICA)                        INICIO  DB OK
 # ======================================================================================================================================
