@@ -3273,7 +3273,7 @@ async def callback_handler_presion_foto(update: Update, context: ContextTypes.DE
     elif data == "presion_ind_no":
         context.user_data.pop('pending_presion_foto', None)
         await query.edit_message_text("❌ Registro de presión cancelado.")
-xºxº        
+       
 @requiere_registro
 async def callback_handler_fechas_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
