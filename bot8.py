@@ -2469,7 +2469,6 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
 
         df_presion = pd.DataFrame()
         tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
-
         pdf_buffer = await asyncio.to_thread(
             generar_pdf_resumen_bytes,
             mes_target,
@@ -2480,6 +2479,11 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
             recomendacion_pdf,
             user_id
         )
+        return True
+    except Exception as e:
+        logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}")
+        return False
+
 # =====================================================================================================================================
 #                FINAL                          FUNCIONES AUXILIARES                                     FINAL
 # =====================================================================================================================================
