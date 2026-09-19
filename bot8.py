@@ -6027,7 +6027,7 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
         ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR)
     ]))
     story.append(t_receta)
-    story.append(PageBreak())ffff
+    story.append(PageBreak())
 
     story.append(crear_encabezado())
     story.append(Spacer(1, 4))
