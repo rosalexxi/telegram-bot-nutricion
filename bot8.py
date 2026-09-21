@@ -3421,29 +3421,24 @@ def analizar_con_groq(prompt_text):
 
     system_prompt = (
         "Sos un asistente inteligente de salud. Analiza el texto ingresado por el usuario y clasifícalo estrictamente en una de estas categorías:\n"
-        "1. COMIDA: Si el usuario menciona alimentos, platos o bebidas para ingerir.\n"
-        "2. ACTIVIDAD: Si el usuario menciona cualquier tipo de ejercicio, deporte, movimiento físico o actividad en movimiento.\n"
-        "3. INFORME_MENSUAL: Si el usuario pide el resumen, balance o informe del mes (ej: 'resumen mensual', 'del mes').\n"
-        "4. INFORME_SEMANAL: Si el usuario pide el resumen o balance de la semana (ej: 'resumen semanal', 'de la semana').\n"
-        "5. INFORME_DIARIO: Si el usuario pide el resumen del día o lo que consumió hoy (ej: 'resumen de hoy', 'cómo voy hoy').\n"
-        "6. RECHAZO: Si el usuario nombra objetos inanimados, productos de limpieza, ropa o cosas que no se comen ni se entrenan ni piden resúmenes.\n\n"
+        "1. COMIDA: Si el usuario menciona alimentos, platos o bebidas para ingerir o registrar.\n"
+        "2. ACTIVIDAD: Si el usuario menciona ejercicio, deporte o movimiento físico para registrar.\n"
+        "3. INFORME_MENSUAL: Si el usuario pide explícitamente estadísticas, balance, informe o resumen global del mes (ej: 'resumen mensual', 'cómo cerré el mes', 'balance del mes').\n"
+        "4. INFORME_SEMANAL: Si el usuario pide explícitamente estadísticas, balance, informe o resumen global de la semana (ej: 'resumen semanal', 'cómo vengo en la semana').\n"
+        "5. INFORME_DIARIO: Si el usuario pide explícitamente estadísticas, balance, informe o resumen global de hoy o de un día (ej: 'resumen de hoy', 'cómo voy hoy', 'qué registré hoy').\n"
+        "6. RECHAZO: Si nombra objetos inanimados, productos de limpieza o cosas que no se comen, entrenan ni piden en forma de resúmenes.\n\n"
         "REGLAS:\n"
         "- Si es COMIDA, desglósalo con pesos y calorías positivas.\n"
-        "- Si es ACTIVIDAD:\n"
-        "  * Calcula el tiempo total en minutos (ej: 'una hora' = 60, 'media hora' = 30, 'hora y media' = 90).\n"
-        "  * El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de un espacio y la descripción original (Ejemplo estricto: '30 caminata de 3000 metros en 30 minutos'). Esto es vital para que el sistema contabilice las estadísticas semanales.\n"
-        "  * El campo 'peso' debe ser estrictamente 0.0.\n"
-        "  * Estima las calorías gastadas con valor positivo.\n"
+        "- Si es ACTIVIDAD, calcula el tiempo en minutos (peso 0.0) y calorías gastadas positivas.\n"
         "- Si es INFORME_MENSUAL, INFORME_SEMANAL o INFORME_DIARIO, el campo 'items' debe ir vacío ([ ]).\n"
         "- Si es RECHAZO, devolvé la lista de 'items' vacía ([ ]).\n\n"
         "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
         "{\n"
-        '  "items": [\n'
-        '    {"alimento": "nombre o descripción", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
-        "  ],\n"
+        '  "items": [],\n'
         '  "tipo": "Comida" o "Actividad" o "INFORME_MENSUAL" o "INFORME_SEMANAL" o "INFORME_DIARIO" o "Rechazo"\n'
         "}"
     )
+
 
     response = client_ai.chat.completions.create(
         model=globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile"),
@@ -4443,21 +4438,47 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         audio_file = io.BytesIO(await file.download_as_bytearray())
         audio_file.name = "audio.ogg"
         
+        # 1. Obtenemos el texto mediante la transcripción de la voz
         transcription = client_ai.audio.transcriptions.create(
             file=(audio_file.name, audio_file.read()),
             model=GROQ_AUDIO,
             response_format="text"
         )
         
+        if not transcription or not transcription.strip():
+            await msg.edit_text("⚠️ No se pudo entender el audio.")
+            return
+
+        # 2. Si está en un flujo forzado de actividad por voz, respetamos ese estado
         if context.user_data.get('awaiting_activity_voice'):
             return await _sub_manejar_voz_actividad(update, context, transcription, msg)
-        else:
-            return await _sub_manejar_voz_ingesta(update, context, transcription, msg)
+
+        # 3. NUEVO: Pasamos la transcripción por el clasificador unificado de Groq
+        data = analizar_con_groq(transcription)
+        tipo = str(data.get("tipo", "")).strip().upper()
+
+        # 4. Enrutamos si pidió un informe de forma coloquial por voz
+        if tipo == "INFORME_MENSUAL":
+            await msg.delete()
+            await cmd_resumen(update, context)
+            return
+
+        elif tipo == "INFORME_SEMANAL":
+            await msg.delete()
+            await cmd_mensaje(update, context)
+            return
+
+        elif tipo == "INFORME_DIARIO":
+            await msg.delete()
+            await cmd_diario(update, context)
+            return
+
+        # 5. Si no es informe, continúa con el flujo normal de ingesta de voz
+        return await _sub_manejar_voz_ingesta_con_data(update, context, data, msg)
 
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
                 
-@requiere_registro
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, chat_id = update.effective_user.id, update.effective_chat.id
