@@ -4462,6 +4462,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, chat_id = update.effective_user.id, update.effective_chat.id
     raw_text = update.message.text.strip() if update.message and update.message.text else ""
+ 
+    logger.info(f"🔔 RECIBÍ UN MENSAJE EN TELEGRAM de {user_id}: '{raw_text}'")
+    
     if not raw_text: 
         return
 
