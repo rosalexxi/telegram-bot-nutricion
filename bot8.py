@@ -4510,7 +4510,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Analizamos con la función unificada de Groq
         data = analizar_con_groq(raw_text)
         tipo = data.get("tipo")
-
+        print(f"DEBUG IA -> Texto: '{raw_text}' | Tipo detectado: '{tipo}'")
         # 🟢 NUEVO: Enrutamiento para peticiones coloquiales de informes
         if tipo == "INFORME_MENSUAL":
             await msg.delete()
