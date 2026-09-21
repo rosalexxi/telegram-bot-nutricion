@@ -2318,51 +2318,81 @@ def calcular_peso_ideal(sexo: str, altura_cm: float) -> float:
     else:
         return (altura_cm - 100) - ((altura_cm - 150) / 2.5)
 
-def calcular_peso_etapa(peso_actual: float, peso_ideal: float) -> float:
-    """Calcula el peso objetivo prudente para la primera etapa (75% actual + 25% ideal)."""
-    return round((peso_actual * 0.75) + (peso_ideal * 0.25), 1)
+def calcular_peso_etapa(peso_actual: float, peso_ideal: float, ritmo_preferido: str = "moderado") -> float:
+    """
+    Calcula el peso objetivo de etapa manteniendo la firma original requerida por el bot.
+    Utiliza por defecto un ritmo moderado, pero puede recibir la preferencia guardada en el perfil.
+    """
     
-def calcular_tmb_y_get(peso_actual, altura_cm, edad, genero: str = "masculino", actividad = 1375, peso_ideal = None) -> tuple[float, float]:
-    """
-    Calcula TMB (Mifflin-St Jeor) y GET (Gasto Energético Total).
-    Procesa números enteros (*1000) o strings/floats numéricos de forma tolerante.
-    """
-    def _parse_num(val, default):
-        if val is None:
-            return default
-        try:
-            return float(str(val).replace(',', '.').strip())
-        except (ValueError, TypeError):
-            return default
-
-    try:
-        p_num = _parse_num(peso_actual, 70000.0)
-        a_num = _parse_num(altura_cm, 170.0)
-        e_num = _parse_num(edad, 30.0)
-        act_num = _parse_num(actividad, 1375.0)
-
-        peso = p_num / 1000.0 if p_num > 1000 else p_num
-        altura = a_num / 1000.0 if a_num > 1000 else a_num
-        años = int(e_num / 1000.0) if e_num > 1000 else int(e_num)
-        factor_actividad = act_num / 1000.0 if act_num > 100 else act_num
-
-        if factor_actividad <= 0:
-            factor_actividad = 1.375
-
-    except Exception as e:
-        print(f"ERROR en calcular_tmb_y_get: {e}")
-        peso, altura, años, factor_actividad = 70.0, 170.0, 30, 1.375
-
-    gen_clean = str(genero).strip().lower()
-
-    if gen_clean in ["femenino", "f", "mujer", "female"]:
-        tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * años) - 161.0
+    ritmo_clean = str(ritmo_preferido).strip().lower()
+    
+    # Asignación del factor según la preferencia de ritmo del paciente
+    if "tranquilo" in ritmo_clean or "lento" in ritmo_clean:
+        factor_actual = 0.90  # 90% actual / 10% ideal (descenso suave)
+    elif "rapido" in ritmo_clean or "intenso" in ritmo_clean or "decidido" in ritmo_clean:
+        factor_actual = 0.75  # 75% actual / 25% ideal (mayor exigencia)
     else:
-        tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * años) + 5.0
-
-    get = tmb * factor_actividad
-    return round(tmb, 2), round(get, 2)
+        factor_actual = 0.85  # 85% actual / 15% ideal (punto de equilibrio por defecto)
         
+    factor_ideal = 1.0 - factor_actual
+    
+    peso_etapa = (peso_actual * factor_actual) + (peso_ideal * factor_ideal)
+    return round(peso_etapa, 1)
+    
+import math
+
+def calcular_grasa_y_magra(sexo: str, altura_cm: float, cintura_cm: float, cuello_cm: float, peso_actual: float) -> tuple[float, float]:
+    """
+    Calcula el porcentaje de grasa corporal estimado (método US Navy) 
+    utilizando cuello y cintura, y devuelve la masa magra resultante en kilos.
+    """
+    gen_clean = str(sexo).strip().lower()
+    is_femenino = gen_clean in ["femenino", "f", "mujer", "female"]
+    
+    try:
+        if is_femenino:
+            # Fórmula US Navy simplificada para mujeres (requiere altura, cintura y cuello)
+            gc = 495 / (1.29579 - 0.35004 * math.log10(max(1.0, cintura_cm - cuello_cm)) + 0.22100 * math.log10(max(1.0, altura_cm))) - 450
+        else:
+            # Fórmula US Navy para varones (altura, cintura y cuello)
+            gc = 495 / (1.03324 - 0.19077 * math.log10(max(1.0, cintura_cm - cuello_cm)) + 0.15456 * math.log10(max(1.0, altura_cm))) - 450
+            
+        gc = max(5.0, min(60.0, gc)) # Acotar dentro de parámetros lógicos
+    except Exception:
+        gc = 25.0 # Valor por defecto seguro ante errores matemáticos
+
+    masa_grasa = peso_actual * (gc / 100.0)
+    masa_magra = peso_actual - masa_grasa
+    
+    return round(gc, 1), round(masa_magra, 1)
+
+def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: str = "masculino", actividad: float = 1.375, masa_magra: float = None) -> tuple[float, float]:
+    """
+    Calcula el TMB y el GET. 
+    Si se le pasa la masa_magra calculada por la cinta métrica, utiliza Katch-McArdle.
+    Si no, aplica Mifflin-St Jeor tradicional como respaldo.
+    """
+    try:
+        peso = float(peso_actual)
+        altura = float(altura_cm)
+        anios = int(edad)
+    except (TypeError, ValueError):
+        peso, altura, anios = 90.0, 170.0, 40
+
+    # Si tenemos la masa magra de la nueva antropometría, usamos Katch-McArdle (más precisa)
+    if masa_magra is not None and masa_magra > 0:
+        tmb = 370 + (21.6 * masa_magra)
+    else:
+        # Fallback a Mifflin si por alguna razón no hay datos de cinta
+        gen_clean = str(genero).strip().lower()
+        if gen_clean in ["femenino", "f", "mujer", "female"]:
+            tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * anios) - 161.0
+        else:
+            tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * anios) + 5.0
+
+    get = tmb * float(actividad)
+    return round(tmb, 2), round(get, 2)
+    
 def calcular_metricas_mensuales(df_mes, perfil_dict):
     """Procesa todos los cálculos mensuales garantizando consistencia y exactitud metabólica con rangos (Mínimo y Máximo)."""
     
