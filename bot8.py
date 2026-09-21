@@ -3391,17 +3391,17 @@ async def procesar_intencion_coloquial_ia(update: Update, context: ContextTypes.
             await msg_espera.delete()
             # Aquí llamamos a la lógica interna de tu comando mensual (ej: cmd_mes o función equivalente)
             # Como aún no la enchufamos, por ahora podemos simular o llamar directamente a tu función de mes si la tenés a mano:
-            await cmd_mes(update, context) # Asegúrate de que cmd_mes esté accesible en el ámbito
+            await cmd_resumen(update, context) # Asegúrate de que cmd_mes esté accesible en el ámbito
             return True
 
         elif tipo == "INFORME_SEMANAL":
             await msg_espera.delete()
-            await cmd_semana(update, context) # O tu función semanal equivalente
+            await cmd_informe(update, context) # O tu función semanal equivalente
             return True
 
         elif tipo == "INFORME_DIARIO":
             await msg_espera.delete()
-            await cmd_dia(update, context) # O tu función diaria equivalente
+            await cmd_diario(update, context) # O tu función diaria equivalente
             return True
 
         # Si es OTRO, devuelve False y el bot sigue con su lógica de comida/actividad habitual
