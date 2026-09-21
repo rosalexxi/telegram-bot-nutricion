@@ -6808,9 +6808,11 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         texto_variacion_peso = f"`{cambio_peso_val:+.1f} kg`"
 
         # 🟢 Reporte puramente con valores de Python (sin llamadas de IA)
+
         encabezado_txt = (
             f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n"
-            f"⚖️ Peso registrado: `{_fmt(m.get('peso_actual', 0), 1)} kg`\n\n"
+            f"⚖️ Peso registrado: `{_fmt(m.get('peso_actual', 0), 1)} kg`\n"
+            f"🎯 Peso de etapa (Objetivo): `{_fmt(m.get('peso_referencia', 0), 1)} kg`\n\n"
             f"• Consumidas: `{_fmt(m.get('prom_cal', 0))} kcal` | Quemadas: `{_fmt(m.get('prom_quem', 0))} kcal`\n"
             f"• Balance Neto: `{_fmt(m.get('prom_bal_neto', 0))} kcal/día`\n"
             f"• Variación Est. de Peso: {texto_variacion_peso} ({m.get('dias_registrados', 0)} días)\n\n"
@@ -6821,8 +6823,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"• Carbs: `{_fmt(m.get('prom_carb', 0))} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
             f"• Fibras: `{_fmt(m.get('prom_fibr', 0))} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
             f"• Actividad Física: `{prom_minutos_mes_act} min/día` / Rango: `{act_min_val} - {act_max_val} min/día`\n\n"
-            f"_(Nota: Los rangos de actividad consideran impacto corporal; actividades como aquagym o natación no aplican restricciones de sobrepeso)._\n\n"
-            f"📌 Valores procesados con éxito"
+            f"_(Nota: Reporte generado mediante métricas analíticas directas)._"
         )
 
         pie_txt = f"\n\n📄 Podés descargar el informe completo en PDF abajo:"
