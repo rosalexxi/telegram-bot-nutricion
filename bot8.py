@@ -2318,59 +2318,58 @@ def calcular_peso_ideal(sexo: str, altura_cm: float) -> float:
     else:
         return (altura_cm - 100) - ((altura_cm - 150) / 2.5)
 
-def calcular_peso_etapa(peso_actual: float, peso_ideal: float, ritmo_preferido: str = "moderado") -> float:
-    """
-    Calcula el peso objetivo de etapa manteniendo la firma original requerida por el bot.
-    Utiliza por defecto un ritmo moderado, pero puede recibir la preferencia guardada en el perfil.
-    """
-    
-    ritmo_clean = str(ritmo_preferido).strip().lower()
-    
-    # Asignación del factor según la preferencia de ritmo del paciente
-    if "tranquilo" in ritmo_clean or "lento" in ritmo_clean:
-        factor_actual = 0.90  # 90% actual / 10% ideal (descenso suave)
-    elif "rapido" in ritmo_clean or "intenso" in ritmo_clean or "decidido" in ritmo_clean:
-        factor_actual = 0.75  # 75% actual / 25% ideal (mayor exigencia)
-    else:
-        factor_actual = 0.85  # 85% actual / 15% ideal (punto de equilibrio por defecto)
-        
-    factor_ideal = 1.0 - factor_actual
-    
-    peso_etapa = (peso_actual * factor_actual) + (peso_ideal * factor_ideal)
-    return round(peso_etapa, 1)
-    
 import math
 
 def calcular_grasa_y_magra(sexo: str, altura_cm: float, cintura_cm: float, cuello_cm: float, peso_actual: float) -> tuple[float, float]:
     """
-    Calcula el porcentaje de grasa corporal estimado (método US Navy) 
-    utilizando cuello y cintura, y devuelve la masa magra resultante en kilos.
+    (NUEVA) Calcula el porcentaje de grasa corporal (US Navy) y la masa magra.
     """
     gen_clean = str(sexo).strip().lower()
     is_femenino = gen_clean in ["femenino", "f", "mujer", "female"]
     
     try:
         if is_femenino:
-            # Fórmula US Navy simplificada para mujeres (requiere altura, cintura y cuello)
             gc = 495 / (1.29579 - 0.35004 * math.log10(max(1.0, cintura_cm - cuello_cm)) + 0.22100 * math.log10(max(1.0, altura_cm))) - 450
         else:
-            # Fórmula US Navy para varones (altura, cintura y cuello)
             gc = 495 / (1.03324 - 0.19077 * math.log10(max(1.0, cintura_cm - cuello_cm)) + 0.15456 * math.log10(max(1.0, altura_cm))) - 450
             
-        gc = max(5.0, min(60.0, gc)) # Acotar dentro de parámetros lógicos
+        gc = max(5.0, min(60.0, gc))
     except Exception:
-        gc = 25.0 # Valor por defecto seguro ante errores matemáticos
+        gc = 25.0
 
     masa_grasa = peso_actual * (gc / 100.0)
     masa_magra = peso_actual - masa_grasa
     
     return round(gc, 1), round(masa_magra, 1)
 
-def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: str = "masculino", actividad: float = 1.375, masa_magra: float = None) -> tuple[float, float]:
+def calcular_peso_etapa(peso_actual: float, peso_ideal: float, ritmo_preferido: str = "moderado") -> float:
     """
-    Calcula el TMB y el GET. 
-    Si se le pasa la masa_magra calculada por la cinta métrica, utiliza Katch-McArdle.
-    Si no, aplica Mifflin-St Jeor tradicional como respaldo.
+    (MODIFICADA - Firma original respetada)
+    Calcula el siguiente escalón o peso de etapa (aunque el parámetro se llame 'peso_ideal' 
+    por compatibilidad con el resto del bot, acá aplicamos el fixed-ratio con el ritmo).
+    """
+    if peso_actual <= peso_ideal:
+        return round(peso_actual, 1)
+    
+    ritmo_clean = str(ritmo_preferido).strip().lower()
+    
+    if "tranquilo" in ritmo_clean or "lento" in ritmo_clean:
+        factor_actual = 0.90
+    elif "rapido" in ritmo_clean or "intenso" in ritmo_clean or "decidido" in ritmo_clean:
+        factor_actual = 0.75
+    else:
+        factor_actual = 0.85
+        
+    factor_ideal = 1.0 - factor_actual
+    
+    peso_etapa = (peso_actual * factor_actual) + (peso_ideal * factor_ideal)
+    return round(peso_etapa, 1)
+
+def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: str = "masculino", actividad: float = 1.375, masa_magra: float = None, peso_ideal: float = None) -> tuple[float, float]:
+    """
+    (MODIFICADA - Firma original respetada + soporte de masa magra)
+    Calcula TMB y GET. Si le llega 'masa_magra' de la cinta métrica usa Katch-McArdle, 
+    y acepta 'peso_ideal' por si el sistema principal lo inyecta, sin arrojar error.
     """
     try:
         peso = float(peso_actual)
@@ -2379,11 +2378,9 @@ def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: 
     except (TypeError, ValueError):
         peso, altura, anios = 90.0, 170.0, 40
 
-    # Si tenemos la masa magra de la nueva antropometría, usamos Katch-McArdle (más precisa)
     if masa_magra is not None and masa_magra > 0:
         tmb = 370 + (21.6 * masa_magra)
     else:
-        # Fallback a Mifflin si por alguna razón no hay datos de cinta
         gen_clean = str(genero).strip().lower()
         if gen_clean in ["femenino", "f", "mujer", "female"]:
             tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * anios) - 161.0
