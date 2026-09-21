@@ -2390,7 +2390,7 @@ def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: 
     return round(tmb, 2), round(get, 2)
     
 def calcular_metricas_mensuales(df_mes, perfil_dict):
-    """Procesa todos los cálculos mensuales garantizando consistencia y exactitud metabólica con rangos dinámicos."""
+    """Procesa todos los cálculos mensuales usando el peso ideal/etapa unificado."""
     
     if df_mes is not None and not df_mes.empty and 'Fecha' in df_mes.columns:
         todas_comidas = {"Desayuno", "Almuerzo", "Merienda", "Cena"}
@@ -2458,29 +2458,18 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         return default
 
     edad = int(get_perfil_num(['Edad', 'edad'], 64))
-    altura = get_perfil_num(['Altura', 'altura'], 167.0)
-    peso_actual = get_perfil_num(['Peso', 'peso'], 108.5)
+    altura = get_perfil_num(['Altura', 'altura', 'ALTURA'], 167.5)
+    peso_actual = get_perfil_num(['Peso', 'peso', 'peso_actual', 'PESO'], 104.6)
     
-    cintura = get_perfil_num(['Cintura', 'cintura'], 0.0)
-    cuello = get_perfil_num(['Cuello', 'cuello'], 0.0)
-    
-    genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
     ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
-    ritmo_usuario = str(perfil_dict.get('Ritmo') or perfil_dict.get('ritmo_preferido', 'moderado')).strip()
-
-    # Cálculo dinámico del peso ideal (Sin columnas estáticas erróneas)
+    genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
     gen_clean = genero.lower()
     is_femenino = gen_clean in ["femenino", "f", "mujer", "female"]
 
-    if cintura > 0 and cuello > 0:
-        _, masa_magra = calcular_grasa_y_magra(genero, altura, cintura, cuello, peso_actual)
-        grasa_objetivo = 0.26 if is_femenino else 0.18
-        peso_ideal_dinamico = masa_magra / (1.0 - grasa_objetivo)
-    else:
-        altura_m = altura / 100.0 if altura > 3 else altura
-        peso_ideal_dinamico = 24.5 * (altura_m ** 2)
-
-    peso_referencia = calcular_peso_etapa(peso_actual=peso_actual, peso_ideal=peso_ideal_dinamico, ritmo_preferido=ritmo_usuario)
+    # 🟢 Peso ideal y peso de etapa unificados (vienen de afuera)
+    peso_objetivo_unico = get_perfil_num(['peso_ideal', 'Peso_Ideal', 'peso_referencia', 'peso_etapa'], 81.0)
+    peso_ideal_dinamico = peso_objetivo_unico
+    peso_referencia = peso_objetivo_unico
 
     min_act = 30
     max_act = 60
@@ -2558,7 +2547,6 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "tot_carb": tot_carb,
         "tot_fibr": tot_fibr
     }
-
 
 async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.DEFAULT_TYPE = None, user_id: int = None) -> bool:
     uid = user_id or (update.effective_user.id if update else None)
