@@ -3349,16 +3349,81 @@ async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False)
         
     return "⚠️ No se pudo obtener el análisis nutricional en este momento."
 
+async def procesar_intencion_coloquial_ia(update: Update, context: ContextTypes.DEFAULT_TYPE, texto: str, msg_espera) -> bool:
+    """
+    Función independiente que analiza el texto (ingresado por chat o voz) mediante Groq
+    para detectar si el usuario está pidiendo un resumen mensual, semanal o diario de forma coloquial.
+    Si detecta un informe, ejecuta la acción correspondiente y retorna True.
+    Si es comida, actividad o cualquier otra cosa, retorna False para que el flujo continúe su curso normal.
+    """
+    try:
+        client_ai = globals().get('client_ai')
+        if not client_ai:
+            return False
+
+        system_prompt = (
+            "Sos un asistente inteligente de salud. Analiza el texto ingresado por el usuario y clasifícalo estrictamente en una de estas categorías:\n"
+            "1. INFORME_MENSUAL: Si el usuario pide el resumen, balance o informe del mes (ej: 'quiero el resumen mensual', 'resumen del mes').\n"
+            "2. INFORME_SEMANAL: Si el usuario pide el resumen o balance de la semana (ej: 'resumen semanal').\n"
+            "3. INFORME_DIARIO: Si el usuario pide el resumen del día o lo que consumió hoy (ej: 'resumen de hoy', 'cómo voy hoy').\n"
+            "4. OTRO: Si es una comida, una actividad física, un producto, o cualquier otra cosa que no sea un pedido explícito de resumen.\n\n"
+            "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
+            "{\n"
+            '  "tipo": "INFORME_MENSUAL" o "INFORME_SEMANAL" o "INFORME_DIARIO" o "OTRO"\n'
+            "}"
+        )
+
+        response = client_ai.chat.completions.create(
+            model=globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile"),
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": texto}
+            ],
+            temperature=0.1,
+            response_format={"type": "json_object"}
+        )
+        
+        resultado = json.loads(response.choices[0].message.content)
+        tipo = resultado.get("tipo")
+
+        # Si detectó un informe, manejamos la acción
+        if tipo == "INFORME_MENSUAL":
+            await msg_espera.delete()
+            # Aquí llamamos a la lógica interna de tu comando mensual (ej: cmd_mes o función equivalente)
+            # Como aún no la enchufamos, por ahora podemos simular o llamar directamente a tu función de mes si la tenés a mano:
+            await cmd_mes(update, context) # Asegúrate de que cmd_mes esté accesible en el ámbito
+            return True
+
+        elif tipo == "INFORME_SEMANAL":
+            await msg_espera.delete()
+            await cmd_semana(update, context) # O tu función semanal equivalente
+            return True
+
+        elif tipo == "INFORME_DIARIO":
+            await msg_espera.delete()
+            await cmd_dia(update, context) # O tu función diaria equivalente
+            return True
+
+        # Si es OTRO, devuelve False y el bot sigue con su lógica de comida/actividad habitual
+        return False
+
+    except Exception as e:
+        logger.error(f"Error en procesar_intencion_coloquial_ia: {e}")
+        return False
+
 def analizar_con_groq(prompt_text):
     client_ai = globals().get('client_ai')
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
     
     system_prompt = (
-        "Sos un asistente inteligente de salud. Analiza el texto ingresado por el usuario y clasifícalo en una de estas tres categorías:\n"
+        "Sos un asistente inteligente de salud. Analiza el texto ingresado por el usuario y clasifícalo estrictamente en una de estas categorías:\n"
         "1. COMIDA: Si el usuario menciona alimentos, platos o bebidas para ingerir.\n"
         "2. ACTIVIDAD: Si el usuario menciona cualquier tipo de ejercicio, deporte, movimiento físico o actividad en movimiento.\n"
-        "3. RECHAZO: Si el usuario nombra objetos inanimados, productos de limpieza, ropa o cosas que no se comen ni se entrenan.\n\n"
+        "3. INFORME_MENSUAL: Si el usuario pide el resumen, balance o informe del mes (ej: 'resumen mensual', 'del mes').\n"
+        "4. INFORME_SEMANAL: Si el usuario pide el resumen o balance de la semana (ej: 'resumen semanal', 'de la semana').\n"
+        "5. INFORME_DIARIO: Si el usuario pide el resumen del día o lo que consumió hoy (ej: 'resumen de hoy', 'cómo voy hoy').\n"
+        "6. RECHAZO: Si el usuario nombra objetos inanimados, productos de limpieza, ropa o cosas que no se comen ni se entrenan ni piden resúmenes.\n\n"
         "REGLAS:\n"
         "- Si es COMIDA, desglósalo con pesos y calorías positivas.\n"
         "- Si es ACTIVIDAD:\n"
@@ -3366,13 +3431,14 @@ def analizar_con_groq(prompt_text):
         "  * El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de un espacio y la descripción original (Ejemplo estricto: '30 caminata de 3000 metros en 30 minutos'). Esto es vital para que el sistema contabilice las estadísticas semanales.\n"
         "  * El campo 'peso' debe ser estrictamente 0.0.\n"
         "  * Estima las calorías gastadas con valor positivo.\n"
+        "- Si es INFORME_MENSUAL, INFORME_SEMANAL o INFORME_DIARIO, el campo 'items' debe ir vacío ([ ]).\n"
         "- Si es RECHAZO, devolvé la lista de 'items' vacía ([ ]).\n\n"
         "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
         "{\n"
         '  "items": [\n'
         '    {"alimento": "nombre o descripción", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
         "  ],\n"
-        '  "tipo": "Comida" o "Actividad"\n'
+        '  "tipo": "Comida" o "Actividad" o "INFORME_MENSUAL" o "INFORME_SEMANAL" o "INFORME_DIARIO" o "Rechazo"\n'
         "}"
     )
 
@@ -3386,17 +3452,7 @@ def analizar_con_groq(prompt_text):
         response_format={"type": "json_object"}
     )
     return json.loads(response.choices[0].message.content)
-
-    response = client_ai.chat.completions.create(
-        model=globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile"),
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt_text}
-        ],
-        temperature=0.1,
-        response_format={"type": "json_object"}
-    )
-    return json.loads(response.choices[0].message.content)                
+    
 def analizar_imagen_con_groq(base64_image, user_caption=""):
     client_ai = globals().get('client_ai')
     if not client_ai:
@@ -4393,18 +4449,18 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
                 
 @requiere_registro
+@requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, chat_id = update.effective_user.id, update.effective_chat.id
     raw_text = update.message.text.strip() if update.message and update.message.text else ""
     if not raw_text: 
         return
 
-    # 🟢 NUEVO: Intercepta el texto para la nota de la presión (sin botones)
+    # 🟢 Intercepta el texto para la nota de la presión
     if context.user_data.get('awaiting_presion_nota'):
         context.user_data.pop('awaiting_presion_nota', None)
         datos_presion = context.user_data.pop('pending_presion_foto', None)
 
-        # Si el usuario escribe "cancelar", abortamos
         if raw_text.lower() == "cancelar":
             await update.message.reply_text("❌ Registro de presión cancelado.")
             return
@@ -4415,7 +4471,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pulsaciones = datos_presion.get("pulsaciones")
             nota = raw_text  # Todo lo que escriba pasa a ser la nota aclaratoria
 
-            # Guardamos en Supabase con la nota ingresada
             guardar_presion_db(user_id, alta, baja, pulsaciones, nota=nota)
 
             pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
@@ -4430,7 +4485,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Los datos temporales de la presión expiraron.")
         return
 
-    # 🟢 CORREGIDO: Se agregó la validación pendiente para capturar la fecha personalizada ("Otro Día")
+    # Validaciones de estados pendientes existentes
     if context.user_data.get('awaiting_custom_date'):
         await _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id)
         return
@@ -4452,12 +4507,44 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
     try:
+        # Analizamos con la función unificada de Groq
         data = analizar_con_groq(raw_text)
+        tipo = data.get("tipo")
+
+        # 🟢 NUEVO: Enrutamiento para peticiones coloquiales de informes
+        if tipo == "INFORME_MENSUAL":
+            await msg.delete()
+            # Llama directamente a la función de tu comando mensual (ej: cmd_resumen)
+            if 'cmd_resumen' in globals():
+                await cmd_resumen(update, context)
+            else:
+                await update.message.reply_text("📊 Solicitud mensual detectada.")
+            return
+
+        elif tipo == "INFORME_SEMANAL":
+            await msg.delete()
+            # Llama directamente a la función de tu comando semanal (ej: cmd_mensaje)
+            if 'cmd_mensaje' in globals():
+                await cmd_mensaje(update, context)
+            else:
+                await update.message.reply_text("📅 Solicitud semanal detectada.")
+            return
+
+        elif tipo == "INFORME_DIARIO":
+            await msg.delete()
+            # Llama directamente a la función de tu comando diario (ej: cmd_diario)
+            if 'cmd_diario' in globals():
+                await cmd_diario(update, context)
+            else:
+                await update.message.reply_text("📋 Solicitud diaria detectada.")
+            return
+
+        # Si es Comida, Actividad o Rechazo, procesa con el flujo habitual
         await procesar_y_mostrar_confirmacion(data, msg, context)
+
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar el texto: {e}")
-        
-        
+                 
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
