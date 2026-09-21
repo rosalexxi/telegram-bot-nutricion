@@ -2465,6 +2465,104 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     
     genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
     ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
+    ritmo_usuario = str(perfil_dict.get('Ritmo') or perfil_dict.get('ritmo_preferido', 'moderado')).strip()
+
+    # Cálculo centralizado y encapsulado del peso de referencia / etapa[cite: 1]
+    peso_referencia = calcular_peso_etapa(peso_actual=peso_actual, peso_ideal=peso_ideal, ritmo_preferido=ritmo_usuario)
+
+    min_act = 30
+    max_act = 60
+
+    _, get_real = calcular_tmb_y_get(
+        peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
+    )
+    _, get_meta = calcular_tmb_y_get(
+        peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
+    )
+
+    gasto_diario_total = get_real + prom_quem
+    balance_diario = prom_cons - gasto_diario_total
+    cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
+    deficit_diario_real = -balance_diario
+
+    gen_clean = genero.lower()
+    if gen_clean in ["femenino", "f", "mujer", "female"]:
+        factor_proteina_min = 1.0
+        factor_proteina_max = 1.2
+        fibr_min = 25
+    else:
+        factor_proteina_min = 1.2
+        factor_proteina_max = 1.5
+        fibr_min = 30
+
+    cal_max = int(round(get_meta))
+    cal_min = max(1500, int(round(cal_max - 600)))
+
+    prot_min = int(round(peso_referencia * factor_proteina_min))
+    prot_max = int(round(peso_referencia * factor_proteina_max))
+
+    gras_min = int(round((cal_min * 0.20) / 9.0))
+    gras_max = int(round((cal_max * 0.30) / 9.0))
+
+    carb_min = int(round((cal_min * 0.40) / 4.0))
+    carb_max = int(round((cal_max * 0.55) / 4.0))
+
+    fibr_min_val = fibr_min
+
+    return {
+        "dias_registrados": dias_registrados,
+        "prom_cal": prom_cal,
+        "prom_quem": int(round(prom_quem)),
+        "prom_bal_neto": int(round(prom_bal_neto)),
+        "prom_prot": prom_prot,
+        "prom_gras": prom_gras,
+        "prom_carb": prom_carb,
+        "prom_fibr": prom_fibr,
+        "prom_minutos_act": prom_minutos_act,
+        "act_min": min_act,
+        "act_max": max_act,
+        "cal_min": cal_min, "cal_max": cal_max,
+        "prot_min": prot_min, "prot_max": prot_max,
+        "gras_min": gras_min, "gras_max": gras_max,
+        "carb_min": carb_min, "carb_max": carb_max,
+        "fibr_min": fibr_min_val,
+        "ideal_cal": cal_max,
+        "ideal_prot": prot_max,
+        "ideal_gras": gras_max,
+        "ideal_carb": carb_max,
+        "ideal_fibr": fibr_min_val,
+        "peso_actual": round(float(peso_actual), 1),
+        "peso_ideal": round(float(peso_ideal), 1),
+        "peso_referencia": round(float(peso_referencia), 1),
+        "altura": round(float(altura), 1),
+        "edad": edad,
+        "get_meta": get_meta,
+        "get_real": get_real,
+        "deficit_diario_real": int(round(deficit_diario_real)),
+        "cambio_peso_kg": cambio_peso_kg,
+        "tot_cons": tot_cons_mes,
+        "tot_quem": tot_quem_mes,
+        "tot_prot": tot_prot,
+        "tot_gras": tot_gras,
+        "tot_carb": tot_carb,
+        "tot_fibr": tot_fibr
+    }
+    
+    def get_perfil_num(key_list, default):
+        for k in key_list:
+            if k in perfil_dict and perfil_dict[k] is not None:
+                val = parse_raw_val(perfil_dict[k])
+                if val != 0.0:
+                    return val
+        return default
+
+    edad = int(get_perfil_num(['Edad', 'edad'], 64))
+    altura = get_perfil_num(['Altura', 'altura'], 167.0)
+    peso_actual = get_perfil_num(['Peso', 'peso'], 108.5)
+    peso_ideal = get_perfil_num(['Peso_ideal', 'peso_ideal', 'Peso Ideal'], 75.0)
+    
+    genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
+    ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
 
     peso_referencia = (peso_actual * 0.75) + (peso_ideal * 0.25)
 
