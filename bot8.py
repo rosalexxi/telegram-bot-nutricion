@@ -2390,7 +2390,8 @@ def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: 
     return round(tmb, 2), round(get, 2)
     
 def calcular_metricas_mensuales(df_mes, perfil_dict):
-    """Procesa todos los cálculos mensuales usando el peso ideal/etapa unificado."""
+    """Procesa los cálculos mensuales calculando el peso de etapa (promedio ponderado) 
+    y entregándoselo al informe, manteniendo oculto el ideal final real."""
     
     if df_mes is not None and not df_mes.empty and 'Fecha' in df_mes.columns:
         todas_comidas = {"Desayuno", "Almuerzo", "Merienda", "Cena"}
@@ -2465,11 +2466,27 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
     gen_clean = genero.lower()
     is_femenino = gen_clean in ["femenino", "f", "mujer", "female"]
+    ritmo_usuario = str(perfil_dict.get('Ritmo') or perfil_dict.get('ritmo_preferido', 'moderado')).strip()
 
-    # 🟢 Peso ideal y peso de etapa unificados (vienen de afuera)
-    peso_objetivo_unico = get_perfil_num(['peso_ideal', 'Peso_Ideal', 'peso_referencia', 'peso_etapa'], 81.0)
-    peso_ideal_dinamico = peso_objetivo_unico
-    peso_referencia = peso_objetivo_unico
+    # 1. El peso ideal secreto (ej. 81.0 kg) que viene guardado o precalculado
+    peso_ideal_secreto = get_perfil_num(['peso_ideal_secreto', 'peso_ideal', 'Peso_Ideal'], 81.0)
+
+    # 2. Factor según el ritmo seleccionado por el usuario
+    ritmo_clean = ritmo_usuario.lower()
+    if "tranquilo" in ritmo_clean or "lento" in ritmo_clean:
+        factor_actual = 0.90
+    elif "rapido" in ritmo_clean or "intenso" in ritmo_clean or "decidido" in ritmo_clean:
+        factor_actual = 0.75
+    else:
+        factor_actual = 0.85
+    factor_ideal = 1.0 - factor_actual
+
+    # 3. El cálculo exacto del peso promedio (peso de etapa)
+    peso_etapa_calculado = (peso_actual * factor_actual) + (peso_ideal_secreto * factor_ideal)
+    
+    # 4. Le asignamos este valor calculado tanto a la referencia como al ideal visible (la mentira piadosa para el informe)
+    peso_referencia = round(peso_etapa_calculado, 1)
+    peso_ideal_dinamico = peso_referencia  
 
     min_act = 30
     max_act = 60
@@ -2532,8 +2549,8 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "ideal_carb": carb_max,
         "ideal_fibr": fibr_min_val,
         "peso_actual": round(float(peso_actual), 1),
-        "peso_ideal": round(float(peso_ideal_dinamico), 1),
-        "peso_referencia": round(float(peso_referencia), 1),
+        "peso_ideal": round(float(peso_ideal_dinamico), 1),     # Aquí va el peso de etapa (ej. 101.1)
+        "peso_referencia": round(float(peso_referencia), 1),   # Aquí también va el peso de etapa
         "altura": round(float(altura), 1),
         "edad": edad,
         "get_meta": get_meta,
@@ -2547,7 +2564,7 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "tot_carb": tot_carb,
         "tot_fibr": tot_fibr
     }
-
+    
 async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.DEFAULT_TYPE = None, user_id: int = None) -> bool:
     uid = user_id or (update.effective_user.id if update else None)
     if not uid:
