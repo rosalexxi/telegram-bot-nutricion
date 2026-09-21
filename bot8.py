@@ -5322,10 +5322,9 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
     # 1. 🟢 Aviso inicial automático al usuario de que se está preparando el documento
     await query.answer("¡Recibido! Prepararemos el documento y cuando esté listo lo recibirá automáticamente. ⏳", show_alert=True)
     
-    # Opcional: También podés enviar un mensaje de texto en el chat para que quede constancia visual
     mensaje_espera = await context.bot.send_message(
         chat_id=query.message.chat_id,
-        text="🔄 **Generando reporte mensual con IA...** Por favor aguarde unos momentos, le enviaremos el documento en cuanto esté listo.",
+        text="🔄 **Generando reporte mensual...** Por favor aguarde unos momentos, le enviaremos el documento en cuanto esté listo.",
         parse_mode="Markdown"
     )
 
@@ -5376,8 +5375,8 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
 
         m = calcular_metricas_mensuales(df_mes, perfil)
 
-        # Generación de la recomendación mediante IA (el paso que demora)
-        recomendacion_pdf = await generar_recomendacion_mensual_para_pdf(user_id, mes_str, df_mes, perfil, m, context)
+        # 🟢 EXCLUSIVO MANUAL (SIN IA): Se define una nota estándar sin consultas a modelos externos
+        recomendacion_pdf = "Reporte mensual generado mediante métricas analíticas directas y cálculos puros del sistema."
 
         pdf_buffer = await asyncio.to_thread(
             generar_pdf_resumen_bytes,
@@ -5399,7 +5398,6 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
             parse_mode="Markdown"
         )
         
-        # Borramos el mensaje de espera temporal para mantener limpio el chat
         try:
             await mensaje_espera.delete()
         except Exception:
