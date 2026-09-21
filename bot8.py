@@ -3416,6 +3416,9 @@ def analizar_con_groq(prompt_text):
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
     
+    # 🟢 Registro en logs de Render del texto entrante
+    logger.info(f"🤖 IA analizando texto entrante: '{prompt_text}'")
+
     system_prompt = (
         "Sos un asistente inteligente de salud. Analiza el texto ingresado por el usuario y clasifícalo estrictamente en una de estas categorías:\n"
         "1. COMIDA: Si el usuario menciona alimentos, platos o bebidas para ingerir.\n"
@@ -3451,8 +3454,14 @@ def analizar_con_groq(prompt_text):
         temperature=0.1,
         response_format={"type": "json_object"}
     )
-    return json.loads(response.choices[0].message.content)
     
+    resultado_json = json.loads(response.choices[0].message.content)
+    
+    # 🟢 Registro en logs de Render de lo que respondió la IA
+    logger.info(f"🤖 IA respondió resultado: {resultado_json}")
+    
+    return resultado_json
+        
 def analizar_imagen_con_groq(base64_image, user_caption=""):
     client_ai = globals().get('client_ai')
     if not client_ai:
