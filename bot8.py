@@ -2388,6 +2388,7 @@ def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: 
 
     get = tmb * float(actividad)
     return round(tmb, 2), round(get, 2)
+    
 def calcular_metricas_mensuales(df_mes, perfil_dict):
     """Procesa todos los cálculos mensuales garantizando consistencia y exactitud metabólica con rangos dinámicos."""
     
@@ -2467,21 +2468,18 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
     ritmo_usuario = str(perfil_dict.get('Ritmo') or perfil_dict.get('ritmo_preferido', 'moderado')).strip()
 
-    # 🟢 CÁLCULO DINÁMICO DEL PESO IDEAL (Adiós columnas estáticas)
+    # Cálculo dinámico del peso ideal (Sin columnas estáticas erróneas)
     gen_clean = genero.lower()
     is_femenino = gen_clean in ["femenino", "f", "mujer", "female"]
 
     if cintura > 0 and cuello > 0:
-        # Si hay datos de cinta métrica, calculamos en base a la masa magra real (US Navy)
         _, masa_magra = calcular_grasa_y_magra(genero, altura, cintura, cuello, peso_actual)
-        grasa_objetivo = 0.26 if is_femenino else 0.18  # Porcentaje de grasa corporal saludable objetivo
+        grasa_objetivo = 0.26 if is_femenino else 0.18
         peso_ideal_dinamico = masa_magra / (1.0 - grasa_objetivo)
     else:
-        # Fallback seguro basado en altura (IMC objetivo de 24.5) si faltasen medidas de cinta
         altura_m = altura / 100.0 if altura > 3 else altura
         peso_ideal_dinamico = 24.5 * (altura_m ** 2)
 
-    # Cálculo centralizado y encapsulado del peso de referencia / etapa usando el valor dinámico
     peso_referencia = calcular_peso_etapa(peso_actual=peso_actual, peso_ideal=peso_ideal_dinamico, ritmo_preferido=ritmo_usuario)
 
     min_act = 30
@@ -2500,109 +2498,6 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     deficit_diario_real = -balance_diario
 
     if is_femenino:
-        factor_proteina_min = 1.0
-        factor_proteina_max = 1.2
-        fibr_min = 25
-    else:
-        factor_proteina_min = 1.2
-        factor_proteina_max = 1.5
-        fibr_min = 30
-
-    cal_max = int(round(get_meta))
-    cal_min = max(1500, int(round(cal_max - 600)))
-
-    prot_min = int(round(peso_referencia * factor_proteina_min))
-    prot_max = int(round(peso_referencia * factor_proteina_max))
-
-    gras_min = int(round((cal_min * 0.20) / 9.0))
-    gras_max = int(round((cal_max * 0.30) / 9.0))
-
-    carb_min = int(round((cal_min * 0.40) / 4.0))
-    carb_max = int(round((cal_min * 0.55) / 4.0))
-
-    fibr_min_val = fibr_min
-
-    return {
-        "dias_registrados": dias_registrados,
-        "prom_cal": prom_cal,
-        "prom_quem": int(round(prom_quem)),
-        "prom_bal_neto": int(round(prom_bal_neto)),
-        "prom_prot": prom_prot,
-        "prom_gras": prom_gras,
-        "prom_carb": prom_carb,
-        "prom_fibr": prom_fibr,
-        "prom_minutos_act": prom_minutos_act,
-        "act_min": min_act,
-        "act_max": max_act,
-        "cal_min": cal_min, "cal_max": cal_max,
-        "prot_min": prot_min, "prot_max": prot_max,
-        "gras_min": gras_min, "gras_max": gras_max,
-        "carb_min": carb_min, "carb_max": carb_max,
-        "fibr_min": fibr_min_val,
-        "ideal_cal": cal_max,
-        "ideal_prot": prot_max,
-        "ideal_gras": gras_max,
-        "ideal_carb": carb_max,
-        "ideal_fibr": fibr_min_val,
-        "peso_actual": round(float(peso_actual), 1),
-        "peso_ideal": round(float(peso_ideal_dinamico), 1),
-        "peso_referencia": round(float(peso_referencia), 1),
-        "altura": round(float(altura), 1),
-        "edad": edad,
-        "get_meta": get_meta,
-        "get_real": get_real,
-        "deficit_diario_real": int(round(deficit_diario_real)),
-        "cambio_peso_kg": cambio_peso_kg,
-        "tot_cons": tot_cons_mes,
-        "tot_quem": tot_quem_mes,
-        "tot_prot": tot_prot,
-        "tot_gras": tot_gras,
-        "tot_carb": tot_carb,
-        "tot_fibr": tot_fibr
-    }    
-
-def get_perfil_num(key_list, default):
-        for k in key_list:
-            if k in perfil_dict and perfil_dict[k] is not None:
-                val = parse_raw_val(perfil_dict[k])
-                if val != 0.0:
-                    return val
-        return default
-
-    edad = int(get_perfil_num(['Edad', 'edad'], 64))
-    altura = get_perfil_num(['Altura', 'altura'], 167.0)
-    peso_actual = get_perfil_num(['Peso', 'peso'], 108.5)
-    peso_ideal = get_perfil_num(['Peso_ideal', 'peso_ideal', 'Peso Ideal'], 75.0)
-    
-    genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
-    ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
-
-    peso_referencia = (peso_actual * 0.75) + (peso_ideal * 0.25)
-
-    min_act = 30
-    exceso_pct = max(0.0, (peso_actual - peso_ideal) / peso_ideal) if peso_ideal > 0 else 0.0
-    if exceso_pct >= 0.20:
-        max_act = 60
-    elif exceso_pct <= 0.0:
-        max_act = 90
-    else:
-        max_act = int(90 - (exceso_pct / 0.20) * 30)
-        max_act = max(60, min(90, max_act))
-
-    _, get_real = calcular_tmb_y_get(
-        peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
-    )
-    _, get_meta = calcular_tmb_y_get(
-        peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal
-    )
-
-    gasto_diario_total = get_real + prom_quem
-    balance_diario = prom_cons - gasto_diario_total
-    cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
-    deficit_diario_real = -balance_diario
-
-    gen_clean = genero.lower()
-    if gen_clean in ["femenino", "f", "mujer", "female"]:
         factor_proteina_min = 1.0
         factor_proteina_max = 1.2
         fibr_min = 25
@@ -2648,7 +2543,7 @@ def get_perfil_num(key_list, default):
         "ideal_carb": carb_max,
         "ideal_fibr": fibr_min_val,
         "peso_actual": round(float(peso_actual), 1),
-        "peso_ideal": round(float(peso_ideal), 1),
+        "peso_ideal": round(float(peso_ideal_dinamico), 1),
         "peso_referencia": round(float(peso_referencia), 1),
         "altura": round(float(altura), 1),
         "edad": edad,
@@ -2663,7 +2558,8 @@ def get_perfil_num(key_list, default):
         "tot_carb": tot_carb,
         "tot_fibr": tot_fibr
     }
-            
+
+
 async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.DEFAULT_TYPE = None, user_id: int = None) -> bool:
     uid = user_id or (update.effective_user.id if update else None)
     if not uid:
@@ -2713,7 +2609,7 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
                     peso_valido = True
                     
     return peso_valido
-        
+    
 #              INICIO                     12 FUNCIONES COMIDAS                           INICIO
 # =============================================================================================================================================
 
