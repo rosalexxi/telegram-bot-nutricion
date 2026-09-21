@@ -1962,6 +1962,83 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     except Exception as e:
         logger.error(f"Error al guardar perfil en Supabase (Perfil_{user_id}): {e}")
 
+def obtener_datos_usuario_general(user_id):
+    """Obtiene los datos generales del usuario desde la tabla 'Usuarios'."""
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        query = """
+            SELECT "User ID", "ocupacion", "reloj_actualizado_mes"
+            FROM "Usuarios"
+        """
+        cur.execute(query)
+        filas = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        user_id_str = str(user_id).strip()
+        for fila in filas:
+            raw_id = fila[0]
+            if raw_id and str(raw_id).split('.')[0].strip() == user_id_str:
+                return {
+                    "user_id": fila[0],
+                    "ocupacion": fila[1],
+                    "reloj_actualizado_mes": fila[2]
+                }
+        return {}
+    except Exception as e:
+        logger.error(f"Error al obtener datos generales de usuario para {user_id}: {e}")
+        return {}
+        
+def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=None):
+    """Actualiza el factor de ocupación en la tabla Perfil_<user_id> y el control en Usuarios."""
+    user_id_str = str(user_id).strip()
+    mes_marca = str(reloj_actualizado) if reloj_actualizado else str(mes_actual)
+
+    # 1. Actualizar en la tabla maestra 'Usuarios' (para el control de límite mensual del reloj)
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        query_u = """
+            UPDATE "Usuarios"
+            SET "ocupacion" = %s, "reloj_actualizado_mes" = %s
+            WHERE "User ID" = %s
+        """
+        cur.execute(query_u, (float(nuevo_factor), mes_marca, user_id_str))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error al actualizar la tabla Usuarios en Supabase para {user_id}: {e}")
+
+    # 2. Actualizar en la tabla 'Perfil_<user_id>' (que es de donde el comando /perfil y las métricas leen la ocupación del mes)
+    try:
+        tabla_perfil = f"Perfil_{user_id}"
+        conn_p, cur_p = _asegurar_tabla_y_conectar(tabla_perfil, tipo_tabla="perfil")
+        
+        # Intentar actualizar el registro del mes actual
+        query_p = f"""
+            UPDATE "{tabla_perfil}"
+            SET "ocupacion" = %s
+            WHERE "MES" = %s
+        """
+        cur_p.execute(query_p, (float(nuevo_factor), str(mes_actual)))
+        
+        # Si por alguna razón no existía una fila para este mes en la tabla de perfil, la insertamos
+        if cur_p.rowcount == 0:
+            cur_p.execute(f'SELECT id FROM "{tabla_perfil}" WHERE "MES" = %s', (str(mes_actual),))
+            if not cur_p.fetchone():
+                cur_p.execute(f"""
+                    INSERT INTO "{tabla_perfil}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, ("64", 0.0, 167.0, "M", float(nuevo_factor), str(mes_actual), obtener_ahora_arg().strftime("%Y-%m-%d"), 0.0, ""))
+            else:
+                cur_p.execute(query_p, (float(nuevo_factor), str(mes_actual)))
+                
+        conn_p.commit()
+        cur_p.close()
+        conn_p.close()
+    except Exception as e:
+        logger.error(f"Error al actualizar la tabla Perfil_{user_id} en Supabase: {e}")
+ 
 
 #              INICIO                         FUNCIONES MIGRAR                           INICIO
 # =============================================================================================================================================
@@ -2059,83 +2136,68 @@ async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error crítico en migración local: {e}", exc_info=True)
         await update.message.reply_text(f"⚠️ Error general en la migración: {e}")
         
-def obtener_datos_usuario_general(user_id):
-    """Obtiene los datos generales del usuario desde la tabla 'Usuarios'."""
+async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Comando genérico para descargar cualquier tabla de Supabase en formato Excel.
+    Uso: /descargar nombre_de_la_tabla
+    """
+    user_id = update.effective_user.id
+    
+    # Verificar si el usuario proporcionó el nombre de la tabla
+    if not context.args or len(context.args) == 0:
+        await update.message.reply_text(
+            "⚠️ Por favor, indica el nombre de la tabla que deseas descargar.\n"
+            "Ejemplo: `/descargar textos_bot` o `/descargar Usuarios`",
+            parse_mode="Markdown"
+        )
+        return
+
+    nombre_tabla = context.args[0].strip()
+    mensaje_espera = await update.message.reply_text(f"⏳ Consultando y preparando la tabla `{nombre_tabla}`...", parse_mode="Markdown")
+
     try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        query = """
-            SELECT "User ID", "ocupacion", "reloj_actualizado_mes"
-            FROM "Usuarios"
-        """
-        cur.execute(query)
-        filas = cur.fetchall()
+        # Usamos tu función existente para conectar de forma segura
+        conn, cur = _asegurar_tabla_y_conectar(nombre_tabla, tipo_tabla="comida") # tipo_tabla genérico para evitar fallos de creación si ya existe
+        
+        # Consultar todas las columnas y filas de la tabla solicitada
+        query = f'SELECT * FROM "{nombre_tabla}"'
+        df = pd.read_sql(query, conn)
+        
         cur.close()
         conn.close()
 
-        user_id_str = str(user_id).strip()
-        for fila in filas:
-            raw_id = fila[0]
-            if raw_id and str(raw_id).split('.')[0].strip() == user_id_str:
-                return {
-                    "user_id": fila[0],
-                    "ocupacion": fila[1],
-                    "reloj_actualizado_mes": fila[2]
-                }
-        return {}
-    except Exception as e:
-        logger.error(f"Error al obtener datos generales de usuario para {user_id}: {e}")
-        return {}
-        
-def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=None):
-    """Actualiza el factor de ocupación en la tabla Perfil_<user_id> y el control en Usuarios."""
-    user_id_str = str(user_id).strip()
-    mes_marca = str(reloj_actualizado) if reloj_actualizado else str(mes_actual)
+        if df.empty:
+            await mensaje_espera.edit_text(f"⚠️ La tabla `{nombre_tabla}` existe pero está vacía.", parse_mode="Markdown")
+            return
 
-    # 1. Actualizar en la tabla maestra 'Usuarios' (para el control de límite mensual del reloj)
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        query_u = """
-            UPDATE "Usuarios"
-            SET "ocupacion" = %s, "reloj_actualizado_mes" = %s
-            WHERE "User ID" = %s
-        """
-        cur.execute(query_u, (float(nuevo_factor), mes_marca, user_id_str))
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error al actualizar la tabla Usuarios en Supabase para {user_id}: {e}")
+        # Generar el archivo Excel en un buffer de memoria (BytesIO)
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name=nombre_tabla[:31]) # Excel limita los nombres de pestaña a 31 chars
+        buffer.seek(0)
 
-    # 2. Actualizar en la tabla 'Perfil_<user_id>' (que es de donde el comando /perfil y las métricas leen la ocupación del mes)
-    try:
-        tabla_perfil = f"Perfil_{user_id}"
-        conn_p, cur_p = _asegurar_tabla_y_conectar(tabla_perfil, tipo_tabla="perfil")
+        # Enviar el archivo por Telegram
+        filename = f"{nombre_tabla}.xlsx"
+        await update.message.reply_document(
+            document=buffer,
+            filename=filename,
+            caption=f"✅ Aquí tienes el respaldo de la tabla *{nombre_tabla}* ({len(df)} registros).",
+            parse_mode="Markdown"
+        )
         
-        # Intentar actualizar el registro del mes actual
-        query_p = f"""
-            UPDATE "{tabla_perfil}"
-            SET "ocupacion" = %s
-            WHERE "MES" = %s
-        """
-        cur_p.execute(query_p, (float(nuevo_factor), str(mes_actual)))
-        
-        # Si por alguna razón no existía una fila para este mes en la tabla de perfil, la insertamos
-        if cur_p.rowcount == 0:
-            cur_p.execute(f'SELECT id FROM "{tabla_perfil}" WHERE "MES" = %s', (str(mes_actual),))
-            if not cur_p.fetchone():
-                cur_p.execute(f"""
-                    INSERT INTO "{tabla_perfil}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, ("64", 0.0, 167.0, "M", float(nuevo_factor), str(mes_actual), obtener_ahora_arg().strftime("%Y-%m-%d"), 0.0, ""))
-            else:
-                cur_p.execute(query_p, (float(nuevo_factor), str(mes_actual)))
-                
-        conn_p.commit()
-        cur_p.close()
-        conn_p.close()
+        try:
+            await mensaje_espera.delete()
+        except Exception:
+            pass
+
     except Exception as e:
-        logger.error(f"Error al actualizar la tabla Perfil_{user_id} en Supabase: {e}")
-        
+        logger.error(f"Error al descargar la tabla {nombre_tabla} para el usuario {user_id}: {e}", exc_info=True)
+        await mensaje_espera.edit_text(
+            f"❌ No se pudo descargar la tabla `{nombre_tabla}`.\n"
+            f"Error: `{e}`\n\n"
+            "Verifica que el nombre de la tabla esté bien escrito (es sensible a mayúsculas/minúsculas).",
+            parse_mode="Markdown"
+        )   
             
 # =============================================================================================================================================
 #              FINAL                            FUNCIONES SUPABASE                 FINAL
@@ -7208,6 +7270,7 @@ def main():
         app_bot.add_handler(CommandHandler(["factor", "get", "GET"], cmd_factor_handler))
         app_bot.add_handler(CommandHandler(["barra", "barras"], cmd_barra))
         app_bot.add_handler(CommandHandler("migrar", cmd_migrar))
+        app_bot.add_handler(CommandHandler("descargar", cmd_descargar))
         app_bot.add_handler(CommandHandler(["eliminar", "borrar"], cmd_eliminar))
         app_bot.add_handler(CommandHandler(["delcomida", "borracomida"], cmd_borrar_comida))
 
