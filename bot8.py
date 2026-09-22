@@ -4433,106 +4433,106 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @requiere_registro
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id, chat_id = update.effective_user.id, update.effective_chat.id[cite: 3]
-    raw_text = update.message.text.strip() if update.message and update.message.text else ""[cite: 3]
+    user_id, chat_id = update.effective_user.id, update.effective_chat.id
+    raw_text = update.message.text.strip() if update.message and update.message.text else ""
     if not raw_text: 
-        return[cite: 3]
+        return
 
     # 🟢 Intercepta el texto para la nota de la presión
-    if context.user_data.get('awaiting_presion_nota'):[cite: 3]
-        context.user_data.pop('awaiting_presion_nota', None)[cite: 3]
-        datos_presion = context.user_data.pop('pending_presion_foto', None)[cite: 3]
+    if context.user_data.get('awaiting_presion_nota'):
+        context.user_data.pop('awaiting_presion_nota', None)
+        datos_presion = context.user_data.pop('pending_presion_foto', None)
 
-        if raw_text.lower() == "cancelar":[cite: 3]
-            await update.message.reply_text("❌ Registro de presión cancelado.")[cite: 3]
-            return[cite: 3]
+        if raw_text.lower() == "cancelar":
+            await update.message.reply_text("❌ Registro de presión cancelado.")
+            return
 
-        if datos_presion:[cite: 3]
-            alta = datos_presion.get("alta")[cite: 3]
-            baja = datos_presion.get("baja")[cite: 3]
-            pulsaciones = datos_presion.get("pulsaciones")[cite: 3]
-            nota = raw_text  # Todo lo que escriba pasa a ser la nota aclaratoria[cite: 3]
+        if datos_presion:
+            alta = datos_presion.get("alta")
+            baja = datos_presion.get("baja")
+            pulsaciones = datos_presion.get("pulsaciones")
+            nota = raw_text  # Todo lo que escriba pasa a ser la nota aclaratoria
 
-            guardar_presion_db(user_id, alta, baja, pulsaciones, nota=nota)[cite: 3]
+            guardar_presion_db(user_id, alta, baja, pulsaciones, nota=nota)
 
-            pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""[cite: 3]
-            await update.message.reply_text([cite: 3]
-                f"✅ **¡Presión arterial registrada con éxito!**\n\n"[cite: 3]
-                f"• Presión Alta: `{alta:.0f} mmHg`\n"[cite: 3]
-                f"• Presión Baja: `{baja:.0f} mmHg`{pul_txt}\n"[cite: 3]
-                f"📝 Nota: `{nota}`",[cite: 3]
-                parse_mode="Markdown"[cite: 3]
-            )[cite: 3]
+            pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
+            await update.message.reply_text(
+                f"✅ **¡Presión arterial registrada con éxito!**\n\n"
+                f"• Presión Alta: `{alta:.0f} mmHg`\n"
+                f"• Presión Baja: `{baja:.0f} mmHg`{pul_txt}\n"
+                f"📝 Nota: `{nota}`",
+                parse_mode="Markdown"
+            )
         else:
-            await update.message.reply_text("⚠️ Los datos temporales de la presión expiraron.")[cite: 3]
-        return[cite: 3]
+            await update.message.reply_text("⚠️ Los datos temporales de la presión expiraron.")
+        return
 
     # Validaciones de estados pendientes existentes
-    if context.user_data.get('awaiting_custom_date'):[cite: 3]
-        await _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id)[cite: 3]
-        return[cite: 3]
-    if context.user_data.get('awaiting_activity_text'):[cite: 3]
-        await _sub_manejar_texto_actividad(update, context, raw_text, chat_id)[cite: 3]
-        return[cite: 3]
-    if context.user_data.get('awaiting_del_custom_date'):[cite: 3]
-        await _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id)[cite: 3]
-        return[cite: 3]
-    if context.user_data.get('awaiting_diario_custom_date'):[cite: 3]
-        await _sub_manejar_fecha_diario(update, context, raw_text, chat_id)[cite: 3]
-        return[cite: 3]
-    if context.user_data.get('awaiting_edit_item_val'):[cite: 3]
-        await _sub_manejar_edicion_item(update, context, raw_text, chat_id)[cite: 3]
-        return[cite: 3]
-    if raw_text.startswith('*'):[cite: 3]
-        await _sub_manejar_plantilla_comida(update, context, raw_text, user_id)[cite: 3]
-        return[cite: 3]
+    if context.user_data.get('awaiting_custom_date'):
+        await _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id)
+        return
+    if context.user_data.get('awaiting_activity_text'):
+        await _sub_manejar_texto_actividad(update, context, raw_text, chat_id)
+        return
+    if context.user_data.get('awaiting_del_custom_date'):
+        await _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id)
+        return
+    if context.user_data.get('awaiting_diario_custom_date'):
+        await _sub_manejar_fecha_diario(update, context, raw_text, chat_id)
+        return
+    if context.user_data.get('awaiting_edit_item_val'):
+        await _sub_manejar_edicion_item(update, context, raw_text, chat_id)
+        return
+    if raw_text.startswith('*'):
+        await _sub_manejar_plantilla_comida(update, context, raw_text, user_id)
+        return
 
-    msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")[cite: 3]
+    msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
     try:
         # Analizamos con la función unificada de Groq
-        data = analizar_con_groq(raw_text)[cite: 3]
+        data = analizar_con_groq(raw_text)
         tipo = str(data.get("tipo", "")).strip().upper()
 
         # 🟢 ENRUTAMIENTO INTELIGENTE PARA INFORMES COLOQUIALES (DIRECTO SIN BOTONES DE MENÚ)
         if tipo == "INFORME_MENSUAL":
-            await msg.delete()[cite: 3]
-            param = str(data.get("parametro", "")).strip()[cite: 3]
+            await msg.delete()
+            param = str(data.get("parametro", "")).strip()
             
             # Asignamos el mes extraído o el mes actual
-            if param and len(param) >= 7:[cite: 3]
-                context.args = [param][cite: 3]
+            if param and len(param) >= 7:
+                context.args = [param]
             else:
-                ahora = obtener_ahora_arg()[cite: 3]
-                context.args = [ahora.strftime("%Y-%m")][cite: 3]
+                ahora = obtener_ahora_arg()
+                context.args = [ahora.strftime("%Y-%m")]
             
-            # Al no tener callback_query, la función mostrar_resumen_mes toma context.args y muestra el reporte directo[cite: 4]
-            update.callback_query = None[cite: 3]
-            await mostrar_resumen_mes(update, context)[cite: 3]
-            return[cite: 3]
+            # Al no tener callback_query, la función mostrar_resumen_mes toma context.args y muestra el reporte directo
+            update.callback_query = None
+            await mostrar_resumen_mes(update, context)
+            return
 
         elif tipo == "INFORME_SEMANAL":
-            await msg.delete()[cite: 3]
-            await cmd_mensaje(update, context)[cite: 3]
-            return[cite: 3]
+            await msg.delete()
+            await cmd_mensaje(update, context)
+            return
 
         elif tipo == "INFORME_DIARIO":
-            await msg.delete()[cite: 3]
-            param = str(data.get("parametro", "")).strip().lower()[cite: 3]
+            await msg.delete()
+            param = str(data.get("parametro", "")).strip().lower()
             
-            tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')[cite: 3]
-            hoy_arg = datetime.now(tz_arg).date()[cite: 3]
+            tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
+            hoy_arg = datetime.now(tz_arg).date()
             
             # Calculamos la fecha solicitada
-            if "ayer" in param:[cite: 3]
-                fecha_objetivo = (hoy_arg - timedelta(days=1)).strftime("%Y-%m-%d")[cite: 3]
-            elif "-" in param or "/" in param:[cite: 3]
-                fecha_objetivo = param.replace("/", "-")[cite: 3]
+            if "ayer" in param:
+                fecha_objetivo = (hoy_arg - timedelta(days=1)).strftime("%Y-%m-%d")
+            elif "-" in param or "/" in param:
+                fecha_objetivo = param.replace("/", "-")
             else:
-                fecha_objetivo = hoy_arg.strftime("%Y-%m-%d")[cite: 3]
+                fecha_objetivo = hoy_arg.strftime("%Y-%m-%d")
 
-            # Invocamos directamente al renderizador del diario sin pasar por los botones de cmd_diario[cite: 4]
-            await mostrar_diario_fecha(update.message, user_id, fecha_objetivo)[cite: 3]
-            return[cite: 3]
+            # Invocamos directamente al renderizador del diario sin pasar por los botones de cmd_diario
+            await mostrar_diario_fecha(update.message, user_id, fecha_objetivo)
+            return
 
         elif tipo == "RECHAZO":
             # Si la IA determina que es un texto inválido/rechazado, borramos el mensaje y finaliza silenciosamente
@@ -4540,10 +4540,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # Si es Comida o Actividad, sigue el flujo habitual
-        await procesar_y_mostrar_confirmacion(data, msg, context)[cite: 3]
+        await procesar_y_mostrar_confirmacion(data, msg, context)
 
     except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar el texto: {e}")[cite: 3]
+        await msg.edit_text(f"❌ Error al procesar el texto: {e}")
         
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
