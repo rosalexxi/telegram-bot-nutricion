@@ -7242,7 +7242,7 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 # ==========================================================================================================================================
 
 # ==========================================================================================================================================
-#                                                   INICIO                                       MAIN                                       INICIO  
+#                   INICIO                                MAIN                                       INICIO  
 # ==========================================================================================================================================
 
 async def job_recordatorio_manana(context):
@@ -7322,7 +7322,7 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(callback_handler_guardar_cancelar, pattern="^(cancel_entry$|confirm_save$)"))
         
         # 🟢 CORREGIDO: Patrón delimitado para que 'manejar_callback_eliminacion' no capture a 'del_item_'
-        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, comando barrddddddddddd)"))
+        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_(d_|mom_|reg_|borrar)"))
 
         app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
         app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
