@@ -1,3 +1,105 @@
+# =============================================================================================================================================
+#                                 INICIO                                   CABECERA 2026 09 05                                    INICIO
+#                                  https://github.com/rosalexxi/telegram-bot-nutricion
+#                                  https://dashboard.render.com/web/srv-d9lcifijnfac73a8q1eg/events
+#                                  https://supabase.com/dashboard/project/xsheilmjewqcvhmyqlnx/editor/17944?schema=public
+#                                  https://dashboard.uptimerobot.com/monitors
+# ==============================================================================================================================================
+
+import os
+import re
+import io
+import json
+import base64
+import threading
+import inspect
+import logging
+import unicodedata
+import asyncio
+import psycopg2  
+import sys
+import pytz
+import pandas as pd
+import gspread
+import html  
+import cv2
+import numpy as np
+import requests
+import math
+
+from typing import Dict, Tuple, List, Optional, Any            
+from urllib.parse import urlparse 
+from datetime import datetime, date, timedelta, time
+from google.oauth2.service_account import Credentials
+from groq import Groq
+from dotenv import load_dotenv
+from flask import Flask, request, jsonify, render_template_string, send_from_directory
+from functools import wraps
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable, KeepTogether
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters,
+    ConversationHandler
+)
+
+logger = logging.getLogger(__name__)
+
+# Definición de franjas horarias (sin tildes)
+FRANJAS_COMIDAS = {
+    "Desayuno": (8, 11),
+    "Almuerzo": (11, 16),
+    "Merienda": (16, 20),
+    "Cena": (20, 24)
+}
+
+load_dotenv()
+
+# Estados de conversación para Perfil y Fecha personalizada
+AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT_ITEM = range(4)
+
+GROQ_TEXTO      = "openai/gpt-oss-120b"   # Generación principal
+GROQ_FOTO       = "qwen/qwen3.8-27b"
+GROQ_AUDIO      = "whisper-large-v3"
+
+GROQ_REVISION_2   = "openai/gpt-oss-20b"    # Revisión principal
+GROQ_REVISOR  = "qwen/qwen3.8-27b"      # Respaldo
+
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GOOGLE_SHEETS_KEY_PATH = os.getenv("GOOGLE_SHEETS_KEY_PATH", "credentials.json")
+SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "Registro_Nutricional_Bot")
+ARG_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
+
+# Estados del flujo de conversación (Incluyendo ING_TERMINOS al inicio)
+ING_TERMINOS, ING_IDIOMA, ING_PROFESIONAL, ING_NOMBRE, ING_EDAD, ING_SEXO, ING_ALTURA, ING_PESO, ING_MUNECA, ING_OCUPACION, ING_CUMPLE = range(10, 21)
+
+if GROQ_API_KEY:
+    client_ai = Groq(api_key=GROQ_API_KEY)
+else:
+    client_ai = None
+
+# ==========================================
+# ÚNICA INSTANCIA DE FLASK PARA TODO EL BOT
+# ==========================================
+app = Flask(__name__)
+
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+# =====================================================================================================================================
+#                FINAL                                   CABECERA                                       FINAL
+# =====================================================================================================================================
+
+
 # =====================================================================================================================================
 #              INICIO                                  PAGINA WEB (CALCULADORA UNICA)                        INICIO  DB OK
 # ======================================================================================================================================
