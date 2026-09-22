@@ -2952,6 +2952,57 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
 #                INICIO                       14 FUNCIONES IA GROQ                                      INICIO
 # ======================================================================================================================================
 
+def analizar_con_groq(prompt_text):
+    client_ai = globals().get('client_ai')
+    if not client_ai:
+        raise Exception("GROQ_API_KEY no está configurada correctamente.")
+    
+    # 🟢 Registro en logs de Render del texto entrante
+    logger.info(f"🤖 IA analizando texto entrante: '{prompt_text}'")
+
+    system_prompt = (
+        "Sos un asistente inteligente de salud. Analiza el texto ingresado por el usuario y clasifícalo estrictamente en una de estas categorías:\n"
+        "1. COMIDA: Si el usuario menciona alimentos, platos o bebidas para ingerir.\n"
+        "2. ACTIVIDAD: Si el usuario menciona cualquier tipo de ejercicio, deporte, movimiento físico o actividad en movimiento.\n"
+        "3. INFORME_MENSUAL: Si el usuario pide el resumen, balance o informe del mes (ej: 'resumen mensual', 'del mes').\n"
+        "4. INFORME_SEMANAL: Si el usuario pide el resumen o balance de la semana (ej: 'resumen semanal', 'de la semana').\n"
+        "5. INFORME_DIARIO: Si el usuario pide el resumen del día o lo que consumió hoy (ej: 'resumen de hoy', 'cómo voy hoy').\n"
+        "6. RECHAZO: Si el usuario nombra objetos inanimados, productos de limpieza, ropa o cosas que no se comen ni se entrenan ni piden resúmenes.\n\n"
+        "REGLAS:\n"
+        "- Si es COMIDA, desglósalo con pesos y calorías positivas.\n"
+        "- Si es ACTIVIDAD:\n"
+        "  * Calcula el tiempo total en minutos (ej: 'una hora' = 60, 'media hora' = 30, 'hora y media' = 90).\n"
+        "  * El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de un espacio y la descripción original (Ejemplo estricto: '30 caminata de 3000 metros en 30 minutos'). Esto es vital para que el sistema contabilice las estadísticas semanales.\n"
+        "  * El campo 'peso' debe ser estrictamente 0.0.\n"
+        "  * Estima las calorías gastadas con valor positivo.\n"
+        "- Si es INFORME_MENSUAL, INFORME_SEMANAL o INFORME_DIARIO, el campo 'items' debe ir vacío ([ ]).\n"
+        "- Si es RECHAZO, devolvé la lista de 'items' vacía ([ ]).\n\n"
+        "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
+        "{\n"
+        '  "items": [\n'
+        '    {"alimento": "nombre o descripción", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
+        "  ],\n"
+        '  "tipo": "Comida" o "Actividad" o "INFORME_MENSUAL" o "INFORME_SEMANAL" o "INFORME_DIARIO" o "Rechazo"\n'
+        "}"
+    )
+
+    response = client_ai.chat.completions.create(
+        model=globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile"),
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt_text}
+        ],
+        temperature=0.1,
+        response_format={"type": "json_object"}
+    )
+    
+    resultado_json = json.loads(response.choices[0].message.content)
+    
+    # 🟢 Registro en logs de Render de lo que respondió la IA
+    logger.info(f"🤖 IA respondió resultado: {resultado_json}")
+    
+    return resultado_json
+    
 async def generar_recomendacion_mensual_para_pdf(user_id: int, mes_str: str, df_mes, perfil: dict, m: dict, context=None) -> str:
     try:
         conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
@@ -4454,7 +4505,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
                 
 @requiere_registro
-@requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, chat_id = update.effective_user.id, update.effective_chat.id
     raw_text = update.message.text.strip() if update.message and update.message.text else ""
@@ -4558,7 +4608,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar el texto: {e}")
-                         
+
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
