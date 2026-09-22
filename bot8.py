@@ -4383,7 +4383,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         audio_file = io.BytesIO(await file.download_as_bytearray())
         audio_file.name = "audio.ogg"
         
-        # Obtenemos la transcripción asegurando que sea un string plano
         transcription_res = client_ai.audio.transcriptions.create(
             file=(audio_file.name, audio_file.read()),
             model=GROQ_AUDIO,
@@ -4399,14 +4398,33 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if context.user_data.get('awaiting_activity_voice'):
             return await _sub_manejar_voz_actividad(update, context, transcription, msg)
 
-        # Analizamos el texto transcrito con la IA
         data = analizar_con_groq(transcription)
         tipo = str(data.get("tipo", "")).strip().upper()
 
         if tipo == "INFORME_MENSUAL":
             await msg.delete()
-            param = str(data.get("parametro", "")).strip()
-            context.args = [param] if param and len(param) >= 7 else [obtener_ahora_arg().strftime("%Y-%m")]
+            param = str(data.get("parametro", "")).strip().lower()
+            ahora = obtener_ahora_arg()
+            mes_target = ahora.strftime("%Y-%m")
+            
+            if "pasado" in param or "anterior" in param:
+                mes_target = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+            elif "enero" in param: mes_target = f"{ahora.year}-01"
+            elif "febrero" in param: mes_target = f"{ahora.year}-02"
+            elif "marzo" in param: mes_target = f"{ahora.year}-03"
+            elif "abril" in param: mes_target = f"{ahora.year}-04"
+            elif "mayo" in param: mes_target = f"{ahora.year}-05"
+            elif "junio" in param: mes_target = f"{ahora.year}-06"
+            elif "julio" in param: mes_target = f"{ahora.year}-07"
+            elif "agosto" in param: mes_target = f"{ahora.year}-08"
+            elif "septiembre" in param or "setiembre" in param: mes_target = f"{ahora.year}-09"
+            elif "octubre" in param: mes_target = f"{ahora.year}-10"
+            elif "noviembre" in param: mes_target = f"{ahora.year}-11"
+            elif "diciembre" in param: mes_target = f"{ahora.year}-12"
+            elif len(param) >= 7:
+                mes_target = param
+
+            context.args = [mes_target]
             update.callback_query = None
             await mostrar_resumen_mes(update, context)
             return
@@ -4421,7 +4439,13 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             param = str(data.get("parametro", "")).strip().lower()
             tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
             hoy_arg = datetime.now(tz_arg).date()
-            fecha_objetivo = (hoy_arg - timedelta(days=1)).strftime("%Y-%m-%d") if "ayer" in param else hoy_arg.strftime("%Y-%m-%d")
+            
+            if "ayer" in param:
+                fecha_objetivo = (hoy_arg - timedelta(days=1)).strftime("%Y-%m-%d")
+            else:
+                fecha_parseada = parsear_fecha_flexible(param)
+                fecha_objetivo = fecha_parseada if fecha_parseada else hoy_arg.strftime("%Y-%m-%d")
+
             await mostrar_diario_fecha(update.message, user_id, fecha_objetivo)
             return
 
@@ -4429,13 +4453,12 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.delete()
             return
 
-        # Si es Comida o Actividad, procesa directamente con el resultado de la IA
-        await procesar_y_mostrar_confirmacion(data, msg, context)
+        await _sub_manejar_voz_ingesta(update, context, transcription, msg)
 
     except Exception as e:
         logger.error(f"Error al procesar audio: {e}")
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
-
+        
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, chat_id = update.effective_user.id, update.effective_chat.id
@@ -4443,7 +4466,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not raw_text: 
         return
 
-    # 🟢 Intercepta el texto para la nota de la presión
     if context.user_data.get('awaiting_presion_nota'):
         context.user_data.pop('awaiting_presion_nota', None)
         datos_presion = context.user_data.pop('pending_presion_foto', None)
@@ -4456,7 +4478,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             alta = datos_presion.get("alta")
             baja = datos_presion.get("baja")
             pulsaciones = datos_presion.get("pulsaciones")
-            nota = raw_text  # Todo lo que escriba pasa a ser la nota aclaratoria
+            nota = raw_text
 
             guardar_presion_db(user_id, alta, baja, pulsaciones, nota=nota)
 
@@ -4472,7 +4494,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Los datos temporales de la presión expiraron.")
         return
 
-    # Validaciones de estados pendientes existentes
     if context.user_data.get('awaiting_custom_date'):
         await _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id)
         return
@@ -4494,23 +4515,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
     try:
-        # Analizamos con la función unificada de Groq
         data = analizar_con_groq(raw_text)
         tipo = str(data.get("tipo", "")).strip().upper()
 
-        # 🟢 ENRUTAMIENTO INTELIGENTE PARA INFORMES COLOQUIALES (DIRECTO SIN BOTONES DE MENÚ)
         if tipo == "INFORME_MENSUAL":
             await msg.delete()
-            param = str(data.get("parametro", "")).strip()
+            param = str(data.get("parametro", "")).strip().lower()
+            ahora = obtener_ahora_arg()
+            mes_target = ahora.strftime("%Y-%m")
             
-            # Asignamos el mes extraído o el mes actual
-            if param and len(param) >= 7:
-                context.args = [param]
-            else:
-                ahora = obtener_ahora_arg()
-                context.args = [ahora.strftime("%Y-%m")]
-            
-            # Al no tener callback_query, la función mostrar_resumen_mes toma context.args y muestra el reporte directo
+            if "pasado" in param or "anterior" in param:
+                mes_target = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+            elif "enero" in param: mes_target = f"{ahora.year}-01"
+            elif "febrero" in param: mes_target = f"{ahora.year}-02"
+            elif "marzo" in param: mes_target = f"{ahora.year}-03"
+            elif "abril" in param: mes_target = f"{ahora.year}-04"
+            elif "mayo" in param: mes_target = f"{ahora.year}-05"
+            elif "junio" in param: mes_target = f"{ahora.year}-06"
+            elif "julio" in param: mes_target = f"{ahora.year}-07"
+            elif "agosto" in param: mes_target = f"{ahora.year}-08"
+            elif "septiembre" in param or "setiembre" in param: mes_target = f"{ahora.year}-09"
+            elif "octubre" in param: mes_target = f"{ahora.year}-10"
+            elif "noviembre" in param: mes_target = f"{ahora.year}-11"
+            elif "diciembre" in param: mes_target = f"{ahora.year}-12"
+            elif len(param) >= 7:
+                mes_target = param
+
+            context.args = [mes_target]
             update.callback_query = None
             await mostrar_resumen_mes(update, context)
             return
@@ -4527,29 +4558,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
             hoy_arg = datetime.now(tz_arg).date()
             
-            # Calculamos la fecha solicitada
             if "ayer" in param:
                 fecha_objetivo = (hoy_arg - timedelta(days=1)).strftime("%Y-%m-%d")
-            elif "-" in param or "/" in param:
-                fecha_objetivo = param.replace("/", "-")
             else:
-                fecha_objetivo = hoy_arg.strftime("%Y-%m-%d")
+                fecha_parseada = parsear_fecha_flexible(param)
+                fecha_objetivo = fecha_parseada if fecha_parseada else hoy_arg.strftime("%Y-%m-%d")
 
-            # Invocamos directamente al renderizador del diario sin pasar por los botones de cmd_diario
             await mostrar_diario_fecha(update.message, user_id, fecha_objetivo)
             return
 
         elif tipo == "RECHAZO":
-            # Si la IA determina que es un texto inválido/rechazado, borramos el mensaje y finaliza silenciosamente
             await msg.delete()
             return
 
-        # Si es Comida o Actividad, sigue el flujo habitual
         await procesar_y_mostrar_confirmacion(data, msg, context)
 
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar el texto: {e}")
-        
+                
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
@@ -7172,7 +7198,6 @@ async def job_recordatorio_tarde(context):
         logger.error(f"❌ Error en job_recordatorio_tarde: {e}")
 
 def main():
-    # Inicia el servidor Web Flask en un hilo independiente
     threading.Thread(target=run_flask, daemon=True).start()
 
     if not TELEGRAM_TOKEN:
@@ -7180,41 +7205,33 @@ def main():
         return
 
     try:
-        # Construcción de la aplicación del bot de Telegram
         app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
         job_queue = app_bot.job_queue
         tz = pytz.timezone('America/Argentina/Buenos_Aires')
 
-        # Configuración de notificaciones automáticas diarias
         if job_queue is not None:
             job_queue.run_daily(
                 job_recordatorio_manana, 
                 time=time(hour=9, minute=0, second=0, tzinfo=tz),
                 name="recordatorio_comidas_manana"
             )
-
             job_queue.run_daily(
                 job_recordatorio_tarde, 
                 time=time(hour=18, minute=0, second=0, tzinfo=tz),
                 name="recordatorio_comidas_tarde"
             )
-
-            # 🌙 Nueva tarea automática de Buenas Noches
             job_queue.run_daily(
                 job_buenas_noches, 
                 time=time(hour=21, minute=30, second=0, tzinfo=tz),
                 name="recordatorio_buenas_noches"
             )
         else:
-            print("⚠️ Advertencia: job_queue no está disponible. Verifique que 'python-telegram-bot[job-queue]' esté instalado.")
+            print("⚠️ Advertencia: job_queue no está disponible.")
        
-        # --- HANDLER CONVERSACIONAL (ALTA Y REGISTRO DE NUEVO USUARIO) ---
         app_bot.add_handler(conv_handler_ingreso)
 
-        # --- HANDLERS DE COMANDOS ---
         app_bot.add_handler(CommandHandler(["pacientes"], cmd_pacientes))
         app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
-
         app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
         app_bot.add_handler(CommandHandler(["comidas", "comida"], cmd_comidas))
         app_bot.add_handler(CommandHandler(["perfil", "peso"], cmd_perfil))
@@ -7230,35 +7247,26 @@ def main():
         app_bot.add_handler(CommandHandler(["eliminar", "borrar"], cmd_eliminar))
         app_bot.add_handler(CommandHandler(["delcomida", "borracomida"], cmd_borrar_comida))
 
-
-        # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
         app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
-
         app_bot.add_handler(CallbackQueryHandler(callback_handler_reportes_pdf, pattern="^(resumen_|descargar_pdf_|enviar_inf_)"))        
-       
-        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_"))
 
-        # Enrutadores de botones interactivos para texto, voz, fotos y confirmación
         app_bot.add_handler(CallbackQueryHandler(callback_handler_actividades, pattern="^act_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_momentos, pattern="^set_m_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_fechas_diario, pattern="^(set_d_|diario_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_anular, pattern="^(edit_item_|del_item_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_guardar_cancelar, pattern="^(cancel_entry$|confirm_save$)"))
         
-        # Enrutador específico para los botones del comando de eliminación (del_)
-        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_"))
+        # 🟢 CORREGIDO: Patrón delimitado para que 'manejar_callback_eliminacion' no capture a 'del_item_'
+        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_(d_|mom_|reg_|borrar)"))
 
-        # --- HANDLERS DE MENSAJES Y CONSULTAS ---
         app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
         app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
         print("Bot Nutricional iniciado correctamente en Telegram con tareas programadas...")
-        
-        # Inicio del bot en loop de eventos asíncrono
         app_bot.run_polling(drop_pending_updates=True)
 
     except Exception as e:
