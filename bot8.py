@@ -2964,9 +2964,9 @@ def analizar_con_groq(prompt_text):
         "Sos un asistente inteligente de salud. Analiza el texto ingresado por el usuario y clasifícalo estrictamente en una de estas categorías:\n"
         "1. COMIDA: Si el usuario menciona alimentos, platos o bebidas para ingerir.\n"
         "2. ACTIVIDAD: Si el usuario menciona cualquier tipo de ejercicio, deporte, movimiento físico o actividad en movimiento.\n"
-        "3. INFORME_MENSUAL: Si el usuario pide el resumen, balance o informe del mes (ej: 'resumen mensual', 'del mes').\n"
+        "3. INFORME_MENSUAL: Si el usuario pide el resumen, balance o informe del mes (ej: 'resumen mensual', 'del mes'). Extrae el mes mencionado en formato 'YYYY-MM' en el campo 'parametro' (si no menciona ninguno, déjalo vacío).\n"
         "4. INFORME_SEMANAL: Si el usuario pide el resumen o balance de la semana (ej: 'resumen semanal', 'de la semana').\n"
-        "5. INFORME_DIARIO: Si el usuario pide el resumen del día o lo que consumió hoy (ej: 'resumen de hoy', 'cómo voy hoy').\n"
+        "5. INFORME_DIARIO: Si el usuario pide el resumen del día o lo que consumió hoy (ej: 'resumen de hoy', 'cómo voy hoy'). Extrae la fecha o referencia temporal en el campo 'parametro' (ej: 'hoy', 'ayer', '2026-09-15', o déjalo vacío si no especifica).\n"
         "6. RECHAZO: Si el usuario nombra objetos inanimados, productos de limpieza, ropa o cosas que no se comen ni se entrenan ni piden resúmenes.\n\n"
         "REGLAS:\n"
         "- Si es COMIDA, desglósalo con pesos y calorías positivas.\n"
@@ -2982,7 +2982,8 @@ def analizar_con_groq(prompt_text):
         '  "items": [\n'
         '    {"alimento": "nombre o descripción", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
         "  ],\n"
-        '  "tipo": "Comida" o "Actividad" o "INFORME_MENSUAL" o "INFORME_SEMANAL" o "INFORME_DIARIO" o "Rechazo"\n'
+        '  "tipo": "Comida" o "Actividad" o "INFORME_MENSUAL" o "INFORME_SEMANAL" o "INFORME_DIARIO" o "Rechazo",\n'
+        '  "parametro": "texto extraído de fecha/mes o vacío"\n'
         "}"
     )
 
@@ -3399,89 +3400,7 @@ async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False)
         return res.replace("##", "").replace("###", "").strip()
         
     return "⚠️ No se pudo obtener el análisis nutricional en este momento."
-
-async def procesar_intencion_coloquial_ia(update: Update, context: ContextTypes.DEFAULT_TYPE, texto: str, msg_espera) -> bool:
-    """
-    Función independiente que analiza el texto (ingresado por chat o voz) mediante Groq
-    para detectar si el usuario está pidiendo un resumen mensual, semanal o diario de forma coloquial.
-    Si detecta un informe, ejecuta la acción correspondiente y retorna True.
-    Si es comida, actividad o cualquier otra cosa, retorna False para que el flujo continúe su curso normal.
-    """
-    try:
-        client_ai = globals().get('client_ai')
-        if not client_ai:
-            return False
-
-        system_prompt = (
-            "Sos un asistente inteligente de salud. Analiza el texto ingresado por el usuario y clasifícalo estrictamente en una de estas categorías:\n"
-            "1. INFORME_MENSUAL: Si el usuario pide el resumen, balance o informe del mes (ej: 'quiero el resumen mensual', 'resumen del mes').\n"
-            "2. INFORME_SEMANAL: Si el usuario pide el resumen o balance de la semana (ej: 'resumen semanal').\n"
-            "3. INFORME_DIARIO: Si el usuario pide el resumen del día o lo que consumió hoy (ej: 'resumen de hoy', 'cómo voy hoy').\n"
-            "4. OTRO: Si es una comida, una actividad física, un producto, o cualquier otra cosa que no sea un pedido explícito de resumen.\n\n"
-            "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
-            "{\n"
-            '  "tipo": "INFORME_MENSUAL" o "INFORME_SEMANAL" o "INFORME_DIARIO" o "OTRO"\n'
-            "}"
-        )
-
-        response = client_ai.chat.completions.create(
-            model=globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile"),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": texto}
-            ],
-            temperature=0.1,
-            response_format={"type": "json_object"}
-        )
-        
-        resultado = json.loads(response.choices[0].message.content)
-        tipo = resultado.get("tipo")
-
-        # Si detectó un informe, manejamos la acción
-        if tipo == "INFORME_MENSUAL":
-            await msg_espera.delete()
-            # Aquí llamamos a la lógica interna de tu comando mensual (ej: cmd_mes o función equivalente)
-            # Como aún no la enchufamos, por ahora podemos simular o llamar directamente a tu función de mes si la tenés a mano:
-            await cmd_resumen(update, context) # Asegúrate de que cmd_mes esté accesible en el ámbito
-            return True
-
-        elif tipo == "INFORME_SEMANAL":
-            await msg_espera.delete()
-            await cmd_informe(update, context) # O tu función semanal equivalente
-            return True
-
-        elif tipo == "INFORME_DIARIO":
-            await msg_espera.delete()
-            await cmd_diario(update, context) # O tu función diaria equivalente
-            return True
-
-        # Si es OTRO, devuelve False y el bot sigue con su lógica de comida/actividad habitual
-        return False
-
-    except Exception as e:
-        logger.error(f"Error en procesar_intencion_coloquial_ia: {e}")
-        return False
-
-system_prompt = (
-        "Sos un asistente inteligente de salud. Analiza el texto ingresado por el usuario y clasifícalo estrictamente en una de estas categorías:\n"
-        "1. COMIDA: Si el usuario menciona alimentos, platos o bebidas para ingerir o registrar.\n"
-        "2. ACTIVIDAD: Si el usuario menciona ejercicio, deporte o movimiento físico para registrar.\n"
-        "3. INFORME_MENSUAL: Si el usuario pide estadísticas, balance o resumen del mes. Extrae el mes mencionado en formato 'YYYY-MM' en el campo 'parametro' (si no menciona ninguno, déjalo vacío).\n"
-        "4. INFORME_SEMANAL: Si el usuario pide el resumen o balance de la semana.\n"
-        "5. INFORME_DIARIO: Si el usuario pide el resumen del día. Extrae la fecha o referencia temporal en el campo 'parametro' (ej: 'hoy', 'ayer', '2026-09-15', o déjalo vacío si no especifica).\n"
-        "6. RECHAZO: Si no corresponde a ninguna de las anteriores.\n\n"
-        "REGLAS:\n"
-        "- Si es COMIDA, desglósalo con pesos y calorías positivas.\n"
-        "- Si es ACTIVIDAD, calcula el tiempo en minutos (peso 0.0) y calorías gastadas positivas.\n"
-        "- Si es un informe o rechazo, el campo 'items' debe ir vacío ([ ]).\n\n"
-        "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
-        "{\n"
-        '  "items": [],\n'
-        '  "tipo": "Comida" o "Actividad" o "INFORME_MENSUAL" o "INFORME_SEMANAL" o "INFORME_DIARIO" o "Rechazo",\n'
-        '  "parametro": "texto extraído de fecha/mes o vacío"\n'
-        "}"
-    )
-            
+           
 def analizar_imagen_con_groq(base64_image, user_caption=""):
     client_ai = globals().get('client_ai')
     if not client_ai:
@@ -4463,121 +4382,32 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         audio_file = io.BytesIO(await file.download_as_bytearray())
         audio_file.name = "audio.ogg"
         
-        # 1. Obtenemos el texto mediante la transcripción de la voz
-        transcription = client_ai.audio.transcriptions.create(
+        # Obtenemos la transcripción asegurando que sea un string plano
+        transcription_res = client_ai.audio.transcriptions.create(
             file=(audio_file.name, audio_file.read()),
             model=GROQ_AUDIO,
             response_format="text"
         )
         
-        if not transcription or not transcription.strip():
+        # Extraemos el texto de forma segura (sea string directo u objeto)
+        transcription = str(transcription_res).strip() if transcription_res else ""
+        
+        if not transcription:
             await msg.edit_text("⚠️ No se pudo entender el audio.")
             return
 
-        # 2. Si está en un flujo forzado de actividad por voz, respetamos ese estado
         if context.user_data.get('awaiting_activity_voice'):
             return await _sub_manejar_voz_actividad(update, context, transcription, msg)
 
-        # 3. NUEVO: Pasamos la transcripción por el clasificador unificado de Groq
+        # Analizamos el texto transcrito con la IA
         data = analizar_con_groq(transcription)
         tipo = str(data.get("tipo", "")).strip().upper()
 
-        # 4. Enrutamos si pidió un informe de forma coloquial por voz
-        if tipo == "INFORME_MENSUAL":
-            await msg.delete()
-            await cmd_resumen(update, context)
-            return
-
-        elif tipo == "INFORME_SEMANAL":
-            await msg.delete()
-            await cmd_mensaje(update, context)
-            return
-
-        elif tipo == "INFORME_DIARIO":
-            await msg.delete()
-            await cmd_diario(update, context)
-            return
-
-        # 5. Si no es informe, continúa con el flujo normal de ingesta de voz
-        return await _sub_manejar_voz_ingesta(update, context, data, msg)
-
-    except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar audio: {e}")
-                
-@requiere_registro
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id, chat_id = update.effective_user.id, update.effective_chat.id
-    raw_text = update.message.text.strip() if update.message and update.message.text else ""
-    if not raw_text: 
-        return
-
-    # 🟢 Intercepta el texto para la nota de la presión
-    if context.user_data.get('awaiting_presion_nota'):
-        context.user_data.pop('awaiting_presion_nota', None)
-        datos_presion = context.user_data.pop('pending_presion_foto', None)
-
-        if raw_text.lower() == "cancelar":
-            await update.message.reply_text("❌ Registro de presión cancelado.")
-            return
-
-        if datos_presion:
-            alta = datos_presion.get("alta")
-            baja = datos_presion.get("baja")
-            pulsaciones = datos_presion.get("pulsaciones")
-            nota = raw_text  # Todo lo que escriba pasa a ser la nota aclaratoria
-
-            guardar_presion_db(user_id, alta, baja, pulsaciones, nota=nota)
-
-            pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
-            await update.message.reply_text(
-                f"✅ **¡Presión arterial registrada con éxito!**\n\n"
-                f"• Presión Alta: `{alta:.0f} mmHg`\n"
-                f"• Presión Baja: `{baja:.0f} mmHg`{pul_txt}\n"
-                f"📝 Nota: `{nota}`",
-                parse_mode="Markdown"
-            )
-        else:
-            await update.message.reply_text("⚠️ Los datos temporales de la presión expiraron.")
-        return
-
-    # Validaciones de estados pendientes existentes
-    if context.user_data.get('awaiting_custom_date'):
-        await _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id)
-        return
-    if context.user_data.get('awaiting_activity_text'):
-        await _sub_manejar_texto_actividad(update, context, raw_text, chat_id)
-        return
-    if context.user_data.get('awaiting_del_custom_date'):
-        await _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id)
-        return
-    if context.user_data.get('awaiting_diario_custom_date'):
-        await _sub_manejar_fecha_diario(update, context, raw_text, chat_id)
-        return
-    if context.user_data.get('awaiting_edit_item_val'):
-        await _sub_manejar_edicion_item(update, context, raw_text, chat_id)
-        return
-    if raw_text.startswith('*'):
-        await _sub_manejar_plantilla_comida(update, context, raw_text, user_id)
-        return
-
-    msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
-    try:
-        # Analizamos con la función unificada de Groq
-        data = analizar_con_groq(raw_text)
-        tipo = data.get("tipo")
-
-        # 🟢 ENRUTAMIENTO INTELIGENTE PARA INFORMES COLOQUIALES (SIN BOTONES)
         if tipo == "INFORME_MENSUAL":
             await msg.delete()
             param = str(data.get("parametro", "")).strip()
-            
-            if param and len(param) >= 7:
-                context.args = [param]
-            else:
-                ahora = obtener_ahora_arg()
-                context.args = [ahora.strftime("%Y-%m")]
-            
-            update.callback_query = None 
+            context.args = [param] if param and len(param) >= 7 else [obtener_ahora_arg().strftime("%Y-%m")]
+            update.callback_query = None
             await mostrar_resumen_mes(update, context)
             return
 
@@ -4589,26 +4419,132 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif tipo == "INFORME_DIARIO":
             await msg.delete()
             param = str(data.get("parametro", "")).strip().lower()
-            
             tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
             hoy_arg = datetime.now(tz_arg).date()
-            
-            if "ayer" in param:
-                fecha_objetivo = (hoy_arg - timedelta(days=1)).strftime("%Y-%m-%d")
-            elif "-" in param or "/" in param:
-                fecha_objetivo = param.replace("/", "-") 
-            else:
-                fecha_objetivo = hoy_arg.strftime("%Y-%m-%d")
-
+            fecha_objetivo = (hoy_arg - timedelta(days=1)).strftime("%Y-%m-%d") if "ayer" in param else hoy_arg.strftime("%Y-%m-%d")
             await mostrar_diario_fecha(update.message, user_id, fecha_objetivo)
             return
 
-        # Si es Comida, Actividad o Rechazo, procesa con el flujo habitual
-        await procesar_y_mostrar_confirmacion(data, msg, context)
+        return await _sub_manejar_voz_ingesta(update, context, data, msg)
 
     except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar el texto: {e}")
+        await msg.edit_text(f"❌ Error al procesar audio: {e}")
+                
+@requiere_registro
+@requiere_registro
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id, chat_id = update.effective_user.id, update.effective_chat.id[cite: 3]
+    raw_text = update.message.text.strip() if update.message and update.message.text else ""[cite: 3]
+    if not raw_text: 
+        return[cite: 3]
 
+    # 🟢 Intercepta el texto para la nota de la presión
+    if context.user_data.get('awaiting_presion_nota'):[cite: 3]
+        context.user_data.pop('awaiting_presion_nota', None)[cite: 3]
+        datos_presion = context.user_data.pop('pending_presion_foto', None)[cite: 3]
+
+        if raw_text.lower() == "cancelar":[cite: 3]
+            await update.message.reply_text("❌ Registro de presión cancelado.")[cite: 3]
+            return[cite: 3]
+
+        if datos_presion:[cite: 3]
+            alta = datos_presion.get("alta")[cite: 3]
+            baja = datos_presion.get("baja")[cite: 3]
+            pulsaciones = datos_presion.get("pulsaciones")[cite: 3]
+            nota = raw_text  # Todo lo que escriba pasa a ser la nota aclaratoria[cite: 3]
+
+            guardar_presion_db(user_id, alta, baja, pulsaciones, nota=nota)[cite: 3]
+
+            pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""[cite: 3]
+            await update.message.reply_text([cite: 3]
+                f"✅ **¡Presión arterial registrada con éxito!**\n\n"[cite: 3]
+                f"• Presión Alta: `{alta:.0f} mmHg`\n"[cite: 3]
+                f"• Presión Baja: `{baja:.0f} mmHg`{pul_txt}\n"[cite: 3]
+                f"📝 Nota: `{nota}`",[cite: 3]
+                parse_mode="Markdown"[cite: 3]
+            )[cite: 3]
+        else:
+            await update.message.reply_text("⚠️ Los datos temporales de la presión expiraron.")[cite: 3]
+        return[cite: 3]
+
+    # Validaciones de estados pendientes existentes
+    if context.user_data.get('awaiting_custom_date'):[cite: 3]
+        await _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id)[cite: 3]
+        return[cite: 3]
+    if context.user_data.get('awaiting_activity_text'):[cite: 3]
+        await _sub_manejar_texto_actividad(update, context, raw_text, chat_id)[cite: 3]
+        return[cite: 3]
+    if context.user_data.get('awaiting_del_custom_date'):[cite: 3]
+        await _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id)[cite: 3]
+        return[cite: 3]
+    if context.user_data.get('awaiting_diario_custom_date'):[cite: 3]
+        await _sub_manejar_fecha_diario(update, context, raw_text, chat_id)[cite: 3]
+        return[cite: 3]
+    if context.user_data.get('awaiting_edit_item_val'):[cite: 3]
+        await _sub_manejar_edicion_item(update, context, raw_text, chat_id)[cite: 3]
+        return[cite: 3]
+    if raw_text.startswith('*'):[cite: 3]
+        await _sub_manejar_plantilla_comida(update, context, raw_text, user_id)[cite: 3]
+        return[cite: 3]
+
+    msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")[cite: 3]
+    try:
+        # Analizamos con la función unificada de Groq
+        data = analizar_con_groq(raw_text)[cite: 3]
+        tipo = str(data.get("tipo", "")).strip().upper()
+
+        # 🟢 ENRUTAMIENTO INTELIGENTE PARA INFORMES COLOQUIALES (DIRECTO SIN BOTONES DE MENÚ)
+        if tipo == "INFORME_MENSUAL":
+            await msg.delete()[cite: 3]
+            param = str(data.get("parametro", "")).strip()[cite: 3]
+            
+            # Asignamos el mes extraído o el mes actual
+            if param and len(param) >= 7:[cite: 3]
+                context.args = [param][cite: 3]
+            else:
+                ahora = obtener_ahora_arg()[cite: 3]
+                context.args = [ahora.strftime("%Y-%m")][cite: 3]
+            
+            # Al no tener callback_query, la función mostrar_resumen_mes toma context.args y muestra el reporte directo[cite: 4]
+            update.callback_query = None[cite: 3]
+            await mostrar_resumen_mes(update, context)[cite: 3]
+            return[cite: 3]
+
+        elif tipo == "INFORME_SEMANAL":
+            await msg.delete()[cite: 3]
+            await cmd_mensaje(update, context)[cite: 3]
+            return[cite: 3]
+
+        elif tipo == "INFORME_DIARIO":
+            await msg.delete()[cite: 3]
+            param = str(data.get("parametro", "")).strip().lower()[cite: 3]
+            
+            tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')[cite: 3]
+            hoy_arg = datetime.now(tz_arg).date()[cite: 3]
+            
+            # Calculamos la fecha solicitada
+            if "ayer" in param:[cite: 3]
+                fecha_objetivo = (hoy_arg - timedelta(days=1)).strftime("%Y-%m-%d")[cite: 3]
+            elif "-" in param or "/" in param:[cite: 3]
+                fecha_objetivo = param.replace("/", "-")[cite: 3]
+            else:
+                fecha_objetivo = hoy_arg.strftime("%Y-%m-%d")[cite: 3]
+
+            # Invocamos directamente al renderizador del diario sin pasar por los botones de cmd_diario[cite: 4]
+            await mostrar_diario_fecha(update.message, user_id, fecha_objetivo)[cite: 3]
+            return[cite: 3]
+
+        elif tipo == "RECHAZO":
+            # Si la IA determina que es un texto inválido/rechazado, borramos el mensaje y finaliza silenciosamente
+            await msg.delete()
+            return
+
+        # Si es Comida o Actividad, sigue el flujo habitual
+        await procesar_y_mostrar_confirmacion(data, msg, context)[cite: 3]
+
+    except Exception as e:
+        await msg.edit_text(f"❌ Error al procesar el texto: {e}")[cite: 3]
+        
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
