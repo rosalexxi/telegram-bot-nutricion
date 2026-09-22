@@ -4376,6 +4376,7 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @requiere_registro
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     msg = await update.message.reply_text("🎙️ Procesando audio con IA...")
     try:
         file = await context.bot.get_file(update.message.voice.file_id)
@@ -4389,7 +4390,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response_format="text"
         )
         
-        # Extraemos el texto de forma segura (sea string directo u objeto)
         transcription = str(transcription_res).strip() if transcription_res else ""
         
         if not transcription:
@@ -4425,12 +4425,17 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await mostrar_diario_fecha(update.message, user_id, fecha_objetivo)
             return
 
-        return await _sub_manejar_voz_ingesta(update, context, data, msg)
+        elif tipo == "RECHAZO":
+            await msg.delete()
+            return
+
+        # Si es Comida o Actividad, procesa directamente con el resultado de la IA
+        await procesar_y_mostrar_confirmacion(data, msg, context)
 
     except Exception as e:
+        logger.error(f"Error al procesar audio: {e}")
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
-                
-@requiere_registro
+
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, chat_id = update.effective_user.id, update.effective_chat.id
@@ -6772,180 +6777,6 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         "Formato incorrecto. Uso: /presi 120,80,70, al despertar o /presi 120,80 o /presi 2026-08", 
         parse_mode="Markdown"
     )
-
-async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        query = update.callback_query
-        user_id = update.effective_user.id
-
-        ahora = obtener_ahora_arg()
-        mes_actual_str = ahora.strftime("%Y-%m")
-        dia_actual = ahora.day
-
-        mes_str = None
-        if query and query.data:
-            await query.answer()
-            cb_data = query.data
-
-            if cb_data == "resumen_mes_menu_otros":
-                botones_meses = []
-                primer_dia_mes_actual = ahora.replace(day=1)
-                for i in range(1, 7):
-                    mes_iter = (primer_dia_mes_actual - pd.DateOffset(months=i)).strftime("%Y-%m")
-                    botones_meses.append([InlineKeyboardButton(f"🗓️ Período {mes_iter}", callback_data=f"resumen_mes_{mes_iter}")])
-                
-                botones_meses.append([InlineKeyboardButton("🔙 Volver", callback_data="resumen_volver_menu")])
-                
-                await query.edit_message_text(
-                    "🗓️ **Seleccioná el mes que querés consultar:**", 
-                    reply_markup=InlineKeyboardMarkup(botones_meses),
-                    parse_mode="Markdown"
-                )
-                return
-
-            elif cb_data == "resumen_volver_menu":
-                mes_anterior_str = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
-                
-                if 1 <= dia_actual <= 7:
-                    keyboard = InlineKeyboardMarkup([
-                        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior_str}")],
-                        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
-                    ])
-                else:
-                    keyboard = InlineKeyboardMarkup([
-                        [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual_str}")],
-                        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior_str}")],
-                        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
-                    ])
-
-                await query.edit_message_text(
-                    "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", 
-                    reply_markup=keyboard, 
-                    parse_mode="Markdown"
-                )
-                return
-
-            elif cb_data.startswith("resumen_mes_"):
-                mes_str = cb_data.replace("resumen_mes_", "")
-
-        elif context.args:
-            mes_str = context.args[0]
-
-        if not mes_str:
-            mes_str = mes_actual_str
-
-        if mes_str == mes_actual_str and 1 <= dia_actual <= 7:
-            msg = "⚠️ No se encuentra disponible el resumen del mes actual durante los primeros 7 días del mes."
-            if query:
-                await query.edit_message_text(msg, parse_mode="Markdown")
-            else:
-                await update.message.reply_text(msg, parse_mode="Markdown")
-            return
-
-        if mes_str == mes_actual_str:
-            if not await _validar_peso_mes_actual(update, context):
-                return
-
-        # 🟢 NUEVO: Aviso inicial para que el usuario sepa que se está procesando
-        if query:
-            msg_espera = await query.message.reply_text(f"⏳ **Generando resumen mensual para el período `{mes_str}`...** Por favor aguardá unos segundos.", parse_mode="Markdown")
-        else:
-            msg_espera = await update.message.reply_text(f"⏳ **Generando resumen mensual para el período `{mes_str}`...** Por favor aguardá unos segundos.", parse_mode="Markdown")
-
-        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
-        
-        if not df_datos.empty and 'Fecha' in df_datos.columns:
-            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce')
-            hoy_comienzo = pd.Timestamp.now().floor('D')
-            
-            if mes_str == mes_actual_str:
-                df_mes = df_datos[
-                    (df_datos['Fecha'].astype(str).str.startswith(mes_str)) & 
-                    (df_datos['Fecha_dt'] < hoy_comienzo)
-                ].copy()
-            else:
-                df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)].copy()
-        else:
-            df_mes = pd.DataFrame()
-
-        if df_mes.empty:
-            msg = f"⚠️ No hay registros cargados para el mes `{mes_str}`."
-            await msg_espera.edit_text(msg, parse_mode="Markdown")
-            return
-
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
-        m = calcular_metricas_mensuales(df_mes, perfil)
-
-        minutos_mes_act = 0
-        dias_activos_act = m.get('dias_registrados', 1) if m.get('dias_registrados', 1) > 0 else 1
-        if not df_mes.empty and 'Momento' in df_mes.columns and 'Alimento' in df_mes.columns:
-            for _, row in df_mes.iterrows():
-                momento_str = str(row.get('Momento', '')).strip().lower()
-                alimento_str = str(row.get('Alimento', '')).strip()
-                cal_val = float(row.get('Calorias', 0) or 0)
-                if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
-                    match = re.match(r'^(\d+)', alimento_str)
-                    if match:
-                        minutos_mes_act += int(match.group(1))
-        prom_minutos_mes_act = int(round(minutos_mes_act / dias_activos_act))
-
-        peso_act_val = float(m.get('peso_actual', 0))
-        peso_ref_val = float(m.get('peso_referencia', 0))
-        if 'calcular_rango_actividad_fisica' in globals():
-            act_min_val, act_max_val = calcular_rango_actividad_fisica(peso_act_val, peso_ref_val)
-        else:
-            act_min_val, act_max_val = 30, 60
-
-        def _fmt(val, dec=0):
-            try:
-                num = float(val)
-                return f"{num:.{dec}f}" if dec > 0 else f"{int(round(num))}"
-            except (ValueError, TypeError):
-                return "0"
-
-        cambio_peso_val = float(m.get('cambio_peso_kg', 0))
-        texto_variacion_peso = f"`{cambio_peso_val:+.1f} kg`"
-
-        # 🟢 Reporte puramente con valores de Python (sin llamadas de IA)
-
-        encabezado_txt = (
-            f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n"
-            f"⚖️ Peso registrado: `{_fmt(m.get('peso_actual', 0), 1)} kg`\n"
-            f"🎯 Peso de etapa (Objetivo): `{_fmt(m.get('peso_referencia', 0), 1)} kg`\n\n"
-            f"• Consumidas: `{_fmt(m.get('prom_cal', 0))} kcal` | Quemadas: `{_fmt(m.get('prom_quem', 0))} kcal`\n"
-            f"• Balance Neto: `{_fmt(m.get('prom_bal_neto', 0))} kcal/día`\n"
-            f"• Variación Est. de Peso: {texto_variacion_peso} ({m.get('dias_registrados', 0)} días)\n\n"
-            f"📈 **Promedios vs. Rangos Saludables:**\n"
-            f"• Calorías: `{_fmt(m.get('prom_cal', 0))} kcal` / Rango: `{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal`\n"
-            f"• Proteínas: `{_fmt(m.get('prom_prot', 0))} g` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
-            f"• Grasas: `{_fmt(m.get('prom_gras', 0))} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
-            f"• Carbs: `{_fmt(m.get('prom_carb', 0))} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
-            f"• Fibras: `{_fmt(m.get('prom_fibr', 0))} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
-            f"• Actividad Física: `{prom_minutos_mes_act} min/día` / Rango: `{act_min_val} - {act_max_val} min/día`\n\n"
-            f"_(Nota: Reporte generado mediante métricas analíticas directas)._"
-        )
-
-        pie_txt = f"\n\n📄 Podés descargar el informe completo en PDF abajo:"
-        txt_final = f"{encabezado_txt}{pie_txt}"
-
-        keyboard = [[InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"descargar_pdf_resumen_{mes_str}")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        # Borramos el mensaje de "Generando..." y enviamos el resultado limpio
-        await msg_espera.delete()
-        if query:
-            await query.message.reply_text(txt_final, reply_markup=reply_markup, parse_mode="Markdown")
-        else:
-            await update.message.reply_text(txt_final, reply_markup=reply_markup, parse_mode="Markdown")
-
-    except Exception as e:
-        logger.error(f"Error en mostrar_resumen_mes: {e}", exc_info=True)
-        msg_err = f"⚠️ Ocurrió un error al generar el resumen mensual: {e}"
-        if update.callback_query:
-            await update.callback_query.edit_message_text(msg_err)
-        else:
-            await update.message.reply_text(msg_err)
-
     
 #                       INICIO                  COMANDO FACTOR DE ACTIVIDAD (RELOJ)                    INICIO
 # ======================================================================================================================================
