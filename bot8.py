@@ -3411,52 +3411,26 @@ async def procesar_intencion_coloquial_ia(update: Update, context: ContextTypes.
         logger.error(f"Error en procesar_intencion_coloquial_ia: {e}")
         return False
 
-def analizar_con_groq(prompt_text):
-    client_ai = globals().get('client_ai')
-    if not client_ai:
-        raise Exception("GROQ_API_KEY no está configurada correctamente.")
-    
-    # 🟢 Registro en logs de Render del texto entrante
-    logger.info(f"🤖 IA analizando texto entrante: '{prompt_text}'")
-
-    system_prompt = (
+system_prompt = (
         "Sos un asistente inteligente de salud. Analiza el texto ingresado por el usuario y clasifícalo estrictamente en una de estas categorías:\n"
         "1. COMIDA: Si el usuario menciona alimentos, platos o bebidas para ingerir o registrar.\n"
         "2. ACTIVIDAD: Si el usuario menciona ejercicio, deporte o movimiento físico para registrar.\n"
-        "3. INFORME_MENSUAL: Si el usuario pide explícitamente estadísticas, balance, informe o resumen global del mes (ej: 'resumen mensual', 'cómo cerré el mes', 'balance del mes').\n"
-        "4. INFORME_SEMANAL: Si el usuario pide explícitamente estadísticas, balance, informe o resumen global de la semana (ej: 'resumen semanal', 'cómo vengo en la semana').\n"
-        "5. INFORME_DIARIO: Si el usuario pide explícitamente estadísticas, balance, informe o resumen global de hoy o de un día (ej: 'resumen de hoy', 'cómo voy hoy', 'qué registré hoy').\n"
-        "6. RECHAZO: Si nombra objetos inanimados, productos de limpieza o cosas que no se comen, entrenan ni piden en forma de resúmenes.\n\n"
+        "3. INFORME_MENSUAL: Si el usuario pide estadísticas, balance o resumen del mes. Extrae el mes mencionado en formato 'YYYY-MM' en el campo 'parametro' (si no menciona ninguno, déjalo vacío).\n"
+        "4. INFORME_SEMANAL: Si el usuario pide el resumen o balance de la semana.\n"
+        "5. INFORME_DIARIO: Si el usuario pide el resumen del día. Extrae la fecha o referencia temporal en el campo 'parametro' (ej: 'hoy', 'ayer', '2026-09-15', o déjalo vacío si no especifica).\n"
+        "6. RECHAZO: Si no corresponde a ninguna de las anteriores.\n\n"
         "REGLAS:\n"
         "- Si es COMIDA, desglósalo con pesos y calorías positivas.\n"
         "- Si es ACTIVIDAD, calcula el tiempo en minutos (peso 0.0) y calorías gastadas positivas.\n"
-        "- Si es INFORME_MENSUAL, INFORME_SEMANAL o INFORME_DIARIO, el campo 'items' debe ir vacío ([ ]).\n"
-        "- Si es RECHAZO, devolvé la lista de 'items' vacía ([ ]).\n\n"
+        "- Si es un informe o rechazo, el campo 'items' debe ir vacío ([ ]).\n\n"
         "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
         "{\n"
         '  "items": [],\n'
-        '  "tipo": "Comida" o "Actividad" o "INFORME_MENSUAL" o "INFORME_SEMANAL" o "INFORME_DIARIO" o "Rechazo"\n'
+        '  "tipo": "Comida" o "Actividad" o "INFORME_MENSUAL" o "INFORME_SEMANAL" o "INFORME_DIARIO" o "Rechazo",\n'
+        '  "parametro": "texto extraído de fecha/mes o vacío"\n'
         "}"
     )
-
-
-    response = client_ai.chat.completions.create(
-        model=globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile"),
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt_text}
-        ],
-        temperature=0.1,
-        response_format={"type": "json_object"}
-    )
-    
-    resultado_json = json.loads(response.choices[0].message.content)
-    
-    # 🟢 Registro en logs de Render de lo que respondió la IA
-    logger.info(f"🤖 IA respondió resultado: {resultado_json}")
-    
-    return resultado_json
-        
+            
 def analizar_imagen_con_groq(base64_image, user_caption=""):
     client_ai = globals().get('client_ai')
     if not client_ai:
@@ -4480,12 +4454,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
                 
 @requiere_registro
+@requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, chat_id = update.effective_user.id, update.effective_chat.id
     raw_text = update.message.text.strip() if update.message and update.message.text else ""
- 
-    logger.info(f"🔔 RECIBÍ UN MENSAJE EN TELEGRAM de {user_id}: '{raw_text}'")
-    
     if not raw_text: 
         return
 
@@ -4543,33 +4515,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Analizamos con la función unificada de Groq
         data = analizar_con_groq(raw_text)
         tipo = data.get("tipo")
-        print(f"DEBUG IA -> Texto: '{raw_text}' | Tipo detectado: '{tipo}'")
-        # 🟢 NUEVO: Enrutamiento para peticiones coloquiales de informes
+
+        # 🟢 ENRUTAMIENTO INTELIGENTE PARA INFORMES COLOQUIALES (SIN BOTONES)
         if tipo == "INFORME_MENSUAL":
             await msg.delete()
-            # Llama directamente a la función de tu comando mensual (ej: cmd_resumen)
-            if 'cmd_resumen' in globals():
-                await cmd_resumen(update, context)
+            param = str(data.get("parametro", "")).strip()
+            
+            if param and len(param) >= 7:
+                context.args = [param]
             else:
-                await update.message.reply_text("📊 Solicitud mensual detectada.")
+                ahora = obtener_ahora_arg()
+                context.args = [ahora.strftime("%Y-%m")]
+            
+            update.callback_query = None 
+            await mostrar_resumen_mes(update, context)
             return
 
         elif tipo == "INFORME_SEMANAL":
             await msg.delete()
-            # Llama directamente a la función de tu comando semanal (ej: cmd_mensaje)
-            if 'cmd_mensaje' in globals():
-                await cmd_mensaje(update, context)
-            else:
-                await update.message.reply_text("📅 Solicitud semanal detectada.")
+            await cmd_mensaje(update, context)
             return
 
         elif tipo == "INFORME_DIARIO":
             await msg.delete()
-            # Llama directamente a la función de tu comando diario (ej: cmd_diario)
-            if 'cmd_diario' in globals():
-                await cmd_diario(update, context)
+            param = str(data.get("parametro", "")).strip().lower()
+            
+            tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
+            hoy_arg = datetime.now(tz_arg).date()
+            
+            if "ayer" in param:
+                fecha_objetivo = (hoy_arg - timedelta(days=1)).strftime("%Y-%m-%d")
+            elif "-" in param or "/" in param:
+                fecha_objetivo = param.replace("/", "-") 
             else:
-                await update.message.reply_text("📋 Solicitud diaria detectada.")
+                fecha_objetivo = hoy_arg.strftime("%Y-%m-%d")
+
+            await mostrar_diario_fecha(update.message, user_id, fecha_objetivo)
             return
 
         # Si es Comida, Actividad o Rechazo, procesa con el flujo habitual
@@ -4577,7 +4558,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar el texto: {e}")
-                 
+                         
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
