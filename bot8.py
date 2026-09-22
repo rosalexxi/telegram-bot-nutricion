@@ -4371,6 +4371,271 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(mensaje, reply_markup=keyboard, parse_mode="Markdown")
     
+#                INICIO                             COMANDOS BARRA                                 INICIO DB OK
+# ========================================================================================================================================
+
+async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
+    chat_id = message_obj.chat_id
+    msg_espera = await message_obj.reply_text("🔍 Analizando código de barras y verificando producto...")
+    
+    try:
+        resultado_api = consultar_codigo_barras(barcode_text)
+        
+        if resultado_api:
+            item_procesado = {
+                "alimento": resultado_api['alimento'],
+                "alimento_display": resultado_api['alimento'],
+                "peso": resultado_api['peso'],
+                "calorias": resultado_api['calorias'],
+                "proteinas": resultado_api['proteinas'],
+                "grasas": resultado_api['grasas'],
+                "carbohidratos": resultado_api['carbohidratos'],
+                "fibras": resultado_api['fibras'],
+                "fuente": "Open Food Facts"
+            }
+
+            fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
+
+            await msg_espera.delete()
+            msg_menu = await message_obj.reply_text("📋 Producto encontrado (valores calculados cada 100 g):")
+            
+            context.user_data['last_menu_msg_id'] = msg_menu.message_id
+            context.user_data['pending_items'] = [item_procesado]
+            context.user_data['pending_fecha'] = fecha_auto
+            context.user_data['pending_momento'] = momento_auto
+                
+            await render_confirmation_screen(msg_menu, context)
+        else:
+            await msg_espera.edit_text("⚠️ Código de barras no encontrado en la base de datos. Intentá ingresarlo como texto o foto.")
+            
+    except Exception as e:
+        await msg_espera.edit_text(f"❌ Error al consultar el código: {e}")
+
+@requiere_registro
+async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    
+    if not args:
+        msg_solic = await update.message.reply_text(
+            "⌨️ Por favor, ingresá los números del código de barras con el comando /barra NUMERO:",
+            parse_mode="Markdown"
+        )
+        context.user_data['awaiting_barcode_input'] = True
+        context.user_data['msg_solicitud_barcode_id'] = msg_solic.message_id
+        return
+
+    barcode_text = args[0].strip()
+    await procesar_codigo_ingresado(update.message, context, barcode_text)
+               
+def detectar_y_leer_codigo_barras_ia(base64_image: str) -> str:
+    """
+    Envía la foto a la IA exclusivamente para que lea los números impresos 
+    abajo del código de barras del producto.
+    """
+    client_ai = globals().get('client_ai')
+    if not client_ai:
+        return ""
+    
+    prompt = (
+        "Analiza esta imagen de un producto comercial. Busca el código de barras y lee atentamente "
+        "los números impresos justo debajo de él. "
+        "Responde ÚNICAMENTE en formato JSON con la siguiente estructura exacta:\n"
+        "{\n"
+        '  "tiene_numeros": true/false,\n'
+        '  "codigo_numerico": "escribe_aqui_solo_los_numeros_o_vacio"\n'
+        "}"
+    )
+    try:
+        response = client_ai.chat.completions.create(
+            model=globals().get('GROQ_FOTO', "qwen/qwen3.8-27b"),
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                ]
+            }],
+            temperature=0.0,
+            response_format={"type": "json_object"}
+        )
+        resultado = json.loads(response.choices[0].message.content)
+        if resultado.get("tiene_numeros"):
+            return str(resultado.get("codigo_numerico", "")).strip()
+    except Exception as e:
+        logger.error(f"Error en lectura IA de números de código de barras: {e}")
+    
+    return ""
+
+#                   INICIO                       COMANDO ELIMINAR INGESTAS ACTIVIDAD                         INICIO
+# ======================================================================================================================================
+
+@requiere_registro
+async def cmd_eliminar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop('del_fecha', None)
+    context.user_data.pop('del_momento', None)
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 Hoy", callback_data="del_d_hoy"), InlineKeyboardButton("📆 Ayer", callback_data="del_d_ayer")],
+        [InlineKeyboardButton("🗓️ Otra Fecha", callback_data="del_d_otro")]
+    ])
+    
+    await update.message.reply_text(
+        "🗑️ **Eliminación de Ingestas / Actividades:**\nSeleccioná el día que querés revisar:", 
+        reply_markup=keyboard, 
+        parse_mode="Markdown"
+    )
+
+async def mostrar_selector_momento_eliminar(query_or_msg, context):
+    if not context.user_data.get('del_fecha'):
+        context.user_data['del_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+        
+    fecha = context.user_data.get('del_fecha')
+    
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🍳 Desayuno", callback_data="del_mom_Desayuno"), InlineKeyboardButton("🍲 Almuerzo", callback_data="del_mom_Almuerzo")],
+        [InlineKeyboardButton("☕ Merienda", callback_data="del_mom_Merienda"), InlineKeyboardButton("🌙 Cena", callback_data="del_mom_Cena")],
+        [InlineKeyboardButton("🏃 Actividad Física", callback_data="del_mom_Actividad")],
+        [InlineKeyboardButton("🔙 Cambiar Fecha", callback_data="del_cambiar_fecha")]
+    ])
+    
+    txt = f"📅 Fecha seleccionada: `{fecha}`\n\nSeleccioná el momento o actividad que querés revisar para eliminar:"
+    
+    if hasattr(query_or_msg, 'edit_message_text'):
+        await query_or_msg.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
+    else:
+        await query_or_msg.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
+
+async def render_pantalla_items_eliminar(query, user_id, context):
+    fecha = context.user_data.get('del_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
+    momento = context.user_data.get('del_momento', 'Desayuno')
+
+    df = obtener_datos_usuario(user_id)
+    if df.empty or 'Fecha' not in df.columns or 'Momento' not in df.columns:
+        items_momento = []
+    else:
+        # 🟢 CORREGIDO: Mapeo estricto contra la estructura real de la base de datos
+        df['Fecha_clean'] = df['Fecha'].astype(str).str.strip()
+        df['Momento_clean'] = df['Momento'].astype(str).str.strip().str.lower()
+        
+        momento_busqueda = momento.strip().lower()
+        
+        if momento_busqueda == 'actividad':
+            df_sub = df[(df['Fecha_clean'] == str(fecha).strip()) & (df['Momento_clean'].isin(['actividad', 'actividad física', 'ejercicio']))]
+        else:
+            df_sub = df[(df['Fecha_clean'] == str(fecha).strip()) & (df['Momento_clean'] == momento_busqueda)]
+            
+        items_momento = df_sub.to_dict(orient='records')
+
+    if not items_momento:
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔙 Volver a Momentos", callback_data="del_volver_momentos")]
+        ])
+        try:
+            await query.edit_message_text(
+                f"⚠️ No se encontraron registros para **{momento}** en la fecha `{fecha}`.",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+        except Exception:
+            await query.message.reply_text(
+                f"⚠️ No se encontraron registros para **{momento}** en la fecha `{fecha}`.",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+        return
+
+    txt = f"🗑️ **Eliminar Registros**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\n\n"
+    
+    for idx, item in enumerate(items_momento, start=1):
+        alimento = str(item.get('Alimento', 'Desconocido'))
+        peso = float(item.get('Peso', 0))
+        calorias = float(item.get('Calorias', 0))
+        
+        if momento.lower() == 'actividad':
+            txt += f"**{idx}. {alimento}**: `{calorias:.1f} kcal`\n"
+        else:
+            txt += f"**{idx}. {alimento}** ({peso:.1f}g): `{calorias:.1f} kcal`\n"
+
+    keyboard = []
+    for item in items_momento:
+        item_id = item.get('id_registro')
+        nombre_corto = str(item.get('Alimento', ''))[:18]
+        if item_id is not None:
+            keyboard.append([
+                InlineKeyboardButton(f"❌ Borrar: {nombre_corto}", callback_data=f"del_reg_{item_id}")
+            ])
+
+    keyboard.append([InlineKeyboardButton("🗑️ BORRAR TODO ESTE MOMENTO", callback_data="del_borrar_todo_momento")])
+    keyboard.append([InlineKeyboardButton("🔙 Volver a Momentos", callback_data="del_volver_momentos")])
+
+    markup = InlineKeyboardMarkup(keyboard)
+    try:
+        await query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
+    except Exception:
+        await query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
+
+async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    user_id = query.from_user.id
+    
+    if data == "del_d_hoy":
+        context.user_data['del_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
+        await mostrar_selector_momento_eliminar(query, context)
+
+    elif data == "del_d_ayer":
+        context.user_data['del_fecha'] = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
+        await mostrar_selector_momento_eliminar(query, context)
+
+    elif data == "del_d_otro":
+        context.user_data['awaiting_del_custom_date'] = True
+        msg_solic = await query.message.reply_text("📅 Ingresá la fecha que querés revisar (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+        context.user_data['msg_solicitud_del_fecha_id'] = msg_solic.message_id
+
+    elif data.startswith("del_mom_"):
+        momento = data.replace("del_mom_", "")
+        context.user_data['del_momento'] = momento
+        await render_pantalla_items_eliminar(query, user_id, context)
+
+    elif data.startswith("del_reg_"):
+        item_id = int(data.replace("del_reg_", ""))
+        exito = eliminar_registro_por_id(user_id, item_id)
+        
+        if exito:
+            await query.answer("🗑️ Ítem eliminado correctamente.", show_alert=False)
+        else:
+            await query.answer("⚠️ No se pudo eliminar el ítem.", show_alert=True)
+            
+        await render_pantalla_items_eliminar(query, user_id, context)
+
+    elif data == "del_borrar_todo_momento":
+        fecha = context.user_data.get('del_fecha')
+        momento = context.user_data.get('del_momento')
+        
+        df = obtener_datos_usuario(user_id)
+        if not df.empty and 'Fecha' in df.columns and 'Momento' in df.columns:
+            df['Fecha_clean'] = df['Fecha'].astype(str).str.strip()
+            df['Momento_clean'] = df['Momento'].astype(str).str.strip().str.lower()
+            momento_busqueda = momento.strip().lower()
+
+            if momento_busqueda == 'actividad':
+                df_filtrado = df[(df['Fecha_clean'] == str(fecha).strip()) & (df['Momento_clean'].isin(['actividad', 'actividad física', 'ejercicio']))]
+            else:
+                df_filtrado = df[(df['Fecha_clean'] == str(fecha).strip()) & (df['Momento_clean'] == momento_busqueda)]
+
+            for _, r in df_filtrado.iterrows():
+                if 'id_registro' in r:
+                    eliminar_reg_id = int(r['id_registro'])
+                    eliminar_registro_por_id(user_id, eliminar_reg_id)
+                    
+        await query.answer("🗑️ Todos los registros de este momento fueron eliminados.", show_alert=True)
+        await mostrar_selector_momento_eliminar(query, context)
+
+    elif data in ["del_cambiar_fecha", "del_volver_momentos"]:
+        await mostrar_selector_momento_eliminar(query, context)
+        
+
 #                INICIO                             MANEJADOR COMIDAS ACTIVIDAD                                 INICIO DB OK
 # =====================================================================================================================================
 
@@ -4584,242 +4849,39 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         base64_image = base64.b64encode(photo_bytes).decode('utf-8')
         user_caption = update.message.caption or ""
         
+        # 1. Filtro 1: ¿Es foto de la presión arterial?
         res_presion = analizar_foto_presion_con_groq(base64_image)
         if res_presion.get("es_presion") and float(res_presion.get("alta", 0)) > 0:
             return await _sub_manejar_foto_presion(update, context, res_presion, msg)
 
+        # 2. Filtro 2 (Python / OpenCV local): Detectar si hay un código de barras físicamente en la imagen
+        image_bytes = base64.b64decode(base64_image)
+        np_arr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        
+        tiene_codigo_local = False
+        if img is not None:
+            detector = cv2.barcode.BarcodeDetector()
+            # .detect() solo comprueba si el patrón de barras existe en la foto (True/False)
+            retval, points = detector.detect(img)
+            if retval:
+                tiene_codigo_local = True
+
+        # 3. Si Python detecta localmente que hay un código de barras, llamamos a la IA para que lea los números impresos
+        if tiene_codigo_local:
+            await msg.edit_text("🔍 Código de barras detectado. Leyendo números del envase...")
+            codigo_leido = detectar_y_leer_codigo_barras_ia(base64_image)
+            
+            if codigo_leido and len(codigo_leido.strip()) >= 4:
+                await msg.delete()
+                return await procesar_codigo_ingresado(update.message, context, codigo_leido.strip())
+
+        # 4. Si Python dice que NO hay código de barras, la foto sigue su curso normal hacia el análisis de platos de comida[cite: 3]
         return await _sub_manejar_foto_plato_ia(update, context, base64_image, user_caption, msg)
 
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar imagen: {e}")
 
-#                INICIO                             COMANDO BARRA                                 INICIO DB OK
-# =================================================================================================================================
-
-async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
-    chat_id = message_obj.chat_id
-    msg_espera = await message_obj.reply_text("🔍 Analizando código de barras y verificando producto...")
-    
-    try:
-        resultado_api = consultar_codigo_barras(barcode_text)
-        
-        if resultado_api:
-            item_procesado = {
-                "alimento": resultado_api['alimento'],
-                "alimento_display": resultado_api['alimento'],
-                "peso": resultado_api['peso'],
-                "calorias": resultado_api['calorias'],
-                "proteinas": resultado_api['proteinas'],
-                "grasas": resultado_api['grasas'],
-                "carbohidratos": resultado_api['carbohidratos'],
-                "fibras": resultado_api['fibras'],
-                "fuente": "Open Food Facts"
-            }
-
-            fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
-
-            await msg_espera.delete()
-            msg_menu = await message_obj.reply_text("📋 Producto encontrado (valores calculados cada 100 g):")
-            
-            context.user_data['last_menu_msg_id'] = msg_menu.message_id
-            context.user_data['pending_items'] = [item_procesado]
-            context.user_data['pending_fecha'] = fecha_auto
-            context.user_data['pending_momento'] = momento_auto
-                
-            await render_confirmation_screen(msg_menu, context)
-        else:
-            await msg_espera.edit_text("⚠️ Código de barras no encontrado en la base de datos. Intentá ingresarlo como texto o foto.")
-            
-    except Exception as e:
-        await msg_espera.edit_text(f"❌ Error al consultar el código: {e}")
-
-@requiere_registro
-async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args
-    
-    if not args:
-        msg_solic = await update.message.reply_text(
-            "⌨️ Por favor, ingresá los números del código de barras con el comando /barra NUMERO:",
-            parse_mode="Markdown"
-        )
-        context.user_data['awaiting_barcode_input'] = True
-        context.user_data['msg_solicitud_barcode_id'] = msg_solic.message_id
-        return
-
-    barcode_text = args[0].strip()
-    await procesar_codigo_ingresado(update.message, context, barcode_text)
-               
-#                   INICIO                       COMANDO ELIMINAR INGESTAS ACTIVIDAD                         INICIO
-# ======================================================================================================================================
-
-@requiere_registro
-async def cmd_eliminar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.pop('del_fecha', None)
-    context.user_data.pop('del_momento', None)
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅 Hoy", callback_data="del_d_hoy"), InlineKeyboardButton("📆 Ayer", callback_data="del_d_ayer")],
-        [InlineKeyboardButton("🗓️ Otra Fecha", callback_data="del_d_otro")]
-    ])
-    
-    await update.message.reply_text(
-        "🗑️ **Eliminación de Ingestas / Actividades:**\nSeleccioná el día que querés revisar:", 
-        reply_markup=keyboard, 
-        parse_mode="Markdown"
-    )
-
-async def mostrar_selector_momento_eliminar(query_or_msg, context):
-    if not context.user_data.get('del_fecha'):
-        context.user_data['del_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
-        
-    fecha = context.user_data.get('del_fecha')
-    
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🍳 Desayuno", callback_data="del_mom_Desayuno"), InlineKeyboardButton("🍲 Almuerzo", callback_data="del_mom_Almuerzo")],
-        [InlineKeyboardButton("☕ Merienda", callback_data="del_mom_Merienda"), InlineKeyboardButton("🌙 Cena", callback_data="del_mom_Cena")],
-        [InlineKeyboardButton("🏃 Actividad Física", callback_data="del_mom_Actividad")],
-        [InlineKeyboardButton("🔙 Cambiar Fecha", callback_data="del_cambiar_fecha")]
-    ])
-    
-    txt = f"📅 Fecha seleccionada: `{fecha}`\n\nSeleccioná el momento o actividad que querés revisar para eliminar:"
-    
-    if hasattr(query_or_msg, 'edit_message_text'):
-        await query_or_msg.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
-    else:
-        await query_or_msg.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
-
-async def render_pantalla_items_eliminar(query, user_id, context):
-    fecha = context.user_data.get('del_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
-    momento = context.user_data.get('del_momento', 'Desayuno')
-
-    df = obtener_datos_usuario(user_id)
-    if df.empty or 'Fecha' not in df.columns or 'Momento' not in df.columns:
-        items_momento = []
-    else:
-        # 🟢 CORREGIDO: Mapeo estricto contra la estructura real de la base de datos
-        df['Fecha_clean'] = df['Fecha'].astype(str).str.strip()
-        df['Momento_clean'] = df['Momento'].astype(str).str.strip().str.lower()
-        
-        momento_busqueda = momento.strip().lower()
-        
-        if momento_busqueda == 'actividad':
-            df_sub = df[(df['Fecha_clean'] == str(fecha).strip()) & (df['Momento_clean'].isin(['actividad', 'actividad física', 'ejercicio']))]
-        else:
-            df_sub = df[(df['Fecha_clean'] == str(fecha).strip()) & (df['Momento_clean'] == momento_busqueda)]
-            
-        items_momento = df_sub.to_dict(orient='records')
-
-    if not items_momento:
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔙 Volver a Momentos", callback_data="del_volver_momentos")]
-        ])
-        try:
-            await query.edit_message_text(
-                f"⚠️ No se encontraron registros para **{momento}** en la fecha `{fecha}`.",
-                reply_markup=keyboard,
-                parse_mode="Markdown"
-            )
-        except Exception:
-            await query.message.reply_text(
-                f"⚠️ No se encontraron registros para **{momento}** en la fecha `{fecha}`.",
-                reply_markup=keyboard,
-                parse_mode="Markdown"
-            )
-        return
-
-    txt = f"🗑️ **Eliminar Registros**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\n\n"
-    
-    for idx, item in enumerate(items_momento, start=1):
-        alimento = str(item.get('Alimento', 'Desconocido'))
-        peso = float(item.get('Peso', 0))
-        calorias = float(item.get('Calorias', 0))
-        
-        if momento.lower() == 'actividad':
-            txt += f"**{idx}. {alimento}**: `{calorias:.1f} kcal`\n"
-        else:
-            txt += f"**{idx}. {alimento}** ({peso:.1f}g): `{calorias:.1f} kcal`\n"
-
-    keyboard = []
-    for item in items_momento:
-        item_id = item.get('id_registro')
-        nombre_corto = str(item.get('Alimento', ''))[:18]
-        if item_id is not None:
-            keyboard.append([
-                InlineKeyboardButton(f"❌ Borrar: {nombre_corto}", callback_data=f"del_reg_{item_id}")
-            ])
-
-    keyboard.append([InlineKeyboardButton("🗑️ BORRAR TODO ESTE MOMENTO", callback_data="del_borrar_todo_momento")])
-    keyboard.append([InlineKeyboardButton("🔙 Volver a Momentos", callback_data="del_volver_momentos")])
-
-    markup = InlineKeyboardMarkup(keyboard)
-    try:
-        await query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
-    except Exception:
-        await query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
-
-async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    user_id = query.from_user.id
-    
-    if data == "del_d_hoy":
-        context.user_data['del_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
-        await mostrar_selector_momento_eliminar(query, context)
-
-    elif data == "del_d_ayer":
-        context.user_data['del_fecha'] = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
-        await mostrar_selector_momento_eliminar(query, context)
-
-    elif data == "del_d_otro":
-        context.user_data['awaiting_del_custom_date'] = True
-        msg_solic = await query.message.reply_text("📅 Ingresá la fecha que querés revisar (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
-        context.user_data['msg_solicitud_del_fecha_id'] = msg_solic.message_id
-
-    elif data.startswith("del_mom_"):
-        momento = data.replace("del_mom_", "")
-        context.user_data['del_momento'] = momento
-        await render_pantalla_items_eliminar(query, user_id, context)
-
-    elif data.startswith("del_reg_"):
-        item_id = int(data.replace("del_reg_", ""))
-        exito = eliminar_registro_por_id(user_id, item_id)
-        
-        if exito:
-            await query.answer("🗑️ Ítem eliminado correctamente.", show_alert=False)
-        else:
-            await query.answer("⚠️ No se pudo eliminar el ítem.", show_alert=True)
-            
-        await render_pantalla_items_eliminar(query, user_id, context)
-
-    elif data == "del_borrar_todo_momento":
-        fecha = context.user_data.get('del_fecha')
-        momento = context.user_data.get('del_momento')
-        
-        df = obtener_datos_usuario(user_id)
-        if not df.empty and 'Fecha' in df.columns and 'Momento' in df.columns:
-            df['Fecha_clean'] = df['Fecha'].astype(str).str.strip()
-            df['Momento_clean'] = df['Momento'].astype(str).str.strip().str.lower()
-            momento_busqueda = momento.strip().lower()
-
-            if momento_busqueda == 'actividad':
-                df_filtrado = df[(df['Fecha_clean'] == str(fecha).strip()) & (df['Momento_clean'].isin(['actividad', 'actividad física', 'ejercicio']))]
-            else:
-                df_filtrado = df[(df['Fecha_clean'] == str(fecha).strip()) & (df['Momento_clean'] == momento_busqueda)]
-
-            for _, r in df_filtrado.iterrows():
-                if 'id_registro' in r:
-                    eliminar_reg_id = int(r['id_registro'])
-                    eliminar_registro_por_id(user_id, eliminar_reg_id)
-                    
-        await query.answer("🗑️ Todos los registros de este momento fueron eliminados.", show_alert=True)
-        await mostrar_selector_momento_eliminar(query, context)
-
-    elif data in ["del_cambiar_fecha", "del_volver_momentos"]:
-        await mostrar_selector_momento_eliminar(query, context)
-        
-        
-        
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
@@ -7260,7 +7322,7 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(callback_handler_guardar_cancelar, pattern="^(cancel_entry$|confirm_save$)"))
         
         # 🟢 CORREGIDO: Patrón delimitado para que 'manejar_callback_eliminacion' no capture a 'del_item_'
-        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_(d_|mom_|reg_|borrar)"))
+        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, comando barrddddddddddd)"))
 
         app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
         app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
