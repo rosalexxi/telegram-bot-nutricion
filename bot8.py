@@ -4690,7 +4690,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 mes_target = param
 
             context.args = [mes_target]
-            update.callback_query = None
             await mostrar_resumen_mes(update, context)
             return
 
@@ -4725,6 +4724,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
         
 @requiere_registro
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, chat_id = update.effective_user.id, update.effective_chat.id
     raw_text = update.message.text.strip() if update.message and update.message.text else ""
@@ -4807,7 +4807,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 mes_target = param
 
             context.args = [mes_target]
-            update.callback_query = None
             await mostrar_resumen_mes(update, context)
             return
 
@@ -4840,7 +4839,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar el texto: {e}") 
-                      
+                                        
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
