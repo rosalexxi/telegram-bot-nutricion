@@ -4574,8 +4574,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await procesar_y_mostrar_confirmacion(data, msg, context)
 
     except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar el texto: {e}")
-                
+        await msg.edit_text(f"❌ Error al procesar el texto: {e}") 
+                      
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
