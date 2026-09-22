@@ -4499,7 +4499,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # 5. Si no es informe, continúa con el flujo normal de ingesta de voz
-        return await _sub_manejar_voz_ingesta_con_data(update, context, data, msg)
+        return await _sub_manejar_voz_ingesta(update, context, data, msg)
 
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
