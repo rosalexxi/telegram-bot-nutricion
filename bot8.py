@@ -1,104 +1,3 @@
-# =============================================================================================================================================
-#                                 INICIO                                   CABECERA 2026 09 05                                    INICIO
-#                                  https://github.com/rosalexxi/telegram-bot-nutricion
-#                                  https://dashboard.render.com/web/srv-d9lcifijnfac73a8q1eg/events
-#                                  https://supabase.com/dashboard/project/xsheilmjewqcvhmyqlnx/editor/17944?schema=public
-#                                  https://dashboard.uptimerobot.com/monitors
-# ==============================================================================================================================================
-
-import math
-import os
-import re
-import io
-import json
-import base64
-import threading
-import inspect
-import logging
-import unicodedata
-import asyncio
-import psycopg2  
-import sys
-import pytz
-import pandas as pd
-import gspread
-import html  
-import cv2
-import numpy as np
-import requests
-
-from typing import Dict, Tuple, List, Optional, Any            
-from urllib.parse import urlparse 
-from datetime import datetime, date, timedelta, time
-from google.oauth2.service_account import Credentials
-from groq import Groq
-from dotenv import load_dotenv
-from flask import Flask, request, jsonify, render_template_string, send_from_directory
-from functools import wraps
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable, KeepTogether
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-    filters,
-    ConversationHandler
-)
-
-logger = logging.getLogger(__name__)
-
-# Definición de franjas horarias (sin tildes)
-FRANJAS_COMIDAS = {
-    "Desayuno": (8, 11),
-    "Almuerzo": (11, 16),
-    "Merienda": (16, 20),
-    "Cena": (20, 24)
-}
-
-load_dotenv()
-
-# Estados de conversación para Perfil y Fecha personalizada
-AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT_ITEM = range(4)
-
-GROQ_TEXTO      = "openai/gpt-oss-120b"   # Generación principal
-GROQ_FOTO       = "qwen/qwen3.8-27b"
-GROQ_AUDIO      = "whisper-large-v3"
-
-GROQ_REVISION_2   = "openai/gpt-oss-20b"    # Revisión principal
-GROQ_REVISOR  = "qwen/qwen3.8-27b"      # Respaldo
-
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GOOGLE_SHEETS_KEY_PATH = os.getenv("GOOGLE_SHEETS_KEY_PATH", "credentials.json")
-SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "Registro_Nutricional_Bot")
-ARG_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
-
-# Estados del flujo de conversación (Incluyendo ING_TERMINOS al inicio)
-ING_TERMINOS, ING_PROFESIONAL, ING_NOMBRE, ING_EDAD, ING_SEXO, ING_ALTURA, ING_PESO, ING_MUNECA, ING_OCUPACION, ING_CUMPLE = range(10, 20)
-
-if GROQ_API_KEY:
-    client_ai = Groq(api_key=GROQ_API_KEY)
-else:
-    client_ai = None
-
-# ==========================================
-# ÚNICA INSTANCIA DE FLASK PARA TODO EL BOT
-# ==========================================
-app = Flask(__name__)
-
-def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
-
-# =====================================================================================================================================
-#                FINAL                                   CABECERA                                       FINAL
-# =====================================================================================================================================
-
 # =====================================================================================================================================
 #              INICIO                                  PAGINA WEB (CALCULADORA UNICA)                        INICIO  DB OK
 # ======================================================================================================================================
@@ -447,7 +346,6 @@ HTML_CALCULADORA_RECETAS = """
         const urlParams = new URLSearchParams(window.location.search);
         const userId = urlParams.get('user_id');
 
-        // Si el usuario está registrado y viene desde el bot, cargamos su idioma directo sin efectos
         if (userId) {
             try {
                 const resUser = await fetch(`/api/usuario-idioma?user_id=${userId}`);
@@ -461,15 +359,11 @@ HTML_CALCULADORA_RECETAS = """
             }
         }
 
-        // EFECTO INTERNACIONAL PARA VISITANTES ANÓNIMOS:
-        // 1. Cargamos primero en Inglés
         await cambiarIdioma('en');
         
-        // 2. Mostramos el cartelito de selección de idioma
         const aviso = document.getElementById('loadingLang');
         aviso.style.display = 'block';
 
-        // 3. Esperamos 4.5 segundos y cambiamos al idioma del navegador (ej. Español)
         setTimeout(async () => {
             aviso.style.display = 'none';
             
@@ -482,8 +376,6 @@ HTML_CALCULADORA_RECETAS = """
             }
         }, 4500);
     }
-    
-   
 
     window.addEventListener('DOMContentLoaded', () => {
         inicializarIdiomaWeb();
@@ -665,6 +557,50 @@ HTML_CALCULADORA_RECETAS = """
 </html>
 
 """
+
+@app.route('/', methods=['GET'])
+def vista_calculadora():
+    user_id = request.args.get('user_id', '')
+    return render_template_string(HTML_CALCULADORA_RECETAS, user_id=user_id)
+
+
+@app.route('/manual.pdf', methods=['GET'])
+def servir_manual_pdf():
+    try:
+        return send_from_directory(directory=os.path.join(os.getcwd(), 'static'), path='manual.pdf', as_attachment=True)
+    except Exception as e:
+        return jsonify({"error": "No se encontró el archivo manual.pdf en la carpeta static."}), 404
+
+
+@app.route('/guia.txt', methods=['GET'])
+def servir_guia_txt():
+    try:
+        return send_from_directory(directory=os.path.join(os.getcwd(), 'static'), path='guia.txt', as_attachment=False)
+    except Exception as e:
+        return jsonify({"error": "No se encontró el archivo guia.txt en la carpeta static."}), 404
+
+
+@app.route('/api/traducciones', methods=['GET'])
+def api_traducciones():
+    lang = request.args.get('lang', 'en')
+    try:
+        traducciones = obtener_traducciones_db(lang)
+        return jsonify(traducciones), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/usuario-idioma', methods=['GET'])
+def api_usuario_idioma():
+    user_id = request.args.get('user_id')
+    lang = 'en'
+    if user_id:
+        try:
+            lang = obtener_idioma_usuario(user_id)
+        except Exception:
+            pass
+    return jsonify({"lang": lang}), 200
+
 # =====================================================================================================================================
 #              FINAL                                  PAGINA WEB (CALCULADORA UNICA)                        FINAL
 # ======================================================================================================================================
