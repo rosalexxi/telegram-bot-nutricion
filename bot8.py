@@ -2981,7 +2981,39 @@ def requiere_registro(func):
 #                INICIO                       14 FUNCIONES IA GROQ                                      INICIO
 # ======================================================================================================================================
 
-logger = logging.getLogger(__name__)
+def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4, system_prompt: str = None, modelo_override: str = None):
+    try:
+        client = globals().get('client_ai') or globals().get('groq_client')
+        if not client:
+            api_key = globals().get('GROQ_API_KEY') or os.getenv("GROQ_API_KEY")
+            if not api_key:
+                logger.error("⚠️ GROQ_API_KEY no configurada.")
+                return ""
+            from groq import Groq
+            client = Groq(api_key=api_key)
+
+        modelo = modelo_override or globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile")
+        
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        response = client.chat.completions.create(
+            model=modelo,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens
+        )
+        
+        if response and response.choices:
+            content = response.choices[0].message.content
+            return content.strip() if content else ""
+            
+    except Exception as e:
+        logger.error(f"⚠️ Error en ejecución de IA: {e}")
+        
+    return ""
 
 def obtener_nombre_lenguaje_ia(user_id=None):
     """Obtiene el nombre completo del lenguaje para la IA desde la tabla Usuarios[cite: 4]."""
@@ -3529,10 +3561,18 @@ async def render_confirmation_screen(msg_or_query, context):
     keyboard = []
     
     if momento != 'Actividad':
+        # Momentos estandarizados con franjas horarias y relojes (100% universal)
+        momentos_config = [
+            ("Desayuno", "🌅 08-11"),
+            ("Almuerzo", "☀️ 11-16"),
+            ("Merienda", "☕ 16-20"),
+            ("Cena", "🌙 20-00")
+        ]
+        
         m_buttons = []
-        for m in ["Desayuno", "Almuerzo", "Merienda", "Cena"]:
-            mark = "✅ " if m.lower() == momento.lower() else ""
-            m_buttons.append(InlineKeyboardButton(f"{mark}{m}", callback_data=f"set_m_{m}"))
+        for nombre_momento, etiqueta_visual in momentos_config:
+            mark = "✅ " if nombre_momento.lower() == momento.lower() else ""
+            m_buttons.append(InlineKeyboardButton(f"{mark}{etiqueta_visual}", callback_data=f"set_m_{nombre_momento}"))
         keyboard.append(m_buttons)
 
     es_plantilla = any('§' in item.get('alimento', item.get('nombre', '')) for item in items)
@@ -3542,25 +3582,31 @@ async def render_confirmation_screen(msg_or_query, context):
             nombre_corto = item.get('alimento', item.get('nombre', ''))[:10]
             keyboard.append([
                 InlineKeyboardButton(f"#{idx} {nombre_corto}", callback_data=f"noop_{idx}"),
-                InlineKeyboardButton("✏️ Editar", callback_data=f"edit_item_{idx}"),
-                InlineKeyboardButton("❌ Anular", callback_data=f"del_item_{idx}")
+                InlineKeyboardButton("✏️", callback_data=f"edit_item_{idx}"),
+                InlineKeyboardButton("❌", callback_data=f"del_item_{idx}")
             ])
 
     hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
     ayer_str = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    # Formato universal Día/Mes (ej: 23/09) para los botones
+    hoy_label = obtener_ahora_arg().strftime("%d/%m")
+    ayer_label = (obtener_ahora_arg() - timedelta(days=1)).strftime("%d/%m")
+    
     mark_hoy = "✅ " if fecha == hoy_str else ""
     mark_ayer = "✅ " if fecha == ayer_str else ""
     mark_otro = "✅ " if fecha not in [hoy_str, ayer_str] else ""
 
     keyboard.append([
-        InlineKeyboardButton(f"{mark_hoy}Hoy", callback_data="set_d_hoy"),
-        InlineKeyboardButton(f"{mark_ayer}Ayer", callback_data="set_d_ayer"),
-        InlineKeyboardButton(f"{mark_otro}Otro Día", callback_data="set_d_otro")
+        InlineKeyboardButton(f"{mark_hoy}{hoy_label}", callback_data="set_d_hoy"),
+        InlineKeyboardButton(f"{mark_ayer}{ayer_label}", callback_data="set_d_ayer"),
+        InlineKeyboardButton(f"{mark_otro}🗓️", callback_data="set_d_otro")
     ])
 
+    # Acciones principales con íconos universales
     keyboard.append([
-        InlineKeyboardButton("🗑️ ELIMINAR TODO", callback_data="cancel_entry"),
-        InlineKeyboardButton("💾 GUARDAR", callback_data="confirm_save")
+        InlineKeyboardButton("🗑️", callback_data="cancel_entry"),
+        InlineKeyboardButton("💾", callback_data="confirm_save")
     ])
 
     markup = InlineKeyboardMarkup(keyboard)
@@ -3585,9 +3631,7 @@ async def render_confirmation_screen(msg_or_query, context):
 
         if not editado and hasattr(msg_or_query, 'message') and msg_or_query.message:
             nuevo_msg = await msg_or_query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
-            context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
-            
-
+            context.user_data['last_menu_msg_id'] = nuevo_msg.message_id            
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     items = data_json.get("items", [])
     tipo = data_json.get("tipo", "Comida")
@@ -4588,11 +4632,12 @@ async def mostrar_selector_momento_eliminar(query_or_msg, context):
         
     fecha = context.user_data.get('del_fecha')
     
+    # Distribución ordenada en filas de a dos para los momentos, más actividad y volver
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🍳 Desayuno", callback_data="del_mom_Desayuno"), InlineKeyboardButton("🍲 Almuerzo", callback_data="del_mom_Almuerzo")],
-        [InlineKeyboardButton("☕ Merienda", callback_data="del_mom_Merienda"), InlineKeyboardButton("🌙 Cena", callback_data="del_mom_Cena")],
-        [InlineKeyboardButton("🏃 Actividad Física", callback_data="del_mom_Actividad")],
-        [InlineKeyboardButton("🔙 Cambiar Fecha", callback_data="del_cambiar_fecha")]
+        [InlineKeyboardButton("🌅 08-11", callback_data="del_mom_Desayuno"), InlineKeyboardButton("☀️ 11-16", callback_data="del_mom_Almuerzo")],
+        [InlineKeyboardButton("☕ 16-20", callback_data="del_mom_Merienda"), InlineKeyboardButton("🌙 20-00", callback_data="del_mom_Cena")],
+        [InlineKeyboardButton("🏃 ⚡", callback_data="del_mom_Actividad")],
+        [InlineKeyboardButton("🔙 📅", callback_data="del_cambiar_fecha")]
     ])
     
     txt = f"📅 Fecha seleccionada: `{fecha}`\n\nSeleccioná el momento o actividad que querés revisar para eliminar:"
@@ -4601,7 +4646,7 @@ async def mostrar_selector_momento_eliminar(query_or_msg, context):
         await query_or_msg.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
     else:
         await query_or_msg.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
-
+        
 async def render_pantalla_items_eliminar(query, user_id, context):
     fecha = context.user_data.get('del_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
     momento = context.user_data.get('del_momento', 'Desayuno')
@@ -4610,7 +4655,6 @@ async def render_pantalla_items_eliminar(query, user_id, context):
     if df.empty or 'Fecha' not in df.columns or 'Momento' not in df.columns:
         items_momento = []
     else:
-        # 🟢 CORREGIDO: Mapeo estricto contra la estructura real de la base de datos
         df['Fecha_clean'] = df['Fecha'].astype(str).str.strip()
         df['Momento_clean'] = df['Momento'].astype(str).str.strip().str.lower()
         
@@ -4625,17 +4669,17 @@ async def render_pantalla_items_eliminar(query, user_id, context):
 
     if not items_momento:
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔙 Volver a Momentos", callback_data="del_volver_momentos")]
+            [InlineKeyboardButton("🔙", callback_data="del_volver_momentos")]
         ])
         try:
             await query.edit_message_text(
-                f"⚠️ No se encontraron registros para **{momento}** en la fecha `{fecha}`.",
+                f"⚠️ No se encontraron registros para este momento en la fecha `{fecha}`.",
                 reply_markup=keyboard,
                 parse_mode="Markdown"
             )
         except Exception:
             await query.message.reply_text(
-                f"⚠️ No se encontraron registros para **{momento}** en la fecha `{fecha}`.",
+                f"⚠️ No se encontraron registros para este momento en la fecha `{fecha}`.",
                 reply_markup=keyboard,
                 parse_mode="Markdown"
             )
@@ -4659,18 +4703,19 @@ async def render_pantalla_items_eliminar(query, user_id, context):
         nombre_corto = str(item.get('Alimento', ''))[:18]
         if item_id is not None:
             keyboard.append([
-                InlineKeyboardButton(f"❌ Borrar: {nombre_corto}", callback_data=f"del_reg_{item_id}")
+                InlineKeyboardButton(f"❌ {nombre_corto}", callback_data=f"del_reg_{item_id}")
             ])
 
-    keyboard.append([InlineKeyboardButton("🗑️ BORRAR TODO ESTE MOMENTO", callback_data="del_borrar_todo_momento")])
-    keyboard.append([InlineKeyboardButton("🔙 Volver a Momentos", callback_data="del_volver_momentos")])
+    # Botón universal para borrar todo el momento y el de volver
+    keyboard.append([InlineKeyboardButton("🗑️ ⚠️", callback_data="del_borrar_todo_momento")])
+    keyboard.append([InlineKeyboardButton("🔙", callback_data="del_volver_momentos")])
 
     markup = InlineKeyboardMarkup(keyboard)
     try:
         await query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
     except Exception:
         await query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
-
+        
 async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -4990,14 +5035,25 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =====================================================================================================================================
 
 @requiere_registro
+@requiere_registro
+@requiere_registro
 async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Manejador del comando /diario.
-    Muestra el menú de selección de fecha.
+    Muestra el menú de selección de fecha con formato Día/Mes (DD/MM).
     """
+    # Obtenemos las etiquetas numéricas en formato Día/Mes (ej: 23/09)
+    hoy_label = obtener_ahora_arg().strftime("%d/%m")
+    ayer_label = (obtener_ahora_arg() - timedelta(days=1)).strftime("%d/%m")
+    
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅 Hoy", callback_data="diario_hoy"), InlineKeyboardButton("📆 Ayer", callback_data="diario_ayer")],
-        [InlineKeyboardButton("🗓️ Seleccionar Fecha", callback_data="diario_otro")]
+        [
+            InlineKeyboardButton(f"📅 {hoy_label}", callback_data="diario_hoy"), 
+            InlineKeyboardButton(f"📆 {ayer_label}", callback_data="diario_ayer")
+        ],
+        [
+            InlineKeyboardButton("🗓️", callback_data="diario_otro")
+        ]
     ])
     
     await update.message.reply_text(
@@ -5005,7 +5061,7 @@ async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=keyboard, 
         parse_mode="Markdown"
     )
-
+    
 async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
     """
     Función auxiliar para procesar y renderizar el reporte del diario agrupado por evento.
@@ -5260,25 +5316,32 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==========================================================================================================================================
 
 @requiere_registro
+@requiere_registro
+@requiere_registro
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _validar_peso_mes_actual(update, context):
         return
 
     ahora = obtener_ahora_arg()
-    mes_actual = ahora.strftime("%Y-%m")
-    mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+    mes_actual_iso = ahora.strftime("%Y-%m")
+    mes_anterior_iso = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+    
+    # Formato universal Mes/Año (ej: 09/2026) para los botones
+    label_mes_actual = ahora.strftime("%m/%Y")
+    label_mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%m/%Y")
+    
     dia_actual = ahora.day
 
     if 1 <= dia_actual <= 7:
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
-            [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+            [InlineKeyboardButton(f"📅 {label_mes_anterior}", callback_data=f"resumen_mes_{mes_anterior_iso}")],
+            [InlineKeyboardButton("🗓️", callback_data="resumen_mes_menu_otros")]
         ])
     else:
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual}")],
-            [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior}")],
-            [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+            [InlineKeyboardButton(f"📅 {label_mes_actual}", callback_data=f"resumen_mes_{mes_actual_iso}")],
+            [InlineKeyboardButton(f"📆 {label_mes_anterior}", callback_data=f"resumen_mes_{mes_anterior_iso}")],
+            [InlineKeyboardButton("🗓️", callback_data="resumen_mes_menu_otros")]
         ])
 
     await update.message.reply_text(
@@ -5286,7 +5349,7 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=keyboard, 
         parse_mode="Markdown"
     )
-
+        
 async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         query = update.callback_query
@@ -6397,14 +6460,23 @@ async def ing_recibir_muneca(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     context.user_data['ing_muneca'] = muneca
     
+    # Botones universales con iconos de sentado, caminando y corriendo
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Sedentario / Ligero ", callback_data="ocup_1375")],
-        [InlineKeyboardButton("Moderado ", callback_data="ocup_1550")],
-        [InlineKeyboardButton("Intenso / Trabajo Físico ", callback_data="ocup_1725")]
+        [InlineKeyboardButton("🪑 Nivel 1", callback_data="ocup_1375")],
+        [InlineKeyboardButton("🚶 Nivel 2", callback_data="ocup_1550")],
+        [InlineKeyboardButton("🏃 Nivel 3", callback_data="ocup_1725")]
     ])
-    await update.message.reply_text("Seleccioná tu **nivel de actividad u ocupación habitual. Sin considerar ejercicios, que se contabilizan por separado**:", reply_markup=keyboard, parse_mode="Markdown")
+    
+    texto_explicativo = (
+        "Seleccioná tu **nivel de actividad u ocupación habitual** (sin considerar los ejercicios programados, que se contabilizan por separado):\n\n"
+        "• **Nivel 1 (🪑):** Actividad ligera / sedentario (persona sentada, oficina, poca movilidad).\n"
+        "• **Nivel 2 (🚶):** Actividad moderada (persona caminando, movimiento constante durante el día).\n"
+        "• **Nivel 3 (🏃):** Actividad intensa (persona corriendo o con esfuerzo físico exigente)."
+    )
+    
+    await update.message.reply_text(texto_explicativo, reply_markup=keyboard, parse_mode="Markdown")
     return ING_OCUPACION
-
+    
 async def ing_recibir_ocupacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -6966,16 +7038,15 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ======================================================================================================================================
 
 @requiere_registro
+@requiere_registro
 async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    # 🟢 CORREGIDO: Se agregó 'get' a la expresión regular para que detecte /GET correctamente
     raw_text = re.sub(r'^/(factor|fac|get)\w*(@\w+)?', '', update.message.text, flags=re.IGNORECASE).strip()
 
     ahora = obtener_ahora_arg()
     mes_actual = ahora.strftime("%Y-%m")
 
-    # 1. Control mensual: Verificamos en la tabla general si ya usó el reloj este mes
     info_usuario = obtener_datos_usuario_general(user_id) if 'obtener_datos_usuario_general' in globals() else obtener_perfil_usuario(user_id, mes_target=mes_actual)
     
     if info_usuario:
@@ -7003,7 +7074,6 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text("⚠️ Ingresá un valor de calorías realista (entre 1000 y 6000 kcal).", parse_mode="Markdown")
             return
 
-        # Obtener el perfil actual del mes
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
         if not perfil:
             await update.message.reply_text("❌ No se encontró tu perfil activo para este mes. Registrá tu peso primero con `/peso`.", parse_mode="Markdown")
@@ -7014,22 +7084,18 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         edad = parse_raw_val(perfil.get('EDAD', perfil.get('Edad', 40)))
         genero = str(perfil.get('GENERO', perfil.get('Genero', 'masculino')))
 
-        # Factor anterior registrado internamente (como float limpio)
         factor_anterior = parse_raw_val(perfil.get('OCUPACION', perfil.get('Ocupacion', 1.375)))
         if factor_anterior <= 0:
             factor_anterior = 1.375
 
-        # Calcular TMB base y GET anterior
         tmb, get_anterior = calcular_tmb_y_get(peso, altura, edad, genero, actividad=factor_anterior)
         
         if tmb <= 0:
             await update.message.reply_text("❌ Error al calcular la TMB base.", parse_mode="Markdown")
             return
 
-        # Factor crudo que sugiere el reloj (para controles internos)
         factor_crudo_reloj = round(calorias_reloj / tmb, 3)
 
-        # Aplicar calibración con seguridad (tope del 10% y límites biológicos) de forma interna
         nuevo_factor = aplicar_calibracion_reloj(
             factor_previo=factor_anterior, 
             get_reloj=calorias_reloj, 
@@ -7037,10 +7103,8 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             max_variacion_pct=0.10
         )
 
-        # Calcular el nuevo GET resultante para mostrárselo al usuario en calorías
         _, get_nuevo = calcular_tmb_y_get(peso, altura, edad, genero, actividad=nuevo_factor)
 
-        # Verificar si el filtro de seguridad tuvo que actuar
         aviso_tope = ""
         if abs(nuevo_factor - factor_crudo_reloj) > 0.005:
             aviso_tope = (
@@ -7049,13 +7113,12 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 "para proteger la estabilidad de tu plan.\n"
             )
 
-        # Guardar temporalmente el factor internamente en context.user_data
         context.user_data['temp_nuevo_factor'] = nuevo_factor
 
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("✅ Confirmar y Guardar", callback_data="confirmar_factor_si"),
-                InlineKeyboardButton("❌ Cancelar", callback_data="confirmar_factor_no")
+                InlineKeyboardButton("✅", callback_data="confirmar_factor_si"),
+                InlineKeyboardButton("❌", callback_data="confirmar_factor_no")
             ]
         ])
 
@@ -7076,7 +7139,7 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logger.error(f"Error al previsualizar /factor para {user_id}: {e}")
         await update.message.reply_text(f"⚠️ Ocurrió un error al procesar la solicitud: {e}", parse_mode="Markdown")
-        
+                
 async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
