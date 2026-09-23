@@ -3804,10 +3804,14 @@ async def callback_handler_reportes_pdf(update: Update, context: ContextTypes.DE
 # ======================================================================================================================================
 
 # =====================================================================================================================================
-#              INICIO                      SUBFUNCIONES Y MANEJADORES MODULARIZADOS (NUEVOS)                   INICIO
+#              INICIO                      FUNCIONES MANEJADORES MODULARIZADOS (NUEVOS)                   INICIO
 # =====================================================================================================================================
 
 async def _sub_manejar_texto_actividad(update, context, raw_text, chat_id):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     msg_solic = context.user_data.pop('msg_solicitud_activity_id', None)
     if msg_solic:
         try: await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
@@ -3816,25 +3820,33 @@ async def _sub_manejar_texto_actividad(update, context, raw_text, chat_id):
     except Exception: pass
 
     context.user_data['awaiting_activity_text'] = False
-    msg_espera = await update.message.reply_text("🏃 Analizando actividad física y calculando calorías...")
+    
+    txt_analizando = traducciones.get('bot_analizando_act', "🏃 Analizando actividad física y calculando calorías...")
+    msg_espera = await update.message.reply_text(txt_analizando)
     try:
         res = analizar_con_groq(f"Actividad física: {raw_text}. Devuelve JSON con alimento y calorias.")
         items = res.get('items', [])
         kcal = float(items[0].get('calorias', 0)) if items else 0.0
         desc = str(items[0].get('alimento', raw_text)) if items else raw_text
         
-        # Se eliminó la validación vieja de 'min' para respetar el formato limpio de la IA
         item_act = {"alimento": desc, "peso": 0, "calorias": -abs(kcal), "proteinas": 0, "grasas": 0, "carbohidratos": 0, "fibras": 0}
         
         context.user_data.update({'pending_items': [item_act], 'pending_fecha': obtener_ahora_arg().strftime("%Y-%m-%d"), 'pending_momento': 'Actividad'})
         await msg_espera.delete()
-        msg_menu = await update.message.reply_text("📋 Actividad analizada:")
+        
+        txt_analizada = traducciones.get('bot_act_analizada', "📋 Actividad analizada:")
+        msg_menu = await update.message.reply_text(txt_analizada)
         context.user_data['last_menu_msg_id'] = msg_menu.message_id
         await render_confirmation_screen(msg_menu, context)
     except Exception as e:
-        await msg_espera.edit_text(f"❌ Error al procesar actividad: {e}")
+        txt_err = traducciones.get('bot_error_proc_act', "❌ Error al procesar actividad: {e}").format(e=e)
+        await msg_espera.edit_text(txt_err)
                 
 async def _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     fecha_parseada = parsear_fecha_flexible(raw_text)
     msg_solic = context.user_data.pop('msg_solicitud_del_fecha_id', None)
     if msg_solic:
@@ -3851,10 +3863,15 @@ async def _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id):
                 await self.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
         await mostrar_selector_momento_eliminar(DummyQuery(update.message), context)
     else:
-        msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+        txt_err_fec = traducciones.get('bot_error_fecha_inv', "⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):")
+        msg_err = await update.message.reply_text(txt_err_fec, parse_mode="Markdown")
         context.user_data['msg_solicitud_del_fecha_id'] = msg_err.message_id
 
 async def _sub_manejar_fecha_diario(update, context, raw_text, chat_id):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     fecha_parseada = parsear_fecha_flexible(raw_text)
     msg_solic = context.user_data.pop('msg_solicitud_diario_fecha_id', None)
     if msg_solic:
@@ -3867,10 +3884,15 @@ async def _sub_manejar_fecha_diario(update, context, raw_text, chat_id):
         context.user_data['awaiting_diario_custom_date'] = False
         await mostrar_diario_fecha(update.message, update.effective_user.id, fecha_parseada)
     else:
-        msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+        txt_err_fec = traducciones.get('bot_error_fecha_inv', "⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):")
+        msg_err = await update.message.reply_text(txt_err_fec, parse_mode="Markdown")
         context.user_data['msg_solicitud_diario_fecha_id'] = msg_err.message_id
 
 async def _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     fecha_parseada = parsear_fecha_flexible(raw_text)
     msg_solic = context.user_data.pop('msg_solicitud_fecha_id', None)
     if msg_solic:
@@ -3890,17 +3912,23 @@ async def _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, ch
             except Exception: pass
         await render_confirmation_screen(update, context)
     else:
-        msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+        txt_err_fec = traducciones.get('bot_error_fecha_inv', "⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):")
+        msg_err = await update.message.reply_text(txt_err_fec, parse_mode="Markdown")
         context.user_data['msg_solicitud_fecha_id'] = msg_err.message_id
 
 async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     idx = context.user_data.get('editing_item_idx')
     items = context.user_data.get('pending_items', [])
     momento_actual = context.user_data.get('pending_momento', 'Comida')
 
     if items and 0 <= idx < len(items):
         item_previo = items[idx]
-        msg_espera = await update.message.reply_text("⏳ Actualizando valores...")
+        txt_act = traducciones.get('bot_actualizando', "⏳ Actualizando valores...")
+        msg_espera = await update.message.reply_text(txt_act)
         try:
             if momento_actual == 'Actividad':
                 nuevo_kcal = float(re.sub(r'[^\d.]', '', raw_text.replace(',', '.')))
@@ -3929,7 +3957,8 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
             try: await update.message.delete()
             except Exception: pass
         except Exception as e:
-            await msg_espera.edit_text(f"❌ Error al editar: {e}")
+            txt_err_ed = traducciones.get('bot_error_editar', "❌ Error al editar: {e}").format(e=e)
+            await msg_espera.edit_text(txt_err_ed)
 
     context.user_data.update({'awaiting_edit_item_val': False})
     context.user_data.pop('editing_item_idx', None)
@@ -3944,6 +3973,9 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
     await render_confirmation_screen(update, context)
 
 async def _sub_manejar_plantilla_comida(update, context, raw_text, user_id):
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     contenido = raw_text[1:].strip()
     partes = [p.strip() for p in contenido.split(',')]
     nombre_plantilla = partes[0].upper()
@@ -3955,7 +3987,6 @@ async def _sub_manejar_plantilla_comida(update, context, raw_text, user_id):
     if plantilla:
         p_b, c_b, pr_b, g_b, cb_b, f_b = plantilla.get('Peso', 0), plantilla.get('Calorias', 0), plantilla.get('Proteinas', 0), plantilla.get('Grasas', 0), plantilla.get('Carbohidratos', 0), plantilla.get('Fibras', 0)
         
-        # 🟢 Limpiar descripción y armar el formato final: Descripción + " x Mult"
         desc_limpia = (plantilla.get('Descripcion') or plantilla.get('Nombre', 'Comida')).replace('§', '').strip()
         mult_str = f"{int(mult)}" if mult.is_integer() else f"{mult}"
         
@@ -3971,18 +4002,26 @@ async def _sub_manejar_plantilla_comida(update, context, raw_text, user_id):
             "carbohidratos": cb_b * mult, 
             "fibras": f_b * mult
         }
-        msg = await update.message.reply_text("⏳ Procesando comida predeterminada...")
+        txt_proc = traducciones.get('bot_proc_comida', "⏳ Procesando comida predeterminada...")
+        msg = await update.message.reply_text(txt_proc)
         await procesar_y_mostrar_confirmacion({"items": [item_gen], "tipo": "Comida"}, msg, context)
     else:
-        await update.message.reply_text(f"❌ No se encontró la comida `*{nombre_plantilla}` en tu planilla `Comidas_{user_id}`.", parse_mode="Markdown")
+        txt_err_noenc = traducciones.get('bot_error_comida_no_enc', f"❌ No se encontró la comida `*{nombre_plantilla}` en tu planilla `Comidas_{user_id}`.")
+        await update.message.reply_text(txt_err_noenc, parse_mode="Markdown")
         
 async def _sub_manejar_ingesta_libre_ia(update, context, raw_text):
-    msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    txt_analiz_ia = traducciones.get('bot_analizando_texto', "🤖 Analizando texto con Inteligencia Artificial...")
+    msg = await update.message.reply_text(txt_analiz_ia)
     try:
         data = analizar_con_groq(raw_text)
         await procesar_y_mostrar_confirmacion(data, msg, context)
     except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar el texto: {e}")
+        txt_err_ia = traducciones.get('bot_error_proc_texto', "❌ Error al procesar el texto: {e}").format(e=e)
+        await msg.edit_text(txt_err_ia)
 
 def parsear_fecha_flexible(raw_text):
     txt = raw_text.replace('/', '-').replace('.', '-')
@@ -3997,24 +4036,23 @@ def parsear_fecha_flexible(raw_text):
     return None
 
 async def _sub_manejar_voz_ingesta(update, context, transcription, msg):
-    """
-    Procesa la transcripción de una nota de voz de ingesta alimentaria,
-    la analiza con IA y muestra la pantalla de confirmación.
-    """
     try:
-        # Envía la transcripción al analizador de texto/ingestas de Groq
         data = analizar_con_groq(transcription)
-        
-        # Pasa el resultado al procesador y renderizador de confirmación
         await procesar_y_mostrar_confirmacion(data, msg, context)
-        
     except Exception as e:
+        user_id = update.effective_user.id
+        lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+        traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+        txt_err_aud = traducciones.get('bot_error_audio', "❌ Error al procesar el audio con IA: {e}").format(e=e)
         logger.error(f"Error procesando voz de ingesta: {e}")
-        await msg.edit_text(f"❌ Error al procesar el audio con IA: {e}")
+        await msg.edit_text(txt_err_aud)
 
 async def _sub_manejar_voz_actividad(update, context, transcription, msg):
-    context.user_data['awaiting_activity_voice'] = False
     user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    context.user_data['awaiting_activity_voice'] = False
     perfil_biometrico = obtener_perfil_usuario(user_id)
     
     prompt_ia = f"El usuario realizó una actividad física descrita por voz. Transcripción: '{transcription}'. Calcula las calorías gastadas utilizando estrictamente su perfil biométrico: {perfil_biometrico}. Devolvé un JSON con los campos 'alimento' y 'calorias'."
@@ -4024,13 +4062,13 @@ async def _sub_manejar_voz_actividad(update, context, transcription, msg):
     kcal_estimadas = float(items_ia[0].get('calorias', 0)) if items_ia else 0.0
     desc = str(items_ia[0].get('alimento', transcription)) if items_ia else transcription
     
-    # Se eliminó la validación vieja de 'min' para respetar el formato limpio de la IA
     item_actividad = {"alimento": desc, "peso": 0, "calorias": -abs(kcal_estimadas), "proteinas": 0, "grasas": 0, "carbohidratos": 0, "fibras": 0}
     
     context.user_data.update({'pending_items': [item_actividad], 'pending_fecha': obtener_ahora_arg().strftime("%Y-%m-%d"), 'pending_momento': 'Actividad'})
 
     await msg.delete()
-    msg_menu = await update.message.reply_text("📋 Actividad analizada por audio:")
+    txt_act_aud = traducciones.get('bot_act_audio', "📋 Actividad analizada por audio:")
+    msg_menu = await update.message.reply_text(txt_act_aud)
     context.user_data['last_menu_msg_id'] = msg_menu.message_id
     await render_confirmation_screen(msg_menu, context)
     
@@ -4048,11 +4086,14 @@ def analizar_foto_presion_con_groq(base64_image: str) -> dict:
     except Exception: return {"es_presion": False}
 
 async def _sub_manejar_foto_presion(update, context, res_presion, msg):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     alta, baja, pulsaciones = float(res_presion.get("alta", 0)), float(res_presion.get("baja", 0)), float(res_presion.get("pulsaciones", 0))
     
-    # Guardamos temporalmente los valores en el contexto
     context.user_data['pending_presion_foto'] = {"alta": alta, "baja": baja, "pulsaciones": pulsaciones}
-    context.user_data['awaiting_presion_nota'] = True  # Activamos la bandera de espera de nota
+    context.user_data['awaiting_presion_nota'] = True
 
     pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
     
@@ -4066,9 +4107,18 @@ async def _sub_manejar_foto_presion(update, context, res_presion, msg):
     )
     
 async def _sub_manejar_foto_plato_ia(update, context, base64_image, user_caption, msg):
-    await msg.edit_text("🤖 Analizando plato con Inteligencia Artificial...")
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    txt_analiz_plato = traducciones.get('bot_analizando_plato', "🤖 Analizando plato con Inteligencia Artificial...")
+    await msg.edit_text(txt_analiz_plato)
     data = analizar_imagen_con_groq(base64_image, user_caption)
     await procesar_y_mostrar_confirmacion(data, msg, context)
+    
+# =====================================================================================================================================
+#              FINAL                     FUNCIONES MANEJADORES MODULARIZADOS (NUEVOS)                   FINAL
+# =====================================================================================================================================
 
 # ======================================================================================================================================
 #                INICIO                                      FUNCIONES DE BOTONES                        FINAL
