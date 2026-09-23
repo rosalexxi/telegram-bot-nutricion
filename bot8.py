@@ -4120,8 +4120,9 @@ async def _sub_manejar_foto_plato_ia(update, context, base64_image, user_caption
 #              FINAL                     FUNCIONES MANEJADORES MODULARIZADOS (NUEVOS)                   FINAL
 # =====================================================================================================================================
 
+
 # ======================================================================================================================================
-#                INICIO                                      FUNCIONES DE BOTONES                        FINAL
+#                INICIO                                      FUNCIONES BOTONES                        FINAL
 # ======================================================================================================================================
 
 @requiere_registro
@@ -4138,6 +4139,8 @@ async def callback_btn_fechas_diario(update: Update, context: ContextTypes.DEFAU
     await query.answer()
     data = query.data
     user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     context.user_data['last_menu_msg_id'] = query.message.message_id
 
     if data == "set_d_hoy":
@@ -4148,7 +4151,8 @@ async def callback_btn_fechas_diario(update: Update, context: ContextTypes.DEFAU
         await render_confirmation_screen(query, context)
     elif data in ["set_d_otro", "set_d_custom"]:
         context.user_data['awaiting_custom_date'] = True
-        msg = await query.message.reply_text("📅 Ingresá la fecha deseada para la ingesta (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+        txt_fec_ing = traducciones.get('bot_solic_fecha_ingesta', "📅 Ingresá la fecha deseada para la ingesta (Ej: `2026-08-15` o `15/08`):")
+        msg = await query.message.reply_text(txt_fec_ing, parse_mode="Markdown")
         context.user_data['msg_solicitud_fecha_id'] = msg.message_id
     elif data == "diario_hoy":
         await mostrar_diario_fecha(query, user_id, obtener_ahora_arg().strftime("%Y-%m-%d"))
@@ -4156,7 +4160,8 @@ async def callback_btn_fechas_diario(update: Update, context: ContextTypes.DEFAU
         await mostrar_diario_fecha(query, user_id, (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d"))
     elif data == "diario_otro":
         context.user_data['awaiting_diario_custom_date'] = True
-        msg = await query.message.reply_text("📅 Ingresá la fecha del diario que querés consultar (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+        txt_diar_cons = traducciones.get('bot_solic_diario_consulta', "📅 Ingresá la fecha del diario que querés consultar (Ej: `2026-08-15` o `15/08`):")
+        msg = await query.message.reply_text(txt_diar_cons, parse_mode="Markdown")
         context.user_data['msg_solicitud_diario_fecha_id'] = msg.message_id
 
 @requiere_registro
@@ -4164,6 +4169,9 @@ async def callback_btn_editar_item(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     await query.answer()
     data = query.data
+    user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     context.user_data['last_menu_msg_id'] = query.message.message_id
 
     idx = int(data.replace("edit_item_", "")) - 1
@@ -4174,17 +4182,23 @@ async def callback_btn_editar_item(update: Update, context: ContextTypes.DEFAULT
     es_codigo_barras = (0 <= idx < len(items) and items[idx].get('fuente') == "Open Food Facts")
 
     if momento_actual == 'Actividad':
-        await query.message.reply_text("✏️ Ingresá el nuevo valor de calorías para la actividad (ej: `220`):", parse_mode="Markdown")
+        txt_ed_kcal = traducciones.get('bot_edit_calorias', "✏️ Ingresá el nuevo valor de calorías para la actividad (ej: `220`):")
+        await query.message.reply_text(txt_ed_kcal, parse_mode="Markdown")
     elif es_codigo_barras:
-        await query.message.reply_text("⚖️ Ingresá el **nuevo peso en gramos** para este producto (ej: `150`):", parse_mode="Markdown")
+        txt_ed_peso = traducciones.get('bot_edit_peso_gr', "⚖️ Ingresá el **nuevo peso en gramos** para este producto (ej: `150`):")
+        await query.message.reply_text(txt_ed_peso, parse_mode="Markdown")
     else:
-        await query.message.reply_text("✏️ Ingresá la nueva descripción y/o peso para este alimento:")
+        txt_ed_gen = traducciones.get('bot_edit_desc_peso', "✏️ Ingresá la nueva descripción y/o peso para este alimento:")
+        await query.message.reply_text(txt_ed_gen)
 
 @requiere_registro
 async def callback_btn_anular_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
+    user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     context.user_data['last_menu_msg_id'] = query.message.message_id
 
     idx = int(data.replace("del_item_", "")) - 1
@@ -4193,7 +4207,8 @@ async def callback_btn_anular_item(update: Update, context: ContextTypes.DEFAULT
         items.pop(idx)
     
     if not items:
-        await query.edit_message_text("❌ Todos los ítems fueron eliminados.")
+        txt_all_del = traducciones.get('bot_all_del', "❌ Todos los ítems fueron eliminados.")
+        await query.edit_message_text(txt_all_del)
         context.user_data.pop('last_menu_msg_id', None)
     else:
         await render_confirmation_screen(query, context)
@@ -4202,15 +4217,22 @@ async def callback_btn_anular_item(update: Update, context: ContextTypes.DEFAULT
 async def callback_btn_cancelar_registro(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     context.user_data.pop('pending_items', None)
     context.user_data.pop('last_menu_msg_id', None)
-    await query.edit_message_text("🗑️ Registro cancelado.")
+    txt_canc = traducciones.get('bot_reg_canc', "🗑️ Registro cancelado.")
+    await query.edit_message_text(txt_canc)
 
 @requiere_registro
 async def callback_btn_guardar_registro(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
     items = context.user_data.get('pending_items', [])
     fecha = context.user_data.get('pending_fecha')
@@ -4220,12 +4242,17 @@ async def callback_btn_guardar_registro(update: Update, context: ContextTypes.DE
         tipo_registro = "Actividad" if momento == "Actividad" else "Comida"
         guardar_en_sheets(user_id, items, fecha, momento, tipo=tipo_registro)
         
-        txt_conf = f"✅ **¡Actividad guardada exitosamente!**\n📅 `{fecha}`" if momento == "Actividad" else f"✅ **¡Ingesta guardada exitosamente!**\n📅 `{fecha}` | `{momento}`"
+        if momento == "Actividad":
+            txt_conf = traducciones.get('bot_save_act_exito', f"✅ **¡Actividad guardada exitosamente!**\n📅 `{fecha}`")
+        else:
+            txt_conf = traducciones.get('bot_save_meal_exito', f"✅ **¡Ingesta guardada exitosamente!**\n📅 `{fecha}` | `{momento}`")
+            
         await query.edit_message_text(txt_conf, parse_mode="Markdown")
         context.user_data.pop('pending_items', None)
         context.user_data.pop('last_menu_msg_id', None)
     else:
-        await query.edit_message_text("❌ No se encontraron datos para guardar.")
+        txt_nodat = traducciones.get('bot_no_data', "❌ No se encontraron datos para guardar.")
+        await query.edit_message_text(txt_nodat)
 
 # ======================================================================================================================================
 #                FINAL                                      FUNCIONES DE BOTONES                        FINAL
