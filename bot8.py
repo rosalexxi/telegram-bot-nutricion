@@ -2981,27 +2981,48 @@ def requiere_registro(func):
 #                INICIO                       14 FUNCIONES IA GROQ                                      INICIO
 # ======================================================================================================================================
 
-def analizar_con_groq(prompt_text):
+logger = logging.getLogger(__name__)
+
+def obtener_nombre_lenguaje_ia(user_id=None):
+    """Obtiene el nombre completo del lenguaje para la IA desde la tabla Usuarios[cite: 4]."""
+    if not user_id:
+        return "Spanish"
+    try:
+        from FuncionesSupabaseMulti import _asegurar_tabla_y_conectar
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur.execute('SELECT "lenguajes" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if row and row[0]:
+            return str(row[0]).strip()
+    except Exception as e:
+        logger.error(f"Error obteniendo lenguaje IA para {user_id}: {e}")
+    return "Spanish"
+
+def analizar_con_groq(prompt_text, user_id=None):
     client_ai = globals().get('client_ai')
     if not client_ai:
-        raise Exception("GROQ_API_KEY no está configurada correctamente.")
+        raise Exception("GROQ_API_KEY is not properly configured.")
     
-    # 🟢 Registro en logs de Render del texto entrante
-    logger.info(f"🤖 IA analizando texto entrante: '{prompt_text}'")
+    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
+    logger.info(f"🤖 IA analizando texto entrante (Idioma: {nombre_lenguaje}): '{prompt_text}'")
 
     system_prompt = (
-        "Sos un asistente inteligente de salud. Analiza el texto ingresado por el usuario y clasifícalo estrictamente en una de estas categorías:\n"
+        f"Sos un asistente inteligente de salud. El usuario se comunica en su idioma ({nombre_lenguaje}). "
+        f"Analizá el texto ingresado por el usuario (el cual está redactado en {nombre_lenguaje}) y clasificalo estrictamente en una de estas categorías. "
+        f"Debes procesar y responder con los nombres de alimentos/descripciones adaptados o interpretados correctamente según corresponda:\n"
         "1. COMIDA: Si el usuario menciona alimentos, platos o bebidas para ingerir.\n"
         "2. ACTIVIDAD: Si el usuario menciona cualquier tipo de ejercicio, deporte, movimiento físico o actividad en movimiento.\n"
         "3. INFORME_MENSUAL: Si el usuario pide el resumen, balance o informe del mes (ej: 'resumen mensual', 'del mes'). Extrae el mes mencionado en formato 'YYYY-MM' en el campo 'parametro' (si no menciona ninguno, déjalo vacío).\n"
-        "4. INFORME_SEMANAL: Si el usuario pide el resumen o balance de la semana (ej: 'resumen semanal', 'de la semana').\n"
-        "5. INFORME_DIARIO: Si el usuario pide el resumen del día o lo que consumió hoy (ej: 'resumen de hoy', 'cómo voy hoy'). Extrae la fecha o referencia temporal en el campo 'parametro' (ej: 'hoy', 'ayer', '2026-09-15', o déjalo vacío si no especifica).\n"
-        "6. RECHAZO: Si el usuario nombra objetos inanimados, productos de limpieza, ropa o cosas que no se comen ni se entrenan ni piden resúmenes.\n\n"
+        "4. INFORME_SEMANAL: Si el usuario pide el resumen o balance de la semana.\n"
+        "5. INFORME_DIARIO: Si el usuario pide el resumen del día o lo que consumió hoy. Extrae la referencia temporal en el campo 'parametro'.\n"
+        "6. RECHAZO: Si el usuario nombra objetos inanimados, productos de limpieza, ropa o cosas que no se comen ni se entrenan.\n\n"
         "REGLAS:\n"
         "- Si es COMIDA, desglósalo con pesos y calorías positivas.\n"
         "- Si es ACTIVIDAD:\n"
-        "  * Calcula el tiempo total en minutos (ej: 'una hora' = 60, 'media hora' = 30, 'hora y media' = 90).\n"
-        "  * El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de un espacio y la descripción original (Ejemplo estricto: '30 caminata de 3000 metros en 30 minutos'). Esto es vital para que el sistema contabilice las estadísticas semanales.\n"
+        "  * Calcula el tiempo total en minutos.\n"
+        "  * El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de un espacio y la descripción.\n"
         "  * El campo 'peso' debe ser estrictamente 0.0.\n"
         "  * Estima las calorías gastadas con valor positivo.\n"
         "- Si es INFORME_MENSUAL, INFORME_SEMANAL o INFORME_DIARIO, el campo 'items' debe ir vacío ([ ]).\n"
@@ -3027,13 +3048,49 @@ def analizar_con_groq(prompt_text):
     )
     
     resultado_json = json.loads(response.choices[0].message.content)
-    
-    # 🟢 Registro en logs de Render de lo que respondió la IA
     logger.info(f"🤖 IA respondió resultado: {resultado_json}")
     
     return resultado_json
     
+async def generar_recomendacion_semanal_ia(m: dict, etiqueta_periodo: str, user_id=None):
+    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
+
+    prompt_semana = (
+        f"Actúa como un nutricionista clínico experto, constructivo y equilibrado. "
+        f"Analiza la evolución nutricional de la {etiqueta_periodo} basándote en los promedios reales frente a los rangos saludables:\n\n"
+        f"DATOS DEL PERÍODO:\n"
+        f"- Días evaluados: {m.get('dias_registrados', 0)}\n"
+        f"- Calorías consumidas: {m.get('prom_cal', 0)} kcal/día (Rango saludable: {m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal)\n"
+        f"- Proteínas: {m.get('prom_prot', 0)} g/día (Rango saludable: {m.get('prot_min', 0)} - {m.get('prot_max', 0)} g)\n"
+        f"- Grasas: {m.get('prom_gras', 0)} g/día (Rango saludable: {m.get('gras_min', 0)} - {m.get('gras_max', 0)} g)\n"
+        f"- Carbohidratos: {m.get('prom_carb', 0)} g/día (Rango saludable: {m.get('carb_min', 0)} - {m.get('carb_max', 0)} g)\n"
+        f"- Fibra: {m.get('prom_fibr', 0)} g/día (Mínimo recomendado: {m.get('fibr_min', 0)} g)\n\n"
+        f"INSTRUCCIONES CLAVE:\n"
+        f"1. Si un valor se encuentra dentro del rango saludable, considéralo un comportamiento correcto y equilibrado; no lo señales como un error ni exijas correcciones drásticas en ese aspecto.\n"
+        f"2. Concéntrate exclusivamente en desvíos significativos fuera de los rangos (por ejemplo, si la fibra o algún nutriente clave está muy por debajo del mínimo).\n"
+        f"3. Proporciona una devolución clara, motivadora y recomendaciones breves y prácticas para optimizar los hábitos en la semana entrante.\n"
+        f"IMPORTANTE: Redacta y responde toda la devolución final dirigida al usuario estrictamente en el idioma {nombre_lenguaje}."
+    )
+    
+    try:
+        recomendacion = await obtener_recomendacion_ia(prompt_semana, es_semanal=True, user_id=user_id)
+        if recomendacion and recomendacion.strip():
+            return recomendacion
+    except Exception as e:
+        logger.error(f"Error al generar recomendación semanal con IA: {e}")
+        
+    # Mensaje de fallback mediante variable multilenguaje 02_
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    return traducciones.get("02_error_analisis_no_disponible", "⚠️ Nutritional analysis temporarily unavailable.")
+    
 async def generar_recomendacion_mensual_para_pdf(user_id: int, mes_str: str, df_mes, perfil: dict, m: dict, context=None) -> str:
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    msg_error_inf = traducciones.get("02_error_informe_ia", "<b>⚠️ Could not generate the audited AI report.</b>")
+    msg_error_comp = traducciones.get("02_error_compilar_ia", "<b>⚠️ Error compiling the AI recommendation for the report.</b>")
+
     try:
         conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
 
@@ -3051,7 +3108,7 @@ async def generar_recomendacion_mensual_para_pdf(user_id: int, mes_str: str, df_
         )
         
         if not informe_ia:
-            informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA.</b>"
+            informe_ia = f"<b>{msg_error_inf}</b>"
 
         return (
             informe_ia
@@ -3060,241 +3117,14 @@ async def generar_recomendacion_mensual_para_pdf(user_id: int, mes_str: str, df_
         )
     except Exception as e:
         logger.error(f"Error en generar_recomendacion_mensual_para_pdf para {user_id}: {e}")
-        return "<b>⚠️ Error al compilar la recomendación de IA para el reporte.</b>"
+        return f"<b>{msg_error_comp}</b>"
         
-async def generar_recomendacion_semanal_ia(m: dict, etiqueta_periodo: str):
-    prompt_semana = (
-        f"Actúa como un nutricionista clínico experto, constructivo y equilibrado. "
-        f"Analiza la evolución nutricional de la {etiqueta_periodo} basándote en los promedios reales frente a los rangos saludables:\n\n"
-        f"DATOS DEL PERÍODO:\n"
-        f"- Días evaluados: {m.get('dias_registrados', 0)}\n"
-        f"- Calorías consumidas: {m.get('prom_cal', 0)} kcal/día (Rango saludable: {m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal)\n"
-        f"- Proteínas: {m.get('prom_prot', 0)} g/día (Rango saludable: {m.get('prot_min', 0)} - {m.get('prot_max', 0)} g)\n"
-        f"- Grasas: {m.get('prom_gras', 0)} g/día (Rango saludable: {m.get('gras_min', 0)} - {m.get('gras_max', 0)} g)\n"
-        f"- Carbohidratos: {m.get('prom_carb', 0)} g/día (Rango saludable: {m.get('carb_min', 0)} - {m.get('carb_max', 0)} g)\n"
-        f"- Fibra: {m.get('prom_fibr', 0)} g/día (Mínimo recomendado: {m.get('fibr_min', 0)} g)\n\n"
-        f"INSTRUCCIONES CLAVE:\n"
-        f"1. Si un valor se encuentra dentro del rango saludable, considéralo un comportamiento correcto y equilibrado; no lo señales como un error ni exijas correcciones drásticas en ese aspecto.\n"
-        f"2. Concéntrate exclusivamente en desvíos significativos fuera de los rangos (por ejemplo, si la fibra o algún nutriente clave está muy por debajo del mínimo).\n"
-        f"3. Proporciona una devolución clara, motivadora y recomendaciones breves y prácticas para optimizar los hábitos en la semana entrante."
-    )
-    
-    try:
-        recomendacion = await obtener_recomendacion_ia(prompt_semana, es_semanal=True)
-        if recomendacion and recomendacion.strip():
-            return recomendacion
-    except Exception as e:
-        logger.error(f"Error al generar recomendación semanal con IA: {e}")
-        
-    return "⚠️ Análisis nutricional no disponible temporalmente."
-    
-def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4, system_prompt: str = None, modelo_override: str = None):
-    try:
-        client = globals().get('client_ai') or globals().get('groq_client')
-        if not client:
-            api_key = globals().get('GROQ_API_KEY') or os.getenv("GROQ_API_KEY")
-            if not api_key:
-                logger.error("⚠️ GROQ_API_KEY no configurada.")
-                return ""
-            from groq import Groq
-            client = Groq(api_key=api_key)
-
-        modelo = modelo_override or globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile")
-        
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-
-        response = client.chat.completions.create(
-            model=modelo,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
-        
-        if response and response.choices:
-            content = response.choices[0].message.content
-            return content.strip() if content else ""
-            
-    except Exception as e:
-        logger.error(f"⚠️ Error en ejecución de IA: {e}")
-        
-    return ""
-
-async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.BytesIO]:
-    nombre = datos_usuario.get('nombre', 'Paciente')
-    edad = datos_usuario.get('edad', 0)
-    sexo = datos_usuario.get('sexo', 'M')
-    altura = datos_usuario.get('altura', 0)
-    peso = datos_usuario.get('peso', 0)
-    peso_ideal = datos_usuario.get('peso_ideal', 0)
-    peso_etapa = datos_usuario.get('peso_etapa', peso)
-    get_calorias = datos_usuario.get('get', 2000)
-
-    dif_pct = ((peso - peso_ideal) / peso_ideal * 100) if peso_ideal > 0 else 0.0
-
-    if dif_pct > 20:
-        contexto_situacion = "El paciente presenta un sobrepeso considerable, por lo que el enfoque debe ser muy gradual, paciente y centrado en la adopción de hábitos sostenibles a largo plazo sin restricciones drásticas."
-    elif dif_pct >= 8:
-        contexto_situacion = "El paciente presenta un sobrepeso moderado (en torno al 10% por encima de su referencia de bienestar), ideal para estructurar un cambio de hábitos enfocado en porciones y constancia."
-    elif dif_pct >= -5:
-        contexto_situacion = "El paciente se encuentra en un rango de peso cercano a su meta o en zona de equilibrio, por lo que el foco estará en la optimización de la calidad nutricional y el mantenimiento."
-    else:
-        contexto_situacion = "El paciente presenta un peso corporal por debajo de su referencia teórica, por lo que el enfoque será de nutrición equilibrada y fortalecimiento saludable."
-
-    prompt_ia = (
-        f"Actúa como un médico nutricionista experto y muy empático. Contexto del paciente:\n"
-        f"- Situación general: {contexto_situacion}\n\n"
-        f"Redacta un informe breve, cálido y motivador de bienvenida que incluya:\n"
-        f"1. Una explicación empática y motivadora sobre por qué avanzamos paso a paso hacia nuestra primera meta intermedia, destacando que lo importante es el proceso y la salud sostenible.\n"
-        f"2. Recomendaciones generales y amables sobre el manejo de la alimentación diaria orientada a un equilibrio energético saludable, SIN MENCIONAR NÚMEROS, NI KILOS, NI GRAMOS, NI CALORÍAS en el texto de los consejos.\n"
-        f"3. Pautas generales de actividad física complementaria (caminatas suaves, movilidad) y hábitos de hidratación.\n"
-        f"REQUISITO ESTRICTO: Mantén un tono sumamente humano, profesional, constructivo y generalizado. No des cifras de peso ni metas numéricas específicas en las recomendaciones. Cierra con un punto final y completa todas las ideas."
-    )
-    
-    system_msg = "Eres un nutricionista clínico profesional, empático y motivador."
-    prompt_auditor_base = (
-        f"Actúa como un médico supervisor estricto y auditor de calidad. "
-        f"Revisa el siguiente informe nutricional de bienvenida:\n\n"
-        f"--- INFORME A EVALUAR ---\n{{informe_candidato}}\n-------------------------\n\n"
-        f"Criterios de rechazo:\n"
-        f"1. Si incluye números, kilos o calorías dentro de las recomendaciones del texto.\n"
-        f"2. Si hay oraciones cortadas o truncadas al final.\n"
-        f"Si el informe cumple perfectamente con todo, responde únicamente con la palabra 'OK'."
-    )
-
-    informe_ia = ""
-    max_intentos = 3
-
-    async def _llamar_ia_con_retry(p, tokens, temp, sys_p=None, mod_over=None, intentos_max=3):
-        for it in range(1, intentos_max + 1):
-            try:
-                res = await asyncio.to_thread(
-                    ejecutar_consulta_ia, 
-                    prompt=p, 
-                    max_tokens=tokens, 
-                    temperature=temp, 
-                    system_prompt=sys_p, 
-                    modelo_override=mod_over
-                )
-                if res and res.strip():
-                    return res
-            except Exception as e:
-                logger.error(f"⚠️ Fallo en intento IA {it}/{intentos_max}: {e}")
-                if it == intentos_max:
-                    raise e
-                await asyncio.sleep(2)
-        return ""
-
-    for intento in range(1, max_intentos + 1):
-        try:
-            texto_generado = await _llamar_ia_con_retry(
-                prompt=prompt_ia, 
-                max_tokens=600, 
-                temperature=0.3, 
-                system_prompt=system_msg
-            )
-            
-            if not texto_generado:
-                continue
-
-            modelo_rev = globals().get('GROQ_REVISION_2', 'openai/gpt-oss-20b')
-            prompt_auditor_final = prompt_auditor_base.format(informe_candidato=texto_generado)
-            
-            veredicto = await _llamar_ia_con_retry(
-                prompt=prompt_auditor_final, 
-                max_tokens=100, 
-                temperature=0.1, 
-                modelo_override=modelo_rev
-            )
-
-            if veredicto and "OK" in veredicto.strip().upper() and "RECHAZ" not in veredicto.strip().upper():
-                informe_ia = texto_generado
-                break
-            else:
-                logger.warning(f"🔄 Revisor rechazó el informe inicial en el intento {intento}.")
-
-        except Exception as err:
-            logger.error(f"❌ Error en ciclo de informe inicial (Intento {intento}): {err}")
-
-    if not informe_ia:
-        informe_ia = (
-            f"Hola {nombre}, te damos la bienvenida a tu plan nutricional personalizado. "
-            "Hemos configurado tu ficha correctamente con los parámetros metabólicos iniciales "
-            "para acompañarte paso a paso hacia tu objetivo de bienestar."
-        )
-
-    get_val = float(get_calorias) if get_calorias > 0 else 2000.0
-    factor_prot = 1.5 if str(sexo).upper() in ['M', 'MASCULINO'] else 1.2
-    meta_cal = int(round(get_val * 0.85))
-    meta_prot = int(round(peso_etapa * factor_prot))
-    meta_gras = int(round((meta_cal * 0.25) / 9.0))
-    meta_carb = int(round((meta_cal * 0.50) / 4.0))
-
-    pdf_buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        pdf_buffer, 
-        pagesize=letter, 
-        rightMargin=36, 
-        leftMargin=36, 
-        topMargin=36, 
-        bottomMargin=36
-    )
-    story = []
-    
-    styles = getSampleStyleSheet()
-    titulo_style = ParagraphStyle(
-        'TituloInforme', 
-        parent=styles['Heading1'], 
-        fontSize=14, 
-        leading=16, 
-        alignment=1, 
-        textColor=colors.HexColor('#1b4f72')
-    )
-    sub_style = ParagraphStyle(
-        'SubInforme', 
-        parent=styles['Normal'], 
-        fontSize=9, 
-        leading=13, 
-        textColor=colors.HexColor('#566573')
-    )
-    body_style = ParagraphStyle(
-        'CuerpoInforme', 
-        parent=styles['Normal'], 
-        fontSize=10, 
-        leading=15, 
-        textColor=colors.HexColor('#2c3e50')
-    )
-    
-    story.append(Paragraph("<b>INFORME NUTRICIONAL INICIAL - APERTURA DE FICHA</b>", titulo_style))
-    story.append(Spacer(1, 8))
-    
-    resumen_datos = (
-        f"<b>Paciente:</b> {nombre} | <b>ID Telegram:</b> `{datos_usuario.get('user_id')}`<br/>"
-        f"<b>Edad:</b> {edad} años | <b>Sexo:</b> {sexo} | <b>Altura:</b> {altura} cm<br/>"
-        f"<b>Peso Actual:</b> {peso} kg | <b>Peso Ideal Teórico:</b> {peso_ideal} kg<br/>"
-        f"<b>Objetivo 1ra Etapa (Ponderado 75/25):</b> {peso_etapa} kg<br/>"
-        f"<b>Metas Diarias (Saludable):</b> ~{meta_cal} kcal | Proteínas: ~{meta_prot}g | Grasas: ~{meta_gras}g | Carbohidratos: ~{meta_carb}g"
-    )
-    story.append(Paragraph(resumen_datos, sub_style))
-    story.append(Spacer(1, 12))
-    story.append(Paragraph("<b>PLANIFICACIÓN Y RECOMENDACIONES INICIALES</b>", styles['Heading2']))
-    story.append(Spacer(1, 6))
-    
-    texto_formateado = informe_ia.replace('\n', '<br/>')
-    story.append(Paragraph(texto_formateado, body_style))
-    
-    doc.build(story)
-    pdf_buffer.seek(0)
-    
-    return informe_ia, pdf_buffer
-                
 async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuencias=None, prompt_condicional=None):
     if frecuencias is None:
         frecuencias = {}
 
-    porc_int, porc_ref = calcular_porcentajes_harinas(frecuencias)
+    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
+    porc_int, porc_ref = calcular_porcentajes_harinas(frecuencias) if 'calcular_porcentajes_harinas' in globals() else (0, 0)
 
     key_int = next((k for k in frecuencias.keys() if 'integral' in k), None)
     key_ref = next((k for k in frecuencias.keys() if 'refinada' in k or 'blanca' in k), None)
@@ -3308,7 +3138,6 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         contexto_harinas_str = "- No se registran datos suficientes de harinas en este período."
 
     condicion_clinica = prompt_condicional if prompt_condicional else "Evalúa el informe priorizando la calidad de los nutrientes y hábitos saludables."
-
     frec_str = "\n".join([f"- {cat}: {cant} ingestas" for cat, cant in frecuencias.items()]) if frecuencias else "- No hay frecuencias registradas."
 
     prompt_1 = (
@@ -3319,17 +3148,23 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         f"INSTRUCCIONES ESTRICTAS:\n"
         f"1. PROHIBIDO incluir números, métricas, porcentajes, gramos, calorías, cálculos matemáticos o fórmulas (ni IMC, ni calorías consumidas, ni déficits, ni 'kcal', ni 'g').\n"
         f"2. Céntrate exclusivamente en consejos de hábitos, interpretación de patrones de conducta alimentaria y orientaciones prácticas sobre cómo mejorar la calidad de las ingestas de forma sencilla.\n"
-        f"3. Mantén un tono sumamente humano, profesional, constructivo y directo (sin saludos ni introducciones). Cierra obligatoriamente con un punto final y completa todas las ideas sin cortar el texto."
+        f"3. Mantén un tono sumamente humano, profesional, constructivo y directo (ni saludos ni introducciones).\n"
+        f"4. IMPORTANTE: Redacta toda la respuesta estrictamente en el idioma {nombre_lenguaje}.\n"
+        f"Cierra obligatoriamente con un punto final y completa todas las ideas sin cortar el texto."
     )
 
     prompt_2 = (
         f"Siguiendo con el caso anterior, redacta una lista numerada exactamente del 1 al 5 con alimentos o grupos de alimentos específicos que el paciente debería incorporar.\n"
-        f"REQUISITO ESTRICTO: Escribí únicamente el nombre del alimento o categoría de forma directa (máximo 3 o 4 palabras por ítem), sin explicaciones, sin porciones en gramos, sin calorías y sin descripciones largas. Cierra con un punto final."
+        f"REQUISITO ESTRICTO: Escribí únicamente el nombre del alimento o categoría de forma directa (máximo 3 o 4 palabras por ítem), sin explicaciones, sin porciones en gramos, sin calorías y sin descripciones largas.\n"
+        f"IMPORTANTE: Redacta los elementos estrictamente en el idioma {nombre_lenguaje}.\n"
+        f"Cierra con un punto final."
     )
 
     prompt_3 = (
         f"Finalmente, redacta una lista numerada exactamente del 1 al 5 con alimentos o hábitos alimentarios a reducir o evitar.\n"
-        f"REQUISITO ESTRICTO: Escribí únicamente el concepto de forma directa (ej: 'Bebidas azucaradas', 'Snacks ultraprocesados'), sin explicaciones numéricas ni porcentajes, acompañado al final de un párrafo breve sobre estrategia de hidratación y hábitos sostenibles. Cierra estrictamente con un punto final; no dejes ninguna oración inconclusa."
+        f"REQUISITO ESTRICTO: Escribí únicamente el concepto de forma directa, sin explicaciones numéricas ni porcentajes, acompañado al final de un párrafo breve sobre estrategia de hidratación y hábitos sostenibles.\n"
+        f"IMPORTANTE: Redacta todo estrictamente en el idioma {nombre_lenguaje}.\n"
+        f"Cierra estrictamente con un punto final; no dejes ninguna oración inconclusa."
     )
 
     prompt_auditor_base = (
@@ -3366,8 +3201,8 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
             )
 
             prompt_auditor_final = prompt_auditor_base.format(informe_completo=informe_candidato)
-            
             modelo_rev = globals().get('GROQ_REVISOR', 'qwen/qwen3.8-27b')
+            
             veredicto = await asyncio.to_thread(
                 ejecutar_consulta_ia, 
                 prompt=prompt_auditor_final, 
@@ -3378,7 +3213,6 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
 
             if not veredicto or veredicto.strip() == "":
                 modelo_rev_2 = globals().get('GROQ_REVISION_2', 'openai/gpt-oss-20b')
-                logger.warning(f"Revisor principal ({modelo_rev}) devolvió vacío. Reintentando con revisor secundario ({modelo_rev_2})...")
                 veredicto = await asyncio.to_thread(
                     ejecutar_consulta_ia, 
                     prompt=prompt_auditor_final, 
@@ -3390,11 +3224,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
             veredicto_limpio = veredicto.strip().upper() if veredicto else ""
 
             if "OK" in veredicto_limpio and "RECHAZ" not in veredicto_limpio:
-                logger.info(f"¡Informe mensual aprobado por el sistema en el intento {intento_actual} para el usuario {user_id}!")
                 return informe_candidato
-            else:
-                motivo_rechazo = veredicto.strip() if veredicto else "Auditoría vacía o nula"
-                logger.warning(f"Revisor rechazó el informe en el intento {intento_actual}. Motivo: {motivo_rechazo}")
 
         except Exception as e:
             logger.error(f"Error en intento {intento_actual} para usuario {user_id}: {e}")
@@ -3402,23 +3232,167 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         if intento_actual < max_intentos:
             await asyncio.sleep(5)
 
-    if informe_candidato:
-        return informe_candidato
+    return informe_candidato if informe_candidato else None
 
-    return None
+async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.BytesIO]:
+    user_id = datos_usuario.get('user_id')
+    nombre = datos_usuario.get('nombre', 'Paciente')
+    edad = datos_usuario.get('edad', 0)
+    sexo = datos_usuario.get('sexo', 'M')
+    altura = datos_usuario.get('altura', 0)
+    peso = datos_usuario.get('peso', 0)
+    peso_ideal = datos_usuario.get('peso_ideal', 0)
+    peso_etapa = datos_usuario.get('peso_etapa', peso)
+    get_calorias = datos_usuario.get('get', 2000)
+
+    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
+    dif_pct = ((peso - peso_ideal) / peso_ideal * 100) if peso_ideal > 0 else 0.0
+
+    if dif_pct > 20:
+        contexto_situacion = "El paciente presenta un sobrepeso considerable, por lo que el enfoque debe ser muy gradual, paciente y centrado en la adopción de hábitos sostenibles a largo plazo sin restricciones drásticas."
+    elif dif_pct >= 8:
+        contexto_situacion = "El paciente presenta un sobrepeso moderado (en torno al 10% por encima de su referencia de bienestar), ideal para estructurar un cambio de hábitos enfocado en porciones y constancia."
+    elif dif_pct >= -5:
+        contexto_situacion = "El paciente se encuentra en un rango de peso cercano a su meta o en zona de equilibrio, por lo que el foco estará en la optimización de la calidad nutricional y el mantenimiento."
+    else:
+        contexto_situacion = "El paciente presenta un peso corporal por debajo de su referencia teórica, por lo que el enfoque será de nutrición equilibrada y fortalecimiento saludable."
+
+    prompt_ia = (
+        f"Actúa como un médico nutricionista experto y muy empático. Contexto del paciente:\n"
+        f"- Situación general: {contexto_situacion}\n\n"
+        f"Redacta un informe breve, cálido y motivador de bienvenida que incluya:\n"
+        f"1. Una explicación empática y motivadora sobre por qué avanzamos paso a paso hacia nuestra primera meta intermedia, destacando que lo importante es el proceso y la salud sostenible.\n"
+        f"2. Recomendaciones generales y amables sobre el manejo de la alimentación diaria orientada a un equilibrio energético saludable, SIN MENCIONAR NÚMEROS, NI KILOS, NI GRAMOS, NI CALORÍAS en el texto de los consejos.\n"
+        f"3. Pautas generales de actividad física complementaria (caminatas suaves, movilidad) y hábitos de hidratación.\n"
+        f"REQUISITO ESTRICTO: Mantén un tono sumamente humano, profesional, constructivo y generalizado. No des cifras de peso ni metas numéricas específicas en las recomendaciones.\n"
+        f"IMPORTANTE: Redacta todo el informe estrictamente en el idioma {nombre_lenguaje}.\n"
+        f"Cierra con un punto final y completa todas las ideas."
+    )
     
-async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False):
+    system_msg = "Eres un nutricionista clínico profesional, empático y motivador."
+    prompt_auditor_base = (
+        f"Actúa como un médico supervisor estricto y auditor de calidad. "
+        f"Revisa el siguiente informe nutricional de bienvenida:\n\n"
+        f"--- INFORME A EVALUAR ---\n{{informe_candidato}}\n-------------------------\n\n"
+        f"Criterios de rechazo:\n"
+        f"1. Si incluye números, kilos o calorías dentro de las recomendaciones del texto.\n"
+        f"2. Si hay oraciones cortadas o truncadas al final.\n"
+        f"Si el informe cumple perfectamente con todo, responde únicamente con la palabra 'OK'."
+    )
+
+    informe_ia = ""
+    max_intentos = 3
+
+    async def _llamar_ia_con_retry(p, tokens, temp, sys_p=None, mod_over=None, intentos_max=3):
+        for it in range(1, intentos_max + 1):
+            try:
+                res = await asyncio.to_thread(
+                    ejecutar_consulta_ia, 
+                    prompt=p, 
+                    max_tokens=tokens, 
+                    temperature=temp, 
+                    system_prompt=sys_p, 
+                    modelo_override=mod_over
+                )
+                if res and res.strip():
+                    return res
+            except Exception as e:
+                if it == intentos_max:
+                    raise e
+                await asyncio.sleep(2)
+        return ""
+
+    for intento in range(1, max_intentos + 1):
+        try:
+            texto_generado = await _llamar_ia_con_retry(
+                prompt=prompt_ia, 
+                max_tokens=600, 
+                temperature=0.3, 
+                system_msg=system_msg
+            )
+            
+            if not texto_generado:
+                continue
+
+            modelo_rev = globals().get('GROQ_REVISION_2', 'openai/gpt-oss-20b')
+            prompt_auditor_final = prompt_auditor_base.format(informe_candidato=texto_generado)
+            
+            veredicto = await _llamar_ia_con_retry(
+                prompt=prompt_auditor_final, 
+                max_tokens=100, 
+                temperature=0.1, 
+                modelo_override=modelo_rev
+            )
+
+            if veredicto and "OK" in veredicto.strip().upper() and "RECHAZ" not in veredicto.strip().upper():
+                informe_ia = texto_generado
+                break
+
+        except Exception as err:
+            logger.error(f"❌ Error en ciclo de informe inicial (Intento {intento}): {err}")
+
+    if not informe_ia:
+        informe_ia = (
+            f"Hello {nombre}, welcome to your personalized nutrition plan. "
+            "We have successfully configured your profile with initial metabolic parameters "
+            "to guide you step-by-step toward your wellness goal."
+        )
+
+    get_val = float(get_calorias) if get_calorias > 0 else 2000.0
+    factor_prot = 1.5 if str(sexo).upper() in ['M', 'MASCULINO'] else 1.2
+    meta_cal = int(round(get_val * 0.85))
+    meta_prot = int(round(peso_etapa * factor_prot))
+    meta_gras = int(round((meta_cal * 0.25) / 9.0))
+    meta_carb = int(round((meta_cal * 0.50) / 4.0))
+
+    pdf_buffer = io.BytesIO()
+    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    story = []
+    
+    styles = getSampleStyleSheet()
+    titulo_style = ParagraphStyle('TituloInforme', parent=styles['Heading1'], fontSize=14, leading=16, alignment=1, textColor=colors.HexColor('#1b4f72'))
+    sub_style = ParagraphStyle('SubInforme', parent=styles['Normal'], fontSize=9, leading=13, textColor=colors.HexColor('#566573'))
+    body_style = ParagraphStyle('CuerpoInforme', parent=styles['Normal'], fontSize=10, leading=15, textColor=colors.HexColor('#2c3e50'))
+    
+    story.append(Paragraph("<b>INITIAL NUTRITIONAL REPORT - PROFILE SETUP</b>", titulo_style))
+    story.append(Spacer(1, 8))
+    
+    resumen_datos = (
+        f"<b>Patient:</b> {nombre} | <b>Telegram ID:</b> `{datos_usuario.get('user_id')}`<br/>"
+        f"<b>Age:</b> {edad} years | <b>Sex:</b> {sexo} | <b>Height:</b> {altura} cm<br/>"
+        f"<b>Current Weight:</b> {peso} kg | <b>Theoretical Ideal Weight:</b> {peso_ideal} kg<br/>"
+        f"<b>1st Stage Goal:</b> {peso_etapa} kg<br/>"
+        f"<b>Daily Targets:</b> ~{meta_cal} kcal | Proteins: ~{meta_prot}g | Fats: ~{meta_gras}g | Carbs: ~{meta_carb}g"
+    )
+    story.append(Paragraph(resumen_datos, sub_style))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph("<b>PLANNING AND INITIAL RECOMMENDATIONS</b>", styles['Heading2']))
+    story.append(Spacer(1, 6))
+    
+    texto_formateado = informe_ia.replace('\n', '<br/>')
+    story.append(Paragraph(texto_formateado, body_style))
+    
+    doc.build(story)
+    pdf_buffer.seek(0)
+    
+    return informe_ia, pdf_buffer
+    
+async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False, user_id=None):
+    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
+
     if es_semanal:
         prompt = (
             f"Actúa como un coach nutricional breve y conciso. "
             f"Analiza este resumen semanal:\n{resumen_texto}\n\n"
-            f"Escribe un solo párrafo corto de análisis general y 3 recomendaciones breves en puntos."
+            f"Escribe un solo párrafo corto de análisis general y 3 recomendaciones breves en puntos.\n"
+            f"IMPORTANTE: Redacta la respuesta estrictamente en el idioma {nombre_lenguaje}."
         )
         max_t = 350
     else:
         prompt = (
             f"Actúa como un nutricionista clínico personal. "
-            f"Analiza la siguiente información:\n{resumen_texto}"
+            f"Analiza la siguiente información:\n{resumen_texto}\n\n"
+            f"IMPORTANTE: Redacta la respuesta estrictamente en el idioma {nombre_lenguaje}."
         )
         max_t = 700
 
@@ -3428,73 +3402,90 @@ async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False)
     if res:
         return res.replace("##", "").replace("###", "").strip()
         
-    return "⚠️ No se pudo obtener el análisis nutricional en este momento."
-           
-def analizar_imagen_con_groq(base64_image, user_caption=""):
+    # Mensaje de fallback mediante variable multilenguaje 02_
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    return traducciones.get("02_error_analisis_no_disponible", "⚠️ Nutritional analysis temporarily unavailable.")
+
+def analizar_imagen_con_groq(image_bytes: bytes, prompt_usuario: str = "", user_id=None) -> dict:
     client_ai = globals().get('client_ai')
     if not client_ai:
-        raise Exception("GROQ_API_KEY no está configurada correctamente.")
-    
-    base_prompt = (
-        "Analizá esta imagen de comida/plato. "
-        "Identificá los alimentos, estimá sus pesos en gramos y nutrientes. "
-        "Si el usuario incluye una nota o aclaración, utilízala de manera estricta para definir "
-        "el tipo exacto de alimento y método de cocción. "
-        "Respondé ÚNICAMENTE en formato JSON con la clave 'items' conteniendo "
-        "alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras."
-    )
-    
-    if user_caption.strip():
-        prompt = f"{base_prompt}\n\nAclaración obligatoria del usuario sobre la foto: {user_caption.strip()}"
-    else:
-        prompt = base_prompt
+        raise Exception("GROQ_API_KEY is not properly configured.")
 
-    response = client_ai.chat.completions.create(
-        model=globals().get('GROQ_FOTO', "qwen/qwen3.8-27b"),
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                ]
-            }
-        ],
-        temperature=0.1,
-        max_tokens=600,
-        response_format={"type": "json_object"}
-    )
-    return json.loads(response.choices[0].message.content)
+    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
+    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
+    data_url = f"data:image/jpeg;base64,{encoded_image}"
 
-def detectar_codigo_con_groq(base64_image: str) -> dict:
-    client_ai = globals().get('client_ai')
-    prompt = (
-        "Analiza esta imagen exclusivamente para detectar si hay un código de barras visible "
-        "con sus números impresos debajo. "
-        "Responde ÚNICAMENTE en formato JSON con este formato exacto:\n"
+    system_prompt = (
+        f"Sos un asistente nutricional experto en análisis visual de platos y alimentos. El usuario se comunica en su idioma ({nombre_lenguaje}). "
+        f"Analiza la imagen provista (y el texto opcional del usuario) e identifica todos los alimentos, platos o bebidas presentes. "
+        f"Calcula con la mayor precisión posible el peso en gramos, las calorías, proteínas, grasas, carbohidratos y fibras para cada ítem detectado.\n\n"
+        f"REQUISITOS:\n"
+        f"- Responde ÚNICAMENTE con un objeto JSON válido.\n"
+        f"- Los nombres de los alimentos deben estar descritos correctamente.\n"
+        f"- Estructura exacta requerida:\n"
         "{\n"
-        '  "tiene_codigo": true/false,\n'
-        '  "codigo": "numeros_exactos_si_los_hay_o_vacio"\n'
+        '  "items": [\n'
+        '    {"alimento": "nombre del alimento", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
+        "  ],\n"
+        '  "tipo": "Comida"\n'
         "}"
     )
+
+    user_content = [
+        {"type": "image_url", "image_url": {"url": data_url}},
+        {"type": "text", "text": prompt_usuario if prompt_usuario else "Analiza esta comida y detalla sus componentes nutricionales."}
+    ]
+
+    modelo_foto = globals().get('GROQ_FOTO', "qwen/qwen3.8-27b")
+
+    response = client_ai.chat.completions.create(
+        model=modelo_foto,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ],
+        temperature=0.1,
+        response_format={"type": "json_object"}
+    )
+
+    raw_text = response.choices[0].message.content.strip()
+    return json.loads(raw_text)
+
+def detectar_codigo_con_groq(image_bytes: bytes, user_id=None) -> str:
+    client_ai = globals().get('client_ai')
+    if not client_ai:
+        return ""
+
+    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
+    data_url = f"data:image/jpeg;base64,{encoded_image}"
+
+    prompt = (
+        "Examina esta imagen en búsqueda de códigos de barras, texto impreso o códigos alfanuméricos de productos. "
+        "Devuelve ÚNICAMENTE el código detectado en formato de texto plano. Si no encuentras ningún código o texto claro, responde exactamente con la palabra 'NUEVO'."
+    )
+
     try:
         response = client_ai.chat.completions.create(
             model=globals().get('GROQ_FOTO', "qwen/qwen3.8-27b"),
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                ]
-            }],
-            temperature=0.0,
-            response_format={"type": "json_object"}
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                        {"type": "text", "text": prompt}
+                    ]
+                }
+            ],
+            temperature=0.1,
+            max_tokens=50
         )
-        return json.loads(response.choices[0].message.content)
+        codigo = response.choices[0].message.content.strip()
+        return "" if codigo.upper() == "NUEVO" else codigo
     except Exception as e:
-        logger.error(f"Error en detección IA de código de barras: {e}")
-        return {"tiene_codigo": False, "codigo": ""}
-            
+        logger.error(f"Error detectando código en imagen: {e}")
+        return ""
+
 # =====================================================================================================================================
 #                FINAL                          FUNCIONES IA GROQ                                     FINAL
 # =====================================================================================================================================
