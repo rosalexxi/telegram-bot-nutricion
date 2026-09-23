@@ -1,3 +1,4 @@
+
 # =============================================================================================================================================
 #                                 INICIO                                   CABECERA 2026 09 05                                    INICIO
 #                                  https://github.com/rosalexxi/telegram-bot-nutricion
@@ -86,9 +87,6 @@ if GROQ_API_KEY:
 else:
     client_ai = None
 
-# ==========================================
-# ÚNICA INSTANCIA DE FLASK PARA TODO EL BOT
-# ==========================================
 app = Flask(__name__)
 
 def run_flask():
@@ -98,7 +96,6 @@ def run_flask():
 # =====================================================================================================================================
 #                FINAL                                   CABECERA                                       FINAL
 # =====================================================================================================================================
-
 
 # =====================================================================================================================================
 #              INICIO                                  PAGINA WEB (CALCULADORA UNICA)                        INICIO  DB OK
@@ -703,6 +700,111 @@ def api_usuario_idioma():
             pass
     return jsonify({"lang": lang}), 200
 
+@app.route('/api/calcular-receta', methods=['POST'])
+def api_calcular_receta():
+    """Calcula los macronutrientes de una receta utilizando la IA de Groq."""
+    try:
+        data = request.get_json(force=True)
+        user_id = data.get('user_id')
+        codigo = str(data.get('codigo', '')).strip().upper()
+        descripcion = str(data.get('descripcion', '')).strip()
+        receta_texto = str(data.get('receta', '')).strip()
+        tipo_calculo = data.get('tipoCalculo', 'porciones')
+        porciones = int(data.get('porciones', 1) or 1)
+
+        if not codigo or not descripcion or not receta_texto:
+            return jsonify({"error": "Faltan campos obligatorios (código, descripción o receta)."}), 400
+
+        # Prompt estructurado para descomponer y sumar los macronutrientes de la receta completa
+        prompt = (
+            f"Analiza minuciosamente la siguiente lista de ingredientes de una receta y calcula "
+            f"el peso total y los macronutrientes sumados de toda la preparación:\n\n"
+            f"{receta_texto}\n\n"
+            f"Devuelve EXCLUSIVAMENTE un JSON con este formato exacto:\n"
+            f'{{"peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}}'
+        )
+
+        nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
+        system_prompt = (
+            f"Eres un experto en análisis nutricional de recetas culinarias. "
+            f"Calcula con precisión técnica la suma total de peso (en gramos), calorías (kcal), "
+            f"proteínas (g), grasas (g), carbohidratos (g) y fibra (g). Responde en {nombre_lenguaje}."
+        )
+
+        res_ia = ejecutar_consulta_ia(
+            prompt=prompt,
+            max_tokens=300,
+            temperature=0.1,
+            system_prompt=system_prompt
+        )
+
+        if not res_ia:
+            return jsonify({"error": "No se pudo obtener respuesta del modelo de IA."}), 500
+
+        # Limpieza y extracción del objeto JSON devuelto por la IA
+        match_json = re.search(r'\{.*\}', res_ia, re.DOTALL)
+        if match_json:
+            datos_nutri = json.loads(match_json.group(0))
+        else:
+            datos_nutri = json.loads(res_ia)
+
+        peso_tot = float(datos_nutri.get("peso", 0.0))
+        cal_tot = float(datos_nutri.get("calorias", 0.0))
+        prot_tot = float(datos_nutri.get("proteinas", 0.0))
+        gras_tot = float(datos_nutri.get("grasas", 0.0))
+        carb_tot = float(datos_nutri.get("carbohidratos", 0.0))
+        fibr_tot = float(datos_nutri.get("fibras", 0.0))
+
+        # Ajuste según el criterio elegido en la interfaz web (porciones o fracción de 100g)
+        if tipo_calculo == 'gramos':
+            # Fracción estándar de 100 gramos
+            factor = 100.0 / peso_tot if peso_tot > 0 else 1.0
+            peso_final = 100.0
+        else:
+            # Dividido por el número de porciones
+            factor = 1.0 / porciones if porciones > 0 else 1.0
+            peso_final = round(peso_tot * factor, 1)
+
+        resultado = {
+            "nombre": codigo,
+            "descripcion": descripcion,
+            "peso": round(peso_final, 1),
+            "calorias": round(cal_tot * factor, 1),
+            "proteinas": round(prot_tot * factor, 1),
+            "grasas": round(gras_tot * factor, 1),
+            "carbohidratos": round(carb_tot * factor, 1),
+            "fibras": round(fibr_tot * factor, 1)
+        }
+
+        return jsonify(resultado), 200
+
+    except Exception as e:
+        logger.error(f"Error en /api/calcular-receta: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/guardar-comida', methods=['POST'])
+def api_guardar_comida():
+    """Guarda la comida calculada en la tabla personalizada del usuario en Supabase."""
+    try:
+        data = request.get_json(force=True)
+        user_id = data.get('user_id')
+        fila = data.get('fila')
+
+        if not user_id or not fila:
+            return jsonify({"error": "Faltan datos de usuario o información de la comida."}), 400
+
+        codigo_guardado = guardar_comida_precargada_db(user_id, fila)
+
+        return jsonify({
+            "message": f"Comida registrada exitosamente con el código {codigo_guardado}.",
+            "codigo_guardado": codigo_guardado
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en /api/guardar-comida: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+        
 # =====================================================================================================================================
 #              FINAL                                  PAGINA WEB (CALCULADORA UNICA)                        FINAL
 # ======================================================================================================================================
@@ -1893,7 +1995,7 @@ def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=No
         conn_p.close()
     except Exception as e:
         logger.error(f"Error al actualizar la tabla Perfil_{user_id} en Supabase: {e}")
- 
+
 
 #              INICIO                         FUNCIONES MIGRAR                           INICIO
 # =============================================================================================================================================
@@ -2213,7 +2315,6 @@ def analizar_frecuencia_alimentos_mes(df_o_user_id, cat_dict_o_mes=None, col_int
             df_mes = df_o_user_id
             cat_dict = cat_dict_o_mes if isinstance(cat_dict_o_mes, dict) else {}
 
-        # 🟢 CORREGIDO: Corrección del operador de morsa para evitar errores de sintaxis
         if otras_categorias is None:
             otras_categorias = {}
             
@@ -2427,9 +2528,6 @@ def procesar_foto_codigo_barras(base64_image: str) -> dict | bool:
         return False
 
 def calcular_metricas_mensuales(df_mes, perfil_dict):
-    """Procesa los cálculos mensuales calculando el peso de etapa (promedio ponderado) 
-    y entregándoselo al informe, manteniendo oculto el ideal final real."""
-    
     if df_mes is not None and not df_mes.empty and 'Fecha' in df_mes.columns:
         todas_comidas = {"Desayuno", "Almuerzo", "Merienda", "Cena"}
         comidas_principales = {"Almuerzo", "Cena"}
@@ -2505,10 +2603,8 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     is_femenino = gen_clean in ["femenino", "f", "mujer", "female"]
     ritmo_usuario = str(perfil_dict.get('Ritmo') or perfil_dict.get('ritmo_preferido', 'moderado')).strip()
 
-    # 1. El peso ideal secreto (ej. 81.0 kg) que viene guardado o precalculado
     peso_ideal_secreto = get_perfil_num(['peso_ideal_secreto', 'peso_ideal', 'Peso_Ideal'], 81.0)
 
-    # 2. Factor según el ritmo seleccionado por el usuario
     ritmo_clean = ritmo_usuario.lower()
     if "tranquilo" in ritmo_clean or "lento" in ritmo_clean:
         factor_actual = 0.90
@@ -2518,10 +2614,8 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         factor_actual = 0.85
     factor_ideal = 1.0 - factor_actual
 
-    # 3. El cálculo exacto del peso promedio (peso de etapa)
     peso_etapa_calculado = (peso_actual * factor_actual) + (peso_ideal_secreto * factor_ideal)
     
-    # 4. Le asignamos este valor calculado tanto a la referencia como al ideal visible (la mentira piadosa para el informe)
     peso_referencia = round(peso_etapa_calculado, 1)
     peso_ideal_dinamico = peso_referencia  
 
@@ -2586,8 +2680,8 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "ideal_carb": carb_max,
         "ideal_fibr": fibr_min_val,
         "peso_actual": round(float(peso_actual), 1),
-        "peso_ideal": round(float(peso_ideal_dinamico), 1),     # Aquí va el peso de etapa (ej. 101.1)
-        "peso_referencia": round(float(peso_referencia), 1),   # Aquí también va el peso de etapa
+        "peso_ideal": round(float(peso_ideal_dinamico), 1),
+        "peso_referencia": round(float(peso_referencia), 1),
         "altura": round(float(altura), 1),
         "edad": edad,
         "get_meta": get_meta,
@@ -2603,18 +2697,12 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     }
 
 def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
-    """
-    Verifica si existe la fila del mes actual en la tabla Perfil_<user_id> en Supabase.
-    Si no existe (ej: 1 de cada mes), toma los datos vigentes del último registro
-    y crea la nueva fila inicializada de forma transparente.
-    """
     mes_actual_str = ahora_dt.strftime("%Y-%m")
     tabla_nombre = f"Perfil_{user_id}"
 
     try:
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
         
-        # 1. Verificar si ya existe el mes actual
         cur.execute(f'SELECT id FROM "{tabla_nombre}" WHERE "MES" = %s', (str(mes_actual_str),))
         fila_existente = cur.fetchone()
         
@@ -2625,7 +2713,6 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
 
         logger.info(f"Inicializando nueva fila mensual ({mes_actual_str}) para User {user_id} en Supabase...")
 
-        # 2. Buscar el último registro histórico para heredar el último peso y datos base
         cur.execute(f'SELECT "EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "Peso_ideal", "Cumple" FROM "{tabla_nombre}" ORDER BY id DESC LIMIT 1')
         ultima_fila = cur.fetchone()
         
@@ -2646,7 +2733,6 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
             peso_ideal_val = 0.0
             cumple_val = ""
 
-        # 3. Insertar la nueva fila para el mes actual en Supabase
         cur.execute(f"""
             INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -2811,7 +2897,6 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
         return False
 
 async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
-    # Consulta la capa de datos externa
     df_presion = obtener_datos_presion_db(user_id)
     if df_presion.empty:
         txt = f"🩺 No hay registros de presión arterial para el usuario `{user_id}`."
@@ -2905,7 +2990,7 @@ def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
 # =============================================================================================================================================
 
 def obtener_idioma_usuario(user_id):
-    """Obtiene el idioma configurado para un usuario de Telegram desde Supabase[cite: 2, 7]."""
+    """Obtiene el idioma configurado para un usuario de Telegram desde Supabase[cite: 2]."""
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
         cur.execute('SELECT "Idioma" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
@@ -2919,7 +3004,7 @@ def obtener_idioma_usuario(user_id):
     return 'en'
 
 def obtener_traducciones_db(lang):
-    """Consulta la tabla 'multi' en Supabase y devuelve un diccionario con las traducciones[cite: 2, 7]."""
+    """Consulta la tabla 'multi' en Supabase y devuelve un diccionario con las traducciones[cite: 2]."""
     traducciones = {}
     col_lang = "ES" if str(lang).strip().lower() == "es" else "EN"
     try:
@@ -2940,7 +3025,7 @@ def obtener_traducciones_db(lang):
     return traducciones
 
 def requiere_registro(func):
-    """Decorador limpio con avisos estándar adaptados en inglés[cite: 2, 7]."""
+    """Decorador limpio con avisos estándar adaptados en inglés[cite: 2]."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = str(update.effective_user.id).strip()
@@ -2999,113 +3084,6 @@ def requiere_registro(func):
 #                INICIO                       14 FUNCIONES IA GROQ                                      INICIO
 # ======================================================================================================================================
 
-def analizar_con_groq(prompt_text):
-    client_ai = globals().get('client_ai')
-    if not client_ai:
-        raise Exception("GROQ_API_KEY no está configurada correctamente.")
-    
-    # 🟢 Registro en logs de Render del texto entrante
-    logger.info(f"🤖 IA analizando texto entrante: '{prompt_text}'")
-
-    system_prompt = (
-        "Sos un asistente inteligente de salud. Analiza el texto ingresado por el usuario y clasifícalo estrictamente en una de estas categorías:\n"
-        "1. COMIDA: Si el usuario menciona alimentos, platos o bebidas para ingerir.\n"
-        "2. ACTIVIDAD: Si el usuario menciona cualquier tipo de ejercicio, deporte, movimiento físico o actividad en movimiento.\n"
-        "3. INFORME_MENSUAL: Si el usuario pide el resumen, balance o informe del mes (ej: 'resumen mensual', 'del mes'). Extrae el mes mencionado en formato 'YYYY-MM' en el campo 'parametro' (si no menciona ninguno, déjalo vacío).\n"
-        "4. INFORME_SEMANAL: Si el usuario pide el resumen o balance de la semana (ej: 'resumen semanal', 'de la semana').\n"
-        "5. INFORME_DIARIO: Si el usuario pide el resumen del día o lo que consumió hoy (ej: 'resumen de hoy', 'cómo voy hoy'). Extrae la fecha o referencia temporal en el campo 'parametro' (ej: 'hoy', 'ayer', '2026-09-15', o déjalo vacío si no especifica).\n"
-        "6. RECHAZO: Si el usuario nombra objetos inanimados, productos de limpieza, ropa o cosas que no se comen ni se entrenan ni piden resúmenes.\n\n"
-        "REGLAS:\n"
-        "- Si es COMIDA, desglósalo con pesos y calorías positivas.\n"
-        "- Si es ACTIVIDAD:\n"
-        "  * Calcula el tiempo total en minutos (ej: 'una hora' = 60, 'media hora' = 30, 'hora y media' = 90).\n"
-        "  * El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de un espacio y la descripción original (Ejemplo estricto: '30 caminata de 3000 metros en 30 minutos'). Esto es vital para que el sistema contabilice las estadísticas semanales.\n"
-        "  * El campo 'peso' debe ser estrictamente 0.0.\n"
-        "  * Estima las calorías gastadas con valor positivo.\n"
-        "- Si es INFORME_MENSUAL, INFORME_SEMANAL o INFORME_DIARIO, el campo 'items' debe ir vacío ([ ]).\n"
-        "- Si es RECHAZO, devolvé la lista de 'items' vacía ([ ]).\n\n"
-        "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
-        "{\n"
-        '  "items": [\n'
-        '    {"alimento": "nombre o descripción", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
-        "  ],\n"
-        '  "tipo": "Comida" o "Actividad" o "INFORME_MENSUAL" o "INFORME_SEMANAL" o "INFORME_DIARIO" o "Rechazo",\n'
-        '  "parametro": "texto extraído de fecha/mes o vacío"\n'
-        "}"
-    )
-
-    response = client_ai.chat.completions.create(
-        model=globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile"),
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt_text}
-        ],
-        temperature=0.1,
-        response_format={"type": "json_object"}
-    )
-    
-    resultado_json = json.loads(response.choices[0].message.content)
-    
-    # 🟢 Registro en logs de Render de lo que respondió la IA
-    logger.info(f"🤖 IA respondió resultado: {resultado_json}")
-    
-    return resultado_json
-    
-async def generar_recomendacion_mensual_para_pdf(user_id: int, mes_str: str, df_mes, perfil: dict, m: dict, context=None) -> str:
-    try:
-        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
-
-        peso_actual_eval = float(m.get('peso_actual', 0))
-        peso_referencia_eval = float(m.get('peso_referencia', 0))
-        prompt_condicional = obtener_prompt_segun_objetivo_peso(peso_actual_eval, peso_referencia_eval) if 'obtener_prompt_segun_objetivo_peso' in globals() else None
-
-        informe_ia = await generar_informe_mensual_auditado(
-            context=context, 
-            user_id=user_id, 
-            mes_str=mes_str, 
-            m=m, 
-            frecuencias=conteo_frecuencias, 
-            prompt_condicional=prompt_condicional
-        )
-        
-        if not informe_ia:
-            informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA.</b>"
-
-        return (
-            informe_ia
-            .replace("<br>", "<br/>")
-            .replace("<BR>", "<br/>")
-        )
-    except Exception as e:
-        logger.error(f"Error en generar_recomendacion_mensual_para_pdf para {user_id}: {e}")
-        return "<b>⚠️ Error al compilar la recomendación de IA para el reporte.</b>"
-        
-async def generar_recomendacion_semanal_ia(m: dict, etiqueta_periodo: str):
-    prompt_semana = (
-        f"Actúa como un nutricionista clínico experto, constructivo y equilibrado. "
-        f"Analiza la evolución nutricional de la {etiqueta_periodo} basándote en los promedios reales frente a los rangos saludables:\n\n"
-        f"DATOS DEL PERÍODO:\n"
-        f"- Días evaluados: {m.get('dias_registrados', 0)}\n"
-        f"- Calorías consumidas: {m.get('prom_cal', 0)} kcal/día (Rango saludable: {m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal)\n"
-        f"- Proteínas: {m.get('prom_prot', 0)} g/día (Rango saludable: {m.get('prot_min', 0)} - {m.get('prot_max', 0)} g)\n"
-        f"- Grasas: {m.get('prom_gras', 0)} g/día (Rango saludable: {m.get('gras_min', 0)} - {m.get('gras_max', 0)} g)\n"
-        f"- Carbohidratos: {m.get('prom_carb', 0)} g/día (Rango saludable: {m.get('carb_min', 0)} - {m.get('carb_max', 0)} g)\n"
-        f"- Fibra: {m.get('prom_fibr', 0)} g/día (Mínimo recomendado: {m.get('fibr_min', 0)} g)\n\n"
-        f"INSTRUCCIONES CLAVE:\n"
-        f"1. Si un valor se encuentra dentro del rango saludable, considéralo un comportamiento correcto y equilibrado; no lo señales como un error ni exijas correcciones drásticas en ese aspecto.\n"
-        f"2. Concéntrate exclusivamente en desvíos significativos fuera de los rangos (por ejemplo, si la fibra o algún nutriente clave está muy por debajo del mínimo).\n"
-        f"3. Proporciona una devolución clara, motivadora y recomendaciones breves y prácticas para optimizar los hábitos en la semana entrante."
-    )
-    
-    try:
-        recomendacion = await obtener_recomendacion_ia(prompt_semana, es_semanal=True)
-        if recomendacion and recomendacion.strip():
-            return recomendacion
-    except Exception as e:
-        logger.error(f"Error al generar recomendación semanal con IA: {e}")
-        
-    return "⚠️ Análisis nutricional no disponible temporalmente."
-    
 def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4, system_prompt: str = None, modelo_override: str = None):
     try:
         client = globals().get('client_ai') or globals().get('groq_client')
@@ -3140,179 +3118,148 @@ def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float 
         
     return ""
 
-async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.BytesIO]:
-    nombre = datos_usuario.get('nombre', 'Paciente')
-    edad = datos_usuario.get('edad', 0)
-    sexo = datos_usuario.get('sexo', 'M')
-    altura = datos_usuario.get('altura', 0)
-    peso = datos_usuario.get('peso', 0)
-    peso_ideal = datos_usuario.get('peso_ideal', 0)
-    peso_etapa = datos_usuario.get('peso_etapa', peso)
-    get_calorias = datos_usuario.get('get', 2000)
 
-    dif_pct = ((peso - peso_ideal) / peso_ideal * 100) if peso_ideal > 0 else 0.0
+def obtener_nombre_lenguaje_ia(user_id=None):
+    """Obtiene el nombre completo del lenguaje para la IA desde la tabla Usuarios[cite: 4]."""
+    if not user_id:
+        return "Spanish"
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur.execute('SELECT "lenguajes" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if row and row[0]:
+            return str(row[0]).strip()
+    except Exception as e:
+        logger.error(f"Error obteniendo lenguaje IA para {user_id}: {e}")
+    return "Spanish"
 
-    if dif_pct > 20:
-        contexto_situacion = "El paciente presenta un sobrepeso considerable, por lo que el enfoque debe ser muy gradual, paciente y centrado en la adopción de hábitos sostenibles a largo plazo sin restricciones drásticas."
-    elif dif_pct >= 8:
-        contexto_situacion = "El paciente presenta un sobrepeso moderado (en torno al 10% por encima de su referencia de bienestar), ideal para estructurar un cambio de hábitos enfocado en porciones y constancia."
-    elif dif_pct >= -5:
-        contexto_situacion = "El paciente se encuentra en un rango de peso cercano a su meta o en zona de equilibrio, por lo que el foco estará en la optimización de la calidad nutricional y el mantenimiento."
-    else:
-        contexto_situacion = "El paciente presenta un peso corporal por debajo de su referencia teórica, por lo que el enfoque será de nutrición equilibrada y fortalecimiento saludable."
+def analizar_con_groq(prompt_text, user_id=None):
+    client_ai = globals().get('client_ai')
+    if not client_ai:
+        raise Exception("GROQ_API_KEY is not properly configured.")
+    
+    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
+    logger.info(f"🤖 IA analizando texto entrante (Idioma: {nombre_lenguaje}): '{prompt_text}'")
 
-    prompt_ia = (
-        f"Actúa como un médico nutricionista experto y muy empático. Contexto del paciente:\n"
-        f"- Situación general: {contexto_situacion}\n\n"
-        f"Redacta un informe breve, cálido y motivador de bienvenida que incluya:\n"
-        f"1. Una explicación empática y motivadora sobre por qué avanzamos paso a paso hacia nuestra primera meta intermedia, destacando que lo importante es el proceso y la salud sostenible.\n"
-        f"2. Recomendaciones generales y amables sobre el manejo de la alimentación diaria orientada a un equilibrio energético saludable, SIN MENCIONAR NÚMEROS, NI KILOS, NI GRAMOS, NI CALORÍAS en el texto de los consejos.\n"
-        f"3. Pautas generales de actividad física complementaria (caminatas suaves, movilidad) y hábitos de hidratación.\n"
-        f"REQUISITO ESTRICTO: Mantén un tono sumamente humano, profesional, constructivo y generalizado. No des cifras de peso ni metas numéricas específicas en las recomendaciones. Cierra con un punto final y completa todas las ideas."
+    system_prompt = (
+        f"Sos un asistente inteligente de salud. El usuario se comunica en su idioma ({nombre_lenguaje}). "
+        f"Analizá el texto ingresado por el usuario (el cual está redactado en {nombre_lenguaje}) y clasificalo estrictamente en una de estas categorías. "
+        f"Debes procesar y responder con los nombres de alimentos/descripciones adaptados o interpretados correctamente según corresponda:\n"
+        "1. COMIDA: Si el usuario menciona alimentos, platos o bebidas para ingerir.\n"
+        "2. ACTIVIDAD: Si el usuario menciona cualquier tipo de ejercicio, deporte, movimiento físico o actividad en movimiento.\n"
+        "3. INFORME_MENSUAL: Si el usuario pide el resumen, balance o informe del mes (ej: 'resumen mensual', 'del mes'). Extrae el mes mencionado en formato 'YYYY-MM' en el campo 'parametro' (si no menciona ninguno, déjalo vacío).\n"
+        "4. INFORME_SEMANAL: Si el usuario pide el resumen o balance de la semana.\n"
+        "5. INFORME_DIARIO: Si el usuario pide el resumen del día o lo que consumió hoy. Extrae la referencia temporal en el campo 'parametro'.\n"
+        "6. RECHAZO: Si el usuario nombra objetos inanimados, productos de limpieza, ropa o cosas que no se comen ni se entrenan.\n\n"
+        "REGLAS:\n"
+        "- Si es COMIDA, desglósalo con pesos y calorías positivas.\n"
+        "- Si es ACTIVIDAD:\n"
+        "  * Calcula el tiempo total en minutos.\n"
+        "  * El campo 'alimento' DEBE empezar obligatoriamente con el número de minutos seguido de un espacio y la descripción.\n"
+        "  * El campo 'peso' debe ser estrictamente 0.0.\n"
+        "  * Estima las calorías gastadas con valor positivo.\n"
+        "- Si es INFORME_MENSUAL, INFORME_SEMANAL o INFORME_DIARIO, el campo 'items' debe ir vacío ([ ]).\n"
+        "- Si es RECHAZO, devolvé la lista de 'items' vacía ([ ]).\n\n"
+        "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
+        "{\n"
+        '  "items": [\n'
+        '    {"alimento": "nombre o descripción", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
+        "  ],\n"
+        '  "tipo": "Comida" o "Actividad" o "INFORME_MENSUAL" o "INFORME_SEMANAL" o "INFORME_DIARIO" o "Rechazo",\n'
+        '  "parametro": "texto extraído de fecha/mes o vacío"\n'
+        "}"
+    )
+
+    response = client_ai.chat.completions.create(
+        model=globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile"),
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt_text}
+        ],
+        temperature=0.1,
+        response_format={"type": "json_object"}
     )
     
-    system_msg = "Eres un nutricionista clínico profesional, empático y motivador."
-    prompt_auditor_base = (
-        f"Actúa como un médico supervisor estricto y auditor de calidad. "
-        f"Revisa el siguiente informe nutricional de bienvenida:\n\n"
-        f"--- INFORME A EVALUAR ---\n{{informe_candidato}}\n-------------------------\n\n"
-        f"Criterios de rechazo:\n"
-        f"1. Si incluye números, kilos o calorías dentro de las recomendaciones del texto.\n"
-        f"2. Si hay oraciones cortadas o truncadas al final.\n"
-        f"Si el informe cumple perfectamente con todo, responde únicamente con la palabra 'OK'."
+    resultado_json = json.loads(response.choices[0].message.content)
+    logger.info(f"🤖 IA respondió resultado: {resultado_json}")
+    
+    return resultado_json
+    
+async def generar_recomendacion_semanal_ia(m: dict, etiqueta_periodo: str, user_id=None):
+    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
+
+    prompt_semana = (
+        f"Actúa como un nutricionista clínico experto, constructivo y equilibrado. "
+        f"Analiza la evolución nutricional de la {etiqueta_periodo} basándote en los promedios reales frente a los rangos saludables:\n\n"
+        f"DATOS DEL PERÍODO:\n"
+        f"- Días evaluados: {m.get('dias_registrados', 0)}\n"
+        f"- Calorías consumidas: {m.get('prom_cal', 0)} kcal/día (Rango saludable: {m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal)\n"
+        f"- Proteínas: {m.get('prom_prot', 0)} g/día (Rango saludable: {m.get('prot_min', 0)} - {m.get('prot_max', 0)} g)\n"
+        f"- Grasas: {m.get('prom_gras', 0)} g/día (Rango saludable: {m.get('gras_min', 0)} - {m.get('gras_max', 0)} g)\n"
+        f"- Carbohidratos: {m.get('prom_carb', 0)} g/día (Rango saludable: {m.get('carb_min', 0)} - {m.get('carb_max', 0)} g)\n"
+        f"- Fibra: {m.get('prom_fibr', 0)} g/día (Mínimo recomendado: {m.get('fibr_min', 0)} g)\n\n"
+        f"INSTRUCCIONES CLAVE:\n"
+        f"1. Si un valor se encuentra dentro del rango saludable, considéralo un comportamiento correcto y equilibrado; no lo señales como un error ni exijas correcciones drásticas en ese aspecto.\n"
+        f"2. Concéntrate exclusivamente en desvíos significativos fuera de los rangos (por ejemplo, si la fibra o algún nutriente clave está muy por debajo del mínimo).\n"
+        f"3. Proporciona una devolución clara, motivadora y recomendaciones breves y prácticas para optimizar los hábitos en la semana entrante.\n"
+        f"IMPORTANTE: Redacta y responde toda la devolución final dirigida al usuario estrictamente en el idioma {nombre_lenguaje}."
     )
+    
+    try:
+        recomendacion = await obtener_recomendacion_ia(prompt_semana, es_semanal=True, user_id=user_id)
+        if recomendacion and recomendacion.strip():
+            return recomendacion
+    except Exception as e:
+        logger.error(f"Error al generar recomendación semanal con IA: {e}")
+        
+    # Mensaje de fallback mediante variable multilenguaje 02_
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    return traducciones.get("02_error_analisis_no_disponible", "⚠️ Nutritional analysis temporarily unavailable.")
+    
+async def generar_recomendacion_mensual_para_pdf(user_id: int, mes_str: str, df_mes, perfil: dict, m: dict, context=None) -> str:
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
-    informe_ia = ""
-    max_intentos = 3
+    msg_error_inf = traducciones.get("02_error_informe_ia", "<b>⚠️ Could not generate the audited AI report.</b>")
+    msg_error_comp = traducciones.get("02_error_compilar_ia", "<b>⚠️ Error compiling the AI recommendation for the report.</b>")
 
-    async def _llamar_ia_con_retry(p, tokens, temp, sys_p=None, mod_over=None, intentos_max=3):
-        for it in range(1, intentos_max + 1):
-            try:
-                res = await asyncio.to_thread(
-                    ejecutar_consulta_ia, 
-                    prompt=p, 
-                    max_tokens=tokens, 
-                    temperature=temp, 
-                    system_prompt=sys_p, 
-                    modelo_override=mod_over
-                )
-                if res and res.strip():
-                    return res
-            except Exception as e:
-                logger.error(f"⚠️ Fallo en intento IA {it}/{intentos_max}: {e}")
-                if it == intentos_max:
-                    raise e
-                await asyncio.sleep(2)
-        return ""
+    try:
+        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
 
-    for intento in range(1, max_intentos + 1):
-        try:
-            texto_generado = await _llamar_ia_con_retry(
-                prompt=prompt_ia, 
-                max_tokens=600, 
-                temperature=0.3, 
-                system_prompt=system_msg
-            )
-            
-            if not texto_generado:
-                continue
+        peso_actual_eval = float(m.get('peso_actual', 0))
+        peso_referencia_eval = float(m.get('peso_referencia', 0))
+        prompt_condicional = obtener_prompt_segun_objetivo_peso(peso_actual_eval, peso_referencia_eval) if 'obtener_prompt_segun_objetivo_peso' in globals() else None
 
-            modelo_rev = globals().get('GROQ_REVISION_2', 'openai/gpt-oss-20b')
-            prompt_auditor_final = prompt_auditor_base.format(informe_candidato=texto_generado)
-            
-            veredicto = await _llamar_ia_con_retry(
-                prompt=prompt_auditor_final, 
-                max_tokens=100, 
-                temperature=0.1, 
-                modelo_override=modelo_rev
-            )
-
-            if veredicto and "OK" in veredicto.strip().upper() and "RECHAZ" not in veredicto.strip().upper():
-                informe_ia = texto_generado
-                break
-            else:
-                logger.warning(f"🔄 Revisor rechazó el informe inicial en el intento {intento}.")
-
-        except Exception as err:
-            logger.error(f"❌ Error en ciclo de informe inicial (Intento {intento}): {err}")
-
-    if not informe_ia:
-        informe_ia = (
-            f"Hola {nombre}, te damos la bienvenida a tu plan nutricional personalizado. "
-            "Hemos configurado tu ficha correctamente con los parámetros metabólicos iniciales "
-            "para acompañarte paso a paso hacia tu objetivo de bienestar."
+        informe_ia = await generar_informe_mensual_auditado(
+            context=context, 
+            user_id=user_id, 
+            mes_str=mes_str, 
+            m=m, 
+            frecuencias=conteo_frecuencias, 
+            prompt_condicional=prompt_condicional
         )
+        
+        if not informe_ia:
+            informe_ia = f"<b>{msg_error_inf}</b>"
 
-    get_val = float(get_calorias) if get_calorias > 0 else 2000.0
-    factor_prot = 1.5 if str(sexo).upper() in ['M', 'MASCULINO'] else 1.2
-    meta_cal = int(round(get_val * 0.85))
-    meta_prot = int(round(peso_etapa * factor_prot))
-    meta_gras = int(round((meta_cal * 0.25) / 9.0))
-    meta_carb = int(round((meta_cal * 0.50) / 4.0))
-
-    pdf_buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        pdf_buffer, 
-        pagesize=letter, 
-        rightMargin=36, 
-        leftMargin=36, 
-        topMargin=36, 
-        bottomMargin=36
-    )
-    story = []
-    
-    styles = getSampleStyleSheet()
-    titulo_style = ParagraphStyle(
-        'TituloInforme', 
-        parent=styles['Heading1'], 
-        fontSize=14, 
-        leading=16, 
-        alignment=1, 
-        textColor=colors.HexColor('#1b4f72')
-    )
-    sub_style = ParagraphStyle(
-        'SubInforme', 
-        parent=styles['Normal'], 
-        fontSize=9, 
-        leading=13, 
-        textColor=colors.HexColor('#566573')
-    )
-    body_style = ParagraphStyle(
-        'CuerpoInforme', 
-        parent=styles['Normal'], 
-        fontSize=10, 
-        leading=15, 
-        textColor=colors.HexColor('#2c3e50')
-    )
-    
-    story.append(Paragraph("<b>INFORME NUTRICIONAL INICIAL - APERTURA DE FICHA</b>", titulo_style))
-    story.append(Spacer(1, 8))
-    
-    resumen_datos = (
-        f"<b>Paciente:</b> {nombre} | <b>ID Telegram:</b> `{datos_usuario.get('user_id')}`<br/>"
-        f"<b>Edad:</b> {edad} años | <b>Sexo:</b> {sexo} | <b>Altura:</b> {altura} cm<br/>"
-        f"<b>Peso Actual:</b> {peso} kg | <b>Peso Ideal Teórico:</b> {peso_ideal} kg<br/>"
-        f"<b>Objetivo 1ra Etapa (Ponderado 75/25):</b> {peso_etapa} kg<br/>"
-        f"<b>Metas Diarias (Saludable):</b> ~{meta_cal} kcal | Proteínas: ~{meta_prot}g | Grasas: ~{meta_gras}g | Carbohidratos: ~{meta_carb}g"
-    )
-    story.append(Paragraph(resumen_datos, sub_style))
-    story.append(Spacer(1, 12))
-    story.append(Paragraph("<b>PLANIFICACIÓN Y RECOMENDACIONES INICIALES</b>", styles['Heading2']))
-    story.append(Spacer(1, 6))
-    
-    texto_formateado = informe_ia.replace('\n', '<br/>')
-    story.append(Paragraph(texto_formateado, body_style))
-    
-    doc.build(story)
-    pdf_buffer.seek(0)
-    
-    return informe_ia, pdf_buffer
-                
+        return (
+            informe_ia
+            .replace("<br>", "<br/>")
+            .replace("<BR>", "<br/>")
+        )
+    except Exception as e:
+        logger.error(f"Error en generar_recomendacion_mensual_para_pdf para {user_id}: {e}")
+        return f"<b>{msg_error_comp}</b>"
+        
 async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuencias=None, prompt_condicional=None):
     if frecuencias is None:
         frecuencias = {}
 
-    porc_int, porc_ref = calcular_porcentajes_harinas(frecuencias)
+    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
+    porc_int, porc_ref = calcular_porcentajes_harinas(frecuencias) if 'calcular_porcentajes_harinas' in globals() else (0, 0)
 
     key_int = next((k for k in frecuencias.keys() if 'integral' in k), None)
     key_ref = next((k for k in frecuencias.keys() if 'refinada' in k or 'blanca' in k), None)
@@ -3326,7 +3273,6 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         contexto_harinas_str = "- No se registran datos suficientes de harinas en este período."
 
     condicion_clinica = prompt_condicional if prompt_condicional else "Evalúa el informe priorizando la calidad de los nutrientes y hábitos saludables."
-
     frec_str = "\n".join([f"- {cat}: {cant} ingestas" for cat, cant in frecuencias.items()]) if frecuencias else "- No hay frecuencias registradas."
 
     prompt_1 = (
@@ -3337,17 +3283,23 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         f"INSTRUCCIONES ESTRICTAS:\n"
         f"1. PROHIBIDO incluir números, métricas, porcentajes, gramos, calorías, cálculos matemáticos o fórmulas (ni IMC, ni calorías consumidas, ni déficits, ni 'kcal', ni 'g').\n"
         f"2. Céntrate exclusivamente en consejos de hábitos, interpretación de patrones de conducta alimentaria y orientaciones prácticas sobre cómo mejorar la calidad de las ingestas de forma sencilla.\n"
-        f"3. Mantén un tono sumamente humano, profesional, constructivo y directo (sin saludos ni introducciones). Cierra obligatoriamente con un punto final y completa todas las ideas sin cortar el texto."
+        f"3. Mantén un tono sumamente humano, profesional, constructivo y directo (ni saludos ni introducciones).\n"
+        f"4. IMPORTANTE: Redacta toda la respuesta estrictamente en el idioma {nombre_lenguaje}.\n"
+        f"Cierra obligatoriamente con un punto final y completa todas las ideas sin cortar el texto."
     )
 
     prompt_2 = (
         f"Siguiendo con el caso anterior, redacta una lista numerada exactamente del 1 al 5 con alimentos o grupos de alimentos específicos que el paciente debería incorporar.\n"
-        f"REQUISITO ESTRICTO: Escribí únicamente el nombre del alimento o categoría de forma directa (máximo 3 o 4 palabras por ítem), sin explicaciones, sin porciones en gramos, sin calorías y sin descripciones largas. Cierra con un punto final."
+        f"REQUISITO ESTRICTO: Escribí únicamente el nombre del alimento o categoría de forma directa (máximo 3 o 4 palabras por ítem), sin explicaciones, sin porciones en gramos, sin calorías y sin descripciones largas.\n"
+        f"IMPORTANTE: Redacta los elementos estrictamente en el idioma {nombre_lenguaje}.\n"
+        f"Cierra con un punto final."
     )
 
     prompt_3 = (
         f"Finalmente, redacta una lista numerada exactamente del 1 al 5 con alimentos o hábitos alimentarios a reducir o evitar.\n"
-        f"REQUISITO ESTRICTO: Escribí únicamente el concepto de forma directa (ej: 'Bebidas azucaradas', 'Snacks ultraprocesados'), sin explicaciones numéricas ni porcentajes, acompañado al final de un párrafo breve sobre estrategia de hidratación y hábitos sostenibles. Cierra estrictamente con un punto final; no dejes ninguna oración inconclusa."
+        f"REQUISITO ESTRICTO: Escribí únicamente el concepto de forma directa, sin explicaciones numéricas ni porcentajes, acompañado al final de un párrafo breve sobre estrategia de hidratación y hábitos sostenibles.\n"
+        f"IMPORTANTE: Redacta todo estrictamente en el idioma {nombre_lenguaje}.\n"
+        f"Cierra estrictamente con un punto final; no dejes ninguna oración inconclusa."
     )
 
     prompt_auditor_base = (
@@ -3384,8 +3336,8 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
             )
 
             prompt_auditor_final = prompt_auditor_base.format(informe_completo=informe_candidato)
-            
             modelo_rev = globals().get('GROQ_REVISOR', 'qwen/qwen3.8-27b')
+            
             veredicto = await asyncio.to_thread(
                 ejecutar_consulta_ia, 
                 prompt=prompt_auditor_final, 
@@ -3396,7 +3348,6 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
 
             if not veredicto or veredicto.strip() == "":
                 modelo_rev_2 = globals().get('GROQ_REVISION_2', 'openai/gpt-oss-20b')
-                logger.warning(f"Revisor principal ({modelo_rev}) devolvió vacío. Reintentando con revisor secundario ({modelo_rev_2})...")
                 veredicto = await asyncio.to_thread(
                     ejecutar_consulta_ia, 
                     prompt=prompt_auditor_final, 
@@ -3408,11 +3359,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
             veredicto_limpio = veredicto.strip().upper() if veredicto else ""
 
             if "OK" in veredicto_limpio and "RECHAZ" not in veredicto_limpio:
-                logger.info(f"¡Informe mensual aprobado por el sistema en el intento {intento_actual} para el usuario {user_id}!")
                 return informe_candidato
-            else:
-                motivo_rechazo = veredicto.strip() if veredicto else "Auditoría vacía o nula"
-                logger.warning(f"Revisor rechazó el informe en el intento {intento_actual}. Motivo: {motivo_rechazo}")
 
         except Exception as e:
             logger.error(f"Error en intento {intento_actual} para usuario {user_id}: {e}")
@@ -3420,23 +3367,167 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
         if intento_actual < max_intentos:
             await asyncio.sleep(5)
 
-    if informe_candidato:
-        return informe_candidato
+    return informe_candidato if informe_candidato else None
 
-    return None
+async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.BytesIO]:
+    user_id = datos_usuario.get('user_id')
+    nombre = datos_usuario.get('nombre', 'Paciente')
+    edad = datos_usuario.get('edad', 0)
+    sexo = datos_usuario.get('sexo', 'M')
+    altura = datos_usuario.get('altura', 0)
+    peso = datos_usuario.get('peso', 0)
+    peso_ideal = datos_usuario.get('peso_ideal', 0)
+    peso_etapa = datos_usuario.get('peso_etapa', peso)
+    get_calorias = datos_usuario.get('get', 2000)
+
+    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
+    dif_pct = ((peso - peso_ideal) / peso_ideal * 100) if peso_ideal > 0 else 0.0
+
+    if dif_pct > 20:
+        contexto_situacion = "El paciente presenta un sobrepeso considerable, por lo que el enfoque debe ser muy gradual, paciente y centrado en la adopción de hábitos sostenibles a largo plazo sin restricciones drásticas."
+    elif dif_pct >= 8:
+        contexto_situacion = "El paciente presenta un sobrepeso moderado (en torno al 10% por encima de su referencia de bienestar), ideal para estructurar un cambio de hábitos enfocado en porciones y constancia."
+    elif dif_pct >= -5:
+        contexto_situacion = "El paciente se encuentra en un rango de peso cercano a su meta o en zona de equilibrio, por lo que el foco estará en la optimización de la calidad nutricional y el mantenimiento."
+    else:
+        contexto_situacion = "El paciente presenta un peso corporal por debajo de su referencia teórica, por lo que el enfoque será de nutrición equilibrada y fortalecimiento saludable."
+
+    prompt_ia = (
+        f"Actúa como un médico nutricionista experto y muy empático. Contexto del paciente:\n"
+        f"- Situación general: {contexto_situacion}\n\n"
+        f"Redacta un informe breve, cálido y motivador de bienvenida que incluya:\n"
+        f"1. Una explicación empática y motivadora sobre por qué avanzamos paso a paso hacia nuestra primera meta intermedia, destacando que lo importante es el proceso y la salud sostenible.\n"
+        f"2. Recomendaciones generales y amables sobre el manejo de la alimentación diaria orientada a un equilibrio energético saludable, SIN MENCIONAR NÚMEROS, NI KILOS, NI GRAMOS, NI CALORÍAS en el texto de los consejos.\n"
+        f"3. Pautas generales de actividad física complementaria (caminatas suaves, movilidad) y hábitos de hidratación.\n"
+        f"REQUISITO ESTRICTO: Mantén un tono sumamente humano, profesional, constructivo y generalizado. No des cifras de peso ni metas numéricas específicas en las recomendaciones.\n"
+        f"IMPORTANTE: Redacta todo el informe estrictamente en el idioma {nombre_lenguaje}.\n"
+        f"Cierra con un punto final y completa todas las ideas."
+    )
     
-async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False):
+    system_msg = "Eres un nutricionista clínico profesional, empático y motivador."
+    prompt_auditor_base = (
+        f"Actúa como un médico supervisor estricto y auditor de calidad. "
+        f"Revisa el siguiente informe nutricional de bienvenida:\n\n"
+        f"--- INFORME A EVALUAR ---\n{{informe_candidato}}\n-------------------------\n\n"
+        f"Criterios de rechazo:\n"
+        f"1. Si incluye números, kilos o calorías dentro de las recomendaciones del texto.\n"
+        f"2. Si hay oraciones cortadas o truncadas al final.\n"
+        f"Si el informe cumple perfectamente con todo, responde únicamente con la palabra 'OK'."
+    )
+
+    informe_ia = ""
+    max_intentos = 3
+
+    async def _llamar_ia_con_retry(p, tokens, temp, sys_p=None, mod_over=None, intentos_max=3):
+        for it in range(1, intentos_max + 1):
+            try:
+                res = await asyncio.to_thread(
+                    ejecutar_consulta_ia, 
+                    prompt=p, 
+                    max_tokens=tokens, 
+                    temperature=temp, 
+                    system_prompt=sys_p, 
+                    modelo_override=mod_over
+                )
+                if res and res.strip():
+                    return res
+            except Exception as e:
+                if it == intentos_max:
+                    raise e
+                await asyncio.sleep(2)
+        return ""
+
+    for intento in range(1, max_intentos + 1):
+        try:
+            texto_generado = await _llamar_ia_con_retry(
+                prompt=prompt_ia, 
+                max_tokens=600, 
+                temperature=0.3, 
+                sys_p=system_msg  # ✅ CORRECCIÓN APLICADA AQUÍ
+            )
+            
+            if not texto_generado:
+                continue
+
+            modelo_rev = globals().get('GROQ_REVISION_2', 'openai/gpt-oss-20b')
+            prompt_auditor_final = prompt_auditor_base.format(informe_candidato=texto_generado)
+            
+            veredicto = await _llamar_ia_con_retry(
+                prompt=prompt_auditor_final, 
+                max_tokens=100, 
+                temperature=0.1, 
+                modelo_override=modelo_rev
+            )
+
+            if veredicto and "OK" in veredicto.strip().upper() and "RECHAZ" not in veredicto.strip().upper():
+                informe_ia = texto_generado
+                break
+
+        except Exception as err:
+            logger.error(f"❌ Error en ciclo de informe inicial (Intento {intento}): {err}")
+
+    if not informe_ia:
+        informe_ia = (
+            f"Hello {nombre}, welcome to your personalized nutrition plan. "
+            "We have successfully configured your profile with initial metabolic parameters "
+            "to guide you step-by-step toward your wellness goal."
+        )
+
+    get_val = float(get_calorias) if get_calorias > 0 else 2000.0
+    factor_prot = 1.5 if str(sexo).upper() in ['M', 'MASCULINO'] else 1.2
+    meta_cal = int(round(get_val * 0.85))
+    meta_prot = int(round(peso_etapa * factor_prot))
+    meta_gras = int(round((meta_cal * 0.25) / 9.0))
+    meta_carb = int(round((meta_cal * 0.50) / 4.0))
+
+    pdf_buffer = io.BytesIO()
+    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    story = []
+    
+    styles = getSampleStyleSheet()
+    titulo_style = ParagraphStyle('TituloInforme', parent=styles['Heading1'], fontSize=14, leading=16, alignment=1, textColor=colors.HexColor('#1b4f72'))
+    sub_style = ParagraphStyle('SubInforme', parent=styles['Normal'], fontSize=9, leading=13, textColor=colors.HexColor('#566573'))
+    body_style = ParagraphStyle('CuerpoInforme', parent=styles['Normal'], fontSize=10, leading=15, textColor=colors.HexColor('#2c3e50'))
+    
+    story.append(Paragraph("<b>INITIAL NUTRITIONAL REPORT - PROFILE SETUP</b>", titulo_style))
+    story.append(Spacer(1, 8))
+    
+    resumen_datos = (
+        f"<b>Patient:</b> {nombre} | <b>Telegram ID:</b> `{datos_usuario.get('user_id')}`<br/>"
+        f"<b>Age:</b> {edad} years | <b>Sex:</b> {sexo} | <b>Height:</b> {altura} cm<br/>"
+        f"<b>Current Weight:</b> {peso} kg | <b>Theoretical Ideal Weight:</b> {peso_ideal} kg<br/>"
+        f"<b>1st Stage Goal:</b> {peso_etapa} kg<br/>"
+        f"<b>Daily Targets:</b> ~{meta_cal} kcal | Proteins: ~{meta_prot}g | Fats: ~{meta_gras}g | Carbs: ~{meta_carb}g"
+    )
+    story.append(Paragraph(resumen_datos, sub_style))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph("<b>PLANNING AND INITIAL RECOMMENDATIONS</b>", styles['Heading2']))
+    story.append(Spacer(1, 6))
+    
+    texto_formateado = informe_ia.replace('\n', '<br/>')
+    story.append(Paragraph(texto_formateado, body_style))
+    
+    doc.build(story)
+    pdf_buffer.seek(0)
+    
+    return informe_ia, pdf_buffer
+        
+async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False, user_id=None):
+    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
+
     if es_semanal:
         prompt = (
             f"Actúa como un coach nutricional breve y conciso. "
             f"Analiza este resumen semanal:\n{resumen_texto}\n\n"
-            f"Escribe un solo párrafo corto de análisis general y 3 recomendaciones breves en puntos."
+            f"Escribe un solo párrafo corto de análisis general y 3 recomendaciones breves en puntos.\n"
+            f"IMPORTANTE: Redacta la respuesta estrictamente en el idioma {nombre_lenguaje}."
         )
         max_t = 350
     else:
         prompt = (
             f"Actúa como un nutricionista clínico personal. "
-            f"Analiza la siguiente información:\n{resumen_texto}"
+            f"Analiza la siguiente información:\n{resumen_texto}\n\n"
+            f"IMPORTANTE: Redacta la respuesta estrictamente en el idioma {nombre_lenguaje}."
         )
         max_t = 700
 
@@ -3446,73 +3537,90 @@ async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False)
     if res:
         return res.replace("##", "").replace("###", "").strip()
         
-    return "⚠️ No se pudo obtener el análisis nutricional en este momento."
-           
-def analizar_imagen_con_groq(base64_image, user_caption=""):
+    # Mensaje de fallback mediante variable multilenguaje 02_
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    return traducciones.get("02_error_analisis_no_disponible", "⚠️ Nutritional analysis temporarily unavailable.")
+
+def analizar_imagen_con_groq(image_bytes: bytes, prompt_usuario: str = "", user_id=None) -> dict:
     client_ai = globals().get('client_ai')
     if not client_ai:
-        raise Exception("GROQ_API_KEY no está configurada correctamente.")
-    
-    base_prompt = (
-        "Analizá esta imagen de comida/plato. "
-        "Identificá los alimentos, estimá sus pesos en gramos y nutrientes. "
-        "Si el usuario incluye una nota o aclaración, utilízala de manera estricta para definir "
-        "el tipo exacto de alimento y método de cocción. "
-        "Respondé ÚNICAMENTE en formato JSON con la clave 'items' conteniendo "
-        "alimento, peso, calorias, proteinas, grasas, carbohidratos, fibras."
-    )
-    
-    if user_caption.strip():
-        prompt = f"{base_prompt}\n\nAclaración obligatoria del usuario sobre la foto: {user_caption.strip()}"
-    else:
-        prompt = base_prompt
+        raise Exception("GROQ_API_KEY is not properly configured.")
 
-    response = client_ai.chat.completions.create(
-        model=globals().get('GROQ_FOTO', "qwen/qwen3.8-27b"),
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                ]
-            }
-        ],
-        temperature=0.1,
-        max_tokens=600,
-        response_format={"type": "json_object"}
-    )
-    return json.loads(response.choices[0].message.content)
+    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
+    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
+    data_url = f"data:image/jpeg;base64,{encoded_image}"
 
-def detectar_codigo_con_groq(base64_image: str) -> dict:
-    client_ai = globals().get('client_ai')
-    prompt = (
-        "Analiza esta imagen exclusivamente para detectar si hay un código de barras visible "
-        "con sus números impresos debajo. "
-        "Responde ÚNICAMENTE en formato JSON con este formato exacto:\n"
+    system_prompt = (
+        f"Sos un asistente nutricional experto en análisis visual de platos y alimentos. El usuario se comunica en su idioma ({nombre_lenguaje}). "
+        f"Analiza la imagen provista (y el texto opcional del usuario) e identifica todos los alimentos, platos o bebidas presentes. "
+        f"Calcula con la mayor precisión posible el peso en gramos, las calorías, proteínas, grasas, carbohidratos y fibras para cada ítem detectado.\n\n"
+        f"REQUISITOS:\n"
+        f"- Responde ÚNICAMENTE con un objeto JSON válido.\n"
+        f"- Los nombres de los alimentos deben estar descritos correctamente.\n"
+        f"- Estructura exacta requerida:\n"
         "{\n"
-        '  "tiene_codigo": true/false,\n'
-        '  "codigo": "numeros_exactos_si_los_hay_o_vacio"\n'
+        '  "items": [\n'
+        '    {"alimento": "nombre del alimento", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
+        "  ],\n"
+        '  "tipo": "Comida"\n'
         "}"
     )
+
+    user_content = [
+        {"type": "image_url", "image_url": {"url": data_url}},
+        {"type": "text", "text": prompt_usuario if prompt_usuario else "Analiza esta comida y detalla sus componentes nutricionales."}
+    ]
+
+    modelo_foto = globals().get('GROQ_FOTO', "qwen/qwen3.8-27b")
+
+    response = client_ai.chat.completions.create(
+        model=modelo_foto,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ],
+        temperature=0.1,
+        response_format={"type": "json_object"}
+    )
+
+    raw_text = response.choices[0].message.content.strip()
+    return json.loads(raw_text)
+
+def detectar_codigo_con_groq(image_bytes: bytes, user_id=None) -> str:
+    client_ai = globals().get('client_ai')
+    if not client_ai:
+        return ""
+
+    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
+    data_url = f"data:image/jpeg;base64,{encoded_image}"
+
+    prompt = (
+        "Examina esta imagen en búsqueda de códigos de barras, texto impreso o códigos alfanuméricos de productos. "
+        "Devuelve ÚNICAMENTE el código detectado en formato de texto plano. Si no encuentras ningún código o texto claro, responde exactamente con la palabra 'NUEVO'."
+    )
+
     try:
         response = client_ai.chat.completions.create(
             model=globals().get('GROQ_FOTO', "qwen/qwen3.8-27b"),
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                ]
-            }],
-            temperature=0.0,
-            response_format={"type": "json_object"}
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                        {"type": "text", "text": prompt}
+                    ]
+                }
+            ],
+            temperature=0.1,
+            max_tokens=50
         )
-        return json.loads(response.choices[0].message.content)
+        codigo = response.choices[0].message.content.strip()
+        return "" if codigo.upper() == "NUEVO" else codigo
     except Exception as e:
-        logger.error(f"Error en detección IA de código de barras: {e}")
-        return {"tiene_codigo": False, "codigo": ""}
-            
+        logger.error(f"Error detectando código en imagen: {e}")
+        return ""
+
 # =====================================================================================================================================
 #                FINAL                          FUNCIONES IA GROQ                                     FINAL
 # =====================================================================================================================================
@@ -3831,10 +3939,14 @@ async def callback_handler_reportes_pdf(update: Update, context: ContextTypes.DE
 # ======================================================================================================================================
 
 # =====================================================================================================================================
-#              INICIO                      SUBFUNCIONES Y MANEJADORES MODULARIZADOS (NUEVOS)                   INICIO
+#              INICIO                      FUNCIONES MANEJADORES MODULARIZADOS (NUEVOS)                   INICIO
 # =====================================================================================================================================
 
 async def _sub_manejar_texto_actividad(update, context, raw_text, chat_id):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     msg_solic = context.user_data.pop('msg_solicitud_activity_id', None)
     if msg_solic:
         try: await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
@@ -3843,25 +3955,33 @@ async def _sub_manejar_texto_actividad(update, context, raw_text, chat_id):
     except Exception: pass
 
     context.user_data['awaiting_activity_text'] = False
-    msg_espera = await update.message.reply_text("🏃 Analizando actividad física y calculando calorías...")
+    
+    txt_analizando = traducciones.get('bot_analizando_act', "🏃 Analizando actividad física y calculando calorías...")
+    msg_espera = await update.message.reply_text(txt_analizando)
     try:
         res = analizar_con_groq(f"Actividad física: {raw_text}. Devuelve JSON con alimento y calorias.")
         items = res.get('items', [])
         kcal = float(items[0].get('calorias', 0)) if items else 0.0
         desc = str(items[0].get('alimento', raw_text)) if items else raw_text
         
-        # Se eliminó la validación vieja de 'min' para respetar el formato limpio de la IA
         item_act = {"alimento": desc, "peso": 0, "calorias": -abs(kcal), "proteinas": 0, "grasas": 0, "carbohidratos": 0, "fibras": 0}
         
         context.user_data.update({'pending_items': [item_act], 'pending_fecha': obtener_ahora_arg().strftime("%Y-%m-%d"), 'pending_momento': 'Actividad'})
         await msg_espera.delete()
-        msg_menu = await update.message.reply_text("📋 Actividad analizada:")
+        
+        txt_analizada = traducciones.get('bot_act_analizada', "📋 Actividad analizada:")
+        msg_menu = await update.message.reply_text(txt_analizada)
         context.user_data['last_menu_msg_id'] = msg_menu.message_id
         await render_confirmation_screen(msg_menu, context)
     except Exception as e:
-        await msg_espera.edit_text(f"❌ Error al procesar actividad: {e}")
+        txt_err = traducciones.get('bot_error_proc_act', "❌ Error al procesar actividad: {e}").format(e=e)
+        await msg_espera.edit_text(txt_err)
                 
 async def _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     fecha_parseada = parsear_fecha_flexible(raw_text)
     msg_solic = context.user_data.pop('msg_solicitud_del_fecha_id', None)
     if msg_solic:
@@ -3878,10 +3998,15 @@ async def _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id):
                 await self.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
         await mostrar_selector_momento_eliminar(DummyQuery(update.message), context)
     else:
-        msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+        txt_err_fec = traducciones.get('bot_error_fecha_inv', "⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):")
+        msg_err = await update.message.reply_text(txt_err_fec, parse_mode="Markdown")
         context.user_data['msg_solicitud_del_fecha_id'] = msg_err.message_id
 
 async def _sub_manejar_fecha_diario(update, context, raw_text, chat_id):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     fecha_parseada = parsear_fecha_flexible(raw_text)
     msg_solic = context.user_data.pop('msg_solicitud_diario_fecha_id', None)
     if msg_solic:
@@ -3894,40 +4019,49 @@ async def _sub_manejar_fecha_diario(update, context, raw_text, chat_id):
         context.user_data['awaiting_diario_custom_date'] = False
         await mostrar_diario_fecha(update.message, update.effective_user.id, fecha_parseada)
     else:
-        msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+        txt_err_fec = traducciones.get('bot_error_fecha_inv', "⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):")
+        msg_err = await update.message.reply_text(txt_err_fec, parse_mode="Markdown")
         context.user_data['msg_solicitud_diario_fecha_id'] = msg_err.message_id
 
 async def _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     fecha_parseada = parsear_fecha_flexible(raw_text)
     msg_solic = context.user_data.pop('msg_solicitud_fecha_id', None)
     if msg_solic:
-        try: await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
-        except Exception: pass
-    try: await update.message.delete()
-    except Exception: pass
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
+        except Exception:
+            pass
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
 
     if fecha_parseada:
         context.user_data.update({'pending_fecha': fecha_parseada, 'awaiting_custom_date': False})
-        last_id = context.user_data.get('last_menu_msg_id')
-        if last_id:
-            try:
-                target = await context.bot.get_message(chat_id=chat_id, message_id=last_id)
-                await render_confirmation_screen(target, context)
-                return
-            except Exception: pass
+        # render_confirmation_screen edita automáticamente last_menu_msg_id si existe
         await render_confirmation_screen(update, context)
     else:
-        msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+        txt_err_fec = traducciones.get('bot_error_fecha_inv', "⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):")
+        msg_err = await update.message.reply_text(txt_err_fec, parse_mode="Markdown")
         context.user_data['msg_solicitud_fecha_id'] = msg_err.message_id
 
 async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     idx = context.user_data.get('editing_item_idx')
     items = context.user_data.get('pending_items', [])
     momento_actual = context.user_data.get('pending_momento', 'Comida')
 
     if items and 0 <= idx < len(items):
         item_previo = items[idx]
-        msg_espera = await update.message.reply_text("⏳ Actualizando valores...")
+        txt_act = traducciones.get('bot_actualizando', "⏳ Actualizando valores...")
+        msg_espera = await update.message.reply_text(txt_act)
         try:
             if momento_actual == 'Actividad':
                 nuevo_kcal = float(re.sub(r'[^\d.]', '', raw_text.replace(',', '.')))
@@ -3937,40 +4071,48 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
                 nuevo_p, nueva_d = peso_prev, item_previo.get('alimento', '')
                 if ',' in raw_text:
                     p = raw_text.split(',', 1)
-                    if p[0].strip(): nueva_d = p[0].strip()
-                    if p[1].strip(): nuevo_p = float(re.sub(r'[^\d.]', '', p[1].replace(',', '.')))
+                    if p[0].strip():
+                        nueva_d = p[0].strip()
+                    if p[1].strip():
+                        nuevo_p = float(re.sub(r'[^\d.]', '', p[1].replace(',', '.')))
                 else:
-                    try: nuevo_p = float(re.sub(r'[^\d.]', '', raw_text.replace(',', '.')))
-                    except ValueError: nueva_d = raw_text
+                    try:
+                        nuevo_p = float(re.sub(r'[^\d.]', '', raw_text.replace(',', '.')))
+                    except ValueError:
+                        nueva_d = raw_text
 
                 factor = (nuevo_p / peso_prev) if peso_prev > 0 else 1.0
                 item_previo.update({
-                    "alimento": nueva_d, "alimento_display": nueva_d.replace('§', '').strip(), "peso": nuevo_p,
-                    "calorias": float(item_previo.get('calorias', 0)) * factor, "proteinas": float(item_previo.get('proteinas', 0)) * factor,
-                    "grasas": float(item_previo.get('grasas', 0)) * factor, "carbohidratos": float(item_previo.get('carbohidratos', 0)) * factor,
+                    "alimento": nueva_d,
+                    "alimento_display": nueva_d.replace('§', '').strip(),
+                    "peso": nuevo_p,
+                    "calorias": float(item_previo.get('calorias', 0)) * factor,
+                    "proteinas": float(item_previo.get('proteinas', 0)) * factor,
+                    "grasas": float(item_previo.get('grasas', 0)) * factor,
+                    "carbohidratos": float(item_previo.get('carbohidratos', 0)) * factor,
                     "fibras": float(item_previo.get('fibras', 0)) * factor
                 })
             items[idx] = item_previo
             context.user_data['pending_items'] = items
             await msg_espera.delete()
-            try: await update.message.delete()
-            except Exception: pass
+            try:
+                await update.message.delete()
+            except Exception:
+                pass
         except Exception as e:
-            await msg_espera.edit_text(f"❌ Error al editar: {e}")
+            txt_err_ed = traducciones.get('bot_error_editar', "❌ Error al editar: {e}").format(e=e)
+            await msg_espera.edit_text(txt_err_ed)
 
     context.user_data.update({'awaiting_edit_item_val': False})
     context.user_data.pop('editing_item_idx', None)
-    
-    last_id = context.user_data.get('last_menu_msg_id')
-    if last_id:
-        try:
-            target = await context.bot.get_message(chat_id=chat_id, message_id=last_id)
-            await render_confirmation_screen(target, context)
-            return
-        except Exception: pass
+
+    # render_confirmation_screen toma last_menu_msg_id y edita la pantalla previa
     await render_confirmation_screen(update, context)
 
 async def _sub_manejar_plantilla_comida(update, context, raw_text, user_id):
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     contenido = raw_text[1:].strip()
     partes = [p.strip() for p in contenido.split(',')]
     nombre_plantilla = partes[0].upper()
@@ -3982,7 +4124,6 @@ async def _sub_manejar_plantilla_comida(update, context, raw_text, user_id):
     if plantilla:
         p_b, c_b, pr_b, g_b, cb_b, f_b = plantilla.get('Peso', 0), plantilla.get('Calorias', 0), plantilla.get('Proteinas', 0), plantilla.get('Grasas', 0), plantilla.get('Carbohidratos', 0), plantilla.get('Fibras', 0)
         
-        # 🟢 Limpiar descripción y armar el formato final: Descripción + " x Mult"
         desc_limpia = (plantilla.get('Descripcion') or plantilla.get('Nombre', 'Comida')).replace('§', '').strip()
         mult_str = f"{int(mult)}" if mult.is_integer() else f"{mult}"
         
@@ -3998,18 +4139,26 @@ async def _sub_manejar_plantilla_comida(update, context, raw_text, user_id):
             "carbohidratos": cb_b * mult, 
             "fibras": f_b * mult
         }
-        msg = await update.message.reply_text("⏳ Procesando comida predeterminada...")
+        txt_proc = traducciones.get('bot_proc_comida', "⏳ Procesando comida predeterminada...")
+        msg = await update.message.reply_text(txt_proc)
         await procesar_y_mostrar_confirmacion({"items": [item_gen], "tipo": "Comida"}, msg, context)
     else:
-        await update.message.reply_text(f"❌ No se encontró la comida `*{nombre_plantilla}` en tu planilla `Comidas_{user_id}`.", parse_mode="Markdown")
+        txt_err_noenc = traducciones.get('bot_error_comida_no_enc', f"❌ No se encontró la comida `*{nombre_plantilla}` en tu planilla `Comidas_{user_id}`.")
+        await update.message.reply_text(txt_err_noenc, parse_mode="Markdown")
         
 async def _sub_manejar_ingesta_libre_ia(update, context, raw_text):
-    msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    txt_analiz_ia = traducciones.get('bot_analizando_texto', "🤖 Analizando texto con Inteligencia Artificial...")
+    msg = await update.message.reply_text(txt_analiz_ia)
     try:
         data = analizar_con_groq(raw_text)
         await procesar_y_mostrar_confirmacion(data, msg, context)
     except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar el texto: {e}")
+        txt_err_ia = traducciones.get('bot_error_proc_texto', "❌ Error al procesar el texto: {e}").format(e=e)
+        await msg.edit_text(txt_err_ia)
 
 def parsear_fecha_flexible(raw_text):
     txt = raw_text.replace('/', '-').replace('.', '-')
@@ -4024,24 +4173,23 @@ def parsear_fecha_flexible(raw_text):
     return None
 
 async def _sub_manejar_voz_ingesta(update, context, transcription, msg):
-    """
-    Procesa la transcripción de una nota de voz de ingesta alimentaria,
-    la analiza con IA y muestra la pantalla de confirmación.
-    """
     try:
-        # Envía la transcripción al analizador de texto/ingestas de Groq
         data = analizar_con_groq(transcription)
-        
-        # Pasa el resultado al procesador y renderizador de confirmación
         await procesar_y_mostrar_confirmacion(data, msg, context)
-        
     except Exception as e:
+        user_id = update.effective_user.id
+        lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+        traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+        txt_err_aud = traducciones.get('bot_error_audio', "❌ Error al procesar el audio con IA: {e}").format(e=e)
         logger.error(f"Error procesando voz de ingesta: {e}")
-        await msg.edit_text(f"❌ Error al procesar el audio con IA: {e}")
+        await msg.edit_text(txt_err_aud)
 
 async def _sub_manejar_voz_actividad(update, context, transcription, msg):
-    context.user_data['awaiting_activity_voice'] = False
     user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    context.user_data['awaiting_activity_voice'] = False
     perfil_biometrico = obtener_perfil_usuario(user_id)
     
     prompt_ia = f"El usuario realizó una actividad física descrita por voz. Transcripción: '{transcription}'. Calcula las calorías gastadas utilizando estrictamente su perfil biométrico: {perfil_biometrico}. Devolvé un JSON con los campos 'alimento' y 'calorias'."
@@ -4051,13 +4199,13 @@ async def _sub_manejar_voz_actividad(update, context, transcription, msg):
     kcal_estimadas = float(items_ia[0].get('calorias', 0)) if items_ia else 0.0
     desc = str(items_ia[0].get('alimento', transcription)) if items_ia else transcription
     
-    # Se eliminó la validación vieja de 'min' para respetar el formato limpio de la IA
     item_actividad = {"alimento": desc, "peso": 0, "calorias": -abs(kcal_estimadas), "proteinas": 0, "grasas": 0, "carbohidratos": 0, "fibras": 0}
     
     context.user_data.update({'pending_items': [item_actividad], 'pending_fecha': obtener_ahora_arg().strftime("%Y-%m-%d"), 'pending_momento': 'Actividad'})
 
     await msg.delete()
-    msg_menu = await update.message.reply_text("📋 Actividad analizada por audio:")
+    txt_act_aud = traducciones.get('bot_act_audio', "📋 Actividad analizada por audio:")
+    msg_menu = await update.message.reply_text(txt_act_aud)
     context.user_data['last_menu_msg_id'] = msg_menu.message_id
     await render_confirmation_screen(msg_menu, context)
     
@@ -4075,11 +4223,14 @@ def analizar_foto_presion_con_groq(base64_image: str) -> dict:
     except Exception: return {"es_presion": False}
 
 async def _sub_manejar_foto_presion(update, context, res_presion, msg):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     alta, baja, pulsaciones = float(res_presion.get("alta", 0)), float(res_presion.get("baja", 0)), float(res_presion.get("pulsaciones", 0))
     
-    # Guardamos temporalmente los valores en el contexto
     context.user_data['pending_presion_foto'] = {"alta": alta, "baja": baja, "pulsaciones": pulsaciones}
-    context.user_data['awaiting_presion_nota'] = True  # Activamos la bandera de espera de nota
+    context.user_data['awaiting_presion_nota'] = True
 
     pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
     
@@ -4093,12 +4244,21 @@ async def _sub_manejar_foto_presion(update, context, res_presion, msg):
     )
     
 async def _sub_manejar_foto_plato_ia(update, context, base64_image, user_caption, msg):
-    await msg.edit_text("🤖 Analizando plato con Inteligencia Artificial...")
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    txt_analiz_plato = traducciones.get('bot_analizando_plato', "🤖 Analizando plato con Inteligencia Artificial...")
+    await msg.edit_text(txt_analiz_plato)
     data = analizar_imagen_con_groq(base64_image, user_caption)
     await procesar_y_mostrar_confirmacion(data, msg, context)
+    
+# =====================================================================================================================================
+#              FINAL                     FUNCIONES MANEJADORES MODULARIZADOS (NUEVOS)                   FINAL
+# =====================================================================================================================================
 
 # ======================================================================================================================================
-#                INICIO                                      FUNCIONES DE BOTONES                        FINAL
+#                INICIO                                  FUNCIONES BOTONES                        FINAL
 # ======================================================================================================================================
 
 @requiere_registro
@@ -4115,6 +4275,8 @@ async def callback_btn_fechas_diario(update: Update, context: ContextTypes.DEFAU
     await query.answer()
     data = query.data
     user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     context.user_data['last_menu_msg_id'] = query.message.message_id
 
     if data == "set_d_hoy":
@@ -4125,7 +4287,8 @@ async def callback_btn_fechas_diario(update: Update, context: ContextTypes.DEFAU
         await render_confirmation_screen(query, context)
     elif data in ["set_d_otro", "set_d_custom"]:
         context.user_data['awaiting_custom_date'] = True
-        msg = await query.message.reply_text("📅 Ingresá la fecha deseada para la ingesta (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+        txt_fec_ing = traducciones.get('bot_solic_fecha_ingesta', "📅 Ingresá la fecha deseada para la ingesta (Ej: `2026-08-15` o `15/08`):")
+        msg = await query.message.reply_text(txt_fec_ing, parse_mode="Markdown")
         context.user_data['msg_solicitud_fecha_id'] = msg.message_id
     elif data == "diario_hoy":
         await mostrar_diario_fecha(query, user_id, obtener_ahora_arg().strftime("%Y-%m-%d"))
@@ -4133,7 +4296,8 @@ async def callback_btn_fechas_diario(update: Update, context: ContextTypes.DEFAU
         await mostrar_diario_fecha(query, user_id, (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d"))
     elif data == "diario_otro":
         context.user_data['awaiting_diario_custom_date'] = True
-        msg = await query.message.reply_text("📅 Ingresá la fecha del diario que querés consultar (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+        txt_diar_cons = traducciones.get('bot_solic_diario_consulta', "📅 Ingresá la fecha del diario que querés consultar (Ej: `2026-08-15` o `15/08`):")
+        msg = await query.message.reply_text(txt_diar_cons, parse_mode="Markdown")
         context.user_data['msg_solicitud_diario_fecha_id'] = msg.message_id
 
 @requiere_registro
@@ -4141,6 +4305,9 @@ async def callback_btn_editar_item(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     await query.answer()
     data = query.data
+    user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     context.user_data['last_menu_msg_id'] = query.message.message_id
 
     idx = int(data.replace("edit_item_", "")) - 1
@@ -4151,17 +4318,23 @@ async def callback_btn_editar_item(update: Update, context: ContextTypes.DEFAULT
     es_codigo_barras = (0 <= idx < len(items) and items[idx].get('fuente') == "Open Food Facts")
 
     if momento_actual == 'Actividad':
-        await query.message.reply_text("✏️ Ingresá el nuevo valor de calorías para la actividad (ej: `220`):", parse_mode="Markdown")
+        txt_ed_kcal = traducciones.get('bot_edit_calorias', "✏️ Ingresá el nuevo valor de calorías para la actividad (ej: `220`):")
+        await query.message.reply_text(txt_ed_kcal, parse_mode="Markdown")
     elif es_codigo_barras:
-        await query.message.reply_text("⚖️ Ingresá el **nuevo peso en gramos** para este producto (ej: `150`):", parse_mode="Markdown")
+        txt_ed_peso = traducciones.get('bot_edit_peso_gr', "⚖️ Ingresá el **nuevo peso en gramos** para este producto (ej: `150`):")
+        await query.message.reply_text(txt_ed_peso, parse_mode="Markdown")
     else:
-        await query.message.reply_text("✏️ Ingresá la nueva descripción y/o peso para este alimento:")
+        txt_ed_gen = traducciones.get('bot_edit_desc_peso', "✏️ Ingresá la nueva descripción y/o peso para este alimento:")
+        await query.message.reply_text(txt_ed_gen)
 
 @requiere_registro
 async def callback_btn_anular_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
+    user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     context.user_data['last_menu_msg_id'] = query.message.message_id
 
     idx = int(data.replace("del_item_", "")) - 1
@@ -4170,7 +4343,8 @@ async def callback_btn_anular_item(update: Update, context: ContextTypes.DEFAULT
         items.pop(idx)
     
     if not items:
-        await query.edit_message_text("❌ Todos los ítems fueron eliminados.")
+        txt_all_del = traducciones.get('bot_all_del', "❌ Todos los ítems fueron eliminados.")
+        await query.edit_message_text(txt_all_del)
         context.user_data.pop('last_menu_msg_id', None)
     else:
         await render_confirmation_screen(query, context)
@@ -4179,15 +4353,22 @@ async def callback_btn_anular_item(update: Update, context: ContextTypes.DEFAULT
 async def callback_btn_cancelar_registro(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     context.user_data.pop('pending_items', None)
     context.user_data.pop('last_menu_msg_id', None)
-    await query.edit_message_text("🗑️ Registro cancelado.")
+    txt_canc = traducciones.get('bot_reg_canc', "🗑️ Registro cancelado.")
+    await query.edit_message_text(txt_canc)
 
 @requiere_registro
 async def callback_btn_guardar_registro(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
     items = context.user_data.get('pending_items', [])
     fecha = context.user_data.get('pending_fecha')
@@ -4197,12 +4378,17 @@ async def callback_btn_guardar_registro(update: Update, context: ContextTypes.DE
         tipo_registro = "Actividad" if momento == "Actividad" else "Comida"
         guardar_en_sheets(user_id, items, fecha, momento, tipo=tipo_registro)
         
-        txt_conf = f"✅ **¡Actividad guardada exitosamente!**\n📅 `{fecha}`" if momento == "Actividad" else f"✅ **¡Ingesta guardada exitosamente!**\n📅 `{fecha}` | `{momento}`"
+        if momento == "Actividad":
+            txt_conf = traducciones.get('bot_save_act_exito', f"✅ **¡Actividad guardada exitosamente!**\n📅 `{fecha}`")
+        else:
+            txt_conf = traducciones.get('bot_save_meal_exito', f"✅ **¡Ingesta guardada exitosamente!**\n📅 `{fecha}` | `{momento}`")
+            
         await query.edit_message_text(txt_conf, parse_mode="Markdown")
         context.user_data.pop('pending_items', None)
         context.user_data.pop('last_menu_msg_id', None)
     else:
-        await query.edit_message_text("❌ No se encontraron datos para guardar.")
+        txt_nodat = traducciones.get('bot_no_data', "❌ No se encontraron datos para guardar.")
+        await query.edit_message_text(txt_nodat)
 
 # ======================================================================================================================================
 #                FINAL                                      FUNCIONES DE BOTONES                        FINAL
@@ -4316,7 +4502,7 @@ async def cmd_borrar_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt += (
         "\n🗑️ <b>¿Cómo borrar una comida?</b>\n"
         "Copiá el nombre exacto de la lista de arriba y escribí el comando de la siguiente forma:\n"
-        "<code>/borrarcomida Nombre de la Comida</code>"
+        "<code>/borracomida Nombre de la Comida</code>"
     )
     
     try:
@@ -5774,6 +5960,8 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
         await recordatorio_lunes_presion(context)
 
     for index, u in enumerate(registros_usuarios):
+        user_id = None
+        raw_user_id = None
         try:
             estado_raw = str(u.get("Estado", u.get("estado", "0"))).strip().lower()
             notif = str(u.get("Notificaciones", "")).strip().lower()
@@ -5869,7 +6057,7 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 
             if es_martes_manana:
                 usuarios_actualizados = obtener_todos_usuarios()
-                usuario_actual = next((u for u in usuarios_actualizados if str(u.get("User ID", u.get("user_id", ""))).split('.')[0].strip() == str(user_id)), {})
+                usuario_actual = next((u_item for u_item in usuarios_actualizados if str(u_item.get("User ID", u_item.get("user_id", ""))).split('.')[0].strip() == str(user_id)), {})
                 current_estado_val = str(usuario_actual.get("Estado", usuario_actual.get("estado", "0"))).strip().lower()
                 if current_estado_val == '3':
                     continue
@@ -6048,9 +6236,9 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                 logger.info(f"Recordatorio de comidas ({momento}) enviado a {user_id}")
 
         except Exception as e:
-            logger.error(f"Error procesando usuario {user_id}: {e}")
-                                 
-
+            identificador = user_id or raw_user_id or u
+            logger.error(f"Error procesando usuario {identificador}: {e}")
+            
 # =============================================================================================================================================
 #                    FINAL                                    COMANDOS INFORMES                                        FINAL
 # =============================================================================================================================================
@@ -6074,7 +6262,11 @@ def cmd_nueva_cuenta(datos_usuario):
     altura = float(datos_usuario.get("altura", 0))
     peso = float(datos_usuario.get("peso", 0))
     muneca = float(datos_usuario.get("muneca", 0))
-    ocupacion = int(datos_usuario.get("ocupacion", 1375))
+    
+    # 🟢 CORRECCIÓN: Manejo decimal seguro de ocupación
+    raw_ocupacion = float(datos_usuario.get("ocupacion", 1.375))
+    ocupacion = raw_ocupacion / 1000.0 if raw_ocupacion > 10.0 else raw_ocupacion
+    
     peso_ideal = float(datos_usuario.get("peso_ideal", 0))
     cumple = datos_usuario.get("cumple", "")
     profesional = datos_usuario.get("profesional", "")
@@ -6144,8 +6336,8 @@ def cmd_nueva_cuenta(datos_usuario):
         cur_u.close()
         conn_u.close()
     except Exception as e:
-        logger.error(f"Error al insertar en la tabla maestra 'Usuarios' de Supabase para el usuario {user_id}: {e}")
-                            
+        logger.error(f"Error al insertar en la tabla maestra 'Usuarios' de Supabase para el usuario {user_id}: {e}")                            
+        
 def _verificar_estado_usuario_en_hoja(user_id):
     """Verifica si el usuario existe en Supabase y devuelve su estado o None."""
     try:
@@ -7108,15 +7300,18 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg_espera.edit_text("ℹ️ No tenés pacientes activos asignados en este momento.", parse_mode="Markdown")
             return
 
-        # 3. Determinar los últimos 6 meses dinámicamente
+        # 3. Determinar los últimos 6 meses dinámicamente en orden cronológico exacto
         ahora = obtener_ahora_arg()
         meses_a_evaluar = []
-        for i in range(6):
-            mes_calculado = ahora - timedelta(days=i * 30)
-            m_str = mes_calculado.strftime("%Y-%m")
-            if m_str not in meses_a_evaluar:
-                meses_a_evaluar.append(m_str)
-        meses_a_evaluar = sorted(list(set(meses_a_evaluar)))[-6:]
+        año_actual, mes_actual = ahora.year, ahora.month
+        
+        for i in range(5, -1, -1):
+            m_calc = mes_actual - i
+            y_calc = año_actual
+            while m_calc <= 0:
+                m_calc += 12
+                y_calc -= 1
+            meses_a_evaluar.append(f"{y_calc:04d}-{m_calc:02d}")
 
         texto_reporte = f"📋 **Listado de Pacientes Asignados**\n🩺 *Especialidad:* `{especialidad_prof}`\n\n"
         datos_para_pdf = []
@@ -7142,7 +7337,8 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             df_u = obtener_datos_usuario(u_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
             if not df_u.empty and 'Fecha' in df_u.columns:
-                df_u['Mes_Filtro'] = df_u['Fecha'].str.slice(0, 7)
+                # 🟢 CORRECCIÓN: Conversión a string antes del slice para evitar AttributeError
+                df_u['Mes_Filtro'] = df_u['Fecha'].astype(str).str.strip().str.slice(0, 7)
 
             for m_str in meses_a_evaluar:
                 prom_prot_m = 0
@@ -7237,15 +7433,14 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(
             document=buffer,
             filename=f"Reporte_Clinico_{esp_limpia}_{ahora.strftime('%Y-%m')}.pdf",
-            caption="📄 **Reporte clínico actualizado leyendo las columnas 'Alta' y 'Baja'.**",
+            caption="📄 **Reporte clínico consolidado de pacientes (últimos 6 meses).**",
             parse_mode="Markdown"
         )
 
     except Exception as e:
-        logger.error(f"Error al generar listado de pacientes para el profesional {prof_id}: {e}")
+        logger.error(f"Error al generar listado de pacientes para el profesional {prof_id}: {e}", exc_info=True)
         await msg_espera.edit_text(f"❌ Ocurrió un error al procesar el listado clínico: {e}")
-
-
+        
 #                    INICIO                                COMANDO INFORME MEDICO                                INICIO  
 # =============================================================================================================================================
 
@@ -7336,45 +7531,52 @@ def main():
         else:
             print("⚠️ Warning: job_queue is not available.")
        
+        # Conversación de alta / registro inicial
         app_bot.add_handler(conv_handler_ingreso)
 
-#==================================PROFESIONALES===============================================
+# ================================== PROFESIONALES ===============================================
         app_bot.add_handler(CommandHandler(["pacientes", "patients"], cmd_pacientes))
         app_bot.add_handler(CommandHandler(["informe", "report"], cmd_enviar_informe_actual))
-#=================================INGRESOS Y CONSULTAS MANUALES============================================
+
+# ================================= INGRESOS Y CONSULTAS MANUALES ===============================
         app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
-        app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
+        app_bot.add_handler(CommandHandler(["comidas", "c", "meals", "food"], cmd_comidas))
         app_bot.add_handler(CommandHandler(["perfil", "peso", "profile", "weight"], cmd_perfil))
         app_bot.add_handler(CommandHandler(["receta", "recipe"], cmd_cargar_receta))
         app_bot.add_handler(CommandHandler(["get", "GET"], cmd_factor_handler))
         app_bot.add_handler(CommandHandler(["eliminar", "delete"], cmd_eliminar))
         app_bot.add_handler(CommandHandler(["borracomida", "delmeal"], cmd_borrar_comida))
-#=================================INGRESOS Y CONSULTAS CON IA============================================
-        app_bot.add_handler(CommandHandler(["presion", "presi", "p", "pressure"], cmd_presion_handler))  
+
+# ================================= INGRESOS Y CONSULTAS CON IA =================================
+        app_bot.add_handler(CommandHandler(["presion", "presi", "pressure"], cmd_presion_handler))  
         app_bot.add_handler(CommandHandler(["dia", "d", "day"], cmd_diario))
         app_bot.add_handler(CommandHandler(["mes", "m", "month"], cmd_resumen))
-        app_bot.add_handler(CommandHandler(["semana", "s", "week"], cmd_mensaje))
+        app_bot.add_handler(CommandHandler(["semana", "s", "w", "week"], cmd_mensaje))
         app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
-#=================================ADMINISTRADOR============================================
+
+# ================================= ADMINISTRADOR ================================================
         app_bot.add_handler(CommandHandler(["migrar"], cmd_migrar))
         app_bot.add_handler(CommandHandler(["descargar"], cmd_descargar))
         app_bot.add_handler(CommandHandler(["importar"], cmd_importar_tabla))
 
+# ================================= CALLBACK QUERY HANDLERS ======================================
         app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
-        app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
-        app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_reportes_pdf, pattern="^(resumen_|descargar_pdf_|enviar_inf_)"))        
+        
+        # Reportes, resúmenes mensuales y PDFs
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_reportes_pdf, pattern="^(resumen_|descargar_pdf_|pdf_mes_|enviar_inf_)"))
 
+        # Acciones interactivas de menú y confirmación
         app_bot.add_handler(CallbackQueryHandler(callback_handler_actividades, pattern="^act_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_momentos, pattern="^set_m_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_fechas_diario, pattern="^(set_d_|diario_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_anular, pattern="^(edit_item_|del_item_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_guardar_cancelar, pattern="^(cancel_entry$|confirm_save$)"))
         
-        # 🟢 CORREGIDO: Patrón delimitado para que 'manejar_callback_eliminacion' no capture a 'del_item_'
-        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_(d_|mom_|reg_|borrar)"))
+        # Handler único para eliminación de registros
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_eliminacion, pattern="^del_(d_|mom_|reg_|borrar|cambiar|volver)"))
 
+# ================================= MESSAGE HANDLERS =============================================
         app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
         app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -7385,10 +7587,6 @@ def main():
     except Exception as e:
         logger.critical(f"❌ Critical error starting bot in main(): {e}", exc_info=True)
         raise e
-
-if __name__ == "__main__":
-    main()
-
 # =============================================================================================================================================
 #                                                   FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
