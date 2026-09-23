@@ -3353,7 +3353,7 @@ def analizar_con_groq(prompt_text):
     client_ai = globals().get('client_ai')
     if not client_ai:
         raise Exception("GROQ_API_KEY no está configurada correctamente.")
-
+    
     system_prompt = (
         "Sos un asistente inteligente de salud. Analiza el texto ingresado por el usuario y clasifícalo en una de estas tres categorías:\n"
         "1. COMIDA: Si el usuario menciona alimentos, platos o bebidas para ingerir.\n"
@@ -3377,7 +3377,7 @@ def analizar_con_groq(prompt_text):
     )
 
     response = client_ai.chat.completions.create(
-        model=globals().get('GROQ_TEXTO', "openai/gpt-oss-120b"),
+        model=globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile"),
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt_text}
@@ -3386,7 +3386,17 @@ def analizar_con_groq(prompt_text):
         response_format={"type": "json_object"}
     )
     return json.loads(response.choices[0].message.content)
-    
+
+    response = client_ai.chat.completions.create(
+        model=globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile"),
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt_text}
+        ],
+        temperature=0.1,
+        response_format={"type": "json_object"}
+    )
+    return json.loads(response.choices[0].message.content)                
 def analizar_imagen_con_groq(base64_image, user_caption=""):
     client_ai = globals().get('client_ai')
     if not client_ai:
@@ -3840,23 +3850,23 @@ async def _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, ch
     fecha_parseada = parsear_fecha_flexible(raw_text)
     msg_solic = context.user_data.pop('msg_solicitud_fecha_id', None)
     if msg_solic:
-        try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
-        except Exception:
-            pass
-    try:
-        await update.message.delete()
-    except Exception:
-        pass
+        try: await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
+        except Exception: pass
+    try: await update.message.delete()
+    except Exception: pass
 
     if fecha_parseada:
         context.user_data.update({'pending_fecha': fecha_parseada, 'awaiting_custom_date': False})
+        last_id = context.user_data.get('last_menu_msg_id')
+        if last_id:
+            try:
+                target = await context.bot.get_message(chat_id=chat_id, message_id=last_id)
+                await render_confirmation_screen(target, context)
+                return
+            except Exception: pass
         await render_confirmation_screen(update, context)
     else:
-        msg_err = await update.message.reply_text(
-            "⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):", 
-            parse_mode="Markdown"
-        )
+        msg_err = await update.message.reply_text("⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
         context.user_data['msg_solicitud_fecha_id'] = msg_err.message_id
 
 async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
@@ -3876,40 +3886,37 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
                 nuevo_p, nueva_d = peso_prev, item_previo.get('alimento', '')
                 if ',' in raw_text:
                     p = raw_text.split(',', 1)
-                    if p[0].strip():
-                        nueva_d = p[0].strip()
-                    if p[1].strip():
-                        nuevo_p = float(re.sub(r'[^\d.]', '', p[1].replace(',', '.')))
+                    if p[0].strip(): nueva_d = p[0].strip()
+                    if p[1].strip(): nuevo_p = float(re.sub(r'[^\d.]', '', p[1].replace(',', '.')))
                 else:
-                    try:
-                        nuevo_p = float(re.sub(r'[^\d.]', '', raw_text.replace(',', '.')))
-                    except ValueError:
-                        nueva_d = raw_text
+                    try: nuevo_p = float(re.sub(r'[^\d.]', '', raw_text.replace(',', '.')))
+                    except ValueError: nueva_d = raw_text
 
                 factor = (nuevo_p / peso_prev) if peso_prev > 0 else 1.0
                 item_previo.update({
-                    "alimento": nueva_d,
-                    "alimento_display": nueva_d.replace('§', '').strip(),
-                    "peso": nuevo_p,
-                    "calorias": float(item_previo.get('calorias', 0)) * factor,
-                    "proteinas": float(item_previo.get('proteinas', 0)) * factor,
-                    "grasas": float(item_previo.get('grasas', 0)) * factor,
-                    "carbohidratos": float(item_previo.get('carbohidratos', 0)) * factor,
+                    "alimento": nueva_d, "alimento_display": nueva_d.replace('§', '').strip(), "peso": nuevo_p,
+                    "calorias": float(item_previo.get('calorias', 0)) * factor, "proteinas": float(item_previo.get('proteinas', 0)) * factor,
+                    "grasas": float(item_previo.get('grasas', 0)) * factor, "carbohidratos": float(item_previo.get('carbohidratos', 0)) * factor,
                     "fibras": float(item_previo.get('fibras', 0)) * factor
                 })
             items[idx] = item_previo
             context.user_data['pending_items'] = items
             await msg_espera.delete()
-            try:
-                await update.message.delete()
-            except Exception:
-                pass
+            try: await update.message.delete()
+            except Exception: pass
         except Exception as e:
             await msg_espera.edit_text(f"❌ Error al editar: {e}")
 
-    context.user_data['awaiting_edit_item_val'] = False
+    context.user_data.update({'awaiting_edit_item_val': False})
     context.user_data.pop('editing_item_idx', None)
-
+    
+    last_id = context.user_data.get('last_menu_msg_id')
+    if last_id:
+        try:
+            target = await context.bot.get_message(chat_id=chat_id, message_id=last_id)
+            await render_confirmation_screen(target, context)
+            return
+        except Exception: pass
     await render_confirmation_screen(update, context)
 
 async def _sub_manejar_plantilla_comida(update, context, raw_text, user_id):
@@ -4392,12 +4399,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not raw_text: 
         return
 
-    # Intercepta el texto para la nota de la presión (sin botones)
+    # 🟢 NUEVO: Intercepta el texto para la nota de la presión (sin botones)
     if context.user_data.get('awaiting_presion_nota'):
         context.user_data.pop('awaiting_presion_nota', None)
         datos_presion = context.user_data.pop('pending_presion_foto', None)
 
-        # Si el usuario escribe "cancelar", se cancela el ingreso
+        # Si el usuario escribe "cancelar", abortamos
         if raw_text.lower() == "cancelar":
             await update.message.reply_text("❌ Registro de presión cancelado.")
             return
@@ -4408,6 +4415,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pulsaciones = datos_presion.get("pulsaciones")
             nota = raw_text  # Todo lo que escriba pasa a ser la nota aclaratoria
 
+            # Guardamos en Supabase con la nota ingresada
             guardar_presion_db(user_id, alta, baja, pulsaciones, nota=nota)
 
             pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
@@ -4422,24 +4430,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Los datos temporales de la presión expiraron.")
         return
 
-    # Captura del código de barras solicitado por /barra
-    if context.user_data.get('awaiting_barcode_input'):
-        context.user_data.pop('awaiting_barcode_input', None)
-        msg_solic = context.user_data.pop('msg_solicitud_barcode_id', None)
-        if msg_solic:
-            try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
-            except Exception:
-                pass
-        
-        barcode_clean = re.sub(r'[^\d]', '', raw_text)
-        if barcode_clean:
-            await procesar_codigo_ingresado(update.message, context, barcode_clean)
-        else:
-            await update.message.reply_text("⚠️ No se detectaron números válidos para el código de barras.")
-        return
-
-    # Validaciones de estados pendientes
+    # 🟢 CORREGIDO: Se agregó la validación pendiente para capturar la fecha personalizada ("Otro Día")
     if context.user_data.get('awaiting_custom_date'):
         await _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id)
         return
@@ -4459,14 +4450,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _sub_manejar_plantilla_comida(update, context, raw_text, user_id)
         return
 
-    # Procesamiento general de alimentos con IA
     msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
     try:
         data = analizar_con_groq(raw_text)
         await procesar_y_mostrar_confirmacion(data, msg, context)
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar el texto: {e}")
-                
+        
+        
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
@@ -5019,6 +5010,172 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=keyboard, 
         parse_mode="Markdown"
     )
+
+async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        query = update.callback_query
+        user_id = update.effective_user.id
+
+        ahora = obtener_ahora_arg()
+        mes_actual_str = ahora.strftime("%Y-%m")
+        dia_actual = ahora.day
+
+        mes_str = None
+        if query and query.data:
+            await query.answer()
+            cb_data = query.data
+
+            if cb_data == "resumen_mes_menu_otros":
+                botones_meses = []
+                primer_dia_mes_actual = ahora.replace(day=1)
+                for i in range(1, 7):
+                    mes_iter = (primer_dia_mes_actual - pd.DateOffset(months=i)).strftime("%Y-%m")
+                    botones_meses.append([InlineKeyboardButton(f"🗓️ Período {mes_iter}", callback_data=f"resumen_mes_{mes_iter}")])
+                
+                botones_meses.append([InlineKeyboardButton("🔙 Volver", callback_data="resumen_volver_menu")])
+                
+                await query.edit_message_text(
+                    "🗓️ **Seleccioná el mes que querés consultar:**", 
+                    reply_markup=InlineKeyboardMarkup(botones_meses),
+                    parse_mode="Markdown"
+                )
+                return
+
+            elif cb_data == "resumen_volver_menu":
+                mes_anterior_str = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+                
+                if 1 <= dia_actual <= 7:
+                    keyboard = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior_str}")],
+                        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+                    ])
+                else:
+                    keyboard = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual_str}")],
+                        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior_str}")],
+                        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+                    ])
+
+                await query.edit_message_text(
+                    "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", 
+                    reply_markup=keyboard, 
+                    parse_mode="Markdown"
+                )
+                return
+
+            elif cb_data.startswith("resumen_mes_"):
+                mes_str = cb_data.replace("resumen_mes_", "")
+
+        elif context.args:
+            mes_str = context.args[0]
+
+        if not mes_str:
+            mes_str = mes_actual_str
+
+        if mes_str == mes_actual_str and 1 <= dia_actual <= 7:
+            msg = "⚠️ No se encuentra disponible el resumen del mes actual durante los primeros 7 días del mes."
+            if query:
+                await query.edit_message_text(msg, parse_mode="Markdown")
+            else:
+                await update.message.reply_text(msg, parse_mode="Markdown")
+            return
+
+        if mes_str == mes_actual_str:
+            if not await _validar_peso_mes_actual(update, context):
+                return
+
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        
+        if not df_datos.empty and 'Fecha' in df_datos.columns:
+            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce')
+            hoy_comienzo = pd.Timestamp.now().floor('D')
+            
+            if mes_str == mes_actual_str:
+                df_mes = df_datos[
+                    (df_datos['Fecha'].astype(str).str.startswith(mes_str)) & 
+                    (df_datos['Fecha_dt'] < hoy_comienzo)
+                ].copy()
+            else:
+                df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)].copy()
+        else:
+            df_mes = pd.DataFrame()
+
+        if df_mes.empty:
+            msg = f"⚠️ No hay registros cargados para el mes `{mes_str}`."
+            if query:
+                await query.edit_message_text(msg, parse_mode="Markdown")
+            else:
+                await update.message.reply_text(msg, parse_mode="Markdown")
+            return
+
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
+        m = calcular_metricas_mensuales(df_mes, perfil)
+
+        minutos_mes_act = 0
+        dias_activos_act = m.get('dias_registrados', 1) if m.get('dias_registrados', 1) > 0 else 1
+        if not df_mes.empty and 'Momento' in df_mes.columns and 'Alimento' in df_mes.columns:
+            for _, row in df_mes.iterrows():
+                momento_str = str(row.get('Momento', '')).strip().lower()
+                alimento_str = str(row.get('Alimento', '')).strip()
+                cal_val = float(row.get('Calorias', 0) or 0)
+                if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
+                    match = re.match(r'^(\d+)', alimento_str)
+                    if match:
+                        minutos_mes_act += int(match.group(1))
+        prom_minutos_mes_act = int(round(minutos_mes_act / dias_activos_act))
+
+        peso_act_val = float(m.get('peso_actual', 0))
+        peso_ref_val = float(m.get('peso_referencia', 0))
+        if 'calcular_rango_actividad_fisica' in globals():
+            act_min_val, act_max_val = calcular_rango_actividad_fisica(peso_act_val, peso_ref_val)
+        else:
+            act_min_val, act_max_val = 30, 60
+
+        def _fmt(val, dec=0):
+            try:
+                num = float(val)
+                return f"{num:.{dec}f}" if dec > 0 else f"{int(round(num))}"
+            except (ValueError, TypeError):
+                return "0"
+
+        cambio_peso_val = float(m.get('cambio_peso_kg', 0))
+        texto_variacion_peso = f"`{cambio_peso_val:+.1f} kg`"
+
+        # 🟢 EXCLUSIVO DE PYTHON (SIN IA): Reporte rápido manual limpio de cálculos puros
+        encabezado_txt = (
+            f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n"
+            f"⚖️ Peso registrado: `{_fmt(m.get('peso_actual', 0), 1)} kg`\n\n"
+            f"• Consumidas: `{_fmt(m.get('prom_cal', 0))} kcal` | Quemadas: `{_fmt(m.get('prom_quem', 0))} kcal`\n"
+            f"• Balance Neto: `{_fmt(m.get('prom_bal_neto', 0))} kcal/día`\n"
+            f"• Variación Est. de Peso: {texto_variacion_peso} ({m.get('dias_registrados', 0)} días)\n\n"
+            f"📈 **Promedios vs. Rangos Saludables:**\n"
+            f"• Calorías: `{_fmt(m.get('prom_cal', 0))} kcal` / Rango: `{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal`\n"
+            f"• Proteínas: `{_fmt(m.get('prom_prot', 0))} g` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
+            f"• Grasas: `{_fmt(m.get('prom_gras', 0))} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
+            f"• Carbs: `{_fmt(m.get('prom_carb', 0))} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
+            f"• Fibras: `{_fmt(m.get('prom_fibr', 0))} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
+            f"• Actividad Física: `{prom_minutos_mes_act} min/día` / Rango: `{act_min_val} - {act_max_val} min/día`\n\n"
+            f"_(Nota: Reporte generado mediante métricas analíticas directas)._"
+        )
+
+        pie_txt = f"\n\n📄 Podés descargar el informe completo en PDF abajo:"
+        txt_final = f"{encabezado_txt}{pie_txt}"
+
+        keyboard = [[InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"descargar_pdf_resumen_{mes_str}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        if query:
+            await query.edit_message_text(txt_final, reply_markup=reply_markup, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(txt_final, reply_markup=reply_markup, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Error en mostrar_resumen_mes: {e}", exc_info=True)
+        msg_err = f"⚠️ Ocurrió un error al generar el resumen mensual: {e}"
+        if update.callback_query:
+            await update.callback_query.edit_message_text(msg_err)
+        else:
+            await update.message.reply_text(msg_err)
                                     
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
     buffer = io.BytesIO()
@@ -7079,7 +7236,7 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 # ==========================================================================================================================================
 
 # ==========================================================================================================================================
-#                    INICIO                                       MAIN                                       INICIO  
+#                                                   INICIO                                       MAIN                                       INICIO  
 # ==========================================================================================================================================
 
 async def job_recordatorio_manana(context):
@@ -7124,7 +7281,7 @@ def main():
                 name="recordatorio_comidas_tarde"
             )
 
-            # 🌙 Tarea automática de Buenas Noches
+            # 🌙 Nueva tarea automática de Buenas Noches
             job_queue.run_daily(
                 job_buenas_noches, 
                 time=time(hour=21, minute=30, second=0, tzinfo=tz),
@@ -7155,24 +7312,28 @@ def main():
         app_bot.add_handler(CommandHandler(["eliminar", "borrar"], cmd_eliminar))
         app_bot.add_handler(CommandHandler(["delcomida", "borracomida"], cmd_borrar_comida))
 
-        # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS) ---
+
+        # --- HANDLERS DE BOTONES INTERACTIVOS (CALLBACKS PANTALLA Y PDF) ---
         app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
+        app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
+        app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
 
-        # Reportes mensuales, PDFs e Informes Médicos
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_reportes_pdf, pattern="^(resumen_|descargar_pdf_|enviar_inf_)"))
-
-        # Eliminación de registros (/eliminar)
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_reportes_pdf, pattern="^(resumen_|descargar_pdf_|enviar_inf_)"))        
+       
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_"))
 
-        # Acciones de confirmación de ingestas y actividades
+        # Enrutadores de botones interactivos para texto, voz, fotos y confirmación
         app_bot.add_handler(CallbackQueryHandler(callback_handler_actividades, pattern="^act_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_momentos, pattern="^set_m_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_fechas_diario, pattern="^(set_d_|diario_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_anular, pattern="^(edit_item_|del_item_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_guardar_cancelar, pattern="^(cancel_entry$|confirm_save$)"))
+        
+        # Enrutador específico para los botones del comando de eliminación (del_)
+        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_"))
 
-        # --- HANDLERS DE MENSAJES MULTIMEDIA Y TEXTO LIBRE ---
+        # --- HANDLERS DE MENSAJES Y CONSULTAS ---
         app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
         app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
