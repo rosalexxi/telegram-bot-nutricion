@@ -2127,7 +2127,6 @@ async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #              FINAL                            FUNCIONES SUPABASE                 FINAL
 # =============================================================================================================================================
 
-
 # =============================================================================================================================================
 #              INICIO                         FUNCIONES AUXILIARES INTERNAS                  INICIO
 # =============================================================================================================================================
@@ -2213,7 +2212,6 @@ def analizar_frecuencia_alimentos_mes(df_o_user_id, cat_dict_o_mes=None, col_int
             df_mes = df_o_user_id
             cat_dict = cat_dict_o_mes if isinstance(cat_dict_o_mes, dict) else {}
 
-        # 🟢 CORREGIDO: Corrección del operador de morsa para evitar errores de sintaxis
         if otras_categorias is None:
             otras_categorias = {}
             
@@ -2427,9 +2425,6 @@ def procesar_foto_codigo_barras(base64_image: str) -> dict | bool:
         return False
 
 def calcular_metricas_mensuales(df_mes, perfil_dict):
-    """Procesa los cálculos mensuales calculando el peso de etapa (promedio ponderado) 
-    y entregándoselo al informe, manteniendo oculto el ideal final real."""
-    
     if df_mes is not None and not df_mes.empty and 'Fecha' in df_mes.columns:
         todas_comidas = {"Desayuno", "Almuerzo", "Merienda", "Cena"}
         comidas_principales = {"Almuerzo", "Cena"}
@@ -2505,10 +2500,8 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     is_femenino = gen_clean in ["femenino", "f", "mujer", "female"]
     ritmo_usuario = str(perfil_dict.get('Ritmo') or perfil_dict.get('ritmo_preferido', 'moderado')).strip()
 
-    # 1. El peso ideal secreto (ej. 81.0 kg) que viene guardado o precalculado
     peso_ideal_secreto = get_perfil_num(['peso_ideal_secreto', 'peso_ideal', 'Peso_Ideal'], 81.0)
 
-    # 2. Factor según el ritmo seleccionado por el usuario
     ritmo_clean = ritmo_usuario.lower()
     if "tranquilo" in ritmo_clean or "lento" in ritmo_clean:
         factor_actual = 0.90
@@ -2518,10 +2511,8 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         factor_actual = 0.85
     factor_ideal = 1.0 - factor_actual
 
-    # 3. El cálculo exacto del peso promedio (peso de etapa)
     peso_etapa_calculado = (peso_actual * factor_actual) + (peso_ideal_secreto * factor_ideal)
     
-    # 4. Le asignamos este valor calculado tanto a la referencia como al ideal visible (la mentira piadosa para el informe)
     peso_referencia = round(peso_etapa_calculado, 1)
     peso_ideal_dinamico = peso_referencia  
 
@@ -2586,8 +2577,8 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "ideal_carb": carb_max,
         "ideal_fibr": fibr_min_val,
         "peso_actual": round(float(peso_actual), 1),
-        "peso_ideal": round(float(peso_ideal_dinamico), 1),     # Aquí va el peso de etapa (ej. 101.1)
-        "peso_referencia": round(float(peso_referencia), 1),   # Aquí también va el peso de etapa
+        "peso_ideal": round(float(peso_ideal_dinamico), 1),
+        "peso_referencia": round(float(peso_referencia), 1),
         "altura": round(float(altura), 1),
         "edad": edad,
         "get_meta": get_meta,
@@ -2603,18 +2594,12 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     }
 
 def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
-    """
-    Verifica si existe la fila del mes actual en la tabla Perfil_<user_id> en Supabase.
-    Si no existe (ej: 1 de cada mes), toma los datos vigentes del último registro
-    y crea la nueva fila inicializada de forma transparente.
-    """
     mes_actual_str = ahora_dt.strftime("%Y-%m")
     tabla_nombre = f"Perfil_{user_id}"
 
     try:
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
         
-        # 1. Verificar si ya existe el mes actual
         cur.execute(f'SELECT id FROM "{tabla_nombre}" WHERE "MES" = %s', (str(mes_actual_str),))
         fila_existente = cur.fetchone()
         
@@ -2625,7 +2610,6 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
 
         logger.info(f"Inicializando nueva fila mensual ({mes_actual_str}) para User {user_id} en Supabase...")
 
-        # 2. Buscar el último registro histórico para heredar el último peso y datos base
         cur.execute(f'SELECT "EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "Peso_ideal", "Cumple" FROM "{tabla_nombre}" ORDER BY id DESC LIMIT 1')
         ultima_fila = cur.fetchone()
         
@@ -2646,7 +2630,6 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
             peso_ideal_val = 0.0
             cumple_val = ""
 
-        # 3. Insertar la nueva fila para el mes actual en Supabase
         cur.execute(f"""
             INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -2811,7 +2794,6 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
         return False
 
 async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
-    # Consulta la capa de datos externa
     df_presion = obtener_datos_presion_db(user_id)
     if df_presion.empty:
         txt = f"🩺 No hay registros de presión arterial para el usuario `{user_id}`."
@@ -2905,7 +2887,7 @@ def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
 # =============================================================================================================================================
 
 def obtener_idioma_usuario(user_id):
-    """Obtiene el idioma configurado para un usuario de Telegram desde Supabase[cite: 2, 7]."""
+    """Obtiene el idioma configurado para un usuario de Telegram desde Supabase[cite: 2]."""
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
         cur.execute('SELECT "Idioma" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
@@ -2919,7 +2901,7 @@ def obtener_idioma_usuario(user_id):
     return 'en'
 
 def obtener_traducciones_db(lang):
-    """Consulta la tabla 'multi' en Supabase y devuelve un diccionario con las traducciones[cite: 2, 7]."""
+    """Consulta la tabla 'multi' en Supabase y devuelve un diccionario con las traducciones[cite: 2]."""
     traducciones = {}
     col_lang = "ES" if str(lang).strip().lower() == "es" else "EN"
     try:
@@ -2940,7 +2922,7 @@ def obtener_traducciones_db(lang):
     return traducciones
 
 def requiere_registro(func):
-    """Decorador limpio con avisos estándar adaptados en inglés[cite: 2, 7]."""
+    """Decorador limpio con avisos estándar adaptados en inglés[cite: 2]."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = str(update.effective_user.id).strip()
