@@ -2711,6 +2711,9 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
 # =============================================================================================================================================
 
 async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     try:
         peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
         if not peso_ok and not forzar_envio:
@@ -2718,7 +2721,8 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
 
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
         if df_datos.empty or 'Fecha' not in df_datos.columns:
-            await context.bot.send_message(chat_id=user_id, text="⚠️ No hay registros suficientes para generar el informe.")
+            msg_nodata = traducciones.get("sup_inf_no_registros", "⚠️ Not enough records to generate the report.")
+            await context.bot.send_message(chat_id=user_id, text=msg_nodata)
             return False
 
         df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
@@ -2734,20 +2738,22 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
         if es_automatico_15:
             inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
             fin_periodo = pd.Timestamp(f"{mes_target}-14").normalize()
-            etiqueta_periodo = f"Quincenal ({mes_target}: 1 al 14)"
+            etiqueta_periodo = f"Bi-weekly ({mes_target}: 1 to 14)" if lang == 'en' else f"Quincenal ({mes_target}: 1 al 14)"
         else:
             inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
             if mes_target == mes_actual_str:
                 fin_periodo = ayer_ts
-                etiqueta_periodo = f"Mes Actual en curso ({mes_target}: del 01 al {ayer_ts.strftime('%d/%m')})"
+                etiqueta_periodo = f"Current month ongoing ({mes_target}: from 01 to {ayer_ts.strftime('%d/%m')})" if lang == 'en' else f"Mes Actual en curso ({mes_target}: del 01 al {ayer_ts.strftime('%d/%m')})"
             else:
                 fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
-                etiqueta_periodo = f"Mes Completo ({mes_target})"
+                etiqueta_periodo = f"Full Month ({mes_target})" if lang == 'en' else f"Mes Completo ({mes_target})"
 
         df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
 
         if df_filtrado.empty:
-            await context.bot.send_message(chat_id=user_id, text=f"⚠️ No se encontraron registros cerrados para el período {etiqueta_periodo}.")
+            msg_template = traducciones.get("sup_inf_sin_registros_periodo", "⚠️ No closed records found for the period {etiqueta_periodo}.")
+            msg_closed = msg_template.format(etiqueta_periodo=etiqueta_periodo)
+            await context.bot.send_message(chat_id=user_id, text=msg_closed)
             return False
 
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
@@ -2768,7 +2774,7 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
         )
 
         if not informe_ia:
-            informe_ia = "<b>⚠️ No se pudo generar el informe auditado mediante IA tras los reintentos.</b>"
+            informe_ia = traducciones.get("sup_inf_error_ia", "<b>⚠️ Could not generate the AI audited report after retries.</b>")
 
         recomendacion_pdf = (
             informe_ia
@@ -2790,13 +2796,18 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
         )
         return True
     except Exception as e:
-        logger.error(f"Error en procesar_y_enviar_informe_mensual para {user_id}: {e}")
+        logger.error(f"Error in procesar_y_enviar_informe_mensual for {user_id}: {e}")
         return False
-
+        
+        
 async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     df_presion = obtener_datos_presion_db(user_id)
     if df_presion.empty:
-        txt = f"🩺 No hay registros de presión arterial para el usuario `{user_id}`."
+        # Mensaje informativo para el usuario convertido en variable
+        txt = traducciones.get("sup_sin_presion_usuario", f"🩺 No blood pressure records found for user `{user_id}`.").format(user_id=user_id)
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(txt, parse_mode="Markdown")
         else:
@@ -2805,7 +2816,8 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
 
     df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
     if df_p_mes.empty:
-        txt = f"🩺 No hay registros de presión para el mes `{mes_str}`."
+        # Mensaje informativo para el usuario convertido en variable
+        txt = traducciones.get("sup_sin_presion_mes", f"🩺 No blood pressure records found for the month `{mes_str}`.").format(mes_str=mes_str)
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(txt, parse_mode="Markdown")
         else:
@@ -2816,24 +2828,27 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
     baja_prom = df_p_mes['Baja'].mean()
     pul_prom = df_p_mes[df_p_mes['Pulsaciones'] > 0]['Pulsaciones'].mean() if 'Pulsaciones' in df_p_mes.columns else 0
 
-    txt = (
-        f"🩺 **Resumen de Presión Arterial ({mes_str}):**\n\n"
-        f"• Mediciones registradas: `{len(df_p_mes)}`\n"
-        f"• **Promedio Alta (Sistólica):** `{alta_prom:.1f} mmHg`\n"
-        f"• **Promedio Baja (Diastólica):** `{baja_prom:.1f} mmHg`\n"
-    )
-    if pul_prom > 0:
-        txt += f"• **Promedio Pulsaciones:** `{pul_prom:.1f} lpm`\n"
+    titulo_resumen = traducciones.get("sup_resumen_presion_titulo", "🩺 <b>Blood Pressure Summary ({mes_str}):</b>").format(mes_str=mes_str)
+    mediciones_reg = traducciones.get("sup_mediciones_registradas", "• Recorded measurements: `{count}`").format(count=len(df_p_mes))
+    prom_alta = traducciones.get("sup_prom_alta", "• <b>Average High (Systolic):</b> `{alta:.1f} mmHg`").format(alta=alta_prom)
+    prom_baja = traducciones.get("sup_prom_baja", "• <b>Average Low (Diastolic):</b> `{baja:.1f} mmHg`").format(baja=baja_prom)
+    
+    txt = f"{titulo_resumen}\n\n{mediciones_reg}\n{prom_alta}\n{prom_baja}\n"
 
+    if pul_prom > 0:
+        prom_pulso = traducciones.get("sup_prom_pulsaciones", "• <b>Average Pulse:</b> `{pul:.1f} bpm`").format(pul=pul_prom)
+        txt += f"{prom_pulso}\n"
+
+    btn_texto = traducciones.get("sup_btn_descargar_pdf_presion", "📄 Download Daily Pressure PDF")
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📄 Descargar PDF Presión Diaria", callback_data=f"descargar_pdf_presion_{mes_str}")]
+        [InlineKeyboardButton(btn_texto, callback_data=f"descargar_pdf_presion_{mes_str}")]
     ])
 
     if hasattr(query_or_update, 'edit_message_text'):
         await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
     else:
         await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
-
+        
 def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
@@ -3484,6 +3499,15 @@ def analizar_imagen_con_groq(image_bytes: bytes, prompt_usuario: str = "", user_
     raw_text = response.choices[0].message.content.strip()
     return json.loads(raw_text)
 
+
+# =====================================================================================================================================
+#                FINAL                          FUNCIONES IA GROQ                                     FINAL
+# =====================================================================================================================================
+
+# =====================================================================================================================================
+#                INICIO                          FUNCIONES HUERFANAS                                  INICIO
+# =====================================================================================================================================
+
 def detectar_codigo_con_groq(image_bytes: bytes, user_id=None) -> str:
     client_ai = globals().get('client_ai')
     if not client_ai:
@@ -3518,12 +3542,25 @@ def detectar_codigo_con_groq(image_bytes: bytes, user_id=None) -> str:
         logger.error(f"Error detectando código en imagen: {e}")
         return ""
 
+def analizar_foto_presion_con_groq(base64_image: str) -> dict:
+    client_ai = globals().get('client_ai')
+    if not client_ai: return {"es_presion": False}
+    prompt = "Analiza esta imagen. ¿Es la pantalla de un tensiómetro digital que muestra valores de presión arterial? Si es así, extrae los valores numéricos de la presión sistólica (Alta), diastólica (Baja) y las pulsaciones. Responde ÚNICAMENTE en formato JSON: {\"es_presion\": true/false, \"alta\": 0.0, \"baja\": 0.0, \"pulsaciones\": 0.0}"
+    try:
+        response = client_ai.chat.completions.create(
+            model=globals().get('GROQ_FOTO', "qwen/qwen3.8-27b"),
+            messages=[{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
+            temperature=0.0, response_format={"type": "json_object"}
+        )
+        return json.loads(response.choices[0].message.content)
+    except Exception: return {"es_presion": False}
+
 # =====================================================================================================================================
-#                FINAL                          FUNCIONES IA GROQ                                     FINAL
+#                FINAL                          FUNCIONES HUERFANAS                                     FINAL
 # =====================================================================================================================================
 
 # ======================================================================================================================================
-#                  INICIO               COMANDOS CONFIRMACION Y COMANDOS MENU                     INICIO
+#                  INICIO               COMANDOS CONFIRMACION COMANDOS MENU COMANDOS BOTONES                    INICIO
 # ======================================================================================================================================
 
 #                  INICIO               INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO
@@ -4116,19 +4153,6 @@ async def _sub_manejar_voz_actividad(update, context, transcription, msg):
     context.user_data['last_menu_msg_id'] = msg_menu.message_id
     await render_confirmation_screen(msg_menu, context)
     
-def analizar_foto_presion_con_groq(base64_image: str) -> dict:
-    client_ai = globals().get('client_ai')
-    if not client_ai: return {"es_presion": False}
-    prompt = "Analiza esta imagen. ¿Es la pantalla de un tensiómetro digital que muestra valores de presión arterial? Si es así, extrae los valores numéricos de la presión sistólica (Alta), diastólica (Baja) y las pulsaciones. Responde ÚNICAMENTE en formato JSON: {\"es_presion\": true/false, \"alta\": 0.0, \"baja\": 0.0, \"pulsaciones\": 0.0}"
-    try:
-        response = client_ai.chat.completions.create(
-            model=globals().get('GROQ_FOTO', "qwen/qwen3.8-27b"),
-            messages=[{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
-            temperature=0.0, response_format={"type": "json_object"}
-        )
-        return json.loads(response.choices[0].message.content)
-    except Exception: return {"es_presion": False}
-
 async def _sub_manejar_foto_presion(update, context, res_presion, msg):
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
@@ -4343,20 +4367,27 @@ def construir_texto_listado_comidas(user_id, comidas):
 async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
+    # Obtener idioma y traducciones para el usuario
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    
     comidas = obtener_comidas_usuario(user_id)
     
     if not comidas:
-        await update.message.reply_text(f"📋 No hay comidas predeterminadas registradas en la hoja 'Comidas_{user_id}'.")
+        msg_no_comidas = traducciones.get("bot_no_comidas_precargadas", f"📋 No hay comidas predeterminadas registradas en la hoja 'Comidas_{user_id}'.")
+        await update.message.reply_text(msg_no_comidas)
         return
 
     txt = construir_texto_listado_comidas(user_id, comidas)
-    txt += "\n📄 Te adjuntamos el archivo en PDF completo con todos los macronutrientes a continuación."
+    msg_adjunto = traducciones.get("bot_adjunto_pdf_comidas", "\n📄 Te adjuntamos el archivo en PDF completo con todos los macronutrientes a continuación.")
+    txt += msg_adjunto
     
     try:
         await update.message.reply_text(txt, parse_mode="HTML")
     except Exception as e:
         print(f"Error enviando texto de comidas: {e}")
-        await update.message.reply_text("📋 Generando tu lista de comidas en PDF directamente...")
+        msg_generando = traducciones.get("bot_generando_pdf_comidas", "📋 Generando tu lista de comidas en PDF directamente...")
+        await update.message.reply_text(msg_generando)
 
     try:
         pdf_bytes = generar_pdf_comidas_bytes(comidas)
@@ -4367,12 +4398,16 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         print(f"Error generando PDF de comidas: {e}")
-        await update.message.reply_text("❌ Ocurrió un error al generar el archivo PDF.")
-
+        msg_err_pdf = traducciones.get("bot_error_gen_pdf", "❌ Ocurrió un error al generar el archivo PDF.")
+        await update.message.reply_text(msg_err_pdf)
 
 @requiere_registro
 async def cmd_borrar_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    
+    # Obtener idioma y traducciones para el usuario
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
     if context.args:
         nombre_a_borrar = " ".join(context.args).strip()
@@ -4380,8 +4415,9 @@ async def cmd_borrar_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
         comida_encontrada = buscar_comida_precargada_exacta(user_id, nombre_a_borrar)
         
         if not comida_encontrada:
+            msg_no_enc = traducciones.get("bot_comida_no_encontrada", f"❌ No se encontró ninguna comida registrada con el nombre exacto: <b>{nombre_a_borrar}</b>.")
             await update.message.reply_text(
-                f"❌ No se encontró ninguna comida registrada con el nombre exacto: <b>{nombre_a_borrar}</b>.",
+                msg_no_enc.format(nombre=nombre_a_borrar),
                 parse_mode="HTML"
             )
             return
@@ -4389,13 +4425,15 @@ async def cmd_borrar_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
         exito = eliminar_comida_precargada_db(user_id, comida_encontrada['nombre'])
         
         if exito:
+            msg_exito = traducciones.get("bot_comida_borrada_exito", f"✅ La comida <b>{comida_encontrada['nombre']}</b> ha sido eliminada exitosamente de tu planilla.")
             await update.message.reply_text(
-                f"✅ La comida <b>{comida_encontrada['nombre']}</b> ha sido eliminada exitosamente de tu planilla.",
+                msg_exito.format(nombre=comida_encontrada['nombre']),
                 parse_mode="HTML"
             )
         else:
+            msg_err_db = traducciones.get("bot_error_db_borrar", f"❌ Hubo un error en la base de datos al intentar borrar <b>{comida_encontrada['nombre']}</b>.")
             await update.message.reply_text(
-                f"❌ Hubo un error en la base de datos al intentar borrar <b>{comida_encontrada['nombre']}</b>.",
+                msg_err_db.format(nombre=comida_encontrada['nombre']),
                 parse_mode="HTML"
             )
         return
@@ -4403,21 +4441,20 @@ async def cmd_borrar_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
     comidas = obtener_comidas_usuario(user_id)
     
     if not comidas:
-        await update.message.reply_text(f"📋 No hay comidas predeterminadas registradas para eliminar.")
+        msg_no_reg = traducciones.get("bot_no_comidas_borrar", f"📋 No hay comidas predeterminadas registradas para eliminar.")
+        await update.message.reply_text(msg_no_reg)
         return
 
     txt = construir_texto_listado_comidas(user_id, comidas)
-    txt += (
-        "\n🗑️ <b>¿Cómo borrar una comida?</b>\n"
-        "Copiá el nombre exacto de la lista de arriba y escribí el comando de la siguiente forma:\n"
-        "<code>/borrarcomida Nombre de la Comida</code>"
-    )
+    msg_instruccion = traducciones.get("bot_como_borrar_comida", "\n🗑️ <b>¿Cómo borrar una comida?</b>\nCopiá el nombre exacto de la lista de arriba y escribí el comando de la siguiente forma:\n<code>/borrarcomida Nombre de la Comida</code>")
+    txt += msg_instruccion
     
     try:
         await update.message.reply_text(txt, parse_mode="HTML")
     except Exception as e:
         print(f"Error enviando texto de borrado: {e}")
-        await update.message.reply_text("📋 Ocurrió un error al mostrar el listado.")
+        msg_err_list = traducciones.get("bot_error_mostrar_listado", "📋 Ocurrió un error al mostrar el listado.")
+        await update.message.reply_text(msg_err_list)
 
 def buscar_comida_precargada_exacta(user_id, texto_codigo):
     codigo_buscado = texto_codigo.strip().upper()
@@ -4516,8 +4553,14 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ========================================================================================================================================
 
 async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
-    chat_id = message_obj.chat_id
-    msg_espera = await message_obj.reply_text("🔍 Analizando código de barras y verificando producto...")
+    user_id = message_obj.from_user.id
+    
+    # Obtener idioma y traducciones para el usuario
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    
+    msg_analizando = traducciones.get("bot_analizando_barra", "🔍 Analizando código de barras y verificando producto...")
+    msg_espera = await message_obj.reply_text(msg_analizando)
     
     try:
         resultado_api = consultar_codigo_barras(barcode_text)
@@ -4538,7 +4581,8 @@ async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
             fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
 
             await msg_espera.delete()
-            msg_menu = await message_obj.reply_text("📋 Producto encontrado (valores calculados cada 100 g):")
+            msg_prod_encontrado = traducciones.get("bot_producto_encontrado", "📋 Producto encontrado (valores calculados cada 100 g):")
+            msg_menu = await message_obj.reply_text(msg_prod_encontrado)
             
             context.user_data['last_menu_msg_id'] = msg_menu.message_id
             context.user_data['pending_items'] = [item_procesado]
@@ -4547,18 +4591,27 @@ async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
                 
             await render_confirmation_screen(msg_menu, context)
         else:
-            await msg_espera.edit_text("⚠️ Código de barras no encontrado en la base de datos. Intentá ingresarlo como texto o foto.")
+            msg_no_enc = traducciones.get("bot_barra_no_encontrada", "⚠️ Código de barras no encontrado en la base de datos. Intentá ingresarlo como texto o foto.")
+            await msg_espera.edit_text(msg_no_enc)
             
     except Exception as e:
-        await msg_espera.edit_text(f"❌ Error al consultar el código: {e}")
-
+        msg_err_gen = traducciones.get("bot_error_consulta_barra", "❌ Error al consultar el código: {e}").format(e=e)
+        await msg_espera.edit_text(msg_err_gen)
+        
 @requiere_registro
 async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    # Obtener idioma y traducciones para el usuario
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    
     args = context.args
     
     if not args:
+        msg_solic_txt = traducciones.get("bot_solic_barra_num", "⌨️ Por favor, ingresá los números del código de barras con el comando /barra NUMERO:")
         msg_solic = await update.message.reply_text(
-            "⌨️ Por favor, ingresá los números del código de barras con el comando /barra NUMERO:",
+            msg_solic_txt,
             parse_mode="Markdown"
         )
         context.user_data['awaiting_barcode_input'] = True
@@ -4612,27 +4665,37 @@ def detectar_y_leer_codigo_barras_ia(base64_image: str) -> str:
 
 @requiere_registro
 async def cmd_eliminar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     context.user_data.pop('del_fecha', None)
     context.user_data.pop('del_momento', None)
 
+    # 🟢 BOTONES UNIVERSALES (Sin texto, solo emojis/iconos fijos)
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅 Hoy", callback_data="del_d_hoy"), InlineKeyboardButton("📆 Ayer", callback_data="del_d_ayer")],
-        [InlineKeyboardButton("🗓️ Otra Fecha", callback_data="del_d_otro")]
+        [InlineKeyboardButton("📅", callback_data="del_d_hoy"), InlineKeyboardButton("📆", callback_data="del_d_ayer")],
+        [InlineKeyboardButton("🗓️", callback_data="del_d_otro")]
     ])
     
+    msg_txt = traducciones.get("bot_titulo_eliminar_ingestas", "🗑️ **Eliminación de Ingestas / Actividades:**\nSeleccioná el día que querés revisar:")
     await update.message.reply_text(
-        "🗑️ **Eliminación de Ingestas / Actividades:**\nSeleccioná el día que querés revisar:", 
+        msg_txt, 
         reply_markup=keyboard, 
         parse_mode="Markdown"
     )
 
 async def mostrar_selector_momento_eliminar(query_or_msg, context):
+    user_id = query_or_msg.from_user.id if hasattr(query_or_msg, 'from_user') else query_or_msg.message.chat_id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     if not context.user_data.get('del_fecha'):
         context.user_data['del_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
         
     fecha = context.user_data.get('del_fecha')
     
-    # Distribución ordenada en filas de a dos para los momentos, más actividad y volver
+    # 🟢 BOTONES UNIVERSALES CON FRANJAS HORARIAS E ICONOS (Igual que en los registros)
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🌅 08-11", callback_data="del_mom_Desayuno"), InlineKeyboardButton("☀️ 11-16", callback_data="del_mom_Almuerzo")],
         [InlineKeyboardButton("☕ 16-20", callback_data="del_mom_Merienda"), InlineKeyboardButton("🌙 20-00", callback_data="del_mom_Cena")],
@@ -4640,13 +4703,14 @@ async def mostrar_selector_momento_eliminar(query_or_msg, context):
         [InlineKeyboardButton("🔙 📅", callback_data="del_cambiar_fecha")]
     ])
     
-    txt = f"📅 Fecha seleccionada: `{fecha}`\n\nSeleccioná el momento o actividad que querés revisar para eliminar:"
+    txt_tmpl = traducciones.get("bot_txt_sel_momento_del", "📅 Fecha seleccionada: `{fecha}`\n\nSeleccioná el momento o actividad que querés revisar para eliminar:")
+    txt = txt_tmpl.format(fecha=fecha)
     
     if hasattr(query_or_msg, 'edit_message_text'):
         await query_or_msg.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
     else:
         await query_or_msg.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
-        
+                
 async def render_pantalla_items_eliminar(query, user_id, context):
     fecha = context.user_data.get('del_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
     momento = context.user_data.get('del_momento', 'Desayuno')
@@ -4996,7 +5060,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return await _sub_manejar_foto_presion(update, context, res_presion, msg)
 
         # 2. Filtro 2 (Python / OpenCV local): Detectar si hay un código de barras físicamente en la imagen
-        image_bytes = base64.b64decode(base64_image)
+        image_bytes = bytes(base64.b64decode(base64_image))  # 🟢 Conversión estricta a bytes corregida
         np_arr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
         
@@ -5017,12 +5081,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await msg.delete()
                 return await procesar_codigo_ingresado(update.message, context, codigo_leido.strip())
 
-        # 4. Si Python dice que NO hay código de barras, la foto sigue su curso normal hacia el análisis de platos de comida[cite: 3]
+        # 4. Si Python dice que NO hay código de barras, la foto sigue su curso normal hacia el análisis de platos de comida
         return await _sub_manejar_foto_plato_ia(update, context, base64_image, user_caption, msg)
 
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar imagen: {e}")
-
+        
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
@@ -5034,8 +5098,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                   INICIO                                    COMANDO DIA                                    INICIO  DB OK
 # =====================================================================================================================================
 
-@requiere_registro
-@requiere_registro
 @requiere_registro
 async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -5315,8 +5377,6 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #               INICIO                                COMANDO RESUMEN COMANDO MES                       INICIO DB OK
 # ==========================================================================================================================================
 
-@requiere_registro
-@requiere_registro
 @requiere_registro
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await _validar_peso_mes_actual(update, context):
@@ -7038,7 +7098,6 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ======================================================================================================================================
 
 @requiere_registro
-@requiere_registro
 async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
@@ -7401,7 +7460,7 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 # ==========================================================================================================================================
 
 # ==========================================================================================================================================
-#                   INICIO                                MAIN                                       INICIO  
+#                                   INICIO                                       MAIN                                       INICIO  
 # ==========================================================================================================================================
 
 async def job_recordatorio_manana(context):
@@ -7485,7 +7544,7 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_anular, pattern="^(edit_item_|del_item_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_guardar_cancelar, pattern="^(cancel_entry$|confirm_save$)"))
         
-        # 🟢 CORREGIDO: Patrón delimitado para que 'manejar_callback_eliminacion' no capture a 'del_item_'
+        # Patrón delimitado para que 'manejar_callback_eliminacion' no capture a 'del_item_'
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_(d_|mom_|reg_|borrar)"))
 
         app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
@@ -7503,5 +7562,7 @@ if __name__ == "__main__":
     main()
 
 # =============================================================================================================================================
-#                                                   FINAL MAIN EXECUTION                                                    FINAL
+#                                               FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
+
+
