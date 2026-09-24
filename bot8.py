@@ -3453,14 +3453,19 @@ async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False,
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     return traducciones.get("02_error_analisis_no_disponible", "⚠️ Nutritional analysis temporarily unavailable.")
 
-def analizar_imagen_con_groq(image_bytes: bytes, prompt_usuario: str = "", user_id=None) -> dict:
+def analizar_imagen_con_groq(image_input: bytes | str, prompt_usuario: str = "", user_id=None) -> dict:
     client_ai = globals().get('client_ai')
     if not client_ai:
         raise Exception("GROQ_API_KEY is not properly configured.")
 
     nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
-    encoded_image = base64.b64encode(image_bytes).decode('utf-8')
-    data_url = f"data:image/jpeg;base64,{encoded_image}"
+    
+    # 🟢 Manejo inteligente: Si ya es un string en base64 lo usamos directo, si son bytes los codificamos
+    if isinstance(image_input, str):
+        data_url = f"data:image/jpeg;base64,{image_input}"
+    else:
+        encoded_image = base64.b64encode(image_input).decode('utf-8')
+        data_url = f"data:image/jpeg;base64,{encoded_image}"
 
     system_prompt = (
         f"Sos un asistente nutricional experto en análisis visual de platos y alimentos. El usuario se comunica en su idioma ({nombre_lenguaje}). "
@@ -3497,7 +3502,6 @@ def analizar_imagen_con_groq(image_bytes: bytes, prompt_usuario: str = "", user_
 
     raw_text = response.choices[0].message.content.strip()
     return json.loads(raw_text)
-
 
 # =====================================================================================================================================
 #                FINAL                          FUNCIONES IA GROQ                                     FINAL
