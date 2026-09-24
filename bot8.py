@@ -3035,7 +3035,6 @@ def obtener_nombre_lenguaje_ia(user_id=None):
     if not user_id:
         return "Spanish"
     try:
-        from FuncionesSupabaseMulti import _asegurar_tabla_y_conectar
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
         cur.execute('SELECT "lenguajes" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
         row = cur.fetchone()
@@ -5086,7 +5085,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await msg.edit_text(f"❌ Error al procesar imagen: {e}")
-        
+                
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
