@@ -5049,29 +5049,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text("📸 Analizando imagen...")
     try:
+        # 1. Descargamos la foto en formato binario (bytes puros)
         photo_bytes = await (await update.message.photo[-1].get_file()).download_as_bytearray()
+        
+        # Convertimos los bytes a un array de NumPy compatible con OpenCV de forma segura
+        np_arr = np.frombuffer(bytes(photo_bytes), np.uint8)
+        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+        # 2. Creamos la versión en base64 para las funciones de IA
         base64_image = base64.b64encode(photo_bytes).decode('utf-8')
         user_caption = update.message.caption or ""
         
-        # 1. Filtro 1: ¿Es foto de la presión arterial?
+        # 3. Filtro 1: ¿Es foto de la presión arterial?
         res_presion = analizar_foto_presion_con_groq(base64_image)
         if res_presion.get("es_presion") and float(res_presion.get("alta", 0)) > 0:
             return await _sub_manejar_foto_presion(update, context, res_presion, msg)
 
-        # 2. Filtro 2 (Python / OpenCV local): Detectar si hay un código de barras físicamente en la imagen
-        image_bytes = bytes(base64.b64decode(base64_image))  # 🟢 Conversión estricta a bytes corregida
-        np_arr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-        
+        # 4. Filtro 2 (Python / OpenCV local): Detectar si hay un código de barras físicamente en la imagen
         tiene_codigo_local = False
         if img is not None:
             detector = cv2.barcode.BarcodeDetector()
-            # .detect() solo comprueba si el patrón de barras existe en la foto (True/False)
             retval, points = detector.detect(img)
             if retval:
                 tiene_codigo_local = True
 
-        # 3. Si Python detecta localmente que hay un código de barras, llamamos a la IA para que lea los números impresos
+        # 5. Si Python detecta localmente el código de barras, llamamos a la IA para leer los números
         if tiene_codigo_local:
             await msg.edit_text("🔍 Código de barras detectado. Leyendo números del envase...")
             codigo_leido = detectar_y_leer_codigo_barras_ia(base64_image)
@@ -5080,12 +5082,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await msg.delete()
                 return await procesar_codigo_ingresado(update.message, context, codigo_leido.strip())
 
-        # 4. Si Python dice que NO hay código de barras, la foto sigue su curso normal hacia el análisis de platos de comida
+        # 6. Si no hay código de barras, procesa como un plato de comida normal
         return await _sub_manejar_foto_plato_ia(update, context, base64_image, user_caption, msg)
 
     except Exception as e:
+        logger.error(f"Error detallado procesando imagen: {e}", exc_info=True)
         await msg.edit_text(f"❌ Error al procesar imagen: {e}")
-                
+        
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
