@@ -2356,20 +2356,52 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
 # =============================================================================================================================================
 
 def obtener_idioma_usuario(user_id):
-    """Obtiene el idioma configurado para un usuario de Telegram desde Supabase[cite: 2]."""
+    """Obtiene el idioma del usuario consultando la caché en memoria o Supabase, conservando las mayúsculas originales."""
+    if not user_id:
+        return 'ES'
+        
+    user_id_limpio = str(user_id).split('.')[0].strip()
+    
+    # Si ya lo tenemos en memoria caché local, lo devolvemos al instante
+    if user_id_limpio in CACHE_USUARIOS_IDIOMA:
+        return CACHE_USUARIOS_IDIOMA[user_id_limpio]
+
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        cur.execute('SELECT "Idioma" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
-        row = cur.fetchone()
+        cur.execute('SELECT "User ID", "Idioma" FROM "Usuarios"')
+        filas = cur.fetchall()
         cur.close()
         conn.close()
-        if row and row[0]:
-            return str(row[0]).strip().lower()
+
+        for fila in filas:
+            raw_id = fila[0]
+            if raw_id and str(raw_id).split('.')[0].strip() == user_id_limpio:
+                if fila[1]:
+                    # Conservamos el formato original en mayúsculas tal cual viene de Supabase (ej. "EN" o "ES")
+                    idioma_db = str(fila[1]).strip()
+                    if idioma_db in ['ES', 'EN']:
+                        CACHE_USUARIOS_IDIOMA[user_id_limpio] = idioma_db
+                        return idioma_db
     except Exception as e:
         logger.error(f"Error obteniendo idioma para {user_id}: {e}")
-    return 'en'
+    
+    # Fallback seguro por defecto en mayúsculas
+    CACHE_USUARIOS_IDIOMA[user_id_limpio] = 'ES'
+    return 'ES'
 
 def obtener_traducciones_db(lang):
+    """Devuelve las traducciones directamente desde la memoria RAM del bot usando el código de idioma en mayúsculas."""
+    global CACHE_TRADUCCIONES
+    idioma = str(lang).strip().upper()
+    if idioma not in ['ES', 'EN']:
+        idioma = 'ES'
+    
+    # Si por algún motivo la memoria RAM está vacía, la poblamos en el momento
+    if not CACHE_TRADUCCIONES:
+        cargar_traducciones_en_memoria()
+        
+    return CACHE_TRADUCCIONES.get(idioma, CACHE_TRADUCCIONES.get('ES', {}))
+    def obtener_traducciones_db(lang):
     """Consulta la tabla 'multi' en Supabase y devuelve un diccionario con las traducciones[cite: 2]."""
     traducciones = {}
     col_lang = "ES" if str(lang).strip().lower() == "es" else "EN"
@@ -2391,19 +2423,29 @@ def obtener_traducciones_db(lang):
     return traducciones
 
 def requiere_registro(func):
-    """Decorador limpio con avisos estándar adaptados en inglés[cite: 2]."""
+    """Decorador robusto adaptado al multilenguaje dinámico."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = str(update.effective_user.id).strip()
+        
+        # Obtenemos el idioma y las traducciones correspondientes al usuario
+        lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+        traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
         encontrado = False
         esta_activo = True
 
-        mensaje_no_registrado = (
-            "⚠️ **You are not registered yet!**\n\n"
-            "To use this command and access your nutrition plan, you need to sign up first.\n\n"
-            "👉 Use the `/alta` or `/signup` command to create your profile in a couple of steps."
+        # Textos dinámicos extraídos de la tabla multi (con respaldo por si faltara la clave)
+        mensaje_no_registrado = traducciones.get("dec_no_registrado", 
+            "⚠️ **¡Todavía no estás registrado!**\n\n"
+            "Para usar este comando y acceder a tu plan nutricional, necesitás registrarte primero.\n\n"
+            "👉 Usá el comando `/alta` para crear tu perfil en un par de pasos."
         )
-        mensaje_deshabilitado = "❌ **Your account has been disabled due to inactivity or system removal. Please contact the bot administrator.**"
+        mensaje_deshabilitado = traducciones.get("dec_cuenta_deshabilitada", 
+            "❌ **Tu cuenta ha sido deshabilitada debido a inactividad o baja del sistema. Por favor, contactá al administrador del bot.**"
+        )
+        alerta_req_reg = traducciones.get("dec_alerta_req_reg", "⚠️ Registro requerido")
+        alerta_cta_dis = traducciones.get("dec_alerta_cta_dis", "⚠️ Cuenta deshabilitada")
 
         try:
             conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
@@ -2427,7 +2469,7 @@ def requiere_registro(func):
             if update.message:
                 await update.message.reply_text(mensaje_no_registrado, parse_mode="Markdown")
             elif update.callback_query:
-                await update.callback_query.answer("⚠️ Registration required", show_alert=True)
+                await update.callback_query.answer(alerta_req_reg, show_alert=True)
                 await update.callback_query.message.reply_text(mensaje_no_registrado, parse_mode="Markdown")
             return
 
@@ -2435,16 +2477,17 @@ def requiere_registro(func):
             if update.message:
                 await update.message.reply_text(mensaje_deshabilitado, parse_mode="Markdown")
             elif update.callback_query:
-                await update.callback_query.answer("⚠️ Account disabled", show_alert=True)
+                await update.callback_query.answer(alerta_cta_dis, show_alert=True)
                 await update.callback_query.message.reply_text(mensaje_deshabilitado, parse_mode="Markdown")
             return
 
         return await func(update, context, *args, **kwargs)
     return wrapper
-
+    
 # =============================================================================================================================================
 #              FINAL                          FUNCIONES AUXILIARES INTERNAS                  FINAL
 # =============================================================================================================================================
+
 
 # ======================================================================================================================================       
 #                INICIO                       14 FUNCIONES IA GROQ                                      INICIO
@@ -8058,6 +8101,9 @@ def main():
         return
 
     try:
+        # 🚀 1. CARGA INICIAL EN MEMORIA RAM: Lee toda la tabla 'multi' de Supabase al arrancar (Ideal para reinicios de Render)
+        cargar_traducciones_en_memoria()
+
         app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
         job_queue = app_bot.job_queue
         tz = pytz.timezone('America/Argentina/Buenos_Aires')
@@ -8101,7 +8147,7 @@ def main():
         app_bot.add_handler(CommandHandler(["semana", "s", "week"], cmd_mensaje))
         app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
 #=================================ADMINISTRADOR============================================
-        app_bot.add_handler(CommandHandler(["subir"], cmd_migrar))
+        app_bot.add_handler(CommandHandler(["migrar"], cmd_migrar))
         app_bot.add_handler(CommandHandler(["descargar"], cmd_descargar))
         app_bot.add_handler(CommandHandler(["importar"], cmd_importar_tabla))
 
@@ -8137,4 +8183,8 @@ if __name__ == "__main__":
 # =============================================================================================================================================
 #                                               FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
+
+
+
+
 
