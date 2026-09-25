@@ -73,6 +73,12 @@ GROQ_AUDIO      = "whisper-large-v3"
 GROQ_REVISION_2   = "openai/gpt-oss-20b"    # Revisión principal
 GROQ_REVISOR  = "qwen/qwen3.8-27b"      # Respaldo
 
+# ==========================================
+# CACHÉ GLOBAL EN MEMORIA RAM Y CARGA IN-MEMORY DINÁMICA
+# ==========================================
+CACHE_TRADUCCIONES = {}
+CACHE_USUARIOS_IDIOMA = {}
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GOOGLE_SHEETS_KEY_PATH = os.getenv("GOOGLE_SHEETS_KEY_PATH", "credentials.json")
@@ -2355,14 +2361,44 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
 #              INICIO                     FUNCIONES SOPORTE MULTILENGUAJE                   INICIO
 # =============================================================================================================================================
 
+def cargar_traducciones_en_memoria():
+    """Ombyaty iñakãme opaite ñe'ẽ ha kolúmna oĩva la tabla 'multi' Supabase-pe."""
+    global CACHE_TRADUCCIONES
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
+        cur.execute('SELECT * FROM "multi"')
+        columnas = [desc[0] for desc in cur.description]
+        filas = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        temp_traducciones = {}
+        for col in columnas:
+            if col.lower() not in ['id', 'variables']:
+                temp_traducciones[col.upper()] = {}
+
+        for fila in filas:
+            var_name = str(fila[0]).strip() if fila[0] is not None else ""
+            if var_name:
+                for idx, col in enumerate(columnas):
+                    if col.lower() not in ['id', 'variables']:
+                        idioma_key = col.upper()
+                        val = str(fila[idx] or "").strip()
+                        temp_traducciones[idioma_key][var_name] = val
+
+        CACHE_TRADUCCIONES = temp_traducciones
+        print(f"✅ Oñemboguapy porã opaite ñe'ẽ iñakãme. Kolúmnakuéra ojejuhuáva: {list(temp_traducciones.keys())}")
+    except Exception as e:
+        logger.error(f"❌ Javy ojejuhu oñemboguapy jave ñe'ẽ iñakãme: {e}")
+        print(f"❌ Javy ojejuhu oñemboguapy jave ñe'ẽ iñakãme: {e}")
+
 def obtener_idioma_usuario(user_id):
-    """Obtiene el idioma del usuario consultando la caché en memoria o Supabase, conservando las mayúsculas originales."""
+    """Ohekávo pe usuario iñe'ẽ oĩva Supabase-pe, omantenévo mayúscula (ES, EN, IT, etc.)."""
     if not user_id:
         return 'ES'
         
     user_id_limpio = str(user_id).split('.')[0].strip()
     
-    # Si ya lo tenemos en memoria caché local, lo devolvemos al instante
     if user_id_limpio in CACHE_USUARIOS_IDIOMA:
         return CACHE_USUARIOS_IDIOMA[user_id_limpio]
 
@@ -2377,18 +2413,28 @@ def obtener_idioma_usuario(user_id):
             raw_id = fila[0]
             if raw_id and str(raw_id).split('.')[0].strip() == user_id_limpio:
                 if fila[1]:
-                    # Conservamos el formato original en mayúsculas tal cual viene de Supabase (ej. "EN" o "ES")
-                    idioma_db = str(fila[1]).strip()
-                    if idioma_db in ['ES', 'EN']:
-                        CACHE_USUARIOS_IDIOMA[user_id_limpio] = idioma_db
-                        return idioma_db
+                    idioma_db = str(fila[1]).strip().upper()
+                    CACHE_USUARIOS_IDIOMA[user_id_limpio] = idioma_db
+                    return idioma_db
     except Exception as e:
-        logger.error(f"Error obteniendo idioma para {user_id}: {e}")
+        logger.error(f"Error ojejuhu ojeheka jave usuario iñe'ẽ: {e}")
     
-    # Fallback seguro por defecto en mayúsculas
     CACHE_USUARIOS_IDIOMA[user_id_limpio] = 'ES'
     return 'ES'
 
+def obtener_traducciones_db(lang):
+    """Omoñe'ẽ umi traducción iñakãme oĩva rupive pe ñe'ẽ ojeruréva rupive."""
+    global CACHE_TRADUCCIONES
+    idioma = str(lang).strip().upper()
+    
+    if not CACHE_TRADUCCIONES:
+        cargar_traducciones_en_memoria()
+        
+    if idioma not in CACHE_TRADUCCIONES:
+        idioma = 'ES'
+    
+    return CACHE_TRADUCCIONES.get(idioma, CACHE_TRADUCCIONES.get('ES', {}))
+    
 def obtener_traducciones_db(lang):
     """Devuelve las traducciones directamente desde la memoria RAM del bot usando el código de idioma en mayúsculas."""
     global CACHE_TRADUCCIONES
