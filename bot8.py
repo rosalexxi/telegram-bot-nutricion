@@ -79,9 +79,6 @@ GOOGLE_SHEETS_KEY_PATH = os.getenv("GOOGLE_SHEETS_KEY_PATH", "credentials.json")
 SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "Registro_Nutricional_Bot")
 ARG_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
 
-# Estados del flujo de conversación (Incluyendo ING_TERMINOS al inicio)
-ING_TERMINOS, ING_IDIOMA, ING_PROFESIONAL, ING_NOMBRE, ING_EDAD, ING_SEXO, ING_ALTURA, ING_PESO, ING_MUNECA, ING_OCUPACION, ING_CUMPLE = range(10, 21)
-
 # Estados del flujo de conversación (Actualizado con todos los pasos)
 ING_TERMINOS, ING_IDIOMA, ING_PROFESIONAL, ING_NOMBRE, ING_EDAD, ING_SEXO, ING_ALTURA, ING_PESO, ING_MUNECA, ING_CUELLO, ING_OCUPACION, ING_CUMPLE, ING_RITMO = range(10, 23)
 
@@ -101,7 +98,9 @@ def run_flask():
 
 # =====================================================================================================================================
 #                FINAL                                   CABECERA                                       FINAL
-# =====================================================================================================================================# =====================================================================================================================================
+# =====================================================================================================================================
+
+# =====================================================================================================================================
 #              INICIO                                  PAGINA WEB (CALCULADORA UNICA)                        INICIO  DB OK
 # ======================================================================================================================================
 
