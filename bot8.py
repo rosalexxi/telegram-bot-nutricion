@@ -2401,7 +2401,8 @@ def obtener_traducciones_db(lang):
         cargar_traducciones_en_memoria()
         
     return CACHE_TRADUCCIONES.get(idioma, CACHE_TRADUCCIONES.get('ES', {}))
-    def obtener_traducciones_db(lang):
+
+def obtener_traducciones_db(lang):
     """Consulta la tabla 'multi' en Supabase y devuelve un diccionario con las traducciones[cite: 2]."""
     traducciones = {}
     col_lang = "ES" if str(lang).strip().lower() == "es" else "EN"
