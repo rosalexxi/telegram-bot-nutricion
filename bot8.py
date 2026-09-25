@@ -7036,6 +7036,31 @@ async def ing_recibir_ritmo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data.clear()
     return ConversationHandler.END
+    
+async def cmd_cancelar_conversacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    await update.message.reply_text("❌ Registro de cuenta cancelado.")
+    return ConversationHandler.END
+
+# 🟢 Definición faltante que causaba el error NameError
+conv_handler_ingreso = ConversationHandler(
+    entry_points=[CommandHandler("alta", cmd_ingreso_start), CommandHandler("nuevo_usuario", cmd_nuevo_usuario)],
+    states={
+        ING_TERMINOS: [CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$")],
+        ING_PROFESIONAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_profesional)],
+        ING_NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_nombre)],
+        ING_EDAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_edad)],
+        ING_SEXO: [CallbackQueryHandler(ing_recibir_sexo, pattern="^sexo_")],
+        ING_ALTURA: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_altura)],
+        ING_PESO: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_peso)],
+        ING_MUNECA: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_muneca)],
+        ING_CUELLO: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cuello)],
+        ING_OCUPACION: [CallbackQueryHandler(ing_recibir_ocupacion, pattern="^ocup_")],
+        ING_CUMPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cumple)],
+        ING_RITMO: [CallbackQueryHandler(ing_recibir_ritmo, pattern="^ritmo_")]
+    },
+    fallbacks=[CommandHandler("cancelar", cmd_cancelar_conversacion)]
+)
 
 #                     INICIO                         COMANDO START                          INICIO  2026 09 05
 # =========================================================================================================================================
@@ -8034,70 +8059,76 @@ def main():
 
     try:
         app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+        job_queue = app_bot.job_queue
+        tz = pytz.timezone('America/Argentina/Buenos_Aires')
 
-        # 🟢 Conversación de Alta / Registro de Usuario
+        if job_queue is not None:
+            job_queue.run_daily(
+                job_recordatorio_manana, 
+                time=time(hour=9, minute=0, second=0, tzinfo=tz),
+                name="recordatorio_comidas_manana"
+            )
+            job_queue.run_daily(
+                job_recordatorio_tarde, 
+                time=time(hour=18, minute=0, second=0, tzinfo=tz),
+                name="recordatorio_comidas_tarde"
+            )
+            job_queue.run_daily(
+                job_buenas_noches, 
+                time=time(hour=21, minute=30, second=0, tzinfo=tz),
+                name="recordatorio_buenas_noches"
+            )
+        else:
+            print("⚠️ Warning: job_queue is not available.")
+       
         app_bot.add_handler(conv_handler_ingreso)
 
-        # 📌 Comandos Generales y Principales
-        app_bot.add_handler(CommandHandler("start", cmd_start))
-        app_bot.add_handler(CommandHandler("inicio", cmd_start))
-        app_bot.add_handler(CommandHandler("comidas", cmd_comidas))
-        app_bot.add_handler(CommandHandler("borracomida", cmd_borrar_comida))
-        app_bot.add_handler(CommandHandler("barra", cmd_barra))
-        app_bot.add_handler(CommandHandler("receta", cmd_cargar_receta))
-        app_bot.add_handler(CommandHandler("eliminar", cmd_eliminar))
-        app_bot.add_handler(CommandHandler("diario", cmd_diario))
-        app_bot.add_handler(CommandHandler("dia", cmd_diario))
-        app_bot.add_handler(CommandHandler("d", cmd_diario))
-        app_bot.add_handler(CommandHandler("semana", cmd_mensaje))
-        app_bot.add_handler(CommandHandler("semanal", cmd_mensaje))
-        app_bot.add_handler(CommandHandler("s", cmd_mensaje))
-        app_bot.add_handler(CommandHandler("mes", cmd_resumen))
-        app_bot.add_handler(CommandHandler("mensual", cmd_resumen))
-        app_bot.add_handler(CommandHandler("m", cmd_resumen))
-        app_bot.add_handler(CommandHandler("perfil", cmd_perfil))
-        app_bot.add_handler(CommandHandler("peso", cmd_perfil))
-        app_bot.add_handler(CommandHandler("presi", cmd_presion_handler))
-        app_bot.add_handler(CommandHandler("presion", cmd_presion_handler))
-        app_bot.add_handler(CommandHandler("factor", cmd_factor_handler))
-        app_bot.add_handler(CommandHandler("get", cmd_factor_handler))
-        app_bot.add_handler(CommandHandler("migrar", cmd_migrar))
-        app_bot.add_handler(CommandHandler("importar", cmd_importar_tabla))
-        app_bot.add_handler(CommandHandler("descargar", cmd_descargar))
-        app_bot.add_handler(CommandHandler("pacientes", cmd_pacientes))
-        app_bot.add_handler(CommandHandler("informe", cmd_enviar_informe_actual))
+#==================================PROFESIONALES===============================================
+        app_bot.add_handler(CommandHandler(["pacientes", "patients"], cmd_pacientes))
+        app_bot.add_handler(CommandHandler(["informe", "report"], cmd_enviar_informe_actual))
+#=================================INGRESOS Y CONSULTAS MANUALES============================================
+        app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
+        app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
+        app_bot.add_handler(CommandHandler(["perfil", "peso", "profile", "weight"], cmd_perfil))
+        app_bot.add_handler(CommandHandler(["receta", "recipe"], cmd_cargar_receta))
+        app_bot.add_handler(CommandHandler(["get", "GET"], cmd_factor_handler))
+        app_bot.add_handler(CommandHandler(["eliminar", "delete"], cmd_eliminar))
+        app_bot.add_handler(CommandHandler(["borracomida", "delmeal"], cmd_borrar_comida))
+#=================================INGRESOS Y CONSULTAS CON IA============================================
+        app_bot.add_handler(CommandHandler(["presion", "presi", "p", "pressure"], cmd_presion_handler))  
+        app_bot.add_handler(CommandHandler(["dia", "d", "day"], cmd_diario))
+        app_bot.add_handler(CommandHandler(["mes", "m", "month"], cmd_resumen))
+        app_bot.add_handler(CommandHandler(["semana", "s", "week"], cmd_mensaje))
+        app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
+#=================================ADMINISTRADOR============================================
+        app_bot.add_handler(CommandHandler(["subir"], cmd_migrar))
+        app_bot.add_handler(CommandHandler(["descargar"], cmd_descargar))
+        app_bot.add_handler(CommandHandler(["importar"], cmd_importar_tabla))
 
-        # 🎛️ Callback Query Handlers (Botones Interactivos)
         app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
-        app_bot.add_handler(CallbackQueryHandler(callback_btn_momento, pattern="^set_m_"))
-        app_bot.add_handler(CallbackQueryHandler(callback_btn_fechas_diario, pattern="^(set_d_|diario_)"))
-        app_bot.add_handler(CallbackQueryHandler(callback_btn_editar_item, pattern="^edit_item_"))
-        app_bot.add_handler(CallbackQueryHandler(callback_btn_anular_item, pattern="^del_item_"))
-        app_bot.add_handler(CallbackQueryHandler(callback_btn_cancelar_registro, pattern="^cancel_entry$"))
-        app_bot.add_handler(CallbackQueryHandler(callback_btn_guardar_registro, pattern="^confirm_save$"))
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_actividades, pattern="^act_"))
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_eliminacion, pattern="^del_"))
-        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_reg_|^del_borrar_todo_momento$"))
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_reportes_pdf, pattern="^(resumen_|descargar_pdf_|enviar_inf_)"))
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_perfil, pattern="^(edit_perfil_|set_ritmo_|set_lang_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
+        app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
+        app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_reportes_pdf, pattern="^(resumen_|descargar_pdf_|enviar_inf_)"))        
 
-        # 📸 Mensajes Multimedia y Texto Libre
-        app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_actividades, pattern="^act_"))
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_momentos, pattern="^set_m_"))
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_fechas_diario, pattern="^(set_d_|diario_)"))
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_anular, pattern="^(edit_item_|del_item_)"))
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_guardar_cancelar, pattern="^(cancel_entry$|confirm_save$)"))
+        
+        # Patrón delimitado para que 'manejar_callback_eliminacion' no capture a 'del_item_'
+        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_(d_|mom_|reg_|borrar)"))
+
         app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
+        app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-        # ⏰ Tareas Programadas (Job Queue)
-        if app_bot.job_queue:
-            app_bot.job_queue.run_daily(job_recordatorio_manana, time=time(hour=9, minute=0, tzinfo=ARG_TZ))
-            app_bot.job_queue.run_daily(job_recordatorio_tarde, time=time(hour=19, minute=30, tzinfo=ARG_TZ))
-            app_bot.job_queue.run_daily(job_buenas_noches, time=time(hour=22, minute=0, tzinfo=ARG_TZ))
-
-        print("🤖 Bot iniciado exitosamente y escuchando eventos...")
-        app_bot.run_polling(allowed_updates=Update.ALL_TYPES)
+        print("Nutrition Bot successfully started on Telegram with scheduled tasks...")
+        app_bot.run_polling(drop_pending_updates=True)
 
     except Exception as e:
-        logger.error(f"❌ Error crítico al iniciar el bot: {e}", exc_info=True)
+        logger.critical(f"❌ Critical error starting bot in main(): {e}", exc_info=True)
         raise e
 
 if __name__ == "__main__":
@@ -8106,6 +8137,4 @@ if __name__ == "__main__":
 # =============================================================================================================================================
 #                                               FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
-
-
 
