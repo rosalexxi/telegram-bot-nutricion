@@ -98,8 +98,7 @@ def run_flask():
 
 # =====================================================================================================================================
 #                FINAL                                   CABECERA                                       FINAL
-# =====================================================================================================================================
-# =====================================================================================================================================
+# =====================================================================================================================================# =====================================================================================================================================
 #              INICIO                                  PAGINA WEB (CALCULADORA UNICA)                        INICIO  DB OK
 # ======================================================================================================================================
 
@@ -131,6 +130,18 @@ HTML_CALCULADORA_RECETAS = """
             flex-direction: column;
         }
         
+        /* Estilos dinámicos para PC (Fondo de nutrición aleatorio) */
+        @media (min-width: 1024px) {
+            body {
+                background-size: cover;
+                background-position: center;
+                background-attachment: fixed;
+                /* Capa semitransparente para que la lectura siga siendo perfecta */
+                background-blend-mode: overlay;
+                background-color: rgba(244, 246, 249, 0.92);
+            }
+        }
+        
         header { 
             background: white; 
             box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
@@ -144,7 +155,10 @@ HTML_CALCULADORA_RECETAS = """
         .nav-links a { text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 0.82rem; transition: color 0.2s; cursor: pointer; }
         .nav-links a:hover, .nav-links a.active { color: var(--primary); }
         
-        .lang-selector { padding: 4px 8px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.8rem; background: white; cursor: pointer; font-weight: 600; color: var(--secondary); }
+        /* Estilo para los botones de banderas dinámicos */
+        .lang-flags-container { display: flex; align-items: center; gap: 6px; margin-left: 10px; }
+        .flag-btn { background: white; border: 1px solid #ccc; border-radius: 4px; padding: 3px 7px; font-size: 0.8rem; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--secondary); transition: all 0.2s; }
+        .flag-btn:hover { border-color: var(--primary); background: #f0fdf4; }
 
         .content-wrapper { 
             max-width: 900px; 
@@ -254,7 +268,7 @@ HTML_CALCULADORA_RECETAS = """
 <body>
 
 <div id="loadingLang" style="display:none; position:fixed; top:20px; right:20px; background:#2c3e50; color:white; padding:10px 15px; border-radius:8px; z-index:9999; font-size:0.85rem; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
-    ⏳ Wait a moment, selecting your language...
+    ⏳ Cargando idioma...
 </div>
 
 <header>
@@ -269,10 +283,8 @@ HTML_CALCULADORA_RECETAS = """
             {% if user_id %}
             <a id="nav-calculadora" onclick="showSection('calculadora')" data-var="01_menu_calculadora">Calculadora Web</a>
             {% endif %}
-            <select id="langSelector" class="lang-selector" onchange="cambiarIdioma(this.value)">
-                <option value="en">English</option>
-                <option value="es">Español</option>
-            </select>
+            <!-- Contenedor dinámico de banderas y nombres de idiomas -->
+            <div id="langFlagsContainer" class="lang-flags-container"></div>
         </div>
     </div>
 </header>
@@ -424,8 +436,48 @@ HTML_CALCULADORA_RECETAS = """
 </footer>
 
 <script>
+    // Listado automático de imágenes de alta calidad de nutrición para PC (Fondo aleatorio)
+    const fondosNutricion = [
+        "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1920&q=80", // Ensalada fresca
+        "https://images.unsplash.com/photo-1498837167922-ddd27525d352?auto=format&fit=crop&w=1920&q=80", // Verduras saludables
+        "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=1920&q=80", // Bowl saludable
+        "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=1920&q=80"  // Plato colorido fitness
+    ];
+
+    function aplicarFondoAleatorio() {
+        if (window.innerWidth >= 1024) {
+            const randomIndex = Math.floor(Math.random() * fondosNutricion.length);
+            document.body.style.backgroundImage = `url('${fondosNutricion[randomIndex]}')`;
+        }
+    }
+
+    let idiomaActual = 'en';
+
+    async function cargarBanderasIdiomas() {
+        try {
+            const res = await fetch('/api/config-idiomas');
+            const data = await res.json();
+            const container = document.getElementById('langFlagsContainer');
+            container.innerHTML = '';
+            
+            // data.idiomas debe traer objetos como: [{code: 'es', name: 'Español', flag: '🇪🇸'}, {code: 'en', name: 'English', flag: '🇺🇸'}]
+            if (data.idiomas && Array.isArray(data.idiomas)) {
+                data.idiomas.forEach(langObj => {
+                    const btn = document.createElement('a');
+                    btn.className = 'flag-btn';
+                    btn.innerHTML = `${langObj.flag} ${langObj.name}`;
+                    btn.onclick = () => cambiarIdioma(langObj.code);
+                    container.appendChild(btn);
+                });
+            }
+        } catch (e) {
+            console.error("Error al cargar banderas de idiomas:", e);
+        }
+    }
+
     async function cambiarIdioma(lang) {
         try {
+            idiomaActual = lang;
             const response = await fetch(`/api/traducciones?lang=${lang}`);
             if (!response.ok) throw new Error("No se pudieron cargar las traducciones.");
             const traducciones = await response.json();
@@ -436,14 +488,15 @@ HTML_CALCULADORA_RECETAS = """
                     el.innerText = traducciones[clave];
                 }
             });
-            
-            document.getElementById('langSelector').value = lang;
         } catch (err) {
             console.error("Error al cambiar idioma:", err);
         }
     }
 
     async function inicializarIdiomaWeb() {
+        aplicarFondoAleatorio();
+        await cargarBanderasIdiomas();
+
         const urlParams = new URLSearchParams(window.location.search);
         const userId = urlParams.get('user_id');
 
@@ -461,21 +514,6 @@ HTML_CALCULADORA_RECETAS = """
         }
 
         await cambiarIdioma('en');
-        
-        const aviso = document.getElementById('loadingLang');
-        aviso.style.display = 'block';
-
-        setTimeout(async () => {
-            aviso.style.display = 'none';
-            
-            const langNav = navigator.language || navigator.userLanguage;
-            const langShort = langNav ? langNav.substring(0, 2).toLowerCase() : 'en';
-            const soportados = ['es', 'en'];
-            
-            if (soportados.includes(langShort) && langShort !== 'en') {
-                await cambiarIdioma(langShort);
-            }
-        }, 4500);
     }
 
     window.addEventListener('DOMContentLoaded', () => {
@@ -489,13 +527,15 @@ HTML_CALCULADORA_RECETAS = """
         if ('speechSynthesis' in window) {
             window.speechSynthesis.cancel();
             try {
-                const response = await fetch('/guia.txt');
-                if (!response.ok) throw new Error("No se pudo cargar el archivo guia.txt.");
-                const textoGuia = await response.text();
+                // Obtenemos la audioguía dinámica correspondiente al idioma actual desde la API
+                const response = await fetch(`/api/audioguia?lang=${idiomaActual}`);
+                if (!response.ok) throw new Error("No se pudo cargar la audioguía para este idioma.");
+                const data = await response.json();
+                const textoGuia = data.guia;
                 
-                const lang = document.getElementById('langSelector').value === 'es' ? 'es-AR' : 'en-US';
+                const langSpeech = idiomaActual === 'es' ? 'es-AR' : 'en-US';
                 const utterance = new SpeechSynthesisUtterance(textoGuia);
-                utterance.lang = lang;
+                utterance.lang = langSpeech;
                 utterance.rate = 1.0;
                 window.speechSynthesis.speak(utterance);
             } catch (error) {
@@ -673,12 +713,32 @@ def servir_manual_pdf():
         return jsonify({"error": "No se encontró el archivo manual.pdf en la carpeta static."}), 404
 
 
-@app.route('/guia.txt', methods=['GET'])
-def servir_guia_txt():
+@app.route('/api/config-idiomas', methods=['GET'])
+def api_config_idiomas():
+    """Endpoint que devuelve los idiomas disponibles con sus banderas para la barra superior."""
     try:
-        return send_from_directory(directory=os.path.join(os.getcwd(), 'static'), path='guia.txt', as_attachment=False)
+        # Aquí defines los idiomas que lee de tu base de datos o tabla multi
+        idiomas_disponibles = [
+            {"code": "es", "name": "Español", "flag": "🇪🇸"},
+            {"code": "en", "name": "English", "flag": "🇺🇸"}
+        ]
+        return jsonify({"idiomas": idiomas_disponibles}), 200
     except Exception as e:
-        return jsonify({"error": "No se encontró el archivo guia.txt en la carpeta static."}), 404
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/audioguia', methods=['GET'])
+def api_audioguia():
+    """Endpoint para obtener la audioguía en formato texto según el idioma solicitado."""
+    lang = request.args.get('lang', 'es')
+    try:
+        # Busca en la base de datos la variable 'guia' para el idioma correspondiente
+        # (puedes adaptarlo a tu función obtener_traducciones_db o una específica para guías)
+        traducciones = obtener_traducciones_db(lang)
+        texto_guia = traducciones.get("guia", "Bienvenido a la audioguía del asistente nutricional.")
+        return jsonify({"guia": texto_guia}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/api/traducciones', methods=['GET'])
@@ -1016,32 +1076,6 @@ def obtener_datos_usuario(user_id):
         print(f"Error al obtener datos de Supabase para el usuario {user_id}: {e}")
         return pd.DataFrame()       
 
-def obtener_ultimo_peso_str(u_id):
-    peso_str = "S/D"
-    try:
-        tabla_nombre = f"Perfil_{u_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
-        
-        query = f"""
-            SELECT "PESO"
-            FROM "{tabla_nombre}"
-            ORDER BY id ASC
-        """
-        cur.execute(query)
-        filas = cur.fetchall()
-        cur.close()
-        conn.close()
-        
-        if filas:
-            ultimo_p_val = filas[-1][0]
-            p_val = parse_raw_val(ultimo_p_val)
-            if p_val > 0:
-                peso_str = f"{p_val / 1000:.1f} kg" if p_val > 300 else f"{p_val} kg"
-    except Exception as e:
-        logger.error(f"Error al obtener último peso en Supabase para {u_id}: {e}")
-    return peso_str
-
-
 def obtener_registros_presion(u_id):
     try:
         df_presion = obtener_datos_presion_db(u_id)
@@ -1052,7 +1086,7 @@ def obtener_registros_presion(u_id):
     return []
 
 
-def obtener_ultima_presion_str(recs_presion_all):
+def obtener_ultima_presion(recs_presion_all):
     presion_str = "S/D"
     try:
         if recs_presion_all:
@@ -1362,74 +1396,7 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, mes_anterior_str, peso_f
         if conn:
             try: conn.close()
             except: pass
-        return None
-               
-def obtener_todos_usuarios() -> list:
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        query = """
-            SELECT "User ID", "Nombre", "Estado", "Ultimo Mes Peso", "Notificaciones", 
-                   "Fecha Alta", "Sexo", "Altura", "muneca", "ocupacion", "cumple", "profesional"
-            FROM "Usuarios"
-        """
-        cur.execute(query)
-        filas = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        records = []
-        for fila in filas:
-            records.append({
-                "User ID": fila[0],
-                "Nombre": fila[1],
-                "Estado": fila[2],
-                "Ultimo Mes Peso": fila[3],
-                "Notificaciones": fila[4],
-                "Fecha Alta": fila[5],
-                "Sexo": fila[6],
-                "Altura": fila[7],
-                "muneca": fila[8],
-                "ocupacion": fila[9],
-                "cumple": fila[10],
-                "profesional": fila[11]
-            })
-        return records
-    except Exception as e:
-        logger.error(f"Error al obtener usuarios de Supabase: {e}")
-        return []
-
-def obtener_registros_usuario(user_id: str) -> list:
-    try:
-        tabla_nombre = f"User_{user_id}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
-        query = f"""
-            SELECT "Fecha", "Momento/Actividad", "Alimento/Detalle", 
-                   "Peso (g)", "Calorías (kcal)", "Proteínas (g)", 
-                   "Grasas (g)", "Hidratos (g)", "Fibras (g)"
-            FROM "{tabla_nombre}"
-        """
-        cur.execute(query)
-        filas = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        records = []
-        for fila in filas:
-            records.append({
-                "Fecha": fila[0],
-                "Momento/Actividad": fila[1],
-                "Alimento/Detalle": fila[2],
-                "Peso (g)": fila[3],
-                "Calorías (kcal)": fila[4],
-                "Proteínas (g)": fila[5],
-                "Grasas (g)": fila[6],
-                "Hidratos (g)": fila[7],
-                "Fibras (g)": fila[8]
-            })
-        return records
-    except Exception as e:
-        logger.error(f"Error al obtener registros de usuario en Supabase para {user_id}: {e}")
-        return []
+        return None               
 
 #              INICIO                     5  FUNCIONES LECTURA COMIDAS                         INICIO
 # =============================================================================================================================================
@@ -1606,8 +1573,75 @@ def obtener_pacientes_por_medico(prof_id):
         logger.error(f"Error en obtener_pacientes_por_medico para {prof_id}: {e}")
     return pacientes
 
-#              INICIO                                  7 FUNCIONES GUARDAR                        INICIO
+#              INICIO                                  7 FUNCIONES USUARIOS                        INICIO
 # =============================================================================================================================================
+
+def obtener_todos_usuarios() -> list:
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        query = """
+            SELECT "User ID", "Nombre", "Estado", "Ultimo Mes Peso", "Notificaciones", 
+                   "Fecha Alta", "Sexo", "Altura", "muneca", "ocupacion", "cumple", "profesional"
+            FROM "Usuarios"
+        """
+        cur.execute(query)
+        filas = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        records = []
+        for fila in filas:
+            records.append({
+                "User ID": fila[0],
+                "Nombre": fila[1],
+                "Estado": fila[2],
+                "Ultimo Mes Peso": fila[3],
+                "Notificaciones": fila[4],
+                "Fecha Alta": fila[5],
+                "Sexo": fila[6],
+                "Altura": fila[7],
+                "muneca": fila[8],
+                "ocupacion": fila[9],
+                "cumple": fila[10],
+                "profesional": fila[11]
+            })
+        return records
+    except Exception as e:
+        logger.error(f"Error al obtener usuarios de Supabase: {e}")
+        return []
+
+def obtener_registros_usuario(user_id: str) -> list:
+    try:
+        tabla_nombre = f"User_{user_id}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida")
+        query = f"""
+            SELECT "Fecha", "Momento/Actividad", "Alimento/Detalle", 
+                   "Peso (g)", "Calorías (kcal)", "Proteínas (g)", 
+                   "Grasas (g)", "Hidratos (g)", "Fibras (g)"
+            FROM "{tabla_nombre}"
+        """
+        cur.execute(query)
+        filas = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        records = []
+        for fila in filas:
+            records.append({
+                "Fecha": fila[0],
+                "Momento/Actividad": fila[1],
+                "Alimento/Detalle": fila[2],
+                "Peso (g)": fila[3],
+                "Calorías (kcal)": fila[4],
+                "Proteínas (g)": fila[5],
+                "Grasas (g)": fila[6],
+                "Hidratos (g)": fila[7],
+                "Fibras (g)": fila[8]
+            })
+        return records
+    except Exception as e:
+        logger.error(f"Error al obtener registros de usuario en Supabase para {user_id}: {e}")
+        return []
 
 def actualizar_estado_usuario(user_id: str, nuevo_estado: str):
     """Actualiza el estado de un usuario exclusivamente en Supabase (Bloque duplicado corregido)."""
@@ -1636,8 +1670,38 @@ def eliminar_registro_por_id(user_id, item_id):
     except Exception as e:
         print(f"Error al eliminar registro en Supabase para el usuario {user_id}: {e}")
         return False
-
     return True
+
+def obtener_datos_usuario_general(user_id):
+    """Obtiene los datos generales del usuario desde la tabla 'Usuarios'."""
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        query = """
+            SELECT "User ID", "ocupacion", "reloj_actualizado_mes"
+            FROM "Usuarios"
+        """
+        cur.execute(query)
+        filas = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        user_id_str = str(user_id).strip()
+        for fila in filas:
+            raw_id = fila[0]
+            if raw_id and str(raw_id).split('.')[0].strip() == user_id_str:
+                return {
+                    "user_id": fila[0],
+                    "ocupacion": fila[1],
+                    "reloj_actualizado_mes": fila[2]
+                }
+        return {}
+    except Exception as e:
+        logger.error(f"Error al obtener datos generales de usuario para {user_id}: {e}")
+        return {}
+        
+
+#              INICIO                                  8 FUNCIONES GUARDAR                        INICIO
+# =============================================================================================================================================
 
 def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
     """Guarda los registros de ingesta alimentaria de forma dual en Google Sheets (multiplicado por 1000) y Supabase."""
@@ -1816,33 +1880,6 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     except Exception as e:
         logger.error(f"Error al guardar perfil en Supabase (Perfil_{user_id}): {e}")
 
-def obtener_datos_usuario_general(user_id):
-    """Obtiene los datos generales del usuario desde la tabla 'Usuarios'."""
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        query = """
-            SELECT "User ID", "ocupacion", "reloj_actualizado_mes"
-            FROM "Usuarios"
-        """
-        cur.execute(query)
-        filas = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        user_id_str = str(user_id).strip()
-        for fila in filas:
-            raw_id = fila[0]
-            if raw_id and str(raw_id).split('.')[0].strip() == user_id_str:
-                return {
-                    "user_id": fila[0],
-                    "ocupacion": fila[1],
-                    "reloj_actualizado_mes": fila[2]
-                }
-        return {}
-    except Exception as e:
-        logger.error(f"Error al obtener datos generales de usuario para {user_id}: {e}")
-        return {}
-        
 def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=None):
     """Actualiza el factor de ocupación en la tabla Perfil_<user_id> y el control en Usuarios."""
     user_id_str = str(user_id).strip()
@@ -1893,8 +1930,7 @@ def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=No
     except Exception as e:
         logger.error(f"Error al actualizar la tabla Perfil_{user_id} en Supabase: {e}")
 
-
-#              INICIO                         FUNCIONES MIGRAR                           INICIO
+#              INICIO                       9  FUNCIONES MIGRAR FUNCIONES DESCARGAR                           INICIO
 # =============================================================================================================================================
 
 async def cmd_importar_tabla(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2189,94 +2225,6 @@ def extraer_val(texto: str) -> float:
 #              INICIO                     FUNCIONES BIOMETRICAS Y METRICAS                   INICIO
 # =============================================================================================================================================
 
-def analizar_frecuencia_alimentos_mes(df_o_user_id, cat_dict_o_mes=None, col_integrales=None, col_refinadas=None, otras_categorias=None):
-    try:
-        if isinstance(df_o_user_id, (int, str)) and isinstance(cat_dict_o_mes, str) and not isinstance(df_o_user_id, pd.DataFrame):
-            user_id = int(df_o_user_id)
-            mes_str = cat_dict_o_mes
-            
-            df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
-            if df_datos.empty or 'Fecha' not in df_datos.columns:
-                return {}
-                
-            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
-            inicio_periodo = pd.Timestamp(f"{mes_str}-01").normalize()
-            fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
-            
-            df_mes = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
-            if df_mes.empty:
-                return {}
-                
-            cat_dict = {'harinas_integrales': ['integral', 'salvado'], 'harinas_refinadas': ['blanca', 'refinada']}
-        else:
-            df_mes = df_o_user_id
-            cat_dict = cat_dict_o_mes if isinstance(cat_dict_o_mes, dict) else {}
-
-        if otras_categorias is None:
-            otras_categorias = {}
-            
-        frecuencias = {cat: 0 for cat in cat_dict.keys()} if cat_dict else {}
-
-        for _, row in df_mes.iterrows():
-            texto_celda = str(row.get('Alimento', '')).strip().lower()
-            if not texto_celda:
-                continue
-
-            es_integral = any(p in texto_celda for p in (col_integrales or ['integral', 'salvado', 'centeno', 'avena']))
-            
-            if es_integral:
-                for cat_key in frecuencias.keys():
-                    if 'integral' in cat_key:
-                        frecuencias[cat_key] += 1
-            else:
-                if col_refinadas and any(p in texto_celda for p in col_refinadas):
-                    for cat_key in frecuencias.keys():
-                        if 'refinada' in cat_key or 'blanca' in cat_key:
-                            frecuencias[cat_key] += 1
-
-            for cat_nombre, palabras in otras_categorias.items():
-                if any(p in texto_celda for p in palabras):
-                    if cat_nombre not in frecuencias:
-                        frecuencias[cat_nombre] = 0
-                    frecuencias[cat_nombre] += 1
-
-        return frecuencias
-    except Exception as e:
-        print(f"Error analizando frecuencias de alimentos: {e}")
-        return {}
-
-def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
-    if peso_referencia and peso_referencia > 0:
-        dif_relativa = (peso_actual - peso_referencia) / peso_referencia
-        
-        if -0.10 <= dif_relativa <= 0.10:
-            return (
-                "ESTADO: MANTENIMIENTO / ESTABLE\n"
-                "Instrucción para la IA: El usuario se encuentra dentro del rango de tolerancia del 10% respecto a su peso objetivo. "
-                "El consumo calórico real y el ideal deben tender a la paridad. Analiza la estabilidad de los hábitos, la variedad de los grupos "
-                "de alimentos y la distribución armónica de los macronutrientes. No sugieras cambios drásticos de peso."
-            )
-        elif peso_actual > peso_referencia:
-            return (
-                "ESTADO: DESCENSO DE PESO\n"
-                "Instrucción para la IA: El usuario se encuentra en un régimen de descenso de peso con un déficit calórico deliberado. "
-                "Una ingesta calórica menor al gasto ideal es el comportamiento esperado y correcto. No señales la diferencia calórica como un error "
-                "o déficit involuntario ni recomiendes aumentar calorías para alcanzar el mantenimiento. Enfócate exclusivamente en la calidad nutricional, "
-                "saciedad y densidad de los alimentos consumidos dentro del marco de restricción."
-            )
-        else:
-            return (
-                "ESTADO: ASCENSO / GANANCIA DE PESO\n"
-                "Instrucción para la IA: El usuario se encuentra en un régimen de ganancia o ascenso de peso mediante un superávit calórico controlado. "
-                "Una ingesta superior al gasto base es el comportamiento pretendido. Evalúa que el aporte extra de nutrientes esté respaldado por proteínas "
-                "y carbohidratos de calidad, evitando alertar por un consumo calórico elevado."
-            )
-    else:
-        return (
-            "ESTADO: DESCENSO DE PESO\n"
-            "Instrucción para la IA: Evalúa el informe priorizando la calidad de los nutrientes y hábitos saludables sin alterar los números duros ya calculados."
-        )
-
 def calcular_contextura(sexo: str, altura_cm: float, muneca_cm: float):
     if muneca_cm <= 0: return "Mediana"
     r = altura_cm / muneca_cm
@@ -2350,312 +2298,6 @@ def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: 
     get = tmb * float(actividad)
     return round(tmb, 2), round(get, 2)
 
-#              INICIO                     FUNCIONES COMIDAS                   INICIO
-# =============================================================================================================================================
-
-def calcular_porcentajes_harinas(frecuencias):
-    key_int = next((k for k in frecuencias.keys() if 'integral' in k), None)
-    key_ref = next((k for k in frecuencias.keys() if 'refinada' in k or 'blanca' in k), None)
-
-    total_integrales = frecuencias.get(key_int, 0) if key_int else 0
-    total_refinadas = frecuencias.get(key_ref, 0) if key_ref else 0
-    total_harinas = total_integrales + total_refinadas
-    
-    if total_harinas > 0:
-        porc_int = round((total_integrales / total_harinas) * 100)
-        porc_ref = round((total_refinadas / total_harinas) * 100)
-    else:
-        porc_int, porc_ref = 0, 0
-        
-    return porc_int, porc_ref
-
-def consultar_codigo_barras(barcode: str) -> dict | bool:
-    url = f"https://world.openfoodfacts.org/api/v2/product/{barcode.strip()}.json"
-    headers = {"User-Agent": "BotNutricionTelegram/1.0 (contacto@tudominio.com)"}
-    try:
-        response = requests.get(url, headers=headers, timeout=5)
-        if response.status_code != 200:
-            return False
-            
-        data = response.json()
-        if data.get("status") != 1:
-            return False
-            
-        product = data.get("product", {})
-        nutriments = product.get("nutriments", {})
-        
-        nombre_alimento = product.get("product_name_es") or product.get("product_name") or "Producto desconocido"
-        marca = product.get("brands", "")
-        if marca:
-            nombre_alimento = f"{nombre_alimento} ({marca})"
-
-        return {
-            "alimento": nombre_alimento,
-            "peso": 100.0,
-            "calorias": float(nutriments.get("energy-kcal_100g", nutriments.get("energy-kcal", 0.0) or 0.0)),
-            "proteinas": float(nutriments.get("proteins_100g", 0.0) or 0.0),
-            "grasas": float(nutriments.get("fat_100g", 0.0) or 0.0),
-            "carbohidratos": float(nutriments.get("carbohydrates_100g", 0.0) or 0.0),
-            "fibras": float(nutriments.get("fiber_100g", 0.0) or 0.0),
-            "fuente": "Open Food Facts"
-        }
-    except Exception as e:
-        logger.error(f"⚠️ Error al consultar el código de barras {barcode}: {e}")
-        return False
-
-def procesar_foto_codigo_barras(base64_image: str) -> dict | bool:
-    try:
-        image_bytes = base64.b64decode(base64_image)
-        np_arr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-        if img is None:
-            return False
-            
-        detector = cv2.barcode.BarcodeDetector()
-        retval, decoded_info, decoded_type, points = detector.detectAndDecode(img)
-        
-        if retval and decoded_info:
-            for barcode_text in decoded_info:
-                if barcode_text and barcode_text.strip():
-                    resultado_api = consultar_codigo_barras(barcode_text.strip())
-                    if resultado_api:
-                        return resultado_api
-        return False
-    except Exception as e:
-        return False
-
-def calcular_metricas_mensuales(df_mes, perfil_dict):
-    if df_mes is not None and not df_mes.empty and 'Fecha' in df_mes.columns:
-        todas_comidas = {"Desayuno", "Almuerzo", "Merienda", "Cena"}
-        comidas_principales = {"Almuerzo", "Cena"}
-        dias_validos_filtrados = []
-        
-        for fecha, grupo in df_mes.groupby('Fecha'):
-            comidas_del_dia = [
-                str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() 
-                for _, r in grupo.iterrows()
-                if str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() in todas_comidas
-            ]
-            
-            total_comidas = len(comidas_del_dia)
-            tiene_principal = any(c in comidas_principales for c in comidas_del_dia)
-            
-            if total_comidas >= 2 and tiene_principal:
-                dias_validos_filtrados.append(fecha)
-                
-        df_mes = df_mes[df_mes['Fecha'].isin(dias_validos_filtrados)]
-
-    dias_registrados = df_mes['Fecha'].nunique() if (df_mes is not None and not df_mes.empty) else 1
-    if dias_registrados == 0:
-        dias_registrados = 1
-
-    tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
-    tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
-
-    minutos_totales_actividad = 0
-    if df_mes is not None and not df_mes.empty and 'Momento' in df_mes.columns and 'Alimento' in df_mes.columns:
-        for _, row in df_mes.iterrows():
-            momento_str = str(row.get('Momento', '')).strip().lower()
-            alimento_str = str(row.get('Alimento', '')).strip()
-            cal_val = float(row.get('Calorias', 0) or 0)
-            if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
-                match = re.match(r'^(\d+)', alimento_str)
-                if match:
-                    minutos_totales_actividad += int(match.group(1))
-
-    prom_minutos_act = int(round(minutos_totales_actividad / dias_registrados))
-
-    prom_cons = tot_cons_mes / dias_registrados
-    prom_quem = tot_quem_mes / dias_registrados
-    prom_bal_neto = prom_cons - prom_quem
-
-    tot_prot = float(df_mes['Proteinas'].sum()) if df_mes is not None and 'Proteinas' in df_mes.columns else 0.0
-    tot_gras = float(df_mes['Grasas'].sum()) if df_mes is not None and 'Grasas' in df_mes.columns else 0.0
-    tot_carb = float(df_mes['Carbohidratos'].sum()) if df_mes is not None and 'Carbohidratos' in df_mes.columns else 0.0
-    tot_fibr = float(df_mes['Fibras'].sum()) if df_mes is not None and 'Fibras' in df_mes.columns else 0.0
-
-    prom_cal = int(round(prom_cons))
-    prom_prot = int(round(tot_prot / dias_registrados))
-    prom_gras = int(round(tot_gras / dias_registrados))
-    prom_carb = int(round(tot_carb / dias_registrados))
-    prom_fibr = int(round(tot_fibr / dias_registrados))
-
-    perfil_dict = perfil_dict if isinstance(perfil_dict, dict) else {}
-    
-    def get_perfil_num(key_list, default):
-        for k in key_list:
-            if k in perfil_dict and perfil_dict[k] is not None:
-                val = parse_raw_val(perfil_dict[k])
-                if val != 0.0:
-                    return val
-        return default
-
-    edad = int(get_perfil_num(['Edad', 'edad'], 64))
-    altura = get_perfil_num(['Altura', 'altura', 'ALTURA'], 167.5)
-    peso_actual = get_perfil_num(['Peso', 'peso', 'peso_actual', 'PESO'], 104.6)
-    
-    ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
-    genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
-    gen_clean = genero.lower()
-    is_femenino = gen_clean in ["femenino", "f", "mujer", "female"]
-    ritmo_usuario = str(perfil_dict.get('Ritmo') or perfil_dict.get('ritmo_preferido', 'moderado')).strip()
-
-    peso_ideal_secreto = get_perfil_num(['peso_ideal_secreto', 'peso_ideal', 'Peso_Ideal'], 81.0)
-
-    ritmo_clean = ritmo_usuario.lower()
-    if "tranquilo" in ritmo_clean or "lento" in ritmo_clean:
-        factor_actual = 0.90
-    elif "rapido" in ritmo_clean or "intenso" in ritmo_clean or "decidido" in ritmo_clean:
-        factor_actual = 0.75
-    else:
-        factor_actual = 0.85
-    factor_ideal = 1.0 - factor_actual
-
-    peso_etapa_calculado = (peso_actual * factor_actual) + (peso_ideal_secreto * factor_ideal)
-    
-    peso_referencia = round(peso_etapa_calculado, 1)
-    peso_ideal_dinamico = peso_referencia  
-
-    min_act = 30
-    max_act = 60
-
-    _, get_real = calcular_tmb_y_get(
-        peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal_dinamico
-    )
-    _, get_meta = calcular_tmb_y_get(
-        peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal_dinamico
-    )
-
-    gasto_diario_total = get_real + prom_quem
-    balance_diario = prom_cons - gasto_diario_total
-    cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
-    deficit_diario_real = -balance_diario
-
-    if is_femenino:
-        factor_proteina_min = 1.0
-        factor_proteina_max = 1.2
-        fibr_min = 25
-    else:
-        factor_proteina_min = 1.2
-        factor_proteina_max = 1.5
-        fibr_min = 30
-
-    cal_max = int(round(get_meta))
-    cal_min = max(1500, int(round(cal_max - 600)))
-
-    prot_min = int(round(peso_referencia * factor_proteina_min))
-    prot_max = int(round(peso_referencia * factor_proteina_max))
-
-    gras_min = int(round((cal_min * 0.20) / 9.0))
-    gras_max = int(round((cal_max * 0.30) / 9.0))
-
-    carb_min = int(round((cal_min * 0.40) / 4.0))
-    carb_max = int(round((cal_max * 0.55) / 4.0))
-
-    fibr_min_val = fibr_min
-
-    return {
-        "dias_registrados": dias_registrados,
-        "prom_cal": prom_cal,
-        "prom_quem": int(round(prom_quem)),
-        "prom_bal_neto": int(round(prom_bal_neto)),
-        "prom_prot": prom_prot,
-        "prom_gras": prom_gras,
-        "prom_carb": prom_carb,
-        "prom_fibr": prom_fibr,
-        "prom_minutos_act": prom_minutos_act,
-        "act_min": min_act,
-        "act_max": max_act,
-        "cal_min": cal_min, "cal_max": cal_max,
-        "prot_min": prot_min, "prot_max": prot_max,
-        "gras_min": gras_min, "gras_max": gras_max,
-        "carb_min": carb_min, "carb_max": carb_max,
-        "fibr_min": fibr_min_val,
-        "ideal_cal": cal_max,
-        "ideal_prot": prot_max,
-        "ideal_gras": gras_max,
-        "ideal_carb": carb_max,
-        "ideal_fibr": fibr_min_val,
-        "peso_actual": round(float(peso_actual), 1),
-        "peso_ideal": round(float(peso_ideal_dinamico), 1),
-        "peso_referencia": round(float(peso_referencia), 1),
-        "altura": round(float(altura), 1),
-        "edad": edad,
-        "get_meta": get_meta,
-        "get_real": get_real,
-        "deficit_diario_real": int(round(deficit_diario_real)),
-        "cambio_peso_kg": cambio_peso_kg,
-        "tot_cons": tot_cons_mes,
-        "tot_quem": tot_quem_mes,
-        "tot_prot": tot_prot,
-        "tot_gras": tot_gras,
-        "tot_carb": tot_carb,
-        "tot_fibr": tot_fibr
-    }
-
-def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
-    mes_actual_str = ahora_dt.strftime("%Y-%m")
-    tabla_nombre = f"Perfil_{user_id}"
-
-    try:
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
-        
-        cur.execute(f'SELECT id FROM "{tabla_nombre}" WHERE "MES" = %s', (str(mes_actual_str),))
-        fila_existente = cur.fetchone()
-        
-        if fila_existente:
-            cur.close()
-            conn.close()
-            return
-
-        logger.info(f"Inicializando nueva fila mensual ({mes_actual_str}) para User {user_id} en Supabase...")
-
-        cur.execute(f'SELECT "EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "Peso_ideal", "Cumple" FROM "{tabla_nombre}" ORDER BY id DESC LIMIT 1')
-        ultima_fila = cur.fetchone()
-        
-        if ultima_fila:
-            edad_val = ultima_fila[0] or "64"
-            peso_val = ultima_fila[1] or 70.0
-            altura_val = ultima_fila[2] or 1.70
-            genero_val = ultima_fila[3] or "M"
-            ocupacion_val = ultima_fila[4] or 1.375
-            peso_ideal_val = ultima_fila[5] or 0.0
-            cumple_val = ultima_fila[6] or ""
-        else:
-            edad_val = "64"
-            peso_val = 70.0
-            altura_val = 1.70
-            genero_val = "M"
-            ocupacion_val = 1.375
-            peso_ideal_val = 0.0
-            cumple_val = ""
-
-        cur.execute(f"""
-            INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            str(edad_val),
-            float(peso_val),
-            float(altura_val),
-            str(genero_val),
-            float(ocupacion_val),
-            str(mes_actual_str),
-            ahora_dt.strftime("%Y-%m-%d"),
-            float(peso_ideal_val),
-            str(cumple_val)
-        ))
-        
-        conn.commit()
-        cur.close()
-        conn.close()
-        logger.info(f"Fila del mes {mes_actual_str} creada exitosamente en Supabase para User {user_id}")
-
-    except Exception as e:
-        logger.error(f"Error al garantizar fila mensual en Supabase para User {user_id}: {e}")
-        if 'cur' in locals() and cur:
-            cur.close()
-        if 'conn' in locals() and conn:
-            conn.close()
 
 async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.DEFAULT_TYPE = None, user_id: int = None) -> bool:
     uid = user_id or (update.effective_user.id if update else None)
@@ -2707,197 +2349,7 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
                     
     return peso_valido
 
-#              INICIO                     FUNCIONES INFORMES                   INICIO
-# =============================================================================================================================================
-
-async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    try:
-        peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
-        if not peso_ok and not forzar_envio:
-            return False
-
-        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
-        if df_datos.empty or 'Fecha' not in df_datos.columns:
-            msg_nodata = traducciones.get("sup_inf_no_registros", "⚠️ Not enough records to generate the report.")
-            await context.bot.send_message(chat_id=user_id, text=msg_nodata)
-            return False
-
-        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
-        
-        ahora_arg = obtener_ahora_arg()
-        if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
-            ahora_arg = ahora_arg.replace(tzinfo=None)
-        
-        hoy_ts = pd.Timestamp(ahora_arg).normalize()
-        ayer_ts = hoy_ts - pd.Timedelta(days=1)
-        mes_actual_str = hoy_ts.strftime("%Y-%m")
-
-        if es_automatico_15:
-            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
-            fin_periodo = pd.Timestamp(f"{mes_target}-14").normalize()
-            etiqueta_periodo = f"Bi-weekly ({mes_target}: 1 to 14)" if lang == 'en' else f"Quincenal ({mes_target}: 1 al 14)"
-        else:
-            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
-            if mes_target == mes_actual_str:
-                fin_periodo = ayer_ts
-                etiqueta_periodo = f"Current month ongoing ({mes_target}: from 01 to {ayer_ts.strftime('%d/%m')})" if lang == 'en' else f"Mes Actual en curso ({mes_target}: del 01 al {ayer_ts.strftime('%d/%m')})"
-            else:
-                fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
-                etiqueta_periodo = f"Full Month ({mes_target})" if lang == 'en' else f"Mes Completo ({mes_target})"
-
-        df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
-
-        if df_filtrado.empty:
-            msg_template = traducciones.get("sup_inf_sin_registros_periodo", "⚠️ No closed records found for the period {etiqueta_periodo}.")
-            msg_closed = msg_template.format(etiqueta_periodo=etiqueta_periodo)
-            await context.bot.send_message(chat_id=user_id, text=msg_closed)
-            return False
-
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
-        m = calcular_metricas_mensuales(df_filtrado, perfil) if 'calcular_metricas_mensuales' in globals() else {}
-        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_target) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
-
-        peso_actual_eval = float(m.get('peso_actual', 0))
-        peso_referencia_eval = float(m.get('peso_referencia', 0))
-        prompt_condicional = obtener_prompt_segun_objetivo_peso(peso_actual_eval, peso_referencia_eval) if 'obtener_prompt_segun_objetivo_peso' in globals() else None
-
-        informe_ia = await generar_informe_mensual_auditado(
-            context=context, 
-            user_id=user_id, 
-            mes_str=mes_target, 
-            m=m, 
-            frecuencias=conteo_frecuencias,
-            prompt_condicional=prompt_condicional
-        )
-
-        if not informe_ia:
-            informe_ia = traducciones.get("sup_inf_error_ia", "<b>⚠️ Could not generate the AI audited report after retries.</b>")
-
-        recomendacion_pdf = (
-            informe_ia
-            .replace("<br>", "<br/>")
-            .replace("<BR>", "<br/>")
-        )
-
-        df_presion = pd.DataFrame()
-        tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
-        pdf_buffer = await asyncio.to_thread(
-            generar_pdf_resumen_bytes,
-            mes_target,
-            df_filtrado,
-            df_presion,
-            perfil,
-            tmb_val,
-            recomendacion_pdf,
-            user_id
-        )
-        return True
-    except Exception as e:
-        logger.error(f"Error in procesar_y_enviar_informe_mensual for {user_id}: {e}")
-        return False
-        
-        
-async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    df_presion = obtener_datos_presion_db(user_id)
-    if df_presion.empty:
-        # Mensaje informativo para el usuario convertido en variable
-        txt = traducciones.get("sup_sin_presion_usuario", f"🩺 No blood pressure records found for user `{user_id}`.").format(user_id=user_id)
-        if hasattr(query_or_update, 'edit_message_text'):
-            await query_or_update.edit_message_text(txt, parse_mode="Markdown")
-        else:
-            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
-        return
-
-    df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
-    if df_p_mes.empty:
-        # Mensaje informativo para el usuario convertido en variable
-        txt = traducciones.get("sup_sin_presion_mes", f"🩺 No blood pressure records found for the month `{mes_str}`.").format(mes_str=mes_str)
-        if hasattr(query_or_update, 'edit_message_text'):
-            await query_or_update.edit_message_text(txt, parse_mode="Markdown")
-        else:
-            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
-        return
-
-    alta_prom = df_p_mes['Alta'].mean()
-    baja_prom = df_p_mes['Baja'].mean()
-    pul_prom = df_p_mes[df_p_mes['Pulsaciones'] > 0]['Pulsaciones'].mean() if 'Pulsaciones' in df_p_mes.columns else 0
-
-    titulo_resumen = traducciones.get("sup_resumen_presion_titulo", "🩺 <b>Blood Pressure Summary ({mes_str}):</b>").format(mes_str=mes_str)
-    mediciones_reg = traducciones.get("sup_mediciones_registradas", "• Recorded measurements: `{count}`").format(count=len(df_p_mes))
-    prom_alta = traducciones.get("sup_prom_alta", "• <b>Average High (Systolic):</b> `{alta:.1f} mmHg`").format(alta=alta_prom)
-    prom_baja = traducciones.get("sup_prom_baja", "• <b>Average Low (Diastolic):</b> `{baja:.1f} mmHg`").format(baja=baja_prom)
     
-    txt = f"{titulo_resumen}\n\n{mediciones_reg}\n{prom_alta}\n{prom_baja}\n"
-
-    if pul_prom > 0:
-        prom_pulso = traducciones.get("sup_prom_pulsaciones", "• <b>Average Pulse:</b> `{pul:.1f} bpm`").format(pul=pul_prom)
-        txt += f"{prom_pulso}\n"
-
-    btn_texto = traducciones.get("sup_btn_descargar_pdf_presion", "📄 Download Daily Pressure PDF")
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(btn_texto, callback_data=f"descargar_pdf_presion_{mes_str}")]
-    ])
-
-    if hasattr(query_or_update, 'edit_message_text'):
-        await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
-    else:
-        await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
-        
-def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
-    styles = getSampleStyleSheet()
-    
-    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#1E293B'))
-    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
-
-    story = [
-        Paragraph(f"<b>Detalle Diario de Presion Arterial - {mes_str}</b>", title_style),
-        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
-        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
-    ]
-
-    if df_presion.empty:
-        story.append(Paragraph("No hay registros de presion para este mes.", body_style))
-    else:
-        table_data = [[
-            Paragraph("Fecha y Hora", header_style),
-            Paragraph("Alta (mmHg)", header_style),
-            Paragraph("Baja (mmHg)", header_style),
-            Paragraph("Pulsaciones", header_style),
-            Paragraph("Nota / Detalle", header_style)
-        ]]
-
-        for _, r in df_presion.iterrows():
-            table_data.append([
-                Paragraph(str(r.get('Fecha_Hora', '')), body_style),
-                Paragraph(f"{r.get('Alta', 0):.0f}", body_style),
-                Paragraph(f"{r.get('Baja', 0):.0f}", body_style),
-                Paragraph(f"{r.get('Pulsaciones', 0):.0f}", body_style),
-                Paragraph(str(r.get('Nota', '')), body_style)
-            ])
-
-        t = Table(table_data, colWidths=[110, 65, 65, 70, 190])
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
-        ]))
-        story.append(t)
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
-
 #              INICIO                     FUNCIONES SOPORTE MULTILENGUAJE                   INICIO
 # =============================================================================================================================================
 
@@ -2996,6 +2448,51 @@ def requiere_registro(func):
 #                INICIO                       14 FUNCIONES IA GROQ                                      INICIO
 # ======================================================================================================================================
 
+def analizar_foto_presion_con_groq(base64_image: str) -> dict:
+    client_ai = globals().get('client_ai')
+    if not client_ai: return {"es_presion": False}
+    prompt = "Analiza esta imagen. ¿Es la pantalla de un tensiómetro digital que muestra valores de presión arterial? Si es así, extrae los valores numéricos de la presión sistólica (Alta), diastólica (Baja) y las pulsaciones. Responde ÚNICAMENTE en formato JSON: {\"es_presion\": true/false, \"alta\": 0.0, \"baja\": 0.0, \"pulsaciones\": 0.0}"
+    try:
+        response = client_ai.chat.completions.create(
+            model=globals().get('GROQ_FOTO', "qwen/qwen3.8-27b"),
+            messages=[{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
+            temperature=0.0, response_format={"type": "json_object"}
+        )
+        return json.loads(response.choices[0].message.content)
+    except Exception: return {"es_presion": False}
+    
+def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
+    if peso_referencia and peso_referencia > 0:
+        dif_relativa = (peso_actual - peso_referencia) / peso_referencia
+        
+        if -0.10 <= dif_relativa <= 0.10:
+            return (
+                "ESTADO: MANTENIMIENTO / ESTABLE\n"
+                "Instrucción para la IA: El usuario se encuentra dentro del rango de tolerancia del 10% respecto a su peso objetivo. "
+                "El consumo calórico real y el ideal deben tender a la paridad. Analiza la estabilidad de los hábitos, la variedad de los grupos "
+                "de alimentos y la distribución armónica de los macronutrientes. No sugieras cambios drásticos de peso."
+            )
+        elif peso_actual > peso_referencia:
+            return (
+                "ESTADO: DESCENSO DE PESO\n"
+                "Instrucción para la IA: El usuario se encuentra en un régimen de descenso de peso con un déficit calórico deliberado. "
+                "Una ingesta calórica menor al gasto ideal es el comportamiento esperado y correcto. No señales la diferencia calórica como un error "
+                "o déficit involuntario ni recomiendes aumentar calorías para alcanzar el mantenimiento. Enfócate exclusivamente en la calidad nutricional, "
+                "saciedad y densidad de los alimentos consumidos dentro del marco de restricción."
+            )
+        else:
+            return (
+                "ESTADO: ASCENSO / GANANCIA DE PESO\n"
+                "Instrucción para la IA: El usuario se encuentra en un régimen de ganancia o ascenso de peso mediante un superávit calórico controlado. "
+                "Una ingesta superior al gasto base es el comportamiento pretendido. Evalúa que el aporte extra de nutrientes esté respaldado por proteínas "
+                "y carbohidratos de calidad, evitando alertar por un consumo calórico elevado."
+            )
+    else:
+        return (
+            "ESTADO: DESCENSO DE PESO\n"
+            "Instrucción para la IA: Evalúa el informe priorizando la calidad de los nutrientes y hábitos saludables sin alterar los números duros ya calculados."
+        )
+
 def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4, system_prompt: str = None, modelo_override: str = None):
     try:
         client = globals().get('client_ai') or globals().get('groq_client')
@@ -3035,6 +2532,7 @@ def obtener_nombre_lenguaje_ia(user_id=None):
     if not user_id:
         return "Spanish"
     try:
+        from FuncionesSupabaseMulti import _asegurar_tabla_y_conectar
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
         cur.execute('SELECT "lenguajes" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
         row = cur.fetchone()
@@ -3290,6 +2788,9 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
     peso_ideal = datos_usuario.get('peso_ideal', 0)
     peso_etapa = datos_usuario.get('peso_etapa', peso)
     get_calorias = datos_usuario.get('get', 2000)
+    
+    # 🟢 Capturamos el ritmo elegido por el usuario (tranquilo, moderado, intenso)
+    ritmo_elegido = datos_usuario.get('ritmo', 'moderado')
 
     nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
     dif_pct = ((peso - peso_ideal) / peso_ideal * 100) if peso_ideal > 0 else 0.0
@@ -3305,11 +2806,12 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
 
     prompt_ia = (
         f"Actúa como un médico nutricionista experto y muy empático. Contexto del paciente:\n"
-        f"- Situación general: {contexto_situacion}\n\n"
+        f"- Situación general: {contexto_situacion}\n"
+        f"- Ritmo de trabajo seleccionado por el paciente: {ritmo_elegido.capitalize()}\n\n"
         f"Redacta un informe breve, cálido y motivador de bienvenida que incluya:\n"
-        f"1. Una explicación empática y motivadora sobre por qué avanzamos paso a paso hacia nuestra primera meta intermedia, destacando que lo importante es el proceso y la salud sostenible.\n"
+        f"1. Una explicación empática y motivadora sobre por qué avanzamos paso a paso hacia nuestra primera meta intermedia, destacando que lo importante es el proceso y la salud sostenible, valorando específicamente la decisión del paciente de elegir un ritmo {ritmo_elegido}.\n"
         f"2. Recomendaciones generales y amables sobre el manejo de la alimentación diaria orientada a un equilibrio energético saludable, SIN MENCIONAR NÚMEROS, NI KILOS, NI GRAMOS, NI CALORÍAS en el texto de los consejos.\n"
-        f"3. Pautas generales de actividad física complementaria (caminatas suaves, movilidad) y hábitos de hidratación.\n"
+        f"3. Pautas generales de actividad física complementaria (caminatas suaves, movilidad) y hábitos de hidratación acordes al ritmo elegido.\n"
         f"REQUISITO ESTRICTO: Mantén un tono sumamente humano, profesional, constructivo y generalizado. No des cifras de peso ni metas numéricas específicas en las recomendaciones.\n"
         f"IMPORTANTE: Redacta todo el informe estrictamente en el idioma {nombre_lenguaje}.\n"
         f"Cierra con un punto final y completa todas las ideas."
@@ -3354,7 +2856,7 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
                 prompt=prompt_ia, 
                 max_tokens=600, 
                 temperature=0.3, 
-                system_msg=system_msg
+                sys_p=system_msg
             )
             
             if not texto_generado:
@@ -3367,7 +2869,8 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
                 prompt=prompt_auditor_final, 
                 max_tokens=100, 
                 temperature=0.1, 
-                modelo_override=modelo_rev
+                sys_p=None,
+                mod_over=modelo_rev
             )
 
             if veredicto and "OK" in veredicto.strip().upper() and "RECHAZ" not in veredicto.strip().upper():
@@ -3407,7 +2910,7 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
         f"<b>Patient:</b> {nombre} | <b>Telegram ID:</b> `{datos_usuario.get('user_id')}`<br/>"
         f"<b>Age:</b> {edad} years | <b>Sex:</b> {sexo} | <b>Height:</b> {altura} cm<br/>"
         f"<b>Current Weight:</b> {peso} kg | <b>Theoretical Ideal Weight:</b> {peso_ideal} kg<br/>"
-        f"<b>1st Stage Goal:</b> {peso_etapa} kg<br/>"
+        f"<b>1st Stage Goal:</b> {peso_etapa} kg | <b>Chosen Pace:</b> {ritmo_elegido.capitalize()}<br/>"
         f"<b>Daily Targets:</b> ~{meta_cal} kcal | Proteins: ~{meta_prot}g | Fats: ~{meta_gras}g | Carbs: ~{meta_carb}g"
     )
     story.append(Paragraph(resumen_datos, sub_style))
@@ -3422,7 +2925,7 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
     pdf_buffer.seek(0)
     
     return informe_ia, pdf_buffer
-    
+        
 async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False, user_id=None):
     nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
 
@@ -3453,64 +2956,38 @@ async def obtener_recomendacion_ia(resumen_texto: str, es_semanal: bool = False,
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     return traducciones.get("02_error_analisis_no_disponible", "⚠️ Nutritional analysis temporarily unavailable.")
 
-def analizar_imagen_con_groq(image_input: bytes | str, prompt_usuario: str = "", user_id=None) -> dict:
+def analizar_imagen_con_groq(base64_image: str, user_caption: str = "") -> dict:
     client_ai = globals().get('client_ai')
-    if not client_ai:
-        raise Exception("GROQ_API_KEY is not properly configured.")
-
-    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
+    if not client_ai: return {"items": []}
     
-    # 🟢 Manejo inteligente: Si ya es un string en base64 lo usamos directo, si son bytes los codificamos
-    if isinstance(image_input, str):
-        data_url = f"data:image/jpeg;base64,{image_input}"
-    else:
-        encoded_image = base64.b64encode(image_input).decode('utf-8')
-        data_url = f"data:image/jpeg;base64,{encoded_image}"
-
-    system_prompt = (
-        f"Sos un asistente nutricional experto en análisis visual de platos y alimentos. El usuario se comunica en su idioma ({nombre_lenguaje}). "
-        f"Analiza la imagen provista (y el texto opcional del usuario) e identifica todos los alimentos, platos o bebidas presentes. "
-        f"Calcula con la mayor precisión posible el peso en gramos, las calorías, proteínas, grasas, carbohidratos y fibras para cada ítem detectado.\n\n"
-        f"REQUISITOS:\n"
-        f"- Responde ÚNICAMENTE con un objeto JSON válido.\n"
-        f"- Los nombres de los alimentos deben estar descritos correctamente.\n"
-        f"- Estructura exacta requerida:\n"
-        "{\n"
-        '  "items": [\n'
-        '    {"alimento": "nombre del alimento", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
-        "  ],\n"
-        '  "tipo": "Comida"\n'
-        "}"
+    prompt = (
+        f"Descripción del usuario: '{user_caption}'. "
+        "Analiza esta foto de un plato de comida. "
+        "Calcula el peso estimado en gramos, las calorías y los macronutrientes. "
+        "REGLA ESTRICTA: Responde ÚNICAMENTE con un objeto JSON válido, sin texto adicional, sin explicaciones ni saludos. "
+        "El JSON debe tener exactamente esta estructura: "
+        "{\"items\": [{\"alimento\": \"nombre\", \"peso\": 0.0, \"calorias\": 0.0, \"proteinas\": 0.0, \"grasas\": 0.0, \"carbohidratos\": 0.0, \"fibras\": 0.0}]}"
     )
-
-    user_content = [
-        {"type": "image_url", "image_url": {"url": data_url}},
-        {"type": "text", "text": prompt_usuario if prompt_usuario else "Analiza esta comida y detalla sus componentes nutricionales."}
-    ]
-
-    modelo_foto = globals().get('GROQ_FOTO', "qwen/qwen3.8-27b")
-
-    response = client_ai.chat.completions.create(
-        model=modelo_foto,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content}
-        ],
-        temperature=0.1,
-        response_format={"type": "json_object"}
-    )
-
-    raw_text = response.choices[0].message.content.strip()
-    return json.loads(raw_text)
-
-# =====================================================================================================================================
-#                FINAL                          FUNCIONES IA GROQ                                     FINAL
-# =====================================================================================================================================
-
-# =====================================================================================================================================
-#                INICIO                          FUNCIONES HUERFANAS                                  INICIO
-# =====================================================================================================================================
-
+    
+    try:
+        response = client_ai.chat.completions.create(
+            model=globals().get('GROQ_FOTO', "qwen/qwen2.5-vl-7b-instruct"), # o el modelo visual que uses
+            messages=[{
+                "role": "user", 
+                "content": [
+                    {"type": "text", "text": prompt}, 
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                ]
+            }],
+            temperature=0.0,
+            max_tokens=400, # 👈 ESTO EVITA QUE SE VAYA DE TEMA Y SUPERE EL LÍMITE DE TOKENS
+            response_format={"type": "json_object"}
+        )
+        return json.loads(response.choices[0].message.content)
+    except Exception as e:
+        logger.error(f"Error en análisis visual con Groq: {e}")
+        return {"error": str(e)}
+        
 def detectar_codigo_con_groq(image_bytes: bytes, user_id=None) -> str:
     client_ai = globals().get('client_ai')
     if not client_ai:
@@ -3545,39 +3022,35 @@ def detectar_codigo_con_groq(image_bytes: bytes, user_id=None) -> str:
         logger.error(f"Error detectando código en imagen: {e}")
         return ""
 
-def analizar_foto_presion_con_groq(base64_image: str) -> dict:
-    client_ai = globals().get('client_ai')
-    if not client_ai: return {"es_presion": False}
-    prompt = "Analiza esta imagen. ¿Es la pantalla de un tensiómetro digital que muestra valores de presión arterial? Si es así, extrae los valores numéricos de la presión sistólica (Alta), diastólica (Baja) y las pulsaciones. Responde ÚNICAMENTE en formato JSON: {\"es_presion\": true/false, \"alta\": 0.0, \"baja\": 0.0, \"pulsaciones\": 0.0}"
-    try:
-        response = client_ai.chat.completions.create(
-            model=globals().get('GROQ_FOTO', "qwen/qwen3.8-27b"),
-            messages=[{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
-            temperature=0.0, response_format={"type": "json_object"}
-        )
-        return json.loads(response.choices[0].message.content)
-    except Exception: return {"es_presion": False}
-
 # =====================================================================================================================================
-#                FINAL                          FUNCIONES HUERFANAS                                     FINAL
+#                FINAL                          FUNCIONES IA GROQ                                     FINAL
 # =====================================================================================================================================
 
 # ======================================================================================================================================
-#                  INICIO               COMANDOS CONFIRMACION COMANDOS MENU COMANDOS BOTONES                    INICIO
+#                  INICIO               COMANDOS CONFIRMACION FUNCIONES BOTONES                    INICIO
 # ======================================================================================================================================
 
 #                  INICIO               INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO
 # ======================================================================================================================================
 
 async def render_confirmation_screen(msg_or_query, context):
+    user_id = msg_or_query.from_user.id if hasattr(msg_or_query, 'from_user') and msg_or_query.from_user else (msg_or_query.message.from_user.id if hasattr(msg_or_query, 'message') and msg_or_query.message and hasattr(msg_or_query.message, 'from_user') and msg_or_query.message.from_user else None)
+    lang = obtener_idioma_usuario(user_id) if user_id and 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     items = context.user_data.get('pending_items', [])
     fecha = context.user_data.get('pending_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
     momento = context.user_data.get('pending_momento', 'Comida')
 
     if momento == 'Actividad':
-        txt = f"📝 **Registro de Actividad:**\n📅 Fecha: `{fecha}`\n\n"
+        t_reg_act = traducciones.get('bot_reg_actividad', "📝 <b>Registro de Actividad:</b>")
+        t_fecha = traducciones.get('bot_label_fecha', "📅 Fecha")
+        txt = f"{t_reg_act}\n{t_fecha}: `{fecha}`\n\n"
     else:
-        txt = f"📝 **Confirmación de Ingesta:**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\n\n"
+        t_conf_ing = traducciones.get('bot_conf_ingesta', "📝 <b>Confirmación de Ingesta:</b>")
+        t_fecha = traducciones.get('bot_label_fecha', "📅 Fecha")
+        t_momento = traducciones.get('bot_label_momento', "Momento")
+        txt = f"{t_conf_ing}\n{t_fecha}: `{fecha}` | {t_momento}: `{momento}`\n\n"
 
     for idx, item in enumerate(items, start=1):
         peso_total = item.get('peso', 0)
@@ -3590,18 +3063,22 @@ async def render_confirmation_screen(msg_or_query, context):
         alimento_limpio = alimento_str.replace('§', '').strip()
 
         if momento == 'Actividad':
-            txt += f"**{idx}. {alimento_limpio}**: `{cal_total:.1f} kcal`\n"
+            txt += f"<b>{idx}. {alimento_limpio}</b>: `{cal_total:.1f} kcal`\n"
         else:
-            txt += f"**{idx}. {alimento_limpio}** ({peso_total:.1f}g):\n"
-            txt += f"   • Calorías: `{cal_total:.1f} kcal`\n"
-            txt += f"   • Proteínas: `{prot_total:.1f} g`\n"
-            txt += f"   • Grasas tot.: `{grasas_total:.1f} g`\n"
-            txt += f"   • Fibras: `{fibras_total:.1f} g`\n\n"
+            t_calorias = traducciones.get('bot_macro_calorias', "Calorías")
+            t_proteinas = traducciones.get('bot_macro_proteinas', "Proteínas")
+            t_grasas = traducciones.get('bot_macro_grasas', "Grasas tot.")
+            t_fibras = traducciones.get('bot_macro_fibras', "Fibras")
+
+            txt += f"<b>{idx}. {alimento_limpio}</b> ({peso_total:.1f}g):\n"
+            txt += f"   • {t_calorias}: `{cal_total:.1f} kcal`\n"
+            txt += f"   • {t_proteinas}: `{prot_total:.1f} g`\n"
+            txt += f"   • {t_grasas}: `{grasas_total:.1f} g`\n"
+            txt += f"   • {t_fibras}: `{fibras_total:.1f} g`\n\n"
 
     keyboard = []
     
     if momento != 'Actividad':
-        # Momentos estandarizados con franjas horarias y relojes (100% universal)
         momentos_config = [
             ("Desayuno", "🌅 08-11"),
             ("Almuerzo", "☀️ 11-16"),
@@ -3629,7 +3106,6 @@ async def render_confirmation_screen(msg_or_query, context):
     hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
     ayer_str = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
     
-    # Formato universal Día/Mes (ej: 23/09) para los botones
     hoy_label = obtener_ahora_arg().strftime("%d/%m")
     ayer_label = (obtener_ahora_arg() - timedelta(days=1)).strftime("%d/%m")
     
@@ -3643,7 +3119,6 @@ async def render_confirmation_screen(msg_or_query, context):
         InlineKeyboardButton(f"{mark_otro}🗓️", callback_data="set_d_otro")
     ])
 
-    # Acciones principales con íconos universales
     keyboard.append([
         InlineKeyboardButton("🗑️", callback_data="cancel_entry"),
         InlineKeyboardButton("💾", callback_data="confirm_save")
@@ -3671,7 +3146,8 @@ async def render_confirmation_screen(msg_or_query, context):
 
         if not editado and hasattr(msg_or_query, 'message') and msg_or_query.message:
             nuevo_msg = await msg_or_query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
-            context.user_data['last_menu_msg_id'] = nuevo_msg.message_id            
+            context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
+
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     items = data_json.get("items", [])
     tipo = data_json.get("tipo", "Comida")
@@ -3702,7 +3178,6 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 
     await render_confirmation_screen(msg_obj, context)
     
-# ======================================================================================================================================
 #               MANEJADORES INDEPENDIENTES Y EXCLUSIVOS PARA CADA GRUPO DE BOTONES (CERO COMPARTIDOS)
 # ======================================================================================================================================
 
@@ -3883,11 +3358,6 @@ async def callback_handler_reportes_pdf(update: Update, context: ContextTypes.DE
         mes_target = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m") if ahora.day <= 7 else ahora.strftime("%Y-%m")
         await procesar_y_enviar_informe_mensual(context, target_user_id, target_user_id, mes_target, False, True)
 
-# ======================================================================================================================================
-#                FINAL                           FUNCIONES DE MENÚ Y CALLBACKS 100% INDEPENDIENTES           FINAL
-# ======================================================================================================================================
-
-# =====================================================================================================================================
 #              INICIO                      FUNCIONES MANEJADORES MODULARIZADOS (NUEVOS)                   INICIO
 # =====================================================================================================================================
 
@@ -4156,27 +3626,6 @@ async def _sub_manejar_voz_actividad(update, context, transcription, msg):
     context.user_data['last_menu_msg_id'] = msg_menu.message_id
     await render_confirmation_screen(msg_menu, context)
     
-async def _sub_manejar_foto_presion(update, context, res_presion, msg):
-    user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    alta, baja, pulsaciones = float(res_presion.get("alta", 0)), float(res_presion.get("baja", 0)), float(res_presion.get("pulsaciones", 0))
-    
-    context.user_data['pending_presion_foto'] = {"alta": alta, "baja": baja, "pulsaciones": pulsaciones}
-    context.user_data['awaiting_presion_nota'] = True
-
-    pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
-    
-    await msg.edit_text(
-        f"🩺 **Tensiómetro detectado en la imagen:**\n\n"
-        f"• Presión Alta: `{alta:.0f} mmHg`\n"
-        f"• Presión Baja: `{baja:.0f} mmHg`{pul_txt}\n\n"
-        f"📝 **Ingresá una nota aclaratoria** para este registro (ej: *'tomada a la mañana en reposo'*).\n"
-        f"*(Si escribís **cancelar**, se anulará el ingreso)*",
-        parse_mode="Markdown"
-    )
-    
 async def _sub_manejar_foto_plato_ia(update, context, base64_image, user_caption, msg):
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
@@ -4184,15 +3633,27 @@ async def _sub_manejar_foto_plato_ia(update, context, base64_image, user_caption
 
     txt_analiz_plato = traducciones.get('bot_analizando_plato', "🤖 Analizando plato con Inteligencia Artificial...")
     await msg.edit_text(txt_analiz_plato)
-    data = analizar_imagen_con_groq(base64_image, user_caption)
-    await procesar_y_mostrar_confirmacion(data, msg, context)
+
+    try:
+        data = analizar_imagen_con_groq(base64_image, user_caption)
+        
+        # Si hubo un error o la respuesta viene vacía/con error de tokens
+        if not data or "error" in data or not data.get("items"):
+            raise Exception("Límite o error en respuesta visual.")
+            
+        await procesar_y_mostrar_confirmacion(data, msg, context)
+
+    except Exception as e:
+        logger.error(f"Error al procesar plato por imagen para usuario {user_id}: {e}")
+        
+        # Mensaje amigable multilenguaje cuando la foto falla
+        txt_error_imagen = traducciones.get(
+            'bot_error_imagen_fallida', 
+            "⚠️ No se pudo procesar la imagen correctamente (límite de la IA superado).\n\n"
+            "Por favor, ingresá la descripción de tu plato o alimento escribiéndola por **texto** o enviando una nota de **voz**."
+        )
+        await msg.edit_text(txt_error_imagen, parse_mode="Markdown")
     
-# =====================================================================================================================================
-#              FINAL                     FUNCIONES MANEJADORES MODULARIZADOS (NUEVOS)                   FINAL
-# =====================================================================================================================================
-
-
-# ======================================================================================================================================
 #                INICIO                                      FUNCIONES BOTONES                        FINAL
 # ======================================================================================================================================
 
@@ -4326,15 +3787,142 @@ async def callback_btn_guardar_registro(update: Update, context: ContextTypes.DE
         await query.edit_message_text(txt_nodat)
 
 # ======================================================================================================================================
-#                FINAL                                      FUNCIONES DE BOTONES                        FINAL
+#                FINAL                                     COMANDOS CONFIRMACION FUNCIONES BOTONES                        FINAL
 # ======================================================================================================================================
 
 # ==================================================================================================================================
 #                    INICIO                 COMANDOS COMIDAS Y COMANDOS ACTIVIDAD                                   INCIO  DB OK
 # ==================================================================================================================================
 
-#                      INICIO                               COMANDOS COMIDAS PRECARGADAS                              INICIO  DB OK
-# =======================================================================================================================================
+#              INICIO                     FUNCIONES COMIDAS                   INICIO
+# =============================================================================================================================================
+
+def analizar_frecuencia_alimentos_mes(df_o_user_id, cat_dict_o_mes=None, col_integrales=None, col_refinadas=None, otras_categorias=None):
+    try:
+        if isinstance(df_o_user_id, (int, str)) and isinstance(cat_dict_o_mes, str) and not isinstance(df_o_user_id, pd.DataFrame):
+            user_id = int(df_o_user_id)
+            mes_str = cat_dict_o_mes
+            
+            df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+            if df_datos.empty or 'Fecha' not in df_datos.columns:
+                return {}
+                
+            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
+            inicio_periodo = pd.Timestamp(f"{mes_str}-01").normalize()
+            fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
+            
+            df_mes = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
+            if df_mes.empty:
+                return {}
+                
+            cat_dict = {'harinas_integrales': ['integral', 'salvado'], 'harinas_refinadas': ['blanca', 'refinada']}
+        else:
+            df_mes = df_o_user_id
+            cat_dict = cat_dict_o_mes if isinstance(cat_dict_o_mes, dict) else {}
+
+        if otras_categorias is None:
+            otras_categorias = {}
+            
+        frecuencias = {cat: 0 for cat in cat_dict.keys()} if cat_dict else {}
+
+        for _, row in df_mes.iterrows():
+            texto_celda = str(row.get('Alimento', '')).strip().lower()
+            if not texto_celda:
+                continue
+
+            es_integral = any(p in texto_celda for p in (col_integrales or ['integral', 'salvado', 'centeno', 'avena']))
+            
+            if es_integral:
+                for cat_key in frecuencias.keys():
+                    if 'integral' in cat_key:
+                        frecuencias[cat_key] += 1
+            else:
+                if col_refinadas and any(p in texto_celda for p in col_refinadas):
+                    for cat_key in frecuencias.keys():
+                        if 'refinada' in cat_key or 'blanca' in cat_key:
+                            frecuencias[cat_key] += 1
+
+            for cat_nombre, palabras in otras_categorias.items():
+                if any(p in texto_celda for p in palabras):
+                    if cat_nombre not in frecuencias:
+                        frecuencias[cat_nombre] = 0
+                    frecuencias[cat_nombre] += 1
+
+        return frecuencias
+    except Exception as e:
+        print(f"Error analizando frecuencias de alimentos: {e}")
+        return {}
+
+def calcular_porcentajes_harinas(frecuencias):
+    key_int = next((k for k in frecuencias.keys() if 'integral' in k), None)
+    key_ref = next((k for k in frecuencias.keys() if 'refinada' in k or 'blanca' in k), None)
+
+    total_integrales = frecuencias.get(key_int, 0) if key_int else 0
+    total_refinadas = frecuencias.get(key_ref, 0) if key_ref else 0
+    total_harinas = total_integrales + total_refinadas
+    
+    if total_harinas > 0:
+        porc_int = round((total_integrales / total_harinas) * 100)
+        porc_ref = round((total_refinadas / total_harinas) * 100)
+    else:
+        porc_int, porc_ref = 0, 0
+        
+    return porc_int, porc_ref
+
+def consultar_codigo_barras(barcode: str) -> dict | bool:
+    url = f"https://world.openfoodfacts.org/api/v2/product/{barcode.strip()}.json"
+    headers = {"User-Agent": "BotNutricionTelegram/1.0 (contacto@tudominio.com)"}
+    try:
+        response = requests.get(url, headers=headers, timeout=5)
+        if response.status_code != 200:
+            return False
+            
+        data = response.json()
+        if data.get("status") != 1:
+            return False
+            
+        product = data.get("product", {})
+        nutriments = product.get("nutriments", {})
+        
+        nombre_alimento = product.get("product_name_es") or product.get("product_name") or "Producto desconocido"
+        marca = product.get("brands", "")
+        if marca:
+            nombre_alimento = f"{nombre_alimento} ({marca})"
+
+        return {
+            "alimento": nombre_alimento,
+            "peso": 100.0,
+            "calorias": float(nutriments.get("energy-kcal_100g", nutriments.get("energy-kcal", 0.0) or 0.0)),
+            "proteinas": float(nutriments.get("proteins_100g", 0.0) or 0.0),
+            "grasas": float(nutriments.get("fat_100g", 0.0) or 0.0),
+            "carbohidratos": float(nutriments.get("carbohydrates_100g", 0.0) or 0.0),
+            "fibras": float(nutriments.get("fiber_100g", 0.0) or 0.0),
+            "fuente": "Open Food Facts"
+        }
+    except Exception as e:
+        logger.error(f"⚠️ Error al consultar el código de barras {barcode}: {e}")
+        return False
+
+def procesar_foto_codigo_barras(base64_image: str) -> dict | bool:
+    try:
+        image_bytes = base64.b64decode(base64_image)
+        np_arr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        if img is None:
+            return False
+            
+        detector = cv2.barcode.BarcodeDetector()
+        retval, decoded_info, decoded_type, points = detector.detectAndDecode(img)
+        
+        if retval and decoded_info:
+            for barcode_text in decoded_info:
+                if barcode_text and barcode_text.strip():
+                    resultado_api = consultar_codigo_barras(barcode_text.strip())
+                    if resultado_api:
+                        return resultado_api
+        return False
+    except Exception as e:
+        return False
 
 def construir_texto_listado_comidas(user_id, comidas):
     """
@@ -4365,7 +3953,73 @@ def construir_texto_listado_comidas(user_id, comidas):
         txt += linea
         
     return txt
-    
+ 
+def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
+    mes_actual_str = ahora_dt.strftime("%Y-%m")
+    tabla_nombre = f"Perfil_{user_id}"
+
+    try:
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+        
+        cur.execute(f'SELECT id FROM "{tabla_nombre}" WHERE "MES" = %s', (str(mes_actual_str),))
+        fila_existente = cur.fetchone()
+        
+        if fila_existente:
+            cur.close()
+            conn.close()
+            return
+
+        logger.info(f"Inicializando nueva fila mensual ({mes_actual_str}) para User {user_id} en Supabase...")
+
+        cur.execute(f'SELECT "EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "Peso_ideal", "Cumple" FROM "{tabla_nombre}" ORDER BY id DESC LIMIT 1')
+        ultima_fila = cur.fetchone()
+        
+        if ultima_fila:
+            edad_val = ultima_fila[0] or "64"
+            peso_val = ultima_fila[1] or 70.0
+            altura_val = ultima_fila[2] or 1.70
+            genero_val = ultima_fila[3] or "M"
+            ocupacion_val = ultima_fila[4] or 1.375
+            peso_ideal_val = ultima_fila[5] or 0.0
+            cumple_val = ultima_fila[6] or ""
+        else:
+            edad_val = "64"
+            peso_val = 70.0
+            altura_val = 1.70
+            genero_val = "M"
+            ocupacion_val = 1.375
+            peso_ideal_val = 0.0
+            cumple_val = ""
+
+        cur.execute(f"""
+            INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            str(edad_val),
+            float(peso_val),
+            float(altura_val),
+            str(genero_val),
+            float(ocupacion_val),
+            str(mes_actual_str),
+            ahora_dt.strftime("%Y-%m-%d"),
+            float(peso_ideal_val),
+            str(cumple_val)
+        ))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        logger.info(f"Fila del mes {mes_actual_str} creada exitosamente en Supabase para User {user_id}")
+
+    except Exception as e:
+        logger.error(f"Error al garantizar fila mensual en Supabase para User {user_id}: {e}")
+        if 'cur' in locals() and cur:
+            cur.close()
+        if 'conn' in locals() and conn:
+            conn.close()
+   
+#                      INICIO                               COMANDOS COMIDAS PRECARGADAS                              INICIO  DB OK
+# =======================================================================================================================================
 @requiere_registro
 async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -4393,7 +4047,7 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg_generando)
 
     try:
-        pdf_bytes = generar_pdf_comidas_bytes(comidas)
+        pdf_bytes = generar_pdf_comidas_bytes(comidas, user_id)
         await context.bot.send_document(
             chat_id=update.effective_chat.id,
             document=pdf_bytes,
@@ -4479,7 +4133,10 @@ def buscar_comida_precargada_exacta(user_id, texto_codigo):
 
     return None
     
-def generar_pdf_comidas_bytes(plantillas):
+def generar_pdf_comidas_bytes(plantillas, user_id=None):
+    lang = obtener_idioma_usuario(user_id) if user_id and 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
     styles = getSampleStyleSheet()
@@ -4488,23 +4145,35 @@ def generar_pdf_comidas_bytes(plantillas):
     body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#1E293B'))
     header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
 
+    t_titulo = traducciones.get("PDF_comidas_titulo", "LISTADO DE COMIDAS PREDETERMINADAS")
+
     story = [
-        Paragraph("<b>LISTADO DE COMIDAS PREDETERMINADAS</b>", title_style),
+        Paragraph(f"<b>{t_titulo}</b>", title_style),
         HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#2563EB'), spaceAfter=12),
     ]
 
     if not plantillas:
-        story.append(Paragraph("No hay comidas predeterminadas cargadas en la hoja 'Plantillas_Comidas'.", body_style))
+        msg_vacio = traducciones.get("PDF_comidas_sin_reg", "No hay comidas predeterminadas cargadas en la hoja 'Plantillas_Comidas'.")
+        story.append(Paragraph(msg_vacio, body_style))
     else:
+        th_nombre = traducciones.get("PDF_comidas_th_nombre", "Nombre")
+        th_desc = traducciones.get("PDF_comidas_th_desc", "Descripción")
+        th_peso = traducciones.get("PDF_comidas_th_peso", "Peso (g)")
+        th_kcal = traducciones.get("PDF_comidas_th_kcal", "Kcal")
+        th_prot = traducciones.get("PDF_comidas_th_prot", "Prot (g)")
+        th_gras = traducciones.get("PDF_comidas_th_gras", "Gras (g)")
+        th_carb = traducciones.get("PDF_comidas_th_carb", "Carb (g)")
+        th_fibr = traducciones.get("PDF_comidas_th_fibr", "Fibr (g)")
+
         table_data = [[
-            Paragraph("Nombre", header_style), 
-            Paragraph("Descripción", header_style), 
-            Paragraph("Peso (g)", header_style), 
-            Paragraph("Kcal", header_style), 
-            Paragraph("Prot (g)", header_style), 
-            Paragraph("Gras (g)", header_style), 
-            Paragraph("Carb (g)", header_style), 
-            Paragraph("Fibr (g)", header_style)
+            Paragraph(th_nombre, header_style), 
+            Paragraph(th_desc, header_style), 
+            Paragraph(th_peso, header_style), 
+            Paragraph(th_kcal, header_style), 
+            Paragraph(th_prot, header_style), 
+            Paragraph(th_gras, header_style), 
+            Paragraph(th_carb, header_style), 
+            Paragraph(th_fibr, header_style)
         ]]
         
         for p in plantillas:
@@ -4534,26 +4203,65 @@ def generar_pdf_comidas_bytes(plantillas):
     doc.build(story)
     buffer.seek(0)
     return buffer
-
+    
 @requiere_registro
 async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    # El link incluye el parámetro user_id y el hash #calculadora para abrir directo en esa sección
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    
     web_app_url = f"https://telegram-bot-nutricion.onrender.com/?user_id={user_id}#calculadora"
     
+    btn_text = traducciones.get("bot_btn_crear_receta", "🍳 Abrir Creador de Recetas")
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🍳 Abrir Creador de Recetas", url=web_app_url)]
+        [InlineKeyboardButton(btn_text, url=web_app_url)]
     ])
     
-    mensaje = (
-        f"👋 ¡Hola! Usá el siguiente botón para calcular los valores nutricionales "
-        f"de tu receta e ingresarla directamente en tu planilla personalizada (*Comidas_{user_id}*):"
-    )
+    msg_tmpl = traducciones.get("bot_msg_cargar_receta", "👋 ¡Hola! Usá el siguiente botón para calcular los valores nutricionales de tu receta e ingresarla directamente en tu planilla personalizada (*Comidas_{user_id}*):")
+    mensaje = msg_tmpl.format(user_id=user_id)
     
     await update.message.reply_text(mensaje, reply_markup=keyboard, parse_mode="Markdown")
-    
+        
 #                INICIO                             COMANDOS BARRA                                 INICIO DB OK
 # ========================================================================================================================================
+
+def detectar_y_leer_codigo_barras_ia(base64_image: str) -> str:
+    """
+    Envía la foto a la IA exclusivamente para que lea los números impresos 
+    abajo del código de barras del producto.
+    """
+    client_ai = globals().get('client_ai')
+    if not client_ai:
+        return ""
+    
+    prompt = (
+        "Analiza esta imagen de un producto comercial. Busca el código de barras y lee atentamente "
+        "los números impresos justo debajo de él. "
+        "Responde ÚNICAMENTE en formato JSON con la siguiente estructura exacta:\n"
+        "{\n"
+        '  "tiene_numeros": true/false,\n'
+        '  "codigo_numerico": "escribe_aqui_solo_los_numeros_o_vacio"\n'
+        "}"
+    )
+    try:
+        response = client_ai.chat.completions.create(
+            model=globals().get('GROQ_FOTO', "qwen/qwen3.8-27b"),
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                ]
+            }],
+            temperature=0.0,
+            response_format={"type": "json_object"}
+        )
+        resultado = json.loads(response.choices[0].message.content)
+        if resultado.get("tiene_numeros"):
+            return str(resultado.get("codigo_numerico", "")).strip()
+    except Exception as e:
+        logger.error(f"Error en lectura IA de números de código de barras: {e}")    
+    return ""
 
 async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
     user_id = message_obj.from_user.id
@@ -4624,44 +4332,6 @@ async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
     barcode_text = args[0].strip()
     await procesar_codigo_ingresado(update.message, context, barcode_text)
                
-def detectar_y_leer_codigo_barras_ia(base64_image: str) -> str:
-    """
-    Envía la foto a la IA exclusivamente para que lea los números impresos 
-    abajo del código de barras del producto.
-    """
-    client_ai = globals().get('client_ai')
-    if not client_ai:
-        return ""
-    
-    prompt = (
-        "Analiza esta imagen de un producto comercial. Busca el código de barras y lee atentamente "
-        "los números impresos justo debajo de él. "
-        "Responde ÚNICAMENTE en formato JSON con la siguiente estructura exacta:\n"
-        "{\n"
-        '  "tiene_numeros": true/false,\n'
-        '  "codigo_numerico": "escribe_aqui_solo_los_numeros_o_vacio"\n'
-        "}"
-    )
-    try:
-        response = client_ai.chat.completions.create(
-            model=globals().get('GROQ_FOTO', "qwen/qwen3.8-27b"),
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                ]
-            }],
-            temperature=0.0,
-            response_format={"type": "json_object"}
-        )
-        resultado = json.loads(response.choices[0].message.content)
-        if resultado.get("tiene_numeros"):
-            return str(resultado.get("codigo_numerico", "")).strip()
-    except Exception as e:
-        logger.error(f"Error en lectura IA de números de código de barras: {e}")
-    
-    return ""
 
 #                   INICIO                       COMANDO ELIMINAR INGESTAS ACTIVIDAD                         INICIO
 # ======================================================================================================================================
@@ -4849,6 +4519,168 @@ async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEF
 # =====================================================================================================================================
 
 @requiere_registro
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id, chat_id = update.effective_user.id, update.effective_chat.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    raw_text = update.message.text.strip() if update.message and update.message.text else ""
+    if not raw_text: 
+        return
+
+    if context.user_data.get('awaiting_presion_nota'):
+        context.user_data.pop('awaiting_presion_nota', None)
+        datos_presion = context.user_data.pop('pending_presion_foto', None)
+
+        if raw_text.lower() == "cancelar":
+            txt_canc_presion = traducciones.get("bot_presion_cancelada", "❌ Registro de presión cancelado.")
+            await update.message.reply_text(txt_canc_presion)
+            return
+
+        if datos_presion:
+            alta = datos_presion.get("alta")
+            baja = datos_presion.get("baja")
+            pulsaciones = datos_presion.get("pulsaciones")
+            nota = raw_text
+
+            guardar_presion_db(user_id, alta, baja, pulsaciones, nota=nota)
+
+            pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
+            await update.message.reply_text(
+                f"✅ **¡Presión arterial registrada con éxito!**\n\n"
+                f"• Presión Alta: `{alta:.0f} mmHg`\n"
+                f"• Presión Baja: `{baja:.0f} mmHg`{pul_txt}\n"
+                f"📝 Nota: `{nota}`",
+                parse_mode="Markdown"
+            )
+        else:
+            txt_exp_presion = traducciones.get("bot_presion_expirada", "⚠️ Los datos temporales de la presión expiraron.")
+            await update.message.reply_text(txt_exp_presion)
+        return
+
+    if context.user_data.get('awaiting_custom_date'):
+        await _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id)
+        return
+    if context.user_data.get('awaiting_activity_text'):
+        await _sub_manejar_texto_actividad(update, context, raw_text, chat_id)
+        return
+    if context.user_data.get('awaiting_del_custom_date'):
+        await _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id)
+        return
+    if context.user_data.get('awaiting_diario_custom_date'):
+        await _sub_manejar_fecha_diario(update, context, raw_text, chat_id)
+        return
+    if context.user_data.get('awaiting_edit_item_val'):
+        await _sub_manejar_edicion_item(update, context, raw_text, chat_id)
+        return
+    if raw_text.startswith('*'):
+        await _sub_manejar_plantilla_comida(update, context, raw_text, user_id)
+        return
+
+    msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
+    try:
+        data = analizar_con_groq(raw_text)
+        tipo = str(data.get("tipo", "")).strip().upper()
+
+        if tipo == "INFORME_MENSUAL":
+            await msg.delete()
+            param = str(data.get("parametro", "")).strip().lower()
+            ahora = obtener_ahora_arg()
+            mes_target = ahora.strftime("%Y-%m")
+            
+            if "pasado" in param or "anterior" in param:
+                mes_target = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+            elif "enero" in param: mes_target = f"{ahora.year}-01"
+            elif "febrero" in param: mes_target = f"{ahora.year}-02"
+            elif "marzo" in param: mes_target = f"{ahora.year}-03"
+            elif "abril" in param: mes_target = f"{ahora.year}-04"
+            elif "mayo" in param: mes_target = f"{ahora.year}-05"
+            elif "junio" in param: mes_target = f"{ahora.year}-06"
+            elif "julio" in param: mes_target = f"{ahora.year}-07"
+            elif "agosto" in param: mes_target = f"{ahora.year}-08"
+            elif "septiembre" in param or "setiembre" in param: mes_target = f"{ahora.year}-09"
+            elif "octubre" in param: mes_target = f"{ahora.year}-10"
+            elif "noviembre" in param: mes_target = f"{ahora.year}-11"
+            elif "diciembre" in param: mes_target = f"{ahora.year}-12"
+            elif len(param) >= 7:
+                mes_target = param
+
+            context.args = [mes_target]
+            await mostrar_resumen_mes(update, context)
+            return
+
+        elif tipo == "INFORME_SEMANAL":
+            await msg.delete()
+            await cmd_mensaje(update, context)
+            return
+
+        elif tipo == "INFORME_DIARIO":
+            await msg.delete()
+            param = str(data.get("parametro", "")).strip().lower()
+            
+            tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
+            hoy_arg = datetime.now(tz_arg).date()
+            
+            if "ayer" in param:
+                fecha_objetivo = (hoy_arg - timedelta(days=1)).strftime("%Y-%m-%d")
+            else:
+                fecha_parseada = parsear_fecha_flexible(param)
+                fecha_objetivo = fecha_parseada if fecha_parseada else hoy_arg.strftime("%Y-%m-%d")
+
+            await mostrar_diario_fecha(update.message, user_id, fecha_objetivo)
+            return
+
+        elif tipo == "RECHAZO":
+            await msg.delete()
+            return
+
+        await procesar_y_mostrar_confirmacion(data, msg, context)
+
+    except Exception as e:
+        await msg.edit_text(f"❌ Error al procesar el texto: {e}")
+
+@requiere_registro
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    
+    txt_analizando_img = traducciones.get("bot_analizando_imagen", "📸 Analizando imagen...")
+    msg = await update.message.reply_text(txt_analizando_img)
+    try:
+        photo_bytes = await (await update.message.photo[-1].get_file()).download_as_bytearray()
+        base64_image = base64.b64encode(photo_bytes).decode('utf-8')
+        user_caption = update.message.caption or ""
+        
+        res_presion = analizar_foto_presion_con_groq(base64_image)
+        if res_presion.get("es_presion") and float(res_presion.get("alta", 0)) > 0:
+            return await _sub_manejar_foto_presion(update, context, res_presion, msg)
+
+        image_bytes = bytes(base64.b64decode(base64_image))
+        np_arr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        
+        tiene_codigo_local = False
+        if img is not None:
+            detector = cv2.barcode.BarcodeDetector()
+            retval, points = detector.detect(img)
+            if retval:
+                tiene_codigo_local = True
+
+        if tiene_codigo_local:
+            await msg.edit_text("🔍 Código de barras detectado. Leyendo números del envase...")
+            codigo_leido = detectar_y_leer_codigo_barras_ia(base64_image)
+            
+            if codigo_leido and len(codigo_leido.strip()) >= 4:
+                await msg.delete()
+                return await procesar_codigo_ingresado(update.message, context, codigo_leido.strip())
+
+        return await _sub_manejar_foto_plato_ia(update, context, base64_image, user_caption, msg)
+
+    except Exception as e:
+        await msg.edit_text(f"❌ Error al procesar imagen: {e}")
+
+@requiere_registro
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     msg = await update.message.reply_text("🎙️ Procesando audio con IA...")
@@ -4932,167 +4764,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error al procesar audio: {e}")
         await msg.edit_text(f"❌ Error al procesar audio: {e}")
         
-@requiere_registro
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id, chat_id = update.effective_user.id, update.effective_chat.id
-    raw_text = update.message.text.strip() if update.message and update.message.text else ""
-    if not raw_text: 
-        return
-
-    if context.user_data.get('awaiting_presion_nota'):
-        context.user_data.pop('awaiting_presion_nota', None)
-        datos_presion = context.user_data.pop('pending_presion_foto', None)
-
-        if raw_text.lower() == "cancelar":
-            await update.message.reply_text("❌ Registro de presión cancelado.")
-            return
-
-        if datos_presion:
-            alta = datos_presion.get("alta")
-            baja = datos_presion.get("baja")
-            pulsaciones = datos_presion.get("pulsaciones")
-            nota = raw_text
-
-            guardar_presion_db(user_id, alta, baja, pulsaciones, nota=nota)
-
-            pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
-            await update.message.reply_text(
-                f"✅ **¡Presión arterial registrada con éxito!**\n\n"
-                f"• Presión Alta: `{alta:.0f} mmHg`\n"
-                f"• Presión Baja: `{baja:.0f} mmHg`{pul_txt}\n"
-                f"📝 Nota: `{nota}`",
-                parse_mode="Markdown"
-            )
-        else:
-            await update.message.reply_text("⚠️ Los datos temporales de la presión expiraron.")
-        return
-
-    if context.user_data.get('awaiting_custom_date'):
-        await _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id)
-        return
-    if context.user_data.get('awaiting_activity_text'):
-        await _sub_manejar_texto_actividad(update, context, raw_text, chat_id)
-        return
-    if context.user_data.get('awaiting_del_custom_date'):
-        await _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id)
-        return
-    if context.user_data.get('awaiting_diario_custom_date'):
-        await _sub_manejar_fecha_diario(update, context, raw_text, chat_id)
-        return
-    if context.user_data.get('awaiting_edit_item_val'):
-        await _sub_manejar_edicion_item(update, context, raw_text, chat_id)
-        return
-    if raw_text.startswith('*'):
-        await _sub_manejar_plantilla_comida(update, context, raw_text, user_id)
-        return
-
-    msg = await update.message.reply_text("🤖 Analizando texto con Inteligencia Artificial...")
-    try:
-        data = analizar_con_groq(raw_text)
-        tipo = str(data.get("tipo", "")).strip().upper()
-
-        if tipo == "INFORME_MENSUAL":
-            await msg.delete()
-            param = str(data.get("parametro", "")).strip().lower()
-            ahora = obtener_ahora_arg()
-            mes_target = ahora.strftime("%Y-%m")
-            
-            if "pasado" in param or "anterior" in param:
-                mes_target = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
-            elif "enero" in param: mes_target = f"{ahora.year}-01"
-            elif "febrero" in param: mes_target = f"{ahora.year}-02"
-            elif "marzo" in param: mes_target = f"{ahora.year}-03"
-            elif "abril" in param: mes_target = f"{ahora.year}-04"
-            elif "mayo" in param: mes_target = f"{ahora.year}-05"
-            elif "junio" in param: mes_target = f"{ahora.year}-06"
-            elif "julio" in param: mes_target = f"{ahora.year}-07"
-            elif "agosto" in param: mes_target = f"{ahora.year}-08"
-            elif "septiembre" in param or "setiembre" in param: mes_target = f"{ahora.year}-09"
-            elif "octubre" in param: mes_target = f"{ahora.year}-10"
-            elif "noviembre" in param: mes_target = f"{ahora.year}-11"
-            elif "diciembre" in param: mes_target = f"{ahora.year}-12"
-            elif len(param) >= 7:
-                mes_target = param
-
-            context.args = [mes_target]
-            await mostrar_resumen_mes(update, context)
-            return
-
-        elif tipo == "INFORME_SEMANAL":
-            await msg.delete()
-            await cmd_mensaje(update, context)
-            return
-
-        elif tipo == "INFORME_DIARIO":
-            await msg.delete()
-            param = str(data.get("parametro", "")).strip().lower()
-            
-            tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
-            hoy_arg = datetime.now(tz_arg).date()
-            
-            if "ayer" in param:
-                fecha_objetivo = (hoy_arg - timedelta(days=1)).strftime("%Y-%m-%d")
-            else:
-                fecha_parseada = parsear_fecha_flexible(param)
-                fecha_objetivo = fecha_parseada if fecha_parseada else hoy_arg.strftime("%Y-%m-%d")
-
-            await mostrar_diario_fecha(update.message, user_id, fecha_objetivo)
-            return
-
-        elif tipo == "RECHAZO":
-            await msg.delete()
-            return
-
-        await procesar_y_mostrar_confirmacion(data, msg, context)
-
-    except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar el texto: {e}") 
-                                        
-@requiere_registro
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = await update.message.reply_text("📸 Analizando imagen...")
-    try:
-        # 1. Descargamos la foto en formato binario (bytes puros)
-        photo_bytes = await (await update.message.photo[-1].get_file()).download_as_bytearray()
-        
-        # Convertimos los bytes a un array de NumPy compatible con OpenCV de forma segura
-        np_arr = np.frombuffer(bytes(photo_bytes), np.uint8)
-        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-
-        # 2. Creamos la versión en base64 para las funciones de IA
-        base64_image = base64.b64encode(photo_bytes).decode('utf-8')
-        user_caption = update.message.caption or ""
-        
-        # 3. Filtro 1: ¿Es foto de la presión arterial?
-        res_presion = analizar_foto_presion_con_groq(base64_image)
-        if res_presion.get("es_presion") and float(res_presion.get("alta", 0)) > 0:
-            return await _sub_manejar_foto_presion(update, context, res_presion, msg)
-
-        # 4. Filtro 2 (Python / OpenCV local): Detectar si hay un código de barras físicamente en la imagen
-        tiene_codigo_local = False
-        if img is not None:
-            detector = cv2.barcode.BarcodeDetector()
-            retval, points = detector.detect(img)
-            if retval:
-                tiene_codigo_local = True
-
-        # 5. Si Python detecta localmente el código de barras, llamamos a la IA para leer los números
-        if tiene_codigo_local:
-            await msg.edit_text("🔍 Código de barras detectado. Leyendo números del envase...")
-            codigo_leido = detectar_y_leer_codigo_barras_ia(base64_image)
-            
-            if codigo_leido and len(codigo_leido.strip()) >= 4:
-                await msg.delete()
-                return await procesar_codigo_ingresado(update.message, context, codigo_leido.strip())
-
-        # 6. Si no hay código de barras, procesa como un plato de comida normal
-        return await _sub_manejar_foto_plato_ia(update, context, base64_image, user_caption, msg)
-
-    except Exception as e:
-        logger.error(f"Error detallado procesando imagen: {e}", exc_info=True)
-        await msg.edit_text(f"❌ Error al procesar imagen: {e}")
-        
+             
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
@@ -5100,7 +4772,378 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ======================================================================================================================================
 #                   INICIO                                    COMANDOS INFORMES                                   INICIO  DB OK
 # =====================================================================================================================================
+#              INICIO                     FUNCIONES INFORMES                   INICIO
+# =============================================================================================================================================
 
+def calcular_metricas_mensuales(df_mes, perfil_dict):
+    if df_mes is not None and not df_mes.empty and 'Fecha' in df_mes.columns:
+        todas_comidas = {"Desayuno", "Almuerzo", "Merienda", "Cena"}
+        comidas_principales = {"Almuerzo", "Cena"}
+        dias_validos_filtrados = []
+        
+        for fecha, grupo in df_mes.groupby('Fecha'):
+            comidas_del_dia = [
+                str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() 
+                for _, r in grupo.iterrows()
+                if str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() in todas_comidas
+            ]
+            
+            total_comidas = len(comidas_del_dia)
+            tiene_principal = any(c in comidas_principales for c in comidas_del_dia)
+            
+            if total_comidas >= 2 and tiene_principal:
+                dias_validos_filtrados.append(fecha)
+                
+        df_mes = df_mes[df_mes['Fecha'].isin(dias_validos_filtrados)]
+
+    dias_registrados = df_mes['Fecha'].nunique() if (df_mes is not None and not df_mes.empty) else 1
+    if dias_registrados == 0:
+        dias_registrados = 1
+
+    tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
+    tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
+
+    minutos_totales_actividad = 0
+    if df_mes is not None and not df_mes.empty and 'Momento' in df_mes.columns and 'Alimento' in df_mes.columns:
+        for _, row in df_mes.iterrows():
+            momento_str = str(row.get('Momento', '')).strip().lower()
+            alimento_str = str(row.get('Alimento', '')).strip()
+            cal_val = float(row.get('Calorias', 0) or 0)
+            if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
+                match = re.match(r'^(\d+)', alimento_str)
+                if match:
+                    minutos_totales_actividad += int(match.group(1))
+
+    prom_minutos_act = int(round(minutos_totales_actividad / dias_registrados))
+
+    prom_cons = tot_cons_mes / dias_registrados
+    prom_quem = tot_quem_mes / dias_registrados
+    prom_bal_neto = prom_cons - prom_quem
+
+    tot_prot = float(df_mes['Proteinas'].sum()) if df_mes is not None and 'Proteinas' in df_mes.columns else 0.0
+    tot_gras = float(df_mes['Grasas'].sum()) if df_mes is not None and 'Grasas' in df_mes.columns else 0.0
+    tot_carb = float(df_mes['Carbohidratos'].sum()) if df_mes is not None and 'Carbohidratos' in df_mes.columns else 0.0
+    tot_fibr = float(df_mes['Fibras'].sum()) if df_mes is not None and 'Fibras' in df_mes.columns else 0.0
+
+    prom_cal = int(round(prom_cons))
+    prom_prot = int(round(tot_prot / dias_registrados))
+    prom_gras = int(round(tot_gras / dias_registrados))
+    prom_carb = int(round(tot_carb / dias_registrados))
+    prom_fibr = int(round(tot_fibr / dias_registrados))
+
+    perfil_dict = perfil_dict if isinstance(perfil_dict, dict) else {}
+    
+    def get_perfil_num(key_list, default):
+        for k in key_list:
+            if k in perfil_dict and perfil_dict[k] is not None:
+                val = parse_raw_val(perfil_dict[k])
+                if val != 0.0:
+                    return val
+        return default
+
+    edad = int(get_perfil_num(['Edad', 'edad'], 64))
+    altura = get_perfil_num(['Altura', 'altura', 'ALTURA'], 167.5)
+    peso_actual = get_perfil_num(['Peso', 'peso', 'peso_actual', 'PESO'], 104.6)
+    
+    ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
+    genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
+    gen_clean = genero.lower()
+    is_femenino = gen_clean in ["femenino", "f", "mujer", "female"]
+    ritmo_usuario = str(perfil_dict.get('Ritmo') or perfil_dict.get('ritmo_preferido', 'moderado')).strip()
+
+    peso_ideal_secreto = get_perfil_num(['peso_ideal_secreto', 'peso_ideal', 'Peso_Ideal'], 81.0)
+
+    ritmo_clean = ritmo_usuario.lower()
+    if "tranquilo" in ritmo_clean or "lento" in ritmo_clean:
+        factor_actual = 0.90
+    elif "rapido" in ritmo_clean or "intenso" in ritmo_clean or "decidido" in ritmo_clean:
+        factor_actual = 0.75
+    else:
+        factor_actual = 0.85
+    factor_ideal = 1.0 - factor_actual
+
+    peso_etapa_calculado = (peso_actual * factor_actual) + (peso_ideal_secreto * factor_ideal)
+    
+    peso_referencia = round(peso_etapa_calculado, 1)
+    peso_ideal_dinamico = peso_referencia  
+
+    min_act = 30
+    max_act = 60
+
+    _, get_real = calcular_tmb_y_get(
+        peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal_dinamico
+    )
+    _, get_meta = calcular_tmb_y_get(
+        peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal_dinamico
+    )
+
+    gasto_diario_total = get_real + prom_quem
+    balance_diario = prom_cons - gasto_diario_total
+    cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
+    deficit_diario_real = -balance_diario
+
+    if is_femenino:
+        factor_proteina_min = 1.0
+        factor_proteina_max = 1.2
+        fibr_min = 25
+    else:
+        factor_proteina_min = 1.2
+        factor_proteina_max = 1.5
+        fibr_min = 30
+
+    cal_max = int(round(get_meta))
+    cal_min = max(1500, int(round(cal_max - 600)))
+
+    prot_min = int(round(peso_referencia * factor_proteina_min))
+    prot_max = int(round(peso_referencia * factor_proteina_max))
+
+    gras_min = int(round((cal_min * 0.20) / 9.0))
+    gras_max = int(round((cal_max * 0.30) / 9.0))
+
+    carb_min = int(round((cal_min * 0.40) / 4.0))
+    carb_max = int(round((cal_max * 0.55) / 4.0))
+
+    fibr_min_val = fibr_min
+
+    return {
+        "dias_registrados": dias_registrados,
+        "prom_cal": prom_cal,
+        "prom_quem": int(round(prom_quem)),
+        "prom_bal_neto": int(round(prom_bal_neto)),
+        "prom_prot": prom_prot,
+        "prom_gras": prom_gras,
+        "prom_carb": prom_carb,
+        "prom_fibr": prom_fibr,
+        "prom_minutos_act": prom_minutos_act,
+        "act_min": min_act,
+        "act_max": max_act,
+        "cal_min": cal_min, "cal_max": cal_max,
+        "prot_min": prot_min, "prot_max": prot_max,
+        "gras_min": gras_min, "gras_max": gras_max,
+        "carb_min": carb_min, "carb_max": carb_max,
+        "fibr_min": fibr_min_val,
+        "ideal_cal": cal_max,
+        "ideal_prot": prot_max,
+        "ideal_gras": gras_max,
+        "ideal_carb": carb_max,
+        "ideal_fibr": fibr_min_val,
+        "peso_actual": round(float(peso_actual), 1),
+        "peso_ideal": round(float(peso_ideal_dinamico), 1),
+        "peso_referencia": round(float(peso_referencia), 1),
+        "altura": round(float(altura), 1),
+        "edad": edad,
+        "get_meta": get_meta,
+        "get_real": get_real,
+        "deficit_diario_real": int(round(deficit_diario_real)),
+        "cambio_peso_kg": cambio_peso_kg,
+        "tot_cons": tot_cons_mes,
+        "tot_quem": tot_quem_mes,
+        "tot_prot": tot_prot,
+        "tot_gras": tot_gras,
+        "tot_carb": tot_carb,
+        "tot_fibr": tot_fibr
+    }
+
+async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    try:
+        peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
+        if not peso_ok and not forzar_envio:
+            return False
+
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        if df_datos.empty or 'Fecha' not in df_datos.columns:
+            msg_nodata = traducciones.get("sup_inf_no_registros", "⚠️ Not enough records to generate the report.")
+            await context.bot.send_message(chat_id=user_id, text=msg_nodata)
+            return False
+
+        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
+        
+        ahora_arg = obtener_ahora_arg()
+        if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
+            ahora_arg = ahora_arg.replace(tzinfo=None)
+        
+        hoy_ts = pd.Timestamp(ahora_arg).normalize()
+        ayer_ts = hoy_ts - pd.Timedelta(days=1)
+        mes_actual_str = hoy_ts.strftime("%Y-%m")
+
+        if es_automatico_15:
+            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
+            fin_periodo = pd.Timestamp(f"{mes_target}-14").normalize()
+            etiqueta_periodo = f"Bi-weekly ({mes_target}: 1 to 14)" if lang == 'en' else f"Quincenal ({mes_target}: 1 al 14)"
+        else:
+            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
+            if mes_target == mes_actual_str:
+                fin_periodo = ayer_ts
+                etiqueta_periodo = f"Current month ongoing ({mes_target}: from 01 to {ayer_ts.strftime('%d/%m')})" if lang == 'en' else f"Mes Actual en curso ({mes_target}: del 01 al {ayer_ts.strftime('%d/%m')})"
+            else:
+                fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
+                etiqueta_periodo = f"Full Month ({mes_target})" if lang == 'en' else f"Mes Completo ({mes_target})"
+
+        df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
+
+        if df_filtrado.empty:
+            msg_template = traducciones.get("sup_inf_sin_registros_periodo", "⚠️ No closed records found for the period {etiqueta_periodo}.")
+            msg_closed = msg_template.format(etiqueta_periodo=etiqueta_periodo)
+            await context.bot.send_message(chat_id=user_id, text=msg_closed)
+            return False
+
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
+        m = calcular_metricas_mensuales(df_filtrado, perfil) if 'calcular_metricas_mensuales' in globals() else {}
+        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_target) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
+
+        peso_actual_eval = float(m.get('peso_actual', 0))
+        peso_referencia_eval = float(m.get('peso_referencia', 0))
+        prompt_condicional = obtener_prompt_segun_objetivo_peso(peso_actual_eval, peso_referencia_eval) if 'obtener_prompt_segun_objetivo_peso' in globals() else None
+
+        informe_ia = await generar_informe_mensual_auditado(
+            context=context, 
+            user_id=user_id, 
+            mes_str=mes_target, 
+            m=m, 
+            frecuencias=conteo_frecuencias,
+            prompt_condicional=prompt_condicional
+        )
+
+        if not informe_ia:
+            informe_ia = traducciones.get("sup_inf_error_ia", "<b>⚠️ Could not generate the AI audited report after retries.</b>")
+
+        recomendacion_pdf = (
+            informe_ia
+            .replace("<br>", "<br/>")
+            .replace("<BR>", "<br/>")
+        )
+
+        df_presion = pd.DataFrame()
+        tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
+        pdf_buffer = await asyncio.to_thread(
+            generar_pdf_resumen_bytes,
+            mes_target,
+            df_filtrado,
+            df_presion,
+            perfil,
+            tmb_val,
+            recomendacion_pdf,
+            user_id
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error in procesar_y_enviar_informe_mensual for {user_id}: {e}")
+        return False
+        
+async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    df_presion = obtener_datos_presion_db(user_id)
+    if df_presion.empty:
+        # Mensaje informativo para el usuario convertido en variable
+        txt = traducciones.get("sup_sin_presion_usuario", f"🩺 No blood pressure records found for user `{user_id}`.").format(user_id=user_id)
+        if hasattr(query_or_update, 'edit_message_text'):
+            await query_or_update.edit_message_text(txt, parse_mode="Markdown")
+        else:
+            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
+        return
+
+    df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
+    if df_p_mes.empty:
+        # Mensaje informativo para el usuario convertido en variable
+        txt = traducciones.get("sup_sin_presion_mes", f"🩺 No blood pressure records found for the month `{mes_str}`.").format(mes_str=mes_str)
+        if hasattr(query_or_update, 'edit_message_text'):
+            await query_or_update.edit_message_text(txt, parse_mode="Markdown")
+        else:
+            await query_or_update.message.reply_text(txt, parse_mode="Markdown")
+        return
+
+    alta_prom = df_p_mes['Alta'].mean()
+    baja_prom = df_p_mes['Baja'].mean()
+    pul_prom = df_p_mes[df_p_mes['Pulsaciones'] > 0]['Pulsaciones'].mean() if 'Pulsaciones' in df_p_mes.columns else 0
+
+    titulo_resumen = traducciones.get("sup_resumen_presion_titulo", "🩺 <b>Blood Pressure Summary ({mes_str}):</b>").format(mes_str=mes_str)
+    mediciones_reg = traducciones.get("sup_mediciones_registradas", "• Recorded measurements: `{count}`").format(count=len(df_p_mes))
+    prom_alta = traducciones.get("sup_prom_alta", "• <b>Average High (Systolic):</b> `{alta:.1f} mmHg`").format(alta=alta_prom)
+    prom_baja = traducciones.get("sup_prom_baja", "• <b>Average Low (Diastolic):</b> `{baja:.1f} mmHg`").format(baja=baja_prom)
+    
+    txt = f"{titulo_resumen}\n\n{mediciones_reg}\n{prom_alta}\n{prom_baja}\n"
+
+    if pul_prom > 0:
+        prom_pulso = traducciones.get("sup_prom_pulsaciones", "• <b>Average Pulse:</b> `{pul:.1f} bpm`").format(pul=pul_prom)
+        txt += f"{prom_pulso}\n"
+
+    btn_texto = traducciones.get("sup_btn_descargar_pdf_presion", "📄 Download Daily Pressure PDF")
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(btn_texto, callback_data=f"descargar_pdf_presion_{mes_str}")]
+    ])
+
+    if hasattr(query_or_update, 'edit_message_text'):
+        await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
+    else:
+        await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
+        
+def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#1E293B'))
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
+
+    t_titulo_tmpl = traducciones.get("PDF_presion_titulo", "Detalle Diario de Presion Arterial - {mes_str}")
+    t_usr_tmpl = traducciones.get("PDF_presion_usuario_id", "**Usuario Telegram ID:** {user_id}")
+
+    story = [
+        Paragraph(f"<b>{t_titulo_tmpl.format(mes_str=mes_str)}</b>", title_style),
+        Paragraph(t_usr_tmpl.format(user_id=user_id), body_style),
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
+    ]
+
+    if df_presion.empty:
+        msg_vacio = traducciones.get("PDF_presion_sin_reg", "No hay registros de presion para este mes.")
+        story.append(Paragraph(msg_vacio, body_style))
+    else:
+        th_fecha = traducciones.get("PDF_presion_th_fecha", "Fecha y Hora")
+        th_alta = traducciones.get("PDF_presion_th_alta", "Alta (mmHg)")
+        th_baja = traducciones.get("PDF_presion_th_baja", "Baja (mmHg)")
+        th_pulso = traducciones.get("PDF_presion_th_pulso", "Pulsaciones")
+        th_nota = traducciones.get("PDF_presion_th_nota", "Nota / Detalle")
+
+        table_data = [[
+            Paragraph(th_fecha, header_style),
+            Paragraph(th_alta, header_style),
+            Paragraph(th_baja, header_style),
+            Paragraph(th_pulso, header_style),
+            Paragraph(th_nota, header_style)
+        ]]
+
+        for _, r in df_presion.iterrows():
+            table_data.append([
+                Paragraph(str(r.get('Fecha_Hora', '')), body_style),
+                Paragraph(f"{r.get('Alta', 0):.0f}", body_style),
+                Paragraph(f"{r.get('Baja', 0):.0f}", body_style),
+                Paragraph(f"{r.get('Pulsaciones', 0):.0f}", body_style),
+                Paragraph(str(r.get('Nota', '')), body_style)
+            ])
+
+        t = Table(table_data, colWidths=[110, 65, 65, 70, 190])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+        ]))
+        story.append(t)
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+    
 #                   INICIO                                    COMANDO DIA                                    INICIO  DB OK
 # =====================================================================================================================================
 
@@ -5110,6 +5153,10 @@ async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Manejador del comando /diario.
     Muestra el menú de selección de fecha con formato Día/Mes (DD/MM).
     """
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     # Obtenemos las etiquetas numéricas en formato Día/Mes (ej: 23/09)
     hoy_label = obtener_ahora_arg().strftime("%d/%m")
     ayer_label = (obtener_ahora_arg() - timedelta(days=1)).strftime("%d/%m")
@@ -5124,8 +5171,10 @@ async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ])
     
+    texto_titulo = traducciones.get("inf_diario_titulo", "📅 **Consulta de Diario:** Seleccioná qué día querés revisar:")
+    
     await update.message.reply_text(
-        "📅 **Consulta de Diario:** Seleccioná qué día querés revisar:", 
+        texto_titulo, 
         reply_markup=keyboard, 
         parse_mode="Markdown"
     )
@@ -5134,15 +5183,20 @@ async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
     """
     Función auxiliar para procesar y renderizar el reporte del diario agrupado por evento.
     """
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     try:
         df = obtener_datos_usuario(user_id)
         df_diario = df[df['Fecha'].astype(str).str.strip() == str(fecha_str).strip()] if not df.empty and 'Fecha' in df.columns else pd.DataFrame()
 
         if df_diario.empty:
-            texto = f"⚠️ No se encontraron registros de ingestas para la fecha `{fecha_str}`."
+            msg_no_reg = traducciones.get("inf_diario_no_reg", "⚠️ No se encontraron registros de ingestas para la fecha `{fecha_str}`.")
+            texto = msg_no_reg.format(fecha_str=fecha_str)
             reply_markup = None
         else:
-            texto = f"📅 Registro del día {fecha_str}:\n\n"
+            msg_reg_dia = traducciones.get("inf_diario_reg_dia", "📅 Registro del día {fecha_str}:\n\n")
+            texto = msg_reg_dia.format(fecha_str=fecha_str)
             
             momentos_vistos = []
             agrupado = {}
@@ -5170,12 +5224,19 @@ async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
             cb_tot = df_diario[df_diario['Calorias'] > 0]['Carbohidratos'].sum()
             f_tot = df_diario[df_diario['Calorias'] > 0]['Fibras'].sum()
 
-            texto += f"\n🔥 Consumidas: {c_cons:.1f} kcal\n"
-            texto += f"⚡ Quemadas: {c_quem:.1f} kcal\n"
-            texto += f"⚖️ Balance Neto: {b_neto:.1f} kcal\n\n"
-            texto += f"🥩 Prot: {p_tot:.1f}g | 🥑 Gras: {g_tot:.1f}g | 🍞 Carb: {cb_tot:.1f}g | 🌾 Fibr: {f_tot:.1f}g"
+            lbl_cons = traducciones.get("inf_diario_consumidas", "🔥 Consumidas:")
+            lbl_quem = traducciones.get("inf_diario_quemadas", "⚡ Quemadas:")
+            lbl_bal = traducciones.get("inf_diario_balance", "⚖️ Balance Neto:")
+            
+            texto += f"\n{lbl_cons} {c_cons:.1f} kcal\n"
+            texto += f"{lbl_quem} {c_quem:.1f} kcal\n"
+            texto += f"{lbl_bal} {b_neto:.1f} kcal\n\n"
+            
+            template_macros = traducciones.get("inf_diario_macronutrientes", "🥩 Prot: {p_tot:.1f}g | 🥑 Gras: {g_tot:.1f}g | 🍞 Carb: {cb_tot:.1f}g | 🌾 Fibr: {f_tot:.1f}g")
+            texto += template_macros.format(p_tot=p_tot, g_tot=g_tot, cb_tot=cb_tot, f_tot=f_tot)
 
-            keyboard = [[InlineKeyboardButton("📄 Descargar PDF", callback_data=f"descargar_pdf_diario_{fecha_str}")]]
+            btn_pdf_text = traducciones.get("inf_diario_btn_pdf", "📄 Descargar PDF")
+            keyboard = [[InlineKeyboardButton(btn_pdf_text, callback_data=f"descargar_pdf_diario_{fecha_str}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
         # Manejo unificado y seguro para editar el mensaje del callback o responder uno nuevo
@@ -5194,7 +5255,9 @@ async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
         if "Message is not modified" in str(e):
             return
             
-        msg_err = f"❌ Error al consultar el diario para la fecha `{fecha_str}`: {e}"
+        msg_err_tmpl = traducciones.get("inf_diario_error", "❌ Error al consultar el diario para la fecha `{fecha_str}`: {e}")
+        msg_err = msg_err_tmpl.format(fecha_str=fecha_str, e=e)
+        
         if hasattr(update_or_query, 'edit_message_text'):
             try:
                 await update_or_query.edit_message_text(msg_err, parse_mode="Markdown")
@@ -5204,8 +5267,11 @@ async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
             await update_or_query.reply_text(msg_err, parse_mode="Markdown")
         elif hasattr(update_or_query, 'message') and update_or_query.message:
             await update_or_query.message.reply_text(msg_err, parse_mode="Markdown")
-
+            
 def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
     styles = getSampleStyleSheet()
@@ -5214,24 +5280,37 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
     body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#1E293B'))
     header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
 
+    t_titulo_tmpl = traducciones.get("PDF_diario_titulo", "Detalle Diario de Ingestas - {fecha_str}")
+    t_usr_tmpl = traducciones.get("PDF_diario_usuario_id", "**Usuario Telegram ID:** {user_id}")
+    
     story = [
-        Paragraph(f"<b>Detalle Diario de Ingestas - {fecha_str}</b>", title_style),
-        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
+        Paragraph(f"<b>{t_titulo_tmpl.format(fecha_str=fecha_str)}</b>", title_style),
+        Paragraph(t_usr_tmpl.format(user_id=user_id), body_style),
         HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
     ]
 
     if df_diario.empty:
-        story.append(Paragraph("No hay registros para esta fecha.", body_style))
+        msg_vacio = traducciones.get("PDF_diario_sin_reg", "No hay registros para esta fecha.")
+        story.append(Paragraph(msg_vacio, body_style))
     else:
+        th_momento = traducciones.get("PDF_diario_th_momento", "Momento")
+        th_alimento = traducciones.get("PDF_diario_th_alimento", "Alimento / Detalle")
+        th_peso = traducciones.get("PDF_diario_th_peso", "Peso")
+        th_kcal = traducciones.get("PDF_diario_th_kcal", "Kcal")
+        th_prot = traducciones.get("PDF_diario_th_prot", "Prot")
+        th_gras = traducciones.get("PDF_diario_th_gras", "Gras")
+        th_carb = traducciones.get("PDF_diario_th_carb", "Carb")
+        th_fibr = traducciones.get("PDF_diario_th_fibr", "Fibr")
+
         table_data = [[
-            Paragraph("Momento", header_style),
-            Paragraph("Alimento / Detalle", header_style),
-            Paragraph("Peso", header_style),
-            Paragraph("Kcal", header_style),
-            Paragraph("Prot", header_style),
-            Paragraph("Gras", header_style),
-            Paragraph("Carb", header_style),
-            Paragraph("Fibr", header_style)
+            Paragraph(th_momento, header_style),
+            Paragraph(th_alimento, header_style),
+            Paragraph(th_peso, header_style),
+            Paragraph(th_kcal, header_style),
+            Paragraph(th_prot, header_style),
+            Paragraph(th_gras, header_style),
+            Paragraph(th_carb, header_style),
+            Paragraph(th_fibr, header_style)
         ]]
 
         for _, r in df_diario.iterrows():
@@ -5260,19 +5339,26 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
         c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
         c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
         b_neto = c_cons - c_quem
-        story.append(Paragraph(f"• <b>Total Consumidas:</b> {c_cons:.1f} kcal", body_style))
-        story.append(Paragraph(f"• <b>Total Quemadas:</b> {c_quem:.1f} kcal", body_style))
-        story.append(Paragraph(f"• <b>Balance Neto:</b> {b_neto:.1f} kcal", body_style))
+
+        tot_cons_tpl = traducciones.get("PDF_diario_tot_consumidas", "• <b>Total Consumidas:</b> {c_cons:.1f} kcal")
+        tot_quem_tpl = traducciones.get("PDF_diario_tot_quemadas", "• <b>Total Quemadas:</b> {c_quem:.1f} kcal")
+        bal_neto_tpl = traducciones.get("PDF_diario_balance_neto", "• <b>Balance Neto:</b> {b_neto:.1f} kcal")
+
+        story.append(Paragraph(tot_cons_tpl.format(c_cons=c_cons), body_style))
+        story.append(Paragraph(tot_quem_tpl.format(c_quem=c_quem), body_style))
+        story.append(Paragraph(bal_neto_tpl.format(b_neto=b_neto), body_style))
 
     doc.build(story)
     buffer.seek(0)
     return buffer
     
-
 #                 INICIO                            COMANDO SEMANA                             INICIO   DB OK
 # ======================================================================================================================================
 
 def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo):
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
 
     if df_datos.empty or 'Fecha' not in df_datos.columns:
@@ -5320,36 +5406,55 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
     except Exception as e_presion:
         logger.error(f"Error al calcular presión semanal: {e_presion}")
 
+    t_titulo = traducciones.get("inf_semana_titulo", "📅 **Resumen Nutricional Semanal:**")
+    t_prom = traducciones.get("inf_semana_promedios", "📈 **Promedios vs. Rangos Saludables:**")
+    
+    cal_tpl = traducciones.get("inf_semana_calorias", "• Calorías: `{prom_cal} kcal` / Rango: `{cal_min} - {cal_max} kcal`").format(prom_cal=m.get('prom_cal', 0), cal_min=m.get('cal_min', 0), cal_max=m.get('cal_max', 0))
+    prot_tpl = traducciones.get("inf_semana_proteinas", "• Proteínas: `{prom_prot} g` / Rango: `{prot_min} - {prot_max} g`").format(prom_prot=m.get('prom_prot', 0), prot_min=m.get('prot_min', 0), prot_max=m.get('prot_max', 0))
+    gras_tpl = traducciones.get("inf_semana_grasas", "• Grasas: `{prom_gras} g` / Rango: `{gras_min} - {gras_max} g`").format(prom_gras=m.get('prom_gras', 0), gras_min=m.get('gras_min', 0), gras_max=m.get('gras_max', 0))
+    carb_tpl = traducciones.get("inf_semana_carbohidratos", "• Carbohidratos: `{prom_carb} g` / Rango: `{carb_min} - {carb_max} g`").format(prom_carb=m.get('prom_carb', 0), carb_min=m.get('carb_min', 0), carb_max=m.get('carb_max', 0))
+    fibr_tpl = traducciones.get("inf_semana_fibras", "• Fibras: `{prom_fibr} g` / Mínimo: `{fibr_min} g`").format(prom_fibr=m.get('prom_fibr', 0), fibr_min=m.get('fibr_min', 0))
+    act_tpl = traducciones.get("inf_semana_actividad", "• Actividad Física: `{prom_minutos_act} min/día` / Rango: `{act_min} - {act_max} min/día`").format(prom_minutos_act=prom_minutos_act, act_min=act_min_val, act_max=act_max_val)
+
     txt = (
-        f"📅 **Resumen Nutricional Semanal:**\n"
+        f"{t_titulo}\n"
         f"ℹ️ *{etiqueta_periodo}*\n\n"
-        f"📈 **Promedios vs. Rangos Saludables:**\n"
-        f"• Calorías: `{m.get('prom_cal', 0)} kcal` / Rango: `{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal`\n"
-        f"• Proteínas: `{m.get('prom_prot', 0)} g` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
-        f"• Grasas: `{m.get('prom_gras', 0)} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
-        f"• Carbohidratos: `{m.get('prom_carb', 0)} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
-        f"• Fibras: `{m.get('prom_fibr', 0)} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
-        f"• Actividad Física: `{prom_minutos_act} min/día` / Rango: `{act_min_val} - {act_max_val} min/día`\n"
+        f"{t_prom}\n"
+        f"{cal_tpl}\n"
+        f"{prot_tpl}\n"
+        f"{gras_tpl}\n"
+        f"{carb_tpl}\n"
+        f"{fibr_tpl}\n"
+        f"{act_tpl}\n"
     )
     if prom_alta is not None and prom_baja is not None:
-        txt += f"• **Presión Arterial Promedio:** `{prom_alta}/{prom_baja} mmHg`\n"
+        pres_tpl = traducciones.get("inf_semana_presion", "• **Presión Arterial Promedio:** `{prom_alta}/{prom_baja} mmHg`").format(prom_alta=prom_alta, prom_baja=prom_baja)
+        txt += f"{pres_tpl}\n"
+
+    quem_tpl = traducciones.get("inf_semana_quemadas", "• **Calorías Quemadas (Promedio):** `{prom_quem} kcal/día`").format(prom_quem=m.get('prom_quem', 0))
+    dias_tpl = traducciones.get("inf_semana_dias_eval", "• **Días Evaluados:** `{dias_reg}`").format(dias_reg=m.get('dias_registrados', 0))
+    nota_txt = traducciones.get("inf_semana_nota", "_(Nota: Los rangos de actividad consideran impacto corporal; actividades como aquagym o natación no aplican restricciones de sobrepeso)._")
 
     txt += (
-        f"\n• **Calorías Quemadas (Promedio):** `{m.get('prom_quem', 0)} kcal/día`\n"
-        f"• **Días Evaluados:** `{m.get('dias_registrados', 0)}`\n\n"
-        f"_(Nota: Los rangos de actividad consideran impacto corporal; actividades como aquagym o natación no aplican restricciones de sobrepeso)._"
+        f"\n{quem_tpl}\n"
+        f"{dias_tpl}\n\n"
+        f"{nota_txt}"
     )
 
     return txt, m
             
 @requiere_registro
 async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     if not await _validar_peso_mes_actual(update=update, context=context):
         return
 
     try:
-        user_id = update.effective_user.id
-        msg_espera = await update.message.reply_text("⏳ Procesando resumen nutricional...")
+        msg_esp = traducciones.get("inf_semana_espera", "⏳ Procesando resumen nutricional...")
+        msg_espera = await update.message.reply_text(msg_esp)
 
         tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
         ahora_arg = datetime.now(tz_arg)
@@ -5359,18 +5464,24 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if dia_semana == 0:
             inicio_rango = hoy - timedelta(days=7)
             fin_rango = hoy - timedelta(days=1)
-            etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
+            etiqueta_periodo = "Semana Anterior (Lunes a Domingo)" if lang == 'es' else "Previous Week (Monday to Sunday)"
         else:
             inicio_rango = hoy - timedelta(days=dia_semana)
             fin_rango = hoy - timedelta(days=1)
-            dias_espanol = {1: "Martes", 2: "Miércoles", 3: "Jueves", 4: "Viernes", 5: "Sábado", 6: "Domingo"}
-            nombre_dia_ayer = dias_espanol.get(dia_semana - 1, "")
-            etiqueta_periodo = f"Semana Actual (Lunes a {nombre_dia_ayer})"
+            if lang == 'es':
+                dias_espanol = {1: "Martes", 2: "Miércoles", 3: "Jueves", 4: "Viernes", 5: "Sábado", 6: "Domingo"}
+                nombre_dia_ayer = dias_espanol.get(dia_semana - 1, "")
+                etiqueta_periodo = f"Semana Actual (Lunes a {nombre_dia_ayer})"
+            else:
+                dias_ingles = {1: "Tuesday", 2: "Wednesday", 3: "Thursday", 4: "Friday", 5: "Saturday", 6: "Sunday"}
+                nombre_dia_ayer = dias_ingles.get(dia_semana - 1, "")
+                etiqueta_periodo = f"Current Week (Monday to {nombre_dia_ayer})"
 
         txt, _ = _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo)
 
         if not txt:
-            await msg_espera.edit_text("⚠️ No hay registros acumulados para los días transcurridos de este período.")
+            msg_vacio = traducciones.get("inf_semana_sin_registros", "⚠️ No hay registros acumulados para los días transcurridos de este período.")
+            await msg_espera.edit_text(msg_vacio)
             return
 
         await msg_espera.edit_text(txt, parse_mode="Markdown")
@@ -5378,13 +5489,19 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error en cmd_mensaje: {e}")
         if 'msg_espera' in locals():
-            await msg_espera.edit_text(f"⚠️ Error al calcular resumen semanal: {e}")
+            msg_err_tmpl = traducciones.get("inf_semana_error", "⚠️ Error al calcular resumen semanal: {e}")
+            await msg_espera.edit_text(msg_err_tmpl.format(e=e))
+                        
                      
 #               INICIO                                COMANDO RESUMEN COMANDO MES                       INICIO DB OK
 # ==========================================================================================================================================
 
 @requiere_registro
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     if not await _validar_peso_mes_actual(update, context):
         return
 
@@ -5392,7 +5509,6 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mes_actual_iso = ahora.strftime("%Y-%m")
     mes_anterior_iso = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
     
-    # Formato universal Mes/Año (ej: 09/2026) para los botones
     label_mes_actual = ahora.strftime("%m/%Y")
     label_mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%m/%Y")
     
@@ -5410,8 +5526,9 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🗓️", callback_data="resumen_mes_menu_otros")]
         ])
 
+    texto_titulo = traducciones.get("inf_mes_titulo", "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:")
     await update.message.reply_text(
-        "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", 
+        texto_titulo, 
         reply_markup=keyboard, 
         parse_mode="Markdown"
     )
@@ -5419,7 +5536,9 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         query = update.callback_query
-        user_id = update.effective_user.id
+        user_id = query.from_user.id if query else update.effective_user.id
+        lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+        traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
         ahora = obtener_ahora_arg()
         mes_actual_str = ahora.strftime("%Y-%m")
@@ -5437,32 +5556,37 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
                     mes_iter = (primer_dia_mes_actual - pd.DateOffset(months=i)).strftime("%Y-%m")
                     botones_meses.append([InlineKeyboardButton(f"🗓️ Período {mes_iter}", callback_data=f"resumen_mes_{mes_iter}")])
                 
-                botones_meses.append([InlineKeyboardButton("🔙 Volver", callback_data="resumen_volver_menu")])
+                btn_volver = traducciones.get("inf_mes_volver", "🔙 Volver")
+                botones_meses.append([InlineKeyboardButton(btn_volver, callback_data="resumen_volver_menu")])
                 
+                texto_sel = traducciones.get("inf_mes_seleccion", "🗓️ **Seleccioná el mes que querés consultar:**")
                 await query.edit_message_text(
-                    "🗓️ **Seleccioná el mes que querés consultar:**", 
+                    texto_sel, 
                     reply_markup=InlineKeyboardMarkup(botones_meses),
                     parse_mode="Markdown"
                 )
                 return
 
             elif cb_data == "resumen_volver_menu":
-                mes_anterior_str = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+                mes_anterior_iso = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+                label_mes_actual = ahora.strftime("%m/%Y")
+                label_mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%m/%Y")
                 
                 if 1 <= dia_actual <= 7:
                     keyboard = InlineKeyboardMarkup([
-                        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior_str}")],
-                        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+                        [InlineKeyboardButton(f"📅 {label_mes_anterior}", callback_data=f"resumen_mes_{mes_anterior_iso}")],
+                        [InlineKeyboardButton("🗓️", callback_data="resumen_mes_menu_otros")]
                     ])
                 else:
                     keyboard = InlineKeyboardMarkup([
-                        [InlineKeyboardButton("📅 Mes Actual", callback_data=f"resumen_mes_{mes_actual_str}")],
-                        [InlineKeyboardButton("📆 Mes Anterior", callback_data=f"resumen_mes_{mes_anterior_str}")],
-                        [InlineKeyboardButton("🗓️ Otro Mes", callback_data="resumen_mes_menu_otros")]
+                        [InlineKeyboardButton(f"📅 {label_mes_actual}", callback_data=f"resumen_mes_{mes_actual_str}")],
+                        [InlineKeyboardButton(f"📆 {label_mes_anterior}", callback_data=f"resumen_mes_{mes_anterior_iso}")],
+                        [InlineKeyboardButton("🗓️", callback_data="resumen_mes_menu_otros")]
                     ])
 
+                texto_titulo = traducciones.get("inf_mes_titulo", "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:")
                 await query.edit_message_text(
-                    "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:", 
+                    texto_titulo, 
                     reply_markup=keyboard, 
                     parse_mode="Markdown"
                 )
@@ -5478,7 +5602,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             mes_str = mes_actual_str
 
         if mes_str == mes_actual_str and 1 <= dia_actual <= 7:
-            msg = "⚠️ No se encuentra disponible el resumen del mes actual durante los primeros 7 días del mes."
+            msg = traducciones.get("inf_mes_actual_restr", "⚠️ No se encuentra disponible el resumen del mes actual durante los primeros 7 días del mes.")
             if query:
                 await query.edit_message_text(msg, parse_mode="Markdown")
             else:
@@ -5506,7 +5630,8 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             df_mes = pd.DataFrame()
 
         if df_mes.empty:
-            msg = f"⚠️ No hay registros cargados para el mes `{mes_str}`."
+            msg_tpl = traducciones.get("inf_mes_sin_reg", "⚠️ No hay registros cargados para el mes `{mes_str}`.")
+            msg = msg_tpl.format(mes_str=mes_str)
             if query:
                 await query.edit_message_text(msg, parse_mode="Markdown")
             else:
@@ -5546,27 +5671,49 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         cambio_peso_val = float(m.get('cambio_peso_kg', 0))
         texto_variacion_peso = f"`{cambio_peso_val:+.1f} kg`"
 
-        # 🟢 EXCLUSIVO DE PYTHON (SIN IA): Reporte rápido manual limpio de cálculos puros
-        encabezado_txt = (
-            f"📊 **Reporte Nutricional Mensual ({mes_str}):**\n"
-            f"⚖️ Peso registrado: `{_fmt(m.get('peso_actual', 0), 1)} kg`\n\n"
-            f"• Consumidas: `{_fmt(m.get('prom_cal', 0))} kcal` | Quemadas: `{_fmt(m.get('prom_quem', 0))} kcal`\n"
-            f"• Balance Neto: `{_fmt(m.get('prom_bal_neto', 0))} kcal/día`\n"
-            f"• Variación Est. de Peso: {texto_variacion_peso} ({m.get('dias_registrados', 0)} días)\n\n"
-            f"📈 **Promedios vs. Rangos Saludables:**\n"
-            f"• Calorías: `{_fmt(m.get('prom_cal', 0))} kcal` / Rango: `{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal`\n"
-            f"• Proteínas: `{_fmt(m.get('prom_prot', 0))} g` / Rango: `{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g`\n"
-            f"• Grasas: `{_fmt(m.get('prom_gras', 0))} g` / Rango: `{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g`\n"
-            f"• Carbs: `{_fmt(m.get('prom_carb', 0))} g` / Rango: `{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g`\n"
-            f"• Fibras: `{_fmt(m.get('prom_fibr', 0))} g` / Mínimo: `{m.get('fibr_min', 0)} g`\n"
-            f"• Actividad Física: `{prom_minutos_mes_act} min/día` / Rango: `{act_min_val} - {act_max_val} min/día`\n\n"
-            f"_(Nota: Reporte generado mediante métricas analíticas directas)._"
+        template_enc = traducciones.get(
+            "inf_mes_reporte_enc",
+            "📊 **Reporte Nutricional Mensual ({mes_str}):**\n"
+            "⚖️ Peso registrado: `{peso_reg} kg`\n\n"
+            "• Consumidas: `{cons} kcal` | Quemadas: `{quem} kcal`\n"
+            "• Balance Neto: `{neto} kcal/día`\n"
+            "• Variación Est. de Peso: {var_peso} ({dias} días)\n\n"
+            "📈 **Promedios vs. Rangos Saludables:**\n"
+            "• Calorías: `{cons} kcal` / Rango: `{c_min} - {c_max} kcal`\n"
+            "• Proteínas: `{prot} g` / Rango: `{p_min} - {p_max} g`\n"
+            "• Grasas: `{gras} g` / Rango: `{g_min} - {g_max} g`\n"
+            "• Carbs: `{carb} g` / Rango: `{cb_min} - {cb_max} g`\n"
+            "• Fibras: `{fibr} g` / Mínimo: `{f_min} g`\n"
+            "• Actividad Física: `{act} min/día` / Rango: `{act_min} - {act_max} min/día`\n\n"
+            "_(Nota: Reporte generado mediante métricas analíticas directas)._"
         )
 
-        pie_txt = f"\n\n📄 Podés descargar el informe completo en PDF abajo:"
+        encabezado_txt = template_enc.format(
+            mes_str=mes_str,
+            peso_reg=_fmt(m.get('peso_actual', 0), 1),
+            cons=_fmt(m.get('prom_cal', 0)),
+            quem=_fmt(m.get('prom_quem', 0)),
+            neto=_fmt(m.get('prom_bal_neto', 0)),
+            var_peso=texto_variacion_peso,
+            dias=m.get('dias_registrados', 0),
+            c_min=m.get('cal_min', 0), c_max=m.get('cal_max', 0),
+            prot=_fmt(m.get('prom_prot', 0)),
+            p_min=m.get('prot_min', 0), p_max=m.get('prot_max', 0),
+            gras=_fmt(m.get('prom_gras', 0)),
+            g_min=m.get('gras_min', 0), g_max=m.get('gras_max', 0),
+            carb=_fmt(m.get('prom_carb', 0)),
+            cb_min=m.get('carb_min', 0), cb_max=m.get('carb_max', 0),
+            fibr=_fmt(m.get('prom_fibr', 0)),
+            f_min=m.get('fibr_min', 0),
+            act=prom_minutos_mes_act,
+            act_min=act_min_val, act_max=act_max_val
+        )
+
+        pie_txt = traducciones.get("inf_mes_pie_pdf", "\n\n📄 Podés descargar el informe completo en PDF abajo:")
         txt_final = f"{encabezado_txt}{pie_txt}"
 
-        keyboard = [[InlineKeyboardButton("📄 Descargar PDF Resumen Mensual", callback_data=f"descargar_pdf_resumen_{mes_str}")]]
+        btn_pdf_text = traducciones.get("inf_mes_btn_descargar", "📄 Descargar PDF Resumen Mensual")
+        keyboard = [[InlineKeyboardButton(btn_pdf_text, callback_data=f"descargar_pdf_resumen_{mes_str}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         if query:
@@ -5576,13 +5723,17 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     except Exception as e:
         logger.error(f"Error en mostrar_resumen_mes: {e}", exc_info=True)
-        msg_err = f"⚠️ Ocurrió un error al generar el resumen mensual: {e}"
+        msg_err_tmpl = traducciones.get("inf_mes_error_gral", "⚠️ Ocurrió un error al generar el resumen mensual: {e}")
+        msg_err = msg_err_tmpl.format(e=e)
         if update.callback_query:
             await update.callback_query.edit_message_text(msg_err)
         else:
             await update.message.reply_text(msg_err)
-                                    
+                                                
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
     styles = getSampleStyleSheet()
@@ -5593,13 +5744,25 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     rec_style = ParagraphStyle('RecBody', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#0F172A'), spaceAfter=1)
     header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
 
+    t_titulo_tmpl = traducciones.get("PDF_resumen_titulo", "Reporte Nutricional Mensual - {mes_str}")
+    t_usr_tmpl = traducciones.get("PDF_resumen_usuario_id", "**Usuario Telegram ID:** {user_id}")
+
     story = [
-        Paragraph(f"<b>Reporte Nutricional Mensual - {mes_str}</b>", title_style),
-        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
+        Paragraph(f"<b>{t_titulo_tmpl.format(mes_str=mes_str)}</b>", title_style),
+        Paragraph(t_usr_tmpl.format(user_id=user_id), body_style),
         HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=6)
     ]
 
-    headers_h1 = ["Fecha", "Cal. Consumid.", "Cal. Quemad.", "Bal. Neto", "Proteinas (g)", "Grasas (g)", "Carbohidratos (g)", "Fibras (g)"]
+    h_fecha = traducciones.get("PDF_resumen_th_fecha", "Fecha")
+    h_cal_cons = traducciones.get("PDF_resumen_th_cal_cons", "Cal. Consumid.")
+    h_cal_quem = traducciones.get("PDF_resumen_th_cal_quem", "Cal. Quemad.")
+    h_bal_neto = traducciones.get("PDF_resumen_th_bal_neto", "Bal. Neto")
+    h_prot = traducciones.get("PDF_resumen_th_proteinas", "Proteinas (g)")
+    h_gras = traducciones.get("PDF_resumen_th_grasas", "Grasas (g)")
+    h_carb = traducciones.get("PDF_resumen_th_carbs", "Carbohidratos (g)")
+    h_fibr = traducciones.get("PDF_resumen_th_fibras", "Fibras (g)")
+
+    headers_h1 = [h_fecha, h_cal_cons, h_cal_quem, h_bal_neto, h_prot, h_gras, h_carb, h_fibr]
     table_data_h1 = [[Paragraph(h, header_style) for h in headers_h1]]
 
     tot_cons, tot_quem, tot_prot, tot_gras, tot_carb, tot_fibr = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
@@ -5640,8 +5803,11 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
         tot_neto = tot_cons - tot_quem
         dias_activos = len(fechas_unicas) if len(fechas_unicas) > 0 else 1
 
+        lbl_tot = traducciones.get("PDF_resumen_total_mes", "TOTAL MES")
+        lbl_prom = traducciones.get("PDF_resumen_prom_diario", "PROM. DIARIO")
+
         table_data_h1.append([
-            Paragraph("<b>TOTAL MES</b>", body_style),
+            Paragraph(f"<b>{lbl_tot}</b>", body_style),
             Paragraph(f"<b>{int(round(tot_cons))} kcal</b>", body_style),
             Paragraph(f"<b>{int(round(tot_quem))} kcal</b>", body_style),
             Paragraph(f"<b>{int(round(tot_neto))} kcal</b>", body_style),
@@ -5652,7 +5818,7 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
         ])
 
         table_data_h1.append([
-            Paragraph("<b>PROM. DIARIO</b>", body_style),
+            Paragraph(f"<b>{lbl_prom}</b>", body_style),
             Paragraph(f"<b>{int(round(tot_cons/dias_activos))} kcal</b>", body_style),
             Paragraph(f"<b>{int(round(tot_quem/dias_activos))} kcal</b>", body_style),
             Paragraph(f"<b>{int(round(tot_neto/dias_activos))} kcal</b>", body_style),
@@ -5673,19 +5839,32 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     story.append(t1)
 
     story.append(PageBreak())
-    story.append(Paragraph("<b>Análisis Metabólico y Tabla Comparativa de Macronutrientes (Rangos Saludables)</b>", title_style))
+    
+    sub_analisis = traducciones.get("PDF_resumen_analisis_sub", "Análisis Metabólico y Tabla Comparativa de Macronutrientes (Rangos Saludables)")
+    story.append(Paragraph(f"<b>{sub_analisis}</b>", title_style))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=6))
 
     perfil_dict = perfil if isinstance(perfil, dict) else {}
     m = calcular_metricas_mensuales(df_mes, perfil_dict)
 
+    th_nutriente = traducciones.get("PDF_resumen_th_nutriente", "Nutriente / Métrica")
+    th_prom_real = traducciones.get("PDF_resumen_th_prom_real", "Promedio Diario Real (Mes)")
+    th_rango_salud = traducciones.get("PDF_resumen_th_rango_salud", "Rango / Mínimo Saludable")
+
+    n_cal = traducciones.get("PDF_resumen_nutr_calorias", "Calorías")
+    n_prot = traducciones.get("PDF_resumen_nutr_proteinas", "Proteínas")
+    n_gras = traducciones.get("PDF_resumen_nutr_grasas", "Grasas")
+    n_carb = traducciones.get("PDF_resumen_nutr_carbs", "Carbohidratos")
+    n_fibr = traducciones.get("PDF_resumen_nutr_fibras", "Fibras")
+    min_tpl = traducciones.get("PDF_resumen_minimo", "Mínimo {val} g")
+
     table_comp = [
-        [Paragraph("<b>Nutriente / Métrica</b>", header_style), Paragraph("<b>Promedio Diario Real (Mes)</b>", header_style), Paragraph("<b>Rango / Mínimo Saludable</b>", header_style)],
-        [Paragraph("Calorías", body_style), Paragraph(f"{m.get('prom_cal', 0)} kcal", body_style), Paragraph(f"{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal", body_style)],
-        [Paragraph("Proteínas", body_style), Paragraph(f"{m.get('prom_prot', 0)} g", body_style), Paragraph(f"{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g", body_style)],
-        [Paragraph("Grasas", body_style), Paragraph(f"{m.get('prom_gras', 0)} g", body_style), Paragraph(f"{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g", body_style)],
-        [Paragraph("Carbohidratos", body_style), Paragraph(f"{m.get('prom_carb', 0)} g", body_style), Paragraph(f"{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g", body_style)],
-        [Paragraph("Fibras", body_style), Paragraph(f"{m.get('prom_fibr', 0)} g", body_style), Paragraph(f"Mínimo {m.get('fibr_min', 0)} g", body_style)]
+        [Paragraph(f"<b>{th_nutriente}</b>", header_style), Paragraph(f"<b>{th_prom_real}</b>", header_style), Paragraph(f"<b>{th_rango_salud}</b>", header_style)],
+        [Paragraph(n_cal, body_style), Paragraph(f"{m.get('prom_cal', 0)} kcal", body_style), Paragraph(f"{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal", body_style)],
+        [Paragraph(n_prot, body_style), Paragraph(f"{m.get('prom_prot', 0)} g", body_style), Paragraph(f"{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g", body_style)],
+        [Paragraph(n_gras, body_style), Paragraph(f"{m.get('prom_gras', 0)} g", body_style), Paragraph(f"{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g", body_style)],
+        [Paragraph(n_carb, body_style), Paragraph(f"{m.get('prom_carb', 0)} g", body_style), Paragraph(f"{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g", body_style)],
+        [Paragraph(n_fibr, body_style), Paragraph(f"{m.get('prom_fibr', 0)} g", body_style), Paragraph(min_tpl.format(val=m.get('fibr_min', 0)), body_style)]
     ]
     t_comp = Table(table_comp, colWidths=[150, 185, 185])
     t_comp.setStyle(TableStyle([
@@ -5699,15 +5878,22 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     peso_act_pdf = round(float(m.get('peso_actual', 0)), 1)
     peso_ref_pdf = round(float(m.get('peso_referencia', 0)), 1)
 
-    story.append(Paragraph(f"• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {peso_act_pdf} kg | Peso Objetivo de esta etapa : {peso_ref_pdf} kg |", body_style))
-    story.append(Paragraph(f"• <b>DÉFICIT CALÓRICO DIARIO PROMEDIO:</b> {m.get('deficit_diario_real', 0)} kcal / día", body_style))
-    story.append(Paragraph(f"• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {m.get('cambio_peso_kg', 0):+.1f} kg", body_style))
-    story.append(Paragraph(f"• <b>ACTIVIDAD FÍSICA PROMEDIO:</b> {m.get('prom_minutos_act', 0)} min/día (Rango recomendado: {m.get('act_min', 30)} - {m.get('act_max', 60)} min/día)", body_style))
+    p_perfil_tmpl = traducciones.get("PDF_resumen_perfil_reg", "• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {peso_act_pdf} kg | Peso Objetivo de esta etapa : {peso_ref_pdf} kg |")
+    p_def_tmpl = traducciones.get("PDF_resumen_deficit_diario", "• <b>DÉFICIT CALÓRICO DIARIO PROMEDIO:</b> {deficit} kcal / día")
+    p_cambio_tmpl = traducciones.get("PDF_resumen_cambio_peso", "• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {cambio:+.1f} kg")
+    p_act_tmpl = traducciones.get("PDF_resumen_act_fisica", "• <b>ACTIVIDAD FÍSICA PROMEDIO:</b> {act_minutos} min/día (Rango recomendado: {act_min} - {act_max} min/día)")
+    p_nota_act = traducciones.get("PDF_resumen_nota_act", "<i>(Nota: Los rangos de actividad consideran impacto corporal; actividades de bajo impacto como aquagym, natación o yoga no aplican restricciones de sobrepeso).</i>")
+
+    story.append(Paragraph(p_perfil_tmpl.format(mes_str=mes_str, peso_act_pdf=peso_act_pdf, peso_ref_pdf=peso_ref_pdf), body_style))
+    story.append(Paragraph(p_def_tmpl.format(deficit=m.get('deficit_diario_real', 0)), body_style))
+    story.append(Paragraph(p_cambio_tmpl.format(cambio=m.get('cambio_peso_kg', 0)), body_style))
+    story.append(Paragraph(p_act_tmpl.format(act_minutos=m.get('prom_minutos_act', 0), act_min=m.get('act_min', 30), act_max=m.get('act_max', 60)), body_style))
     story.append(Spacer(1, 2))
-    story.append(Paragraph("<i>(Nota: Los rangos de actividad consideran impacto corporal; actividades de bajo impacto como aquagym, natación o yoga no aplican restricciones de sobrepeso).</i>", body_style))
+    story.append(Paragraph(p_nota_act, body_style))
 
     story.append(Spacer(1, 4))
-    story.append(Paragraph("<b>Informe Nutricional:</b>", sub_style))
+    inf_nutr_lbl = traducciones.get("PDF_resumen_informe_nutr", "Informe Nutricional:")
+    story.append(Paragraph(f"<b>{inf_nutr_lbl}</b>", sub_style))
 
     if isinstance(recomendacion, str) and recomendacion.strip():
         rec_limpia = recomendacion.strip().replace('""', '"')
@@ -5732,21 +5918,25 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
     doc.build(story)
     buffer.seek(0)
     return buffer
-
+    
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
     # 1. 🟢 Aviso inicial automático al usuario de que se está preparando el documento
-    await query.answer("¡Recibido! Prepararemos el documento y cuando esté listo lo recibirá automáticamente. ⏳", show_alert=True)
+    txt_aviso = traducciones.get("PDF_envio_aviso_inicial", "¡Recibido! Prepararemos el documento y cuando esté listo lo recibirá automáticamente. ⏳")
+    await query.answer(txt_aviso, show_alert=True)
     
+    txt_espera_tmpl = traducciones.get("PDF_envio_msg_espera", "🔄 **Generando reporte mensual...** Por favor aguarde unos momentos, le enviaremos el documento en cuanto esté listo.")
     mensaje_espera = await context.bot.send_message(
         chat_id=query.message.chat_id,
-        text="🔄 **Generando reporte mensual...** Por favor aguarde unos momentos, le enviaremos el documento en cuanto esté listo.",
+        text=txt_espera_tmpl,
         parse_mode="Markdown"
     )
 
     try:
-        user_id = query.from_user.id
         cb_val = query.data
         for prefix in ["descargar_pdf_resumen_", "pdf_mes_"]:
             if cb_val.startswith(prefix):
@@ -5758,7 +5948,8 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         dia_actual = ahora.day
 
         if mes_str == mes_actual_str and 1 <= dia_actual <= 7:
-            await mensaje_espera.edit_text("⚠️ No se encuentra disponible el reporte en PDF del mes actual durante los primeros 7 días del mes.")
+            txt_7dias = traducciones.get("PDF_envio_restr_7dias", "⚠️ No se encuentra disponible el reporte en PDF del mes actual durante los primeros 7 días del mes.")
+            await mensaje_espera.edit_text(txt_7dias)
             return
 
         if mes_str == mes_actual_str:
@@ -5783,7 +5974,8 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
             df_mes = pd.DataFrame()
 
         if df_mes.empty:
-            await mensaje_espera.edit_text(f"⚠️ No hay registros de días en el mes `{mes_str}` para generar el PDF.")
+            txt_sin_reg_tmpl = traducciones.get("PDF_envio_sin_reg_mes", "⚠️ No hay registros de días en el mes `{mes_str}` para generar el PDF.")
+            await mensaje_espera.edit_text(txt_sin_reg_tmpl.format(mes_str=mes_str), parse_mode="Markdown")
             return
 
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
@@ -5792,8 +5984,8 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
 
         m = calcular_metricas_mensuales(df_mes, perfil)
 
-        # 🟢 EXCLUSIVO MANUAL (SIN IA): Se define una nota estándar sin consultas a modelos externos
-        recomendacion_pdf = "Reporte mensual generado mediante métricas analíticas directas y cálculos puros del sistema."
+        # 🟢 EXCLUSIVO MANUAL (SIN IA): Se define una nota estándar traducida
+        recomendacion_pdf = traducciones.get("PDF_envio_nota_def", "Reporte mensual generado mediante métricas analíticas directas y cálculos puros del sistema.")
 
         pdf_buffer = await asyncio.to_thread(
             generar_pdf_resumen_bytes,
@@ -5807,11 +5999,12 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         )
 
         # 2. 🟢 Envío automático del PDF una vez finalizado el proceso
+        caption_tmpl = traducciones.get("PDF_envio_exito_caption", "✅ ¡Su documento está listo! Reporte mensual auditado correspondiente a **{mes_str}**.")
         await context.bot.send_document(
             chat_id=query.message.chat_id,
             document=pdf_buffer,
             filename=f"Reporte_Nutricional_{mes_str}.pdf",
-            caption=f"✅ ¡Su documento está listo! Reporte mensual auditado correspondiente a **{mes_str}**.",
+            caption=caption_tmpl.format(mes_str=mes_str),
             parse_mode="Markdown"
         )
         
@@ -5822,7 +6015,8 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
 
     except Exception as e:
         logger.error(f"Error al enviar PDF: {e}", exc_info=True)
-        await mensaje_espera.edit_text(f"⚠️ Error al procesar la descarga del PDF: {e}")
+        err_tmpl = traducciones.get("PDF_envio_error_gen", "⚠️ Error al procesar la descarga del PDF: {e}")
+        await mensaje_espera.edit_text(err_tmpl.format(e=e))
         
 #                INICIO                               MENSAJES PROGRAMADOS                          INICIO  
 # ======================================================================================================================================
@@ -6241,10 +6435,85 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
 #                                   INICIO                  COMANDO ALTA DE USUARIO                                 INICIO
 # ======================================================================================================================================
 
+async def obtener_idiomas_disponibles_db():
+    """Consulta dinámicamente las columnas de la tabla 'multi' en Supabase para ver qué idiomas están disponibles."""
+    idiomas = ['en'] # Fallback base
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
+        cur.execute("""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_schema = 'public' 
+              AND LOWER(table_name) = 'multi'
+              AND LOWER(column_name) NOT IN ('id', 'variables')
+        """)
+        filas = cur.fetchall()
+        cur.close()
+        conn.close()
+        if filas:
+            idiomas = [str(f[0]).strip().lower() for f in filas if f[0]]
+    except Exception as e:
+        logger.error(f"Error al obtener idiomas disponibles de Supabase: {e}")
+    return idiomas
+
+async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    # Detección dinámica de idioma contra la base de datos
+    tg_lang = update.effective_user.language_code # Ej: 'es-AR', 'pt-BR', 'en-US'
+    idioma_detectado = 'en' # Por defecto si no coincide o no viene definido
+    
+    if tg_lang:
+        codigo_base = tg_lang.split('-')[0].lower() # Extrae 'es', 'en', etc.
+        idiomas_bd = await obtener_idiomas_disponibles_db()
+        if codigo_base in idiomas_bd:
+            idioma_detectado = codigo_base
+            
+    context.user_data['ing_idioma'] = idioma_detectado
+    traducciones = obtener_traducciones_db(idioma_detectado) if 'obtener_traducciones_db' in globals() else {}
+
+    estado_usr = _verificar_estado_usuario_en_hoja(user_id)
+    
+    if estado_usr is not None:
+        estado_lower = estado_usr.lower()
+        if estado_lower in ['inactivo', 'bloqueado', 'no', 'false', '0']:
+            txt_bloq = traducciones.get('ing_error_usuario_deshabilitado', "❌ **Su usuario ha sido deshabilitado, contáctese con el administrador del bot.**")
+            await update.message.reply_text(txt_bloq, parse_mode="Markdown")
+            return ConversationHandler.END
+        else:
+            perfil_existente = obtener_perfil_usuario(user_id) if 'obtener_perfil_usuario' in globals() else {}
+            nombre_usr = perfil_existente.get('nombre', 'Usuario') if perfil_existente else 'Usuario'
+            txt_activo = traducciones.get('ing_cuenta_activa_aviso', 
+                "ℹ️ **¡Ya tenés una cuenta activa, {nombre_usr}!**\n\n"
+                "Tu ficha ya está registrada en el sistema con el ID `{user_id}`.\n"
+                "Podés consultar o actualizar tu información en cualquier momento con el comando `/perfil`."
+            ).format(nombre_usr=nombre_usr, user_id=user_id)
+            await update.message.reply_text(txt_activo, parse_mode="Markdown")
+            return ConversationHandler.END
+
+    texto_advertencia = traducciones.get('ing_advertencia_legal', 
+        "⚖️ **ADVERTENCIA LEGAL Y CONDICIONES DE USO**\n\n"
+        "Este asistente es una herramienta de cálculo automatizado orientada a sumar y restar calorías, "
+        "registrar ingestas y macronutrientes de forma práctica. **No posee un valor médico ni científico:** "
+        "las recomendaciones emitidas son generadas por una Inteligencia Artificial de carácter generalizado.\n\n"
+        "Todo seguimiento clínico o nutricional formal debe ser realizado exclusivamente por un profesional de la salud competente. "
+        "Si decidís utilizar el bot de forma independiente, debés comprender que su función se limita estrictamente al balance cuantitativo "
+        "de calorías y nutrientes, sin reemplazar la consulta médica.\n\n"
+        "👉 *Para continuar con la apertura de tu cuenta y aceptar los términos, por favor presioná el botón de abajo:*"
+    )
+
+    btn_terminos_text = traducciones.get('btn_aceptar_terminos', "✅ He leído y acepto los términos")
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(btn_terminos_text, callback_data="aceptar_terminos_ok")]
+    ])
+
+    await update.message.reply_text(texto_advertencia, reply_markup=keyboard, parse_mode="Markdown")
+    return ING_TERMINOS
+
 def cmd_nueva_cuenta(datos_usuario):
     """
     Crea o actualiza el registro del usuario exclusivamente en Supabase.
-    Ya no interactúa con Google Sheets para la creación de perfiles o tablas de control.
+    Estructura optimizada: la altura y ocupación se guardan dinámicamente en Perfil_<user_id>.
     """
     user_id = datos_usuario.get("user_id")
     nombre = datos_usuario.get("nombre")
@@ -6254,7 +6523,6 @@ def cmd_nueva_cuenta(datos_usuario):
     peso = float(datos_usuario.get("peso", 0))
     muneca = float(datos_usuario.get("muneca", 0))
     ocupacion = int(datos_usuario.get("ocupacion", 1375))
-    peso_ideal = float(datos_usuario.get("peso_ideal", 0))
     cumple = datos_usuario.get("cumple", "")
     profesional = datos_usuario.get("profesional", "")
 
@@ -6262,13 +6530,13 @@ def cmd_nueva_cuenta(datos_usuario):
     fecha_act = datetime.now(ARG_TZ).strftime("%Y-%m-%d")
     fecha_alta = datetime.now(ARG_TZ).strftime("%Y-%m-%d")
 
-    # 1. Guardar perfil inicial en la tabla Perfil_<user_id> de Supabase
+    # 1. Guardar perfil inicial en la tabla Perfil_<user_id> de Supabase (con peso, altura y ocupación evolutiva)
     try:
         tabla_perfil = f"Perfil_{user_id}"
         conn_p, cur_p = _asegurar_tabla_y_conectar(tabla_perfil, tipo_tabla="perfil")
         cur_p.execute(f"""
-            INSERT INTO "{tabla_perfil}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO "{tabla_perfil}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Cumple")
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             str(edad),
             peso,
@@ -6277,7 +6545,6 @@ def cmd_nueva_cuenta(datos_usuario):
             float(ocupacion),
             str(mes_actual),
             str(fecha_act),
-            peso_ideal,
             str(cumple)
         ))
         conn_p.commit()
@@ -6286,21 +6553,19 @@ def cmd_nueva_cuenta(datos_usuario):
     except Exception as e:
         logger.error(f"Error al guardar perfil inicial en Supabase para {user_id}: {e}")
 
-    # 2. Insertar o actualizar registro en la tabla maestra 'Usuarios' de Supabase
+    # 2. Insertar o actualizar registro en la tabla maestra 'Usuarios' de Supabase (sin redundancias de altura/ocupación)
     try:
         conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
         query_usr = """
-            INSERT INTO "Usuarios" ("User ID", "Nombre", "Estado", "Ultimo Mes Peso", "Notificaciones", "Fecha Alta", "Sexo", "Altura", "muneca", "ocupacion", "cumple", "profesional")
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO "Usuarios" ("User ID", "Nombre", "Estado", "Ultimo Mes Peso", "Notificaciones", "Fecha Alta", "Sexo", "muneca", "cumple", "profesional")
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT ("User ID") DO UPDATE SET
                 "Nombre" = EXCLUDED."Nombre",
                 "Estado" = EXCLUDED."Estado",
                 "Ultimo Mes Peso" = EXCLUDED."Ultimo Mes Peso",
                 "Notificaciones" = EXCLUDED."Notificaciones",
                 "Sexo" = EXCLUDED."Sexo",
-                "Altura" = EXCLUDED."Altura",
                 "muneca" = EXCLUDED."muneca",
-                "ocupacion" = EXCLUDED."ocupacion",
                 "cumple" = EXCLUDED."cumple",
                 "profesional" = EXCLUDED."profesional"
         """
@@ -6312,9 +6577,7 @@ def cmd_nueva_cuenta(datos_usuario):
             "Si",
             str(fecha_alta),
             str(sexo),
-            float(altura),
             float(muneca),
-            float(ocupacion),
             str(cumple),
             str(profesional)
         )
@@ -6361,61 +6624,21 @@ def _verificar_profesional_valido(prof_id_str):
     except Exception as e:
         logger.error(f"Error al verificar profesionales en Supabase: {e}")
     return False
-    
-async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    estado_usr = _verificar_estado_usuario_en_hoja(user_id)
-    
-    if estado_usr is not None:
-        estado_lower = estado_usr.lower()
-        if estado_lower in ['inactivo', 'bloqueado', 'no', 'false', '0']:
-            await update.message.reply_text(
-                "❌ **Su usuario ha sido deshabilitado, contáctese con el administrador del bot.**",
-                parse_mode="Markdown"
-            )
-            return ConversationHandler.END
-        else:
-            perfil_existente = obtener_perfil_usuario(user_id) if 'obtener_perfil_usuario' in globals() else {}
-            nombre_usr = perfil_existente.get('nombre', 'Usuario') if perfil_existente else 'Usuario'
-            await update.message.reply_text(
-                f"ℹ️ **¡Ya tenés una cuenta activa, {nombre_usr}!**\n\n"
-                f"Tu ficha ya está registrada en el sistema con el ID `{user_id}`.\n"
-                "Podés consultar o actualizar tu información en cualquier momento con el comando `/perfil`.",
-                parse_mode="Markdown"
-            )
-            return ConversationHandler.END
-
-    texto_advertencia = (
-        "⚖️ **ADVERTENCIA LEGAL Y CONDICIONES DE USO**\n\n"
-        "Este asistente es una herramienta de cálculo automatizado orientada a sumar y restar calorías, "
-        "registrar ingestas y macronutrientes de forma práctica. **No posee un valor médico ni científico:** "
-        "las recomendaciones emitidas son generadas por una Inteligencia Artificial de carácter generalizado.\n\n"
-        "Todo seguimiento clínico o nutricional formal debe ser realizado exclusivamente por un profesional de la salud competente. "
-        "Si decidís utilizar el bot de forma independiente, debés comprender que su función se limita estrictamente al balance cuantitativo "
-        "de calorías y nutrientes, sin reemplazar la consulta médica.\n\n"
-        "👉 *Para continuar con la apertura de tu cuenta y aceptar los términos, por favor presioná el botón de abajo:*"
-    )
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ He leído y acepto los términos", callback_data="aceptar_terminos_ok")]
-    ])
-
-    await update.message.reply_text(texto_advertencia, reply_markup=keyboard, parse_mode="Markdown")
-    return ING_TERMINOS
-
 
 async def ing_aceptar_terminos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
+    lang = context.user_data.get('ing_idioma', 'en')
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     if query.data == "aceptar_terminos_ok":
-        await query.edit_message_text(
+        txt_terminos_ok = traducciones.get('ing_terminos_aceptados_msg', 
             "✅ **Términos aceptados correctamente.**\n\n"
             "🔑 **Apertura de Ficha - Validación de Profesional**\n\n"
-            "Para comenzar el registro, por favor ingresá el **ID de Telegram del profesional**:",
-            parse_mode="Markdown"
+            "Para comenzar el registro, por favor ingresá el **ID de Telegram del profesional**:"
         )
+        await query.edit_message_text(txt_terminos_ok, parse_mode="Markdown")
         return ING_PROFESIONAL
     return ING_TERMINOS
 
@@ -6424,128 +6647,185 @@ async def cmd_nuevo_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ing_recibir_profesional(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prof_id = update.message.text.strip()
+    lang = context.user_data.get('ing_idioma', 'en')
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
     loop = asyncio.get_running_loop()
     es_valido = await loop.run_in_executor(None, _verificar_profesional_valido, prof_id)
     
     if not es_valido:
-        await update.message.reply_text(
+        txt_err_prof = traducciones.get('ing_error_profesional_invalido', 
             "⚠️ **ID de profesional no válido**\n\n"
             "El número ingresado no figura en la lista de profesionales autorizados. "
-            "Por favor, verificá el ID con tu profesional e intentalo nuevamente o escribí `/cancelar`.",
-            parse_mode="Markdown"
+            "Por favor, verificá el ID con tu profesional e intentalo nuevamente o escribí `/cancelar`."
         )
+        await update.message.reply_text(txt_err_prof, parse_mode="Markdown")
         return ING_PROFESIONAL
 
     context.user_data['ing_profesional'] = prof_id
-    await update.message.reply_text(
+    txt_solic_nombre = traducciones.get('ing_solicitar_nombre', 
         "✅ **Profesional verificado correctamente.**\n\n"
         "📝 **Apertura de Ficha Nutricional**\n"
-        "Por favor, indicá tu **Nombre y Apellido / Apodo**:",
-        parse_mode="Markdown"
+        "Por favor, indicá tu **Nombre y Apellido / Apodo**:"
     )
+    await update.message.reply_text(txt_solic_nombre, parse_mode="Markdown")
     return ING_NOMBRE
 
 async def ing_recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nombre = update.message.text.strip()
+    lang = context.user_data.get('ing_idioma', 'en')
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     if len(nombre) < 2:
-        await update.message.reply_text("⚠️ Por favor, ingresá un nombre válido.")
+        txt_err_nom = traducciones.get('ing_error_nombre_valido', "⚠️ Por favor, ingresá un nombre válido.")
+        await update.message.reply_text(txt_err_nom)
         return ING_NOMBRE
     
     context.user_data['ing_nombre'] = nombre
-    await update.message.reply_text("Ingresá tu **edad** en años (ejemplo: `35`):", parse_mode="Markdown")
+    txt_solic_edad = traducciones.get('ing_solicitar_edad', "Ingresá tu **edad** en años (ejemplo: `35`):")
+    await update.message.reply_text(txt_solic_edad, parse_mode="Markdown")
     return ING_EDAD
 
 async def ing_recibir_edad(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = update.message.text.strip()
+    lang = context.user_data.get('ing_idioma', 'en')
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     if not txt.isdigit() or not (10 <= int(txt) <= 110):
-        await update.message.reply_text("⚠️ Por favor, ingresá una edad válida en números (ejemplo: `35`).")
+        txt_err_edad = traducciones.get('ing_error_edad_valida', "⚠️ Por favor, ingresá una edad válida en números (ejemplo: `35`).")
+        await update.message.reply_text(txt_err_edad)
         return ING_EDAD
     
     context.user_data['ing_edad'] = int(txt)
     
+    btn_masc = traducciones.get('btn_sexo_masculino', "Masculino 👨")
+    btn_fem = traducciones.get('btn_sexo_femenino', "Femenino 👩")
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Masculino 👨", callback_data="sexo_M"),
-         InlineKeyboardButton("Femenino 👩", callback_data="sexo_F")]
+        [InlineKeyboardButton(btn_masc, callback_data="sexo_M"),
+         InlineKeyboardButton(btn_fem, callback_data="sexo_F")]
     ])
-    await update.message.reply_text("Seleccioná tu **sexo biológico**:", reply_markup=keyboard, parse_mode="Markdown")
+    txt_solic_sexo = traducciones.get('ing_solicitar_sexo', "Seleccioná tu **sexo biológico**:")
+    await update.message.reply_text(txt_solic_sexo, reply_markup=keyboard, parse_mode="Markdown")
     return ING_SEXO
 
 async def ing_recibir_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    lang = context.user_data.get('ing_idioma', 'en')
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
     sexo = "M" if query.data == "sexo_M" else "F"
     context.user_data['ing_sexo'] = sexo
     
-    await query.edit_message_text(
-        f"Sexo registrado: *{'Masculino' if sexo == 'M' else 'Femenino'}*.\n\n"
-        "Ahora ingresá tu **altura en centímetros** (ejemplo: `175` para 1,75 m):",
-        parse_mode="Markdown"
-    )
+    sexo_str_label = traducciones.get('label_masculino', 'Masculino') if sexo == 'M' else traducciones.get('label_femenino', 'Femenino')
+    txt_sexo_reg = traducciones.get('ing_sexo_registrado', 
+        "Sexo registrado: *{sexo_label}*.\n\n"
+        "Ahora ingresá tu **altura en centímetros** (ejemplo: `175` para 1,75 m):"
+    ).format(sexo_label=sexo_str_label)
+
+    await query.edit_message_text(txt_sexo_reg, parse_mode="Markdown")
     return ING_ALTURA
 
 async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = update.message.text.strip().replace(',', '.')
+    lang = context.user_data.get('ing_idioma', 'en')
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     try:
         alt = float(txt)
         if not (100 <= alt <= 230): raise ValueError()
     except ValueError:
-        await update.message.reply_text("⚠️ Ingresá una altura válida en centímetros (ejemplo: `170`).")
+        txt_err_alt = traducciones.get('ing_error_altura_valida', "⚠️ Ingresá una altura válida en centímetros (ejemplo: `170`).")
+        await update.message.reply_text(txt_err_alt)
         return ING_ALTURA
 
     context.user_data['ing_altura'] = alt
-    await update.message.reply_text("Ingresá tu **peso actual en kg** (ejemplo: `82.5`):", parse_mode="Markdown")
+    txt_solic_peso = traducciones.get('ing_solicitar_peso', "Ingresá tu **peso actual en kg** (ejemplo: `82.5`):")
+    await update.message.reply_text(txt_solic_peso, parse_mode="Markdown")
     return ING_PESO
 
 async def ing_recibir_peso(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = update.message.text.strip().replace(',', '.')
+    lang = context.user_data.get('ing_idioma', 'en')
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     try:
         peso = float(txt)
         if not (30 <= peso <= 300): raise ValueError()
     except ValueError:
-        await update.message.reply_text("⚠️ Ingresá un peso válido en kg (ejemplo: `75.4`).")
+        txt_err_peso = traducciones.get('ing_error_peso_valido', "⚠️ Ingresá un peso válido en kg (ejemplo: `75.4`).")
+        await update.message.reply_text(txt_err_peso)
         return ING_PESO
 
     context.user_data['ing_peso'] = peso
-    await update.message.reply_text(
-        "Ingresá el **perímetro de tu muñeca en cm** (ejemplo: `16.5`):\n"
-        "_(Se utiliza para calcular tu contextura ósea)_",
-        parse_mode="Markdown"
+    txt_solic_cintura = traducciones.get('ing_solicitar_cintura', 
+        "Ingresá el **perímetro de tu cintura en cm** (ejemplo: `85`):\n"
+        "_(Se utiliza junto con el cuello para calcular tu porcentaje de grasa)_"
     )
+    await update.message.reply_text(txt_solic_cintura, parse_mode="Markdown")
     return ING_MUNECA
 
 async def ing_recibir_muneca(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = update.message.text.strip().replace(',', '.')
+    lang = context.user_data.get('ing_idioma', 'en')
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     try:
-        muneca = float(txt)
-        if not (10 <= muneca <= 30): raise ValueError()
+        cintura = float(txt)
+        if not (50 <= cintura <= 200): raise ValueError()
     except ValueError:
-        await update.message.reply_text("⚠️ Ingresá un perímetro de muñeca válido en cm (ejemplo: `17`).")
+        txt_err_cintura = traducciones.get('ing_error_cintura_valida', "⚠️ Ingresá un perímetro de cintura válido en cm (ejemplo: `85`).")
+        await update.message.reply_text(txt_err_cintura, parse_mode="Markdown")
         return ING_MUNECA
 
-    context.user_data['ing_muneca'] = muneca
+    context.user_data['ing_cintura'] = cintura
+    txt_solic_cuello = traducciones.get('ing_solicitar_cuello', 
+        "Ingresá el **perímetro de tu cuello en cm** (ejemplo: `38`):\n"
+        "_(Se utiliza junto con la cintura para calcular tu composición corporal)_"
+    )
+    await update.message.reply_text(txt_solic_cuello, parse_mode="Markdown")
+    return ING_CUELLO
+
+async def ing_recibir_cuello(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    txt = update.message.text.strip().replace(',', '.')
+    lang = context.user_data.get('ing_idioma', 'en')
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    try:
+        cuello = float(txt)
+        if not (20 <= cuello <= 60): raise ValueError()
+    except ValueError:
+        txt_err_cuello = traducciones.get('ing_error_cuello_valido', "⚠️ Ingresá un perímetro de cuello válido en cm (ejemplo: `38`).")
+        await update.message.reply_text(txt_err_cuello, parse_mode="Markdown")
+        return ING_CUELLO
+
+    context.user_data['ing_cuello'] = cuello
     
-    # Botones universales con iconos de sentado, caminando y corriendo
+    btn_ocup_1 = traducciones.get('btn_ocup_nivel_1', "🪑 Nivel 1")
+    btn_ocup_2 = traducciones.get('btn_ocup_nivel_2', "🚶 Nivel 2")
+    btn_ocup_3 = traducciones.get('btn_ocup_nivel_3', "🏃 Nivel 3")
+    
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🪑 Nivel 1", callback_data="ocup_1375")],
-        [InlineKeyboardButton("🚶 Nivel 2", callback_data="ocup_1550")],
-        [InlineKeyboardButton("🏃 Nivel 3", callback_data="ocup_1725")]
+        [InlineKeyboardButton(btn_ocup_1, callback_data="ocup_1375")],
+        [InlineKeyboardButton(btn_ocup_2, callback_data="ocup_1550")],
+        [InlineKeyboardButton(btn_ocup_3, callback_data="ocup_1725")]
     ])
     
-    texto_explicativo = (
-        "Seleccioná tu **nivel de actividad u ocupación habitual** (sin considerar los ejercicios programados, que se contabilizan por separado):\n\n"
-        "• **Nivel 1 (🪑):** Actividad ligera / sedentario (persona sentada, oficina, poca movilidad).\n"
-        "• **Nivel 2 (🚶):** Actividad moderada (persona caminando, movimiento constante durante el día).\n"
-        "• **Nivel 3 (🏃):** Actividad intensa (persona corriendo o con esfuerzo físico exigente)."
+    texto_explicativo = traducciones.get('ing_texto_explicativo_ocupacion', 
+        "Seleccioná tu **nivel de actividad u ocupación habitual** (sin considerar los ejercicios programados):\n\n"
+        "• **Nivel 1 (🪑):** Actividad ligera / sedentario (persona sentada, oficina).\n"
+        "• **Nivel 2 (🚶):** Actividad moderada (persona caminando, movimiento constante).\n"
+        "• **Nivel 3 (🏃):** Actividad intensa (esfuerzo físico exigente)."
     )
     
     await update.message.reply_text(texto_explicativo, reply_markup=keyboard, parse_mode="Markdown")
     return ING_OCUPACION
-    
+        
 async def ing_recibir_ocupacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    lang = context.user_data.get('ing_idioma', 'en')
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
     val_str = query.data.replace("ocup_", "")
     try:
@@ -6555,35 +6835,143 @@ async def ing_recibir_ocupacion(update: Update, context: ContextTypes.DEFAULT_TY
         
     context.user_data['ing_ocupacion'] = ocupacion
     
-    await query.edit_message_text(
-        f"Nivel de actividad registrado: {ocupacion}.\n\n"
-        "Por último, ingresá tu **fecha de nacimiento** en formato `AAAA-MM-DD` (ejemplo: `1985-04-12`):",
-        parse_mode="Markdown"
-    )
+    txt_ocup_reg = traducciones.get('ing_ocupacion_registrada', 
+        "Nivel de actividad registrado: {ocupacion}.\n\n"
+        "Por último, ingresá tu **fecha de nacimiento** en formato `AAAA-MM-DD` (ejemplo: `1985-04-12`):"
+    ).format(ocupacion=ocupacion)
+
+    await query.edit_message_text(txt_ocup_reg, parse_mode="Markdown")
     return ING_CUMPLE
+
+def clasificar_brecha_peso(peso_actual: float, peso_ideal: float) -> tuple[str, float, bool]:
+    """
+    Calcula la diferencia porcentual entre el peso actual y el peso ideal.
+    Retorna: (nivel_desvio, porcentaje_diferencia, es_sobrepeso)
+    Niveles: 'bajo', 'moderado', 'elevado'
+    """
+    if peso_ideal <= 0:
+        return "moderado", 0.0, True
+
+    diferencia_kg = peso_actual - peso_ideal
+    es_sobrepeso = diferencia_kg >= 0
+    porcentaje_dif = (abs(diferencia_kg) / peso_ideal) * 100
+
+    if porcentaje_dif <= 15.0:
+        nivel = "bajo"
+    elif porcentaje_dif <= 30.0:
+        nivel = "moderado"
+    else:
+        nivel = "elevado"
+
+    return nivel, round(porcentaje_dif, 1), es_sobrepeso
+
+def obtener_texto_evaluacion_ritmo(nivel: str, es_sobrepeso: bool, traducciones: dict) -> str:
+    """
+    Genera el mensaje descriptivo del nivel de desvío y la recomendación de ritmo 
+    utilizando estrictamente variables multilenguaje.
+    """
+    if es_sobrepeso:
+        if nivel == "bajo":
+            desc_nivel = traducciones.get('eval_sobrepeso_bajo', "tu nivel de sobrepeso es bajo (estás muy cerca de tu meta)")
+        elif nivel == "moderado":
+            desc_nivel = traducciones.get('eval_sobrepeso_moderado', "tu nivel de sobrepeso es moderado")
+        else:
+            desc_nivel = traducciones.get('eval_sobrepeso_elevado', "tu nivel de sobrepeso es elevado")
+    else:
+        if nivel == "bajo":
+            desc_nivel = traducciones.get('eval_deficit_bajo', "tu margen por debajo del peso de referencia es leve")
+        elif nivel == "moderado":
+            desc_nivel = traducciones.get('eval_deficit_moderado', "tu diferencia respecto al peso de referencia es moderada")
+        else:
+            desc_nivel = traducciones.get('eval_deficit_elevado', "tu diferencia respecto al peso de referencia es considerable")
+
+    if nivel == "elevado":
+        sugerencia = traducciones.get('sugerencia_ritmo_intenso', "💡 *Sugerencia basada en tus métricas:* Te recomendamos un ritmo **Intenso / Rápido** para un avance firme en esta etapa inicial.")
+    elif nivel == "moderado":
+        sugerencia = traducciones.get('sugerencia_ritmo_moderado', "💡 *Sugerencia basada en tus métricas:* Te recomendamos un ritmo **Moderado** (el más equilibrado y constante).")
+    else:
+        sugerencia = traducciones.get('sugerencia_ritmo_tranquilo', "💡 *Sugerencia basada en tus métricas:* Te recomendamos un ritmo **Tranquilo / Lento**, ideal para consolidar los últimos ajustes de forma sostenible.")
+
+    titulo_eval = traducciones.get('titulo_evaluacion_corporal', "📊 Analizando tus perímetros corporales (cintura y cuello), detectamos que {desc_nivel}.")
+    pregunta_ritmo = traducciones.get('pregunta_eleccion_ritmo', "Para organizar tu etapa de trabajo de manera realista y saludable, ¿qué ritmo preferís aplicar?")
+
+    return (
+        f"{titulo_eval.format(desc_nivel=desc_nivel)}\n\n"
+        f"{sugerencia}\n\n"
+        f"{pregunta_ritmo}"
+    )
 
 async def ing_recibir_cumple(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cumple_str = update.message.text.strip()
+    user_id = update.effective_user.id
+    lang = context.user_data.get('ing_idioma', 'en')
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     try:
         datetime.strptime(cumple_str, "%Y-%m-%d")
     except ValueError:
-        await update.message.reply_text("⚠️ Formato de fecha inválido. Usá el formato `AAAA-MM-DD` (ejemplo: `1990-08-25`).", parse_mode="Markdown")
+        txt_err_fec = traducciones.get('ing_error_fecha_invalida', "⚠️ Formato de fecha inválido. Usá el formato `AAAA-MM-DD` (ejemplo: `1990-08-25`).")
+        await update.message.reply_text(txt_err_fec, parse_mode="Markdown")
         return ING_CUMPLE
 
-    user_id = update.effective_user.id
-    datos_usuario = {
+    context.user_data['ing_datos_usuario_temp'] = {
         "user_id": user_id,
         "nombre": context.user_data.get('ing_nombre'),
         "edad": context.user_data.get('ing_edad'),
         "sexo": context.user_data.get('ing_sexo'),
         "altura": context.user_data.get('ing_altura'),
         "peso": context.user_data.get('ing_peso'),
-        "muneca": context.user_data.get('ing_muneca'),
+        "muneca": context.user_data.get('ing_cintura'),
         "ocupacion": context.user_data.get('ing_ocupacion'),
         "cumple": cumple_str,
         "profesional": context.user_data.get('ing_profesional')
     }
+
+    datos_temp = context.user_data['ing_datos_usuario_temp']
+    peso_ideal_calc = round(calcular_peso_ideal(datos_temp["sexo"], datos_temp["altura"]), 1)
+    nivel, porcentaje, es_sobrepeso = clasificar_brecha_peso(datos_temp["peso"], peso_ideal_calc)
     
+    texto_evaluacion = obtener_texto_evaluacion_ritmo(nivel, es_sobrepeso, traducciones)
+
+    btn_tranquilo = traducciones.get('btn_ritmo_tranquilo', "🟢 Tranquilo / Lento")
+    btn_moderado = traducciones.get('btn_ritmo_moderado', "🟡 Moderado")
+    btn_intenso = traducciones.get('btn_ritmo_intenso', "🔴 Intenso / Rápido")
+
+    keyboard = [
+        [InlineKeyboardButton(btn_tranquilo, callback_data="ritmo_tranquilo")],
+        [InlineKeyboardButton(btn_moderado, callback_data="ritmo_moderado")],
+        [InlineKeyboardButton(btn_intenso, callback_data="ritmo_intenso")]
+    ]
+    markup = InlineKeyboardMarkup(keyboard)
+
+    txt_exito_cumple = traducciones.get('ing_fecha_registrada_exito', "✅ **¡Fecha registrada con éxito!**\n\n{texto_evaluacion}").format(texto_evaluacion=texto_evaluacion)
+
+    await update.message.reply_text(
+        txt_exito_cumple,
+        reply_markup=markup,
+        parse_mode="Markdown"
+    )
+    
+    return ING_RITMO
+
+async def ing_recibir_ritmo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    lang = context.user_data.get('ing_idioma', 'en')
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    ritmo_seleccionado = query.data.replace("ritmo_", "")
+
+    datos_usuario = context.user_data.get('ing_datos_usuario_temp', {})
+    if not datos_usuario:
+        txt_err_temp = traducciones.get('ing_error_datos_temp', "❌ Hubo un error en los datos temporales. Por favor, iniciá el registro nuevamente con `/ingreso`.")
+        await query.edit_message_text(txt_err_temp)
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    datos_usuario["ritmo"] = ritmo_seleccionado
     datos_usuario["contextura"] = calcular_contextura(datos_usuario["sexo"], datos_usuario["altura"], datos_usuario["muneca"])
     datos_usuario["peso_ideal"] = round(calcular_peso_ideal(datos_usuario["sexo"], datos_usuario["altura"]), 1)
     datos_usuario["peso_etapa"] = calcular_peso_etapa(datos_usuario["peso"], datos_usuario["peso_ideal"])
@@ -6600,9 +6988,10 @@ async def ing_recibir_cumple(update: Update, context: ContextTypes.DEFAULT_TYPE)
     datos_usuario["tmb"] = tmb
     datos_usuario["get"] = get_calorias
     
-    msg_espera = await update.message.reply_text(
-        "✅ **¡Datos procesados!**\n\n"
-        "⏳ *Creando planillas y redactando tu informe inicial...*",
+    txt_procesando = traducciones.get('ing_procesando_informe_ia', "✅ Ritmo seleccionado: *{ritmo_cap}*.\n\n⏳ *Creando planillas y redactando tu informe inicial personalizado con IA...*").format(ritmo_cap=ritmo_seleccionado.capitalize())
+
+    await query.edit_message_text(
+        txt_procesando,
         parse_mode="Markdown"
     )
 
@@ -6612,55 +7001,49 @@ async def ing_recibir_cumple(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         _, pdf_buf = await procesar_informe_inicial_ia(datos_usuario)
 
-        resumen = (
+        resumen_plantilla = traducciones.get('ing_resumen_cuenta_lista', 
             "🎉 **¡Tu cuenta y planillas están listas!**\n\n"
-            f"👤 **Paciente:** {datos_usuario['nombre']} | **ID:** `{user_id}`\n"
-            f"⚖️ **Peso Actual:** `{datos_usuario['peso']} kg` ➔ **Objetivo Etapa 1:** `{datos_usuario['peso_etapa']} kg`\n"
-            f"🔥 **TMB:** `{round(tmb)} kcal` | **GET:** `{round(get_calorias)} kcal`\n\n"
-            "📄 *Te hemos enviado tu informe nutricional inicial detallado en formato PDF.*"
+            "👤 **Paciente:** {nombre} | **ID:** `{user_id}`\n"
+            "⚖️ **Peso Actual:** `{peso} kg` ➔ **Objetivo Etapa 1:** `{peso_etapa} kg`\n"
+            "🎯 **Ritmo Elegido:** `{ritmo_cap}`\n"
+            "🔥 **TMB:** `{tmb_rnd} kcal` | **GET:** `{get_rnd} kcal`\n\n"
+            "📄 *Te hemos enviado tu informe nutricional inicial detallado en formato PDF ajustado a tu ritmo.*"
+        ).format(
+            nombre=datos_usuario['nombre'],
+            user_id=user_id,
+            peso=datos_usuario['peso'],
+            peso_etapa=datos_usuario['peso_etapa'],
+            ritmo_cap=ritmo_seleccionado.capitalize(),
+            tmb_rnd=round(tmb),
+            get_rnd=round(get_calorias)
         )
-        await msg_espera.edit_text(resumen, parse_mode="Markdown")
 
+        await query.message.reply_text(resumen_plantilla, parse_mode="Markdown")
+
+        filename_pdf = f"Informe_Inicial_{datos_usuario['nombre'].replace(' ', '_')}.pdf"
         await context.bot.send_document(
-            chat_id=update.effective_chat.id,
+            chat_id=query.message.chat_id,
             document=pdf_buf,
-            filename=f"Informe_Inicial_{datos_usuario['nombre'].replace(' ', '_')}.pdf"
+            filename=filename_pdf
         )
 
     except Exception as e:
         logger.error(f"Error al inicializar cuenta o generar informe para {user_id}: {e}")
-        await msg_espera.edit_text(f"❌ Ocurrió un error al procesar el ingreso: {e}")
+        txt_err_gen = traducciones.get('ing_error_proceso_general', "❌ Ocurrió un error al procesar el ingreso: {e}").format(e=e)
+        await query.message.reply_text(txt_err_gen)
 
     context.user_data.clear()
     return ConversationHandler.END
-            
-async def ing_cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🚫 Registro cancelado. Podés volver a iniciar con `/ingreso` o `/nuevo` cuando quieras.")
-    context.user_data.clear()
-    return ConversationHandler.END
-
-conv_handler_ingreso = ConversationHandler(
-    entry_points=[CommandHandler(['ingreso', 'nuevo', 'alta', 'registrar', 'nuevo_usuario'], cmd_ingreso_start)],
-    states={
-        ING_TERMINOS: [CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$")],
-        ING_PROFESIONAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_profesional)],
-        ING_NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_nombre)],
-        ING_EDAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_edad)],
-        ING_SEXO: [CallbackQueryHandler(ing_recibir_sexo, pattern="^sexo_")],
-        ING_ALTURA: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_altura)],
-        ING_PESO: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_peso)],
-        ING_MUNECA: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_muneca)],
-        ING_OCUPACION: [CallbackQueryHandler(ing_recibir_ocupacion, pattern="^ocup_")],
-        ING_CUMPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cumple)],
-    },
-    fallbacks=[CommandHandler('cancelar', ing_cancelar)],
-)
 
 #                     INICIO                         COMANDO START                          INICIO  2026 09 05
 # =========================================================================================================================================
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = (
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    msg = traducciones.get('start_mensaje_bienvenida', 
         "👋 **¡Bienvenido a tu Bot Nutricional Personalizado!**\n\n"
         "Guía rápida de comandos e ingresos disponibles:\n\n"
         "📌 **Comandos Principales:**\n"
@@ -6673,8 +7056,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/GET`: Actualiza GET por medio del reloj inteligente.\n"
         "• `/inicio`: Resumen de comandos y PDF del manual.\n"
         "• `/mes`: Reporte con estimación de peso y PDF.\n"
-        "• `/perfil`: Consulta de datos biométricos.\n"
-        "• `/peso`: Actualiza el peso del mes .\n"
+        "• `/perfil`: Actualizar de datos biométricos.\n"
         "• `/presi`: Registro y consulta de presión arterial.\n"
         "• `/receta`: Calculadora Web para registrar comidas.\n"
         "• `/semana`: Estadística semanal (calorías, fibras, etc.).\n\n"
@@ -6690,20 +7072,19 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "    `*TORTA (fracción x 100g),1.5`: 150 g de torta\n"
         "• **Actividad fisica con IA:** 📝 Texto, 🎤 Notas de voz.\n"
         "• **Modificación :** ingresar el nuevo valor de calorias\n\n"
-        
         "📄 *A continuación te comparto el manual en PDF.*"
     )
     
     await update.message.reply_text(msg, parse_mode="Markdown")
     
-    pdf_buf = generar_pdf_instrucciones_bytes()
+    pdf_buf = generar_pdf_instrucciones_bytes(traducciones)
     await context.bot.send_document(
         chat_id=update.effective_chat.id,
         document=pdf_buf,
         filename="Manual_Bot_Nutricional.pdf"
     )    
  
-def generar_pdf_instrucciones_bytes() -> io.BytesIO:
+def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, 
@@ -6760,8 +7141,8 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 
     def crear_encabezado():
         header_content = [
-            [Paragraph("GUÍA INTERACTIVA DEL BOT NUTRICIONAL", title_style)],
-            [Paragraph("MANUAL INTEGRAL DE USUARIO • ASISTENTE PERSONAL INTELIGENTE", subtitle_style)]
+            [Paragraph(traducciones.get('pdf_titulo_principal', "GUÍA INTERACTIVA DEL BOT NUTRICIONAL"), title_style)],
+            [Paragraph(traducciones.get('pdf_subtitulo_principal', "MANUAL INTEGRAL DE USUARIO • ASISTENTE PERSONAL INTELIGENTE"), subtitle_style)]
         ]
         t_header = Table(header_content, colWidths=[540])
         t_header.setStyle(TableStyle([
@@ -6776,21 +7157,23 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 
     story.append(crear_encabezado())
     story.append(Spacer(1, 4))
-    story.append(Paragraph("1. Alta al Sistema y Registro Inicial", section_style))
+    story.append(Paragraph(traducciones.get('pdf_sec_alta', "1. Alta al Sistema y Registro Inicial"), section_style))
     
     alta_data = [
-        [Paragraph("Comando / Campo", body_bold_white), Paragraph("Descripción Detallada y Formato de Uso", body_bold_white)],
-        [Paragraph("<b>/alta</b>", code_style), Paragraph("<b>Comando de Inicio de Registro:</b> Permite iniciar el proceso de apertura de cuenta y creación de ficha nutricional.", body_style)],
-        [Paragraph("<b>ID de Profesional</b>", code_style), Paragraph("<b>Validación del Profesional:</b> Ingresar el ID de Telegram del profesional autorizado para asociar y validar la cuenta.", body_style)],
-        [Paragraph("<b>Nombre y Apellido</b>", code_style), Paragraph("<b>Identificación:</b> Ingresar el nombre o apodo con el que figurará el paciente en el sistema (mínimo 2 caracteres).", body_style)],
-        [Paragraph("<b>Edad</b>", code_style), Paragraph("<b>Edad en años:</b> Ingresar un valor numérico válido entre 10 y 110 años.", body_style)],
-        [Paragraph("<b>Sexo Biológico</b>", code_style), Paragraph("<b>Selección por Botón:</b> Elegir entre Masculino (M) o Femenino (F) mediante el teclado interactivo.", body_style)],
-        [Paragraph("<b>Altura</b>", code_style), Paragraph("<b>Estatura en centímetros:</b> Ingresar altura en cm (ejemplo: <code>175</code> para 1,75 m, con un rango válido de 100 a 230 cm).", body_style)],
-        [Paragraph("<b>Peso Actual</b>", code_style), Paragraph("<b>Peso en kilogramos:</b> Ingresar el peso actual en kg (ejemplo: <code>82.5</code> kg, con un rango válido de 30 a 300 kg).", body_style)],
-        [Paragraph("<b>Muñeca</b>", code_style), Paragraph("<b>Perímetro de muñeca:</b> Ingresar la medida en cm (ejemplo: <code>16.5</code> cm) para calcular la contextura ósea.", body_style)],
-        [Paragraph("<b>Ocupación / Actividad</b>", code_style), Paragraph("<b>Nivel de Actividad:</b> Seleccionar mediante botones el nivel de actividad habitual. Esta selección no incluye la actividad física, la cual se registra en forma independiente en la planilla (Sedentario/Ligero, Moderado o Intenso).", body_style)],
-        [Paragraph("<b>Fecha de Nacimiento</b>", code_style), Paragraph("<b>Cumpleaños:</b> Ingresar la fecha de nacimiento obligatoriamente en formato <code>AAAA-MM-DD</code> (ejemplo: <code>1985-04-12</code>).", body_style)],
-        [Paragraph("<b>Cancelar</b>", code_style), Paragraph("<b>Cancelar Registro:</b> Permite abortar el proceso de alta en cualquier momento, limpiando los datos temporales.", body_style)]
+        [Paragraph(traducciones.get('pdf_col_comando', "Comando / Campo"), body_bold_white), Paragraph(traducciones.get('pdf_col_descripcion', "Descripción Detallada y Formato de Uso"), body_bold_white)],
+        [Paragraph("<b>/alta</b>", code_style), Paragraph(traducciones.get('pdf_desc_alta', "<b>Comando de Inicio de Registro:</b> Permite iniciar el proceso de apertura de cuenta y creación de ficha nutricional."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_prof', "<b>ID de Profesional</b>"), code_style), Paragraph(traducciones.get('pdf_desc_prof', "<b>Validación del Profesional:</b> Ingresar el ID de Telegram del profesional autorizado para asociar y validar la cuenta."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_nombre', "<b>Nombre y Apellido</b>"), code_style), Paragraph(traducciones.get('pdf_desc_nombre', "<b>Identificación:</b> Ingresar el nombre o apodo con el que figurará el paciente en el sistema (mínimo 2 caracteres)."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_edad', "<b>Edad</b>"), code_style), Paragraph(traducciones.get('pdf_desc_edad', "<b>Edad en años:</b> Ingresar un valor numérico válido entre 10 y 110 años."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_sexo', "<b>Sexo Biológico</b>"), code_style), Paragraph(traducciones.get('pdf_desc_sexo', "<b>Selección por Botón:</b> Elegir entre Masculino (M) o Femenino (F) mediante el teclado interactivo."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_altura', "<b>Altura</b>"), code_style), Paragraph(traducciones.get('pdf_desc_altura', "<b>Estatura en centímetros:</b> Ingresar altura en cm (ejemplo: <code>175</code> para 1,75 m, con un rango válido de 100 a 230 cm)."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_peso', "<b>Peso Actual</b>"), code_style), Paragraph(traducciones.get('pdf_desc_peso', "<b>Peso en kilogramos:</b> Ingresar el peso actual en kg (ejemplo: <code>82.5</code> kg, con un rango válido de 30 a 300 kg)."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_cintura', "<b>Cintura</b>"), code_style), Paragraph(traducciones.get('pdf_desc_cintura', "<b>Perímetro de la cintura:</b> Ingresar la medida en cm (ejemplo: <code>90</code> cm) para calcular la contextura corporal."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_cuello', "<b>Cuello</b>"), code_style), Paragraph(traducciones.get('pdf_desc_cuello', "<b>Perímetro del cuello:</b> Ingresar la medida en cm (ejemplo: <code>40</code> cm) para calcular la contextura corporal."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_ocupacion', "<b>Ocupación / Actividad</b>"), code_style), Paragraph(traducciones.get('pdf_desc_ocupacion', "<b>Nivel de Actividad:</b> Seleccionar mediante botones el nivel de actividad habitual (Sedentario/Ligero, Moderado o Intenso)."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_cumple', "<b>Fecha de Nacimiento</b>"), code_style), Paragraph(traducciones.get('pdf_desc_cumple', "<b>Cumpleaños:</b> Ingresar la fecha de nacimiento obligatoriamente en formato <code>AAAA-MM-DD</code> (ejemplo: <code>1985-04-12</code>)."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_intensidad', "<b>Intensidad</b>"), code_style), Paragraph(traducciones.get('pdf_desc_intensidad', "<b>Ritmo de avance:</b> Seleccionar el nivel de ritmo para la etapa (Tranquilo, Moderado o Intenso)."), body_style)],
+        [Paragraph("<b>/cancelar</b>", code_style), Paragraph(traducciones.get('pdf_desc_cancelar', "<b>Cancelar Registro:</b> Permite abortar el proceso de alta en cualquier momento, limpiando los datos temporales."), body_style)]
     ]
 
     t_alta = Table(alta_data, colWidths=[130, 410])
@@ -6811,16 +7194,16 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 
     story.append(crear_encabezado())
     story.append(Spacer(1, 4))
-    story.append(Paragraph("2. Métodos de Registro de Ingestas y Actividades", section_style))
+    story.append(Paragraph(traducciones.get('pdf_sec_metodos', "2. Métodos de Registro de Ingestas y Actividades"), section_style))
 
-    story.append(Paragraph("A. Con Intervención de IA (Texto, Voz e Imagen)", subsection_style))
+    story.append(Paragraph(traducciones.get('pdf_subsec_ia', "A. Con Intervención de IA (Texto, Voz e Imagen)"), subsection_style))
     
     registro_ia_data = [
-        [Paragraph("<b>Texto Libre:</b> Escribí tus alimentos de forma natural detallando porciones (Ej: <i>'2 huevos revueltos con 1 tostada integral y café'</i>). Detallá tu actividad física indicando tipo, duración, intensidad y dificultad (Ej: <i>'Caminata de 4000 metros durante 45 minutos en terreno plano'</i>).", body_style)],
-        [Paragraph("<b>Notas de Voz:</b> Dictá tu ingesta o actividad física en una nota de voz; la IA convertirá el audio a texto y procesará los datos nutricionales.", body_style)],
-        [Paragraph("<b>Fotografías de Galería / Cámara:</b> Envía una foto del plato con o sin descripción aclaratoria (Ej: <i>'Milanesa casera de pollo al horno 200 g'</i>).", body_style)],
-        [Paragraph("<b>Proceso de Edición y Confirmación de ingestas:</b><br/>• <b>Momento:</b> Desayuno, Almuerzo, Merienda o Cena.<br/>• <b>Edición parcial:</b> Seleccioná ítem por ítem enviando una <i>nueva descripción</i> (mantiene peso y se reenvía a la IA), <i>,nuevo peso</i> (mantiene descripción y el bot recalcula el nuevo peso) o <i>nueva descripción,nuevo peso</i> (se reenvía todo a la IA).<br/>• <b>Fecha y Guardado:</b> Confirmá la fecha del consumo para asentar en tu planilla.", body_style)],
-        [Paragraph("<b>Proceso de Edición y Confirmación de actividades:</b><br/>• <b>Momento:</b> Actividad.<br/>• <b>Edición parcial:</b> Ingresar un nuevo valor de las calorías quemadas por la actividad si dispone de un dispositivo que las pueda medir con mayor exactitud.<br/>• <b>Fecha y Guardado:</b> Confirmá para asentar en tu planilla.", body_style)]
+        [Paragraph(traducciones.get('pdf_ia_texto', "<b>Texto Libre:</b> Escribí tus alimentos de forma natural detallando porciones. Detallá tu actividad física indicando tipo, duración e intensidad."), body_style)],
+        [Paragraph(traducciones.get('pdf_ia_voz', "<b>Notas de Voz:</b> Dictá tu ingesta o actividad física en una nota de voz; la IA convertirá el audio a texto y procesará los datos nutricionales."), body_style)],
+        [Paragraph(traducciones.get('pdf_ia_foto', "<b>Fotografías de Galería / Cámara:</b> Envía una foto del plato con o sin descripción aclaratoria."), body_style)],
+        [Paragraph(traducciones.get('pdf_ia_edicion', "<b>Proceso de Edición y Confirmación de ingestas:</b><br/>• <b>Momento:</b> Desayuno, Almuerzo, Merienda o Cena.<br/>• <b>Edición parcial:</b> Seleccioná ítem por ítem enviando una <i>nueva descripción</i>, <i>,nuevo peso</i> o <i>nueva descripción,nuevo peso</i>.<br/>• <b>Fecha y Guardado:</b> Confirmá la fecha del consumo para asentar en tu planilla."), body_style)],
+        [Paragraph(traducciones.get('pdf_ia_actividad', "<b>Proceso de Edición y Confirmación de actividades:</b><br/>• <b>Momento:</b> Actividad.<br/>• <b>Edición parcial:</b> Ingresar un nuevo valor de las calorías quemadas.<br/>• <b>Fecha y Guardado:</b> Confirmá para asentar en tu planilla."), body_style)]
     ]
 
     t_reg_ia = Table(registro_ia_data, colWidths=[540])
@@ -6837,19 +7220,19 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     story.append(t_reg_ia)
     story.append(Spacer(1, 4))
 
-    story.append(Paragraph("B. Sin Intervención de IA (Comidas Precargadas)", subsection_style))
+    story.append(Paragraph(traducciones.get('pdf_subsec_sin_ia', "B. Sin Intervención de IA (Comidas Precargadas)"), subsection_style))
 
     direct_data = [
-        [Paragraph("Tipo de Registro", body_bold_white), Paragraph("Sintaxis", body_bold_white), Paragraph("Ejemplos y Funcionamiento", body_bold_white)],
+        [Paragraph(traducciones.get('pdf_col_tipo_reg', "Tipo de Registro"), body_bold_white), Paragraph(traducciones.get('pdf_col_sintaxis', "Sintaxis"), body_bold_white), Paragraph(traducciones.get('pdf_col_ejemplos', "Ejemplos y Funcionamiento"), body_bold_white)],
         [
-            Paragraph("<b>Plantilla de Comidas</b>", body_style),
+            Paragraph(traducciones.get('pdf_reg_plantilla', "<b>Plantilla de Comidas</b>"), body_style),
             Paragraph("<code>*CODIGO, CANTI</code>", code_style),
-            Paragraph("• <code>*DESAYUNO,1</code> Ingresa 1 unidad de la comida seleccionada.<br/>• <code>*PIZZA,4</code> Registra 4 porciones.<br/>• <code>*TORTA,3</code> Ingresa 3 porciones.", body_style)
+            Paragraph(traducciones.get('pdf_desc_plantilla', "• <code>*DESAYUNO,1</code> Ingresa 1 unidad.<br/>• <code>*PIZZA,4</code> Registra 4 porciones."), body_style)
         ],
         [
-            Paragraph("<b>Código de barras</b>", body_style),
+            Paragraph(traducciones.get('pdf_reg_barra', "<b>Código de barras</b>"), body_style),
             Paragraph("<code>/barra NUMERO</code>", code_style),
-            Paragraph("• <code>/barra 7790742363107</code><br/>Ingresá el ENA del producto, se presenta el detalle en fracciones de 100 g para confirmar o modificar.", body_style)
+            Paragraph(traducciones.get('pdf_desc_barra', "• <code>/barra 7790742363107</code><br/>Ingresá el EAN del producto para consultar fracciones de 100 g."), body_style)
         ]
     ]
 
@@ -6868,17 +7251,17 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
     story.append(t_direct)
     story.append(Spacer(1, 4))
 
-    story.append(Paragraph("3. Calculadora Nutricional Web (/receta)", section_style))
-    story.append(Paragraph("Permite cargar recetas elaboradas o combinaciones de alimentos habituales directamente en tu planilla personal.", body_style))
+    story.append(Paragraph(traducciones.get('pdf_sec_calc', "3. Calculadora Nutricional Web (/receta)"), section_style))
+    story.append(Paragraph(traducciones.get('pdf_desc_calc', "Permite cargar recetas elaboradas o combinaciones de alimentos habituales directamente en tu planilla personal."), body_style))
 
     receta_data = [
         [
-            Paragraph("Ejemplo 1: Combinación (DESAYUNO)", body_bold_white),
-            Paragraph("Ejemplo 2: Receta Elaborada (TORTA)", body_bold_white)
+            Paragraph(traducciones.get('pdf_receta_ej1', "Ejemplo 1: Combinación (DESAYUNO)"), body_bold_white),
+            Paragraph(traducciones.get('pdf_receta_ej2', "Ejemplo 2: Receta Elaborada (TORTA)"), body_bold_white)
         ],
         [
-            Paragraph("• <b>Código:</b> <code>DESAYUNO</code><br/>• <b>Desc:</b> Desayuno tradicional con tostadas y queso.<br/>• <b>Criterio:</b> Porciones = 1.", body_style),
-            Paragraph("• <b>Código:</b> <code>TORTA</code><br/>• <b>Desc:</b> Torta matera fácil.<br/>• <b>Criterio:</b> Fracción de 100 g.", body_style)
+            Paragraph("• <b>Código:</b> <code>DESAYUNO</code><br/>• <b>Desc:</b> Desayuno tradicional.<br/>• <b>Criterio:</b> Porciones = 1.", body_style),
+            Paragraph("• <b>Código:</b> <code>TORTA</code><br/>• <b>Desc:</b> Torta casera.<br/>• <b>Criterio:</b> Fracción de 100 g.", body_style)
         ]
     ]
 
@@ -6899,24 +7282,24 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 
     story.append(crear_encabezado())
     story.append(Spacer(1, 4))
-    story.append(Paragraph("4. Comandos Principales del Sistema", section_style))
+    story.append(Paragraph(traducciones.get('pdf_sec_cmds', "4. Comandos Principales del Sistema"), section_style))
     
     cmds_data = [
-        [Paragraph("Comando", body_bold_white), Paragraph("Descripción Detallada y Formato de Uso", body_bold_white)],
-        [Paragraph("<b>/barra</b>", code_style), Paragraph("<b>Código de barras:</b> Ingresa un código de barras y se presenta por pantalla un comestible en fracciones de 100 g.", body_style)],
-        [Paragraph("<b>/borrafcomida</b>", code_style), Paragraph("<b>Borra una comida de la planilla:</b> Visualiza el listado de comidas predeterminadas y permite la eliminación de una ingresando el comando seguido del nombre de la comida.", body_style)],
-        [Paragraph("<b>/comidas</b>", code_style), Paragraph("<b>Planilla de comidas:</b> Visualiza el listado de comidas predeterminadas guardadas en tu planilla personal y permite descargar el PDF detallado.", body_style)],
-        [Paragraph("<b>/dia</b>", code_style), Paragraph("<b>Resumen diario:</b> Permite seleccionar el día de consulta. Muestra por pantalla los consumos del día y descarga el PDF detallado con todas las ingestas.", body_style)],
-        [Paragraph("<b>/eliminar</b>", code_style), Paragraph("<b>Borrar registros:</b> Permite eliminar ingestas y actividades seleccionando el día.", body_style)],
-        [Paragraph("<b>/GET</b>", code_style), Paragraph("<b>Gasto Energético Total:</b> Actualiza el GET mediante el registro de calorías base de 24 horas. Los datos pueden surgir de un reloj inteligente y sirve para actualizar el factor de actividad (ejemplo: <code>/GET 2150</code>).", body_style)],
-        [Paragraph("<b>/inicio</b>", code_style), Paragraph("<b>Guía principal:</b> Presenta la guía rápida de comandos e ingresos disponibles.", body_style)],
-        [Paragraph("<b>/mes</b>", code_style), Paragraph("<b>Resumen mensual:</b> Selección del mes de consulta. Presenta reporte mensual, resumen calórico, estimación de cambio de peso, tabla de macronutrientes y descarga de informe completo en PDF.", body_style)],
-        [Paragraph("<b>/perfil</b>", code_style), Paragraph("<b>Datos biométricos:</b> Muestra los datos biométricos corporales cargados en el sistema.", body_style)],
-        [Paragraph("<b>/peso</b>", code_style), Paragraph("<b>Actualización del peso:</b> Actualiza el peso registrado para el mes en curso.", body_style)],
-        [Paragraph("<b>/presi</b>", code_style), Paragraph("<b>• Carga:</b> <code>/presi ALTA,BAJA,PULSO,NOTA</code> (Registra presión, pulso y nota en planilla).<br/><b>• Opciones cortas:</b> <code>/presi ALTA,BAJA,PULSO</code> o <code>/presi ALTA,BAJA</code> (omite nota y pulso).<br/><b>• Consulta:</b> <code>/presi AAAA-MM</code> Promedio del mes e informe PDF detallado.", body_style)],
-        [Paragraph("<b>/receta</b>", code_style), Paragraph("<b>Calculadora nutricional:</b> Acceso directo al módulo de recetas web.", body_style)],
-        [Paragraph("<b>/semana</b>", code_style), Paragraph("<b>Promedio semanal:</b> Estadística de la semana mostrando el resumen de calorías, proteínas, actividad física y macronutrientes.<br/>El corte se realiza de lunes a domingo. Los lunes muestra la semana cerrada; de martes a domingo muestra la semana en curso.", body_style)],
-        [Paragraph("<b>Atajos</b>", code_style), Paragraph("<b>• /diario:</b> <code>/d</code><br/><b>• /semanal:</b> <code>/s</code><br/><b>• /mensual:</b> <code>/m</code>", body_style)]
+        [Paragraph(traducciones.get('pdf_col_cmd', "Comando"), body_bold_white), Paragraph(traducciones.get('pdf_col_desc_cmd', "Descripción Detallada y Formato de Uso"), body_bold_white)],
+        [Paragraph("<b>/barra</b>", code_style), Paragraph(traducciones.get('pdf_cmd_barra', "<b>Código de barras:</b> Ingresa un código de barras y se presenta un comestible en fracciones de 100 g."), body_style)],
+        [Paragraph("<b>/borracomida</b>", code_style), Paragraph(traducciones.get('pdf_cmd_borra', "<b>Borra una comida:</b> Permite la eliminación de una comida predeterminada."), body_style)],
+        [Paragraph("<b>/comidas</b>", code_style), Paragraph(traducciones.get('pdf_cmd_comidas', "<b>Planilla de comidas:</b> Listado de comidas predeterminadas y descarga de PDF."), body_style)],
+        [Paragraph("<b>/dia</b>", code_style), Paragraph(traducciones.get('pdf_cmd_dia', "<b>Resumen diario:</b> Muestra los consumos del día y descarga el PDF detallado."), body_style)],
+        [Paragraph("<b>/eliminar</b>", code_style), Paragraph(traducciones.get('pdf_cmd_eliminar', "<b>Borrar registros:</b> Permite eliminar ingestas y actividades seleccionando el día."), body_style)],
+        [Paragraph("<b>/GET</b>", code_style), Paragraph(traducciones.get('pdf_cmd_get', "<b>Gasto Energético Total:</b> Actualiza el GET mediante calorías base de 24 horas (ejemplo: <code>/GET 2150</code>)."), body_style)],
+        [Paragraph("<b>/inicio</b>", code_style), Paragraph(traducciones.get('pdf_cmd_inicio', "<b>Guía principal:</b> Presenta la guía rápida de comandos e ingresos."), body_style)],
+        [Paragraph("<b>/mes</b>", code_style), Paragraph(traducciones.get('pdf_cmd_mes', "<b>Resumen mensual:</b> Reporte mensual, calorías, estimación de peso y PDF completo."), body_style)],
+        [Paragraph("<b>/perfil</b>", code_style), Paragraph(traducciones.get('pdf_cmd_perfil', "<b>Datos biométricos:</b> Muestra los datos corporales cargados en el sistema."), body_style)],
+        [Paragraph("<b>/peso</b>", code_style), Paragraph(traducciones.get('pdf_cmd_peso', "<b>Actualización del peso:</b> Actualiza el peso registrado para el mes en curso."), body_style)],
+        [Paragraph("<b>/presi</b>", code_style), Paragraph(traducciones.get('pdf_cmd_presi', "<b>Presión arterial:</b> Registro (<code>/presi ALTA,BAJA,PULSO,NOTA</code>) y consulta mensual (<code>/presi AAAA-MM</code>)."), body_style)],
+        [Paragraph("<b>/receta</b>", code_style), Paragraph(traducciones.get('pdf_cmd_receta', "<b>Calculadora nutricional:</b> Acceso directo al módulo de recetas web."), body_style)],
+        [Paragraph("<b>/semana</b>", code_style), Paragraph(traducciones.get('pdf_cmd_semana', "<b>Promedio semanal:</b> Estadística semanal de calorías, proteínas y macronutrientes."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_atajos', "Atajos"), code_style), Paragraph("<b>• /diario:</b> <code>/d</code><br/><b>• /semanal:</b> <code>/s</code><br/><b>• /mensual:</b> <code>/m</code>", body_style)]
     ]
 
     t_cmds = Table(cmds_data, colWidths=[110, 430])
@@ -6936,17 +7319,19 @@ def generar_pdf_instrucciones_bytes() -> io.BytesIO:
 
     doc.build(story)
     buffer.seek(0)
-    return buffer
+    return buffer    
 
-#                       INICIO                  COMANDO PERFIL                    INICIO
+#                       INICIO                  COMANDO PERFIL Y GESTIÓN BIOMÉTRICA                    INICIO
 # ======================================================================================================================================
 
 @requiere_registro
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
     # 🔹 Limpieza dinámica: Soporta tanto /perfil como /peso de forma indistinta
-    texto_mensaje = update.message.text.strip()
+    texto_mensaje = update.message.text.strip() if update.message and update.message.text else ""
     raw_text = texto_mensaje
     for cmd in ['/perfil', '/peso']:
         if texto_mensaje.lower().startswith(cmd):
@@ -6955,104 +7340,246 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ahora = obtener_ahora_arg()
     mes_actual = ahora.strftime("%Y-%m")
+    fecha_hoy = ahora.strftime("%Y-%m-%d")
 
-    # 🔹 GARANTIZAR FILA DEL MES: Asegura que la estructura del mes actual exista
-    # antes de realizar cualquier lectura o escritura de peso/perfil.
+    # 🔹 GARANTIZAR FILA DEL MES: Asegura que la estructura del mes actual exista en el histórico mensual
     if '_garantizar_fila_mes_actual' in globals():
         _garantizar_fila_mes_actual(user_id, ahora)
 
-    # CASO 1: Ingreso de peso (/perfil 82.5 o /peso 82.5)
+    # CASO 1: Ingreso rápido de peso mensual (/perfil 82.5 o /peso 82.5)
     if raw_text:
         try:
             texto_limpio = raw_text.split()[0].replace(',', '.')
             nuevo_peso = float(texto_limpio)
             
-            # Se guardan el peso y el mes en la capa de datos
-            guardar_perfil_db(user_id, nuevo_peso, mes_actual)
+            # 1. Guardar en la tabla histórica mensual (Perfil_<user_id>) con su fecha de actualización
+            guardar_perfil_db(user_id, nuevo_peso, mes_actual, fecha_actualizacion=fecha_hoy)
             
-            # Recargar el perfil actualizado desde la capa de datos
+            # 2. Actualizar también el peso en la tabla maestra 'Usuarios' para mantenerlo sincronizado en ambos lados
+            try:
+                conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+                cur_u.execute('UPDATE "Usuarios" SET "peso" = %s WHERE "User ID" = %s', (float(nuevo_peso), str(user_id)))
+                conn_u.commit()
+                cur_u.close()
+                conn_u.close()
+            except Exception as e_usr_peso:
+                logger.error(f"Error al sincronizar peso en tabla Usuarios para {user_id}: {e_usr_peso}")
+
             perfil_actualizado = obtener_perfil_usuario(user_id, mes_target=mes_actual)
             
             if perfil_actualizado:
                 edad = parse_raw_val(perfil_actualizado.get('EDAD', perfil_actualizado.get('Edad', 64)))
                 altura = parse_raw_val(perfil_actualizado.get('ALTURA', perfil_actualizado.get('Altura', 170)))
-                genero = str(perfil_actualizado.get('GENERO', perfil_actualizado.get('Genero', 'masculino')))
-                ocupacion = str(perfil_actualizado.get('OCUPACION', perfil_actualizado.get('Ocupacion', 'Jubilado')))
+                genero = str(perfil_actualizado.get('GENERO', perfil_actualizado.get('Genero', 'M')))
+                ocupacion = parse_raw_val(perfil_actualizado.get('ocupacion', perfil_actualizado.get('OCUPACION', 1.375)))
             else:
-                edad, altura, genero, ocupacion = 200.0, 200.0, "masculino", "Jubilado"
+                edad, altura, genero, ocupacion = 64.0, 170.0, "M", 1.375
 
             tmb, get_val = calcular_tmb_y_get(nuevo_peso, altura, edad, genero, ocupacion)
             
-            await update.message.reply_text(
-                f"✅ **Peso actualizado correctamente para el mes `{mes_actual}`:**\n\n"
-                f"• Nuevo Peso: `{nuevo_peso:.1f}` kg\n"
-                f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
-                f"• **GET Estimado:** `{get_val:.0f} kcal/día`",
-                parse_mode="Markdown"
-            )
+            txt_peso_act = traducciones.get('perfil_peso_actualizado_ok', 
+                "✅ **Peso actualizado correctamente para el mes `{mes_actual}`:**\n\n"
+                "• Nuevo Peso: `{nuevo_peso:.1f}` kg\n"
+                "• Fecha de registro: `{fecha_hoy}`\n"
+                "• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
+                "• **GET Estimado:** `{get_val:.0f} kcal/día`"
+            ).format(mes_actual=mes_actual, nuevo_peso=nuevo_peso, fecha_hoy=fecha_hoy, tmb=tmb, get_val=get_val)
+
+            await update.message.reply_text(txt_peso_act, parse_mode="Markdown")
             return
 
         except ValueError:
-            await update.message.reply_text("❌ Por favor, ingresá un número válido para el peso. Ejemplo: `/peso 82.5` o `/perfil 82.5`", parse_mode="Markdown")
+            txt_err_num = traducciones.get('perfil_error_numero_valido', "❌ Por favor, ingresá un número válido para el peso. Ejemplo: `/peso 82.5` o `/perfil 82.5`")
+            await update.message.reply_text(txt_err_num, parse_mode="Markdown")
             return
         except Exception as e:
-            print(f"Error al procesar /perfil o /peso en Sheets: {e}")
-            await update.message.reply_text(f"⚠️ Ocurrió un error al intentar guardar en la planilla: {e}", parse_mode="Markdown")
+            logger.error(f"Error al procesar /perfil o /peso: {e}")
+            txt_err_gral = traducciones.get('perfil_error_guardar', "⚠️ Ocurrió un error al intentar guardar en la base de datos: {e}").format(e=e)
+            await update.message.reply_text(txt_err_gral, parse_mode="Markdown")
             return
 
-    # CASO 2: Consulta (/perfil solo o /peso solo)
+    # CASO 2: Consulta del Menú Interactivo de Perfil
     try:
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
+        datos_grales = obtener_datos_usuario_general(user_id) if 'obtener_datos_usuario_general' in globals() else {}
 
         if perfil:
-            peso = parse_raw_val(perfil.get('PESO', perfil.get('Peso')))
-            altura = parse_raw_val(perfil.get('ALTURA', perfil.get('Altura')))
-            edad = parse_raw_val(perfil.get('EDAD', perfil.get('Edad')))
-            genero = str(perfil.get('GENERO', perfil.get('Genero', 'masculino')))
-            ocupacion = str(perfil.get('OCUPACION', perfil.get('Ocupacion', 'Jubilado')))
+            peso = parse_raw_val(perfil.get('PESO', perfil.get('Peso', 0)))
+            altura = parse_raw_val(perfil.get('ALTURA', perfil.get('Altura', 0)))
+            edad = parse_raw_val(perfil.get('EDAD', perfil.get('Edad', 0)))
+            genero = str(perfil.get('GENERO', perfil.get('Genero', 'M')))
+            ocupacion = parse_raw_val(perfil.get('ocupacion', perfil.get('OCUPACION', 1.375)))
+            fecha_act_peso = perfil.get('Fecha_Actualizacion', 'S/D')
+
+            cintura = datos_grales.get('cintura_cm', 'S/D')
+            cuello = datos_grales.get('cuello_cm', 'S/D')
+            ritmo = datos_grales.get('ritmo_preferido', 'moderado')
+            profesional = datos_grales.get('profesional', 'S/D')
+            idioma_usr = datos_grales.get('Idioma', lang)
 
             tmb, get_val = calcular_tmb_y_get(peso, altura, edad, genero, ocupacion)
             
-            txt = (
-                f"👤 **Perfil Biométrico Actual ({mes_actual}):**\n\n"
-                f"• Edad: `{edad:.0f}` años\n"
-                f"• Peso: `{peso:.1f}` kg\n"
-                f"• Altura: `{altura:.1f}` cm\n"
-                f"• Género: `{genero}`\n"
-                f"• **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
-                f"• **GET Estimado:** `{get_val:.0f} kcal/día`\n\n"
-                f"📌 **Para actualizar tu peso mensual:**\n"
-                f"`/peso 82.5`"
+            txt_perfil = (
+                f"👤 **{traducciones.get('perfil_titulo_biometrico', 'Perfil Biométrico Actual')} ({mes_actual}):**\n\n"
+                f"• {traducciones.get('perfil_lbl_edad', 'Edad')}: `{edad:.0f}` {traducciones.get('perfil_anos', 'años')}\n"
+                f"• {traducciones.get('perfil_lbl_peso', 'Peso')}: `{peso:.1f}` kg *(Act: {fecha_act_peso})*\n"
+                f"• {traducciones.get('perfil_lbl_altura', 'Altura')}: `{altura:.1f}` cm\n"
+                f"• {traducciones.get('perfil_lbl_cintura', 'Cintura')}: `{cintura}` cm\n"
+                f"• {traducciones.get('perfil_lbl_cuello', 'Cuello')}: `{cuello}` cm\n"
+                f"• {traducciones.get('perfil_lbl_ritmo', 'Ritmo de avance')}: `{str(ritmo).capitalize()}`\n"
+                f"• {traducciones.get('perfil_lbl_idioma', 'Idioma')}: `{str(idioma_usr).upper()}`\n"
+                f"• {traducciones.get('perfil_lbl_profesional', 'ID Profesional')}: `{profesional}`\n\n"
+                f"• **{traducciones.get('perfil_lbl_tmb', 'TMB Estimada')}:** `{tmb:.0f} kcal/día`\n"
+                f"• **{traducciones.get('perfil_lbl_get', 'GET Estimado')}:** `{get_val:.0f} kcal/día`"
             )
         else:
-            txt = f"👤 **Perfil no registrado para este mes.** Podés cargar tu peso ejecutando:\n`/peso 82.5`"
+            txt_perfil = traducciones.get('perfil_no_registrado', "👤 **Perfil no registrado para este mes.** Podés cargar tu peso ejecutando:\n`/peso 82.5`")
 
-        await update.message.reply_text(txt, parse_mode="Markdown")
+        # Menú interactivo con botones Inline
+        keyboard = [
+            [
+                InlineKeyboardButton(traducciones.get('btn_edit_peso', "⚖️ Peso"), callback_data="edit_perfil_peso"),
+                InlineKeyboardButton(traducciones.get('btn_edit_cintura', "📏 Cintura"), callback_data="edit_perfil_cintura")
+            ],
+            [
+                InlineKeyboardButton(traducciones.get('btn_edit_cuello', "📐 Cuello"), callback_data="edit_perfil_cuello"),
+                InlineKeyboardButton(traducciones.get('btn_edit_ritmo', "🎯 Ritmo"), callback_data="edit_perfil_ritmo")
+            ],
+            [
+                InlineKeyboardButton(traducciones.get('btn_edit_idioma', "🌐 Idioma"), callback_data="edit_perfil_idioma"),
+                InlineKeyboardButton(traducciones.get('btn_edit_prof', "🩺 Profesional"), callback_data="edit_perfil_prof")
+            ]
+        ]
+        markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(txt_perfil, reply_markup=markup, parse_mode="Markdown")
+
     except Exception as e:
-        print(f"Error al consultar perfil: {e}")
-        await update.message.reply_text(f"⚠️ Ocurrió un error al leer tu perfil: {e}", parse_mode="Markdown")
+        logger.error(f"Error al consultar perfil: {e}")
+        txt_err_read = traducciones.get('perfil_error_lectura', "⚠️ Ocurrió un error al leer tu perfil: {e}").format(e=e)
+        await update.message.reply_text(txt_err_read, parse_mode="Markdown")
+
+#              CALLBACKS INTERACTIVOS PARA ACTUALIZACIÓN DE PARÁMETROS DEL PERFIL
+# ======================================================================================================================================
+
+@requiere_registro
+async def callback_handler_editar_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    if data == "edit_perfil_peso":
+        context.user_data['awaiting_edit_perfil_peso'] = True
+        msg = await query.message.reply_text(traducciones.get('solic_nuevo_peso', "⚖️ Por favor, ingresá tu nuevo peso en kg (ej: `78.5`):"), parse_mode="Markdown")
+        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+
+    elif data == "edit_perfil_cintura":
+        context.user_data['awaiting_edit_perfil_cintura'] = True
+        msg = await query.message.reply_text(traducciones.get('solic_nueva_cintura', "📏 Por favor, ingresá el nuevo perímetro de tu cintura en cm (ej: `84`):"), parse_mode="Markdown")
+        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+
+    elif data == "edit_perfil_cuello":
+        context.user_data['awaiting_edit_perfil_cuello'] = True
+        msg = await query.message.reply_text(traducciones.get('solic_nuevo_cuello', "📐 Por favor, ingresá el nuevo perímetro de tu cuello en cm (ej: `37`):"), parse_mode="Markdown")
+        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+
+    elif data == "edit_perfil_ritmo":
+        btn_tranquilo = traducciones.get('btn_ritmo_tranquilo', "🟢 Tranquilo / Lento")
+        btn_moderado = traducciones.get('btn_ritmo_moderado', "🟡 Moderado")
+        btn_intenso = traducciones.get('btn_ritmo_intenso', "🔴 Intenso / Rápido")
         
-        
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(btn_tranquilo, callback_data="set_ritmo_tranquilo")],
+            [InlineKeyboardButton(btn_moderado, callback_data="set_ritmo_moderado")],
+            [InlineKeyboardButton(btn_intenso, callback_data="set_ritmo_intenso")]
+        ])
+        await query.message.reply_text(traducciones.get('solic_elegir_ritmo', "🎯 Seleccioná tu nuevo ritmo de avance deseado:"), reply_markup=keyboard, parse_mode="Markdown")
+
+    elif data == "edit_perfil_idioma":
+        # Carga dinámica de los idiomas disponibles consultando las columnas de la tabla 'multi'
+        idiomas_disp = await obtener_idiomas_disponibles_db() if 'obtener_idiomas_disponibles_db' in globals() else ['es', 'en']
+        b_list = []
+        for i_code in idiomas_disp:
+            b_list.append([InlineKeyboardButton(f"🌐 {i_code.upper()}", callback_data=f"set_lang_{i_code}")])
+        markup_lang = InlineKeyboardMarkup(b_list)
+        await query.message.reply_text(traducciones.get('solic_elegir_idioma', "🌐 Seleccioná tu idioma preferido:"), reply_markup=markup_lang, parse_mode="Markdown")
+
+    elif data == "edit_perfil_prof":
+        context.user_data['awaiting_edit_perfil_prof'] = True
+        msg = await query.message.reply_text(traducciones.get('solic_nuevo_prof', "🩺 Por favor, ingresá el ID de Telegram de tu nuevo profesional:"), parse_mode="Markdown")
+        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+
+    elif data.startswith("set_ritmo_"):
+        nuevo_ritmo = data.replace("set_ritmo_", "")
+        actualizar_ritmo_usuario(user_id, nuevo_ritmo) if 'actualizar_ritmo_usuario' in globals() else None
+        await query.edit_message_text(traducciones.get('perfil_ritmo_actualizado_ok', "✅ ¡Ritmo actualizado exitosamente a *{ritmo}*!").format(ritmo=nuevo_ritmo.capitalize()), parse_mode="Markdown")
+
+    elif data.startswith("set_lang_"):
+        nuevo_lang = data.replace("set_lang_", "")
+        actualizar_idioma_usuario(user_id, nuevo_lang) if 'actualizar_idioma_usuario' in globals() else None
+        await query.edit_message_text(traducciones.get('perfil_lang_actualizado_ok', "✅ ¡Idioma actualizado exitosamente a *{lang}*!").format(lang=nuevo_lang.upper()), parse_mode="Markdown")
         
 #                       INICIO                  COMANDO PRESION                    INICIO
 # ======================================================================================================================================
+       
+async def _sub_manejar_foto_presion(update, context, res_presion, msg):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    alta, baja, pulsaciones = float(res_presion.get("alta", 0)), float(res_presion.get("baja", 0)), float(res_presion.get("pulsaciones", 0))
+    
+    context.user_data['pending_presion_foto'] = {"alta": alta, "baja": baja, "pulsaciones": pulsaciones}
+
+    t_pulso_etiqueta = traducciones.get('presi_foto_pulsaciones', 'Pulsaciones')
+    pul_txt = f" | {t_pulso_etiqueta}: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
+    
+    txt_tensio_detectado = traducciones.get('presi_foto_detectado', "🩺 **Tensiómetro detectado en la imagen:**")
+    txt_alta = traducciones.get('presi_foto_alta', "• Presión Alta")
+    txt_baja = traducciones.get('presi_foto_baja', "• Presión Baja")
+    txt_opcion_nota = traducciones.get('presi_txt_elegir_opcion', "Seleccioná una opción para continuar:")
+
+    # Textos de los botones traducidos desde la base de datos
+    btn_agregar_nota = traducciones.get('btn_agregar_nota', "✏️ Agregar Nota")
+    btn_guardar_sin = traducciones.get('btn_guardar_sin_nota', "💾 Guardar sin Nota")
+    btn_cancelar = traducciones.get('btn_cancelar_operacion', "❌ Cancelar")
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(btn_agregar_nota, callback_data="presion_pedir_nota")],
+        [InlineKeyboardButton(btn_guardar_sin, callback_data="presion_guardar_directo")],
+        [InlineKeyboardButton(btn_cancelar, callback_data="cancelar_presion_foto")]
+    ])
+
+    await msg.edit_text(
+        f"{txt_tensio_detectado}\n\n"
+        f"• {txt_alta}: `{alta:.0f} mmHg`\n"
+        f"• {txt_baja}: `{baja:.0f} mmHg`{pul_txt}\n\n"
+        f"{txt_opcion_nota}",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
         
 @requiere_registro
 async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
     # Limpia tanto /presi como /presion (con o sin acento)
     raw_text = re.sub(r'^/(presio|presi|presion)\w*(@\w+)?', '', update.message.text, flags=re.IGNORECASE).strip()
 
     if not raw_text:
-        await update.message.reply_text(
+        txt_ayuda_presi = traducciones.get('presi_ayuda_formato', 
             "Ingresá o consultá un mes usando /presi. Ejemplos:\n\n"
             "• `/presi 120,80,70, después de caminar`\n"
             "• `/presi 120,80,70`\n"
             "• `/presi 120,80`\n"
-            "• `/presi 2026-08`", 
-            parse_mode="Markdown"
+            "• `/presi 2026-08`"
         )
+        await update.message.reply_text(txt_ayuda_presi, parse_mode="Markdown")
         return
 
     if re.match(r'^20\d{2}-\d{2}$', raw_text):
@@ -7086,19 +7613,21 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Guarda consumiendo la capa de datos externa
         guardar_presion_db(user_id, alta, baja, pulsaciones, nota)
 
-        pul_str = f" | Pulsaciones: `{pulsaciones:.0f}`" if pulsaciones is not None else ""
-        nota_str = f"\nNota: `{nota}`" if nota else ""
+        t_pulsos_lbl = traducciones.get('presi_lbl_pulsaciones', 'Pulsaciones')
+        t_nota_lbl = traducciones.get('presi_lbl_nota', 'Nota')
+
+        pul_str = f" | {t_pulsos_lbl}: `{pulsaciones:.0f}`" if pulsaciones is not None else ""
+        nota_str = f"\n{t_nota_lbl}: `{nota}`" if nota else ""
         
-        await update.message.reply_text(
-            f"Presión registrada:\nAlta: `{alta:.0f}` | Baja: `{baja:.0f}`{pul_str}{nota_str}", 
-            parse_mode="Markdown"
+        txt_registrada = traducciones.get('presi_registrada_ok', "Presión registrada:\nAlta: `{alta:.0f}` | Baja: `{baja:.0f}`{pul_str}{nota_str}").format(
+            alta=alta, baja=baja, pul_str=pul_str, nota_str=nota_str
         )
+        
+        await update.message.reply_text(txt_registrada, parse_mode="Markdown")
         return
 
-    await update.message.reply_text(
-        "Formato incorrecto. Uso: /presi 120,80,70, al despertar o /presi 120,80 o /presi 2026-08", 
-        parse_mode="Markdown"
-    )
+    txt_error_formato = traducciones.get('presi_error_formato', "Formato incorrecto. Uso: /presi 120,80,70, al despertar o /presi 120,80 o /presi 2026-08")
+    await update.message.reply_text(txt_error_formato, parse_mode="Markdown")
     
 #                       INICIO                  COMANDO FACTOR DE ACTIVIDAD (RELOJ)                    INICIO
 # ======================================================================================================================================
@@ -7106,6 +7635,8 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 @requiere_registro
 async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
     raw_text = re.sub(r'^/(factor|fac|get)\w*(@\w+)?', '', update.message.text, flags=re.IGNORECASE).strip()
 
@@ -7117,31 +7648,33 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if info_usuario:
         mes_ultimo_cambio = str(info_usuario.get('reloj_actualizado_mes', '')).strip()
         if mes_ultimo_cambio == mes_actual:
-            await update.message.reply_text(
+            txt_limite_alcanzado = traducciones.get('get_error_limite_mensual', 
                 "⏳ **Límite mensual alcanzado:**\n\n"
                 "Ya utilizaste el reloj inteligente para calibrar tu gasto este mes. "
-                "Para mantener la estabilidad del plan, solo se permite un ajuste por período.",
-                parse_mode="Markdown"
+                "Para mantener la estabilidad del plan, solo se permite un ajuste por período."
             )
+            await update.message.reply_text(txt_limite_alcanzado, parse_mode="Markdown")
             return
 
     if not raw_text:
-        await update.message.reply_text(
+        txt_ayuda_get = traducciones.get('get_ayuda_formato', 
             "Ingresá las calorías totales que registró tu reloj en 24 horas. Ejemplo:\n\n"
-            "• `/GET 2150`", 
-            parse_mode="Markdown"
+            "• `/GET 2150`"
         )
+        await update.message.reply_text(txt_ayuda_get, parse_mode="Markdown")
         return
 
     try:
         calorias_reloj = float(raw_text.replace(',', '.'))
         if not (1000 <= calorias_reloj <= 6000):
-            await update.message.reply_text("⚠️ Ingresá un valor de calorías realista (entre 1000 y 6000 kcal).", parse_mode="Markdown")
+            txt_err_rango = traducciones.get('get_error_rango_kcal', "⚠️ Ingresá un valor de calorías realista (entre 1000 y 6000 kcal).")
+            await update.message.reply_text(txt_err_rango, parse_mode="Markdown")
             return
 
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
         if not perfil:
-            await update.message.reply_text("❌ No se encontró tu perfil activo para este mes. Registrá tu peso primero con `/peso`.", parse_mode="Markdown")
+            txt_err_noperfil = traducciones.get('get_error_sin_perfil', "❌ No se encontró tu perfil activo para este mes. Registrá tu peso primero con `/peso`.")
+            await update.message.reply_text(txt_err_noperfil, parse_mode="Markdown")
             return
 
         peso = parse_raw_val(perfil.get('PESO', perfil.get('Peso', 70)))
@@ -7156,7 +7689,8 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         tmb, get_anterior = calcular_tmb_y_get(peso, altura, edad, genero, actividad=factor_anterior)
         
         if tmb <= 0:
-            await update.message.reply_text("❌ Error al calcular la TMB base.", parse_mode="Markdown")
+            txt_err_tmb = traducciones.get('get_error_calculo_tmb', "❌ Error al calcular la TMB base.")
+            await update.message.reply_text(txt_err_tmb, parse_mode="Markdown")
             return
 
         factor_crudo_reloj = round(calorias_reloj / tmb, 3)
@@ -7172,7 +7706,7 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         aviso_tope = ""
         if abs(nuevo_factor - factor_crudo_reloj) > 0.005:
-            aviso_tope = (
+            aviso_tope = traducciones.get('get_aviso_tope_seguridad', 
                 "\n⚠️ *Nota de seguridad:* El valor del reloj se apartaba más del "
                 "10% de tu tendencia habitual. Se aplicó un ajuste máximo permitido "
                 "para proteger la estabilidad de tu plan.\n"
@@ -7187,52 +7721,55 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             ]
         ])
 
-        msg_texto = (
-            f"📊 **Calibración de Gasto Energético (Reloj):**\n\n"
-            f"• Calorías reportadas por el reloj: `{calorias_reloj:.0f} kcal`\n"
-            f"• TMB Base estimada: `{tmb:.0f} kcal`\n\n"
-            f"• **Gasto Diario Anterior:** `{get_anterior:.0f} kcal`\n"
-            f"• **Nuevo Gasto Diario Ajustado:** `{get_nuevo:.0f} kcal`\n\n"
-            f"{aviso_tope}"
-            f"¿Deseás actualizar tu gasto diario con este valor?"
-        )
+        msg_texto = traducciones.get('get_preview_calibracion', 
+            "📊 **Calibración de Gasto Energético (Reloj):**\n\n"
+            "• Calorías reportadas por el reloj: `{calorias_reloj:.0f} kcal`\n"
+            "• TMB Base estimada: `{tmb:.0f} kcal`\n\n"
+            "• **Gasto Diario Anterior:** `{get_anterior:.0f} kcal`\n"
+            "• **Nuevo Gasto Diario Ajustado:** `{get_nuevo:.0f} kcal`\n\n"
+            "{aviso_tope}"
+            "¿Deseás actualizar tu gasto diario con este valor?"
+        ).format(calorias_reloj=calorias_reloj, tmb=tmb, get_anterior=get_anterior, get_nuevo=get_nuevo, aviso_tope=aviso_tope)
 
         await update.message.reply_text(msg_texto, reply_markup=keyboard, parse_mode="Markdown")
 
     except ValueError:
-        await update.message.reply_text("❌ Formato incorrecto. Ingresá un número válido. Ejemplo: `/GET 2150`", parse_mode="Markdown")
+        txt_err_val = traducciones.get('get_error_formato_numero', "❌ Formato incorrecto. Ingresá un número válido. Ejemplo: `/GET 2150`")
+        await update.message.reply_text(txt_err_val, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error al previsualizar /factor para {user_id}: {e}")
-        await update.message.reply_text(f"⚠️ Ocurrió un error al procesar la solicitud: {e}", parse_mode="Markdown")
+        txt_err_gral = traducciones.get('get_error_proceso', "⚠️ Ocurrió un error al procesar la solicitud: {e}").format(e=e)
+        await update.message.reply_text(txt_err_gral, parse_mode="Markdown")
                 
 async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     data = query.data
 
     if data == "confirmar_factor_no":
         context.user_data.pop('temp_nuevo_factor', None)
-        await query.edit_message_text("🚫 Operación cancelada. No se modificó tu gasto energético.", parse_mode="Markdown")
+        txt_canc_calib = traducciones.get('get_calibracion_cancelada', "🚫 Operación cancelada. No se modificó tu gasto energético.")
+        await query.edit_message_text(txt_canc_calib, parse_mode="Markdown")
         return
 
     if data == "confirmar_factor_si":
         nuevo_factor_val = context.user_data.get('temp_nuevo_factor')
         
         if not nuevo_factor_val:
-            await query.edit_message_text("⚠️ Los datos temporales expiraron. Por favor, volvé a enviar el comando `/factor`.", parse_mode="Markdown")
+            txt_err_exp = traducciones.get('get_error_datos_expirados', "⚠️ Los datos temporales expiraron. Por favor, volvé a enviar el comando `/factor`.")
+            await query.edit_message_text(txt_err_exp, parse_mode="Markdown")
             return
 
         ahora = obtener_ahora_arg()
         mes_actual = ahora.strftime("%Y-%m")
 
         try:
-            # Guardamos el factor y actualizamos la tabla general con el mes actual en la columna de control
-            # (Ajusta esta función o llamada a Supabase según cómo guardes los datos generales en tu base)
             guardar_ocupacion_db(user_id, nuevo_factor_val, mes_actual, reloj_actualizado=mes_actual)
             
-            # Obtenemos el perfil para calcular el GET final a mostrar en el mensaje de éxito
             perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
             peso = parse_raw_val(perfil.get('PESO', perfil.get('Peso', 70))) if perfil else 70
             altura = parse_raw_val(perfil.get('ALTURA', perfil.get('Altura', 170))) if perfil else 170
@@ -7241,18 +7778,21 @@ async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAUL
             
             _, get_final = calcular_tmb_y_get(peso, altura, edad, genero, actividad=nuevo_factor_val)
 
-            await query.edit_message_text(
-                f"✅ **¡Gasto energético actualizado con éxito!**\n\n"
-                f"• Nuevo Gasto Diario asignado: `{get_final:.0f} kcal`\n"
-                f"• Período actualizado: `{mes_actual}`\n"
-                f"• Estado: Calibración mensual registrada.",
-                parse_mode="Markdown"
-            )
+            txt_exito_get = traducciones.get('get_calibracion_exito', 
+                "✅ **¡Gasto energético actualizado con éxito!**\n\n"
+                "• Nuevo Gasto Diario asignado: `{get_final:.0f} kcal`\n"
+                "• Período actualizado: `{mes_actual}`\n"
+                "• Estado: Calibración mensual registrada."
+            ).format(get_final=get_final, mes_actual=mes_actual)
+
+            await query.edit_message_text(txt_exito_get, parse_mode="Markdown")
         except Exception as e:
             logger.error(f"Error al guardar el factor confirmado para {user_id}: {e}")
-            await query.edit_message_text(f"⚠️ Ocurrió un error al guardar en la base de datos: {e}", parse_mode="Markdown")
+            txt_err_db = traducciones.get('get_error_guardar_db', "⚠️ Ocurrió un error al guardar en la base de datos: {e}").format(e=e)
+            await query.edit_message_text(txt_err_db, parse_mode="Markdown")
         
         context.user_data.pop('temp_nuevo_factor', None)
+        
        
 # ======================================================================================================================================
 #                       FINAL                        COMANDOS INGRESOS                                      FINAL
@@ -7303,9 +7843,9 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             u_id = pac["user_id"]
             nombre = pac["nombre"]
             
-            peso_str = obtener_ultimo_peso_str(u_id)
+            peso_str = obtener_ultimo_peso(u_id)
             recs_presion_all = obtener_registros_presion(u_id)
-            presion_str = obtener_ultima_presion_str(recs_presion_all)
+            presion_str = obtener_ultima_presion(recs_presion_all)
             calorias_str = obtener_promedio_calorias_mes_actual(u_id, ahora)
 
             texto_reporte += (
@@ -7521,17 +8061,17 @@ def main():
         app_bot.add_handler(CommandHandler(["informe", "report"], cmd_enviar_informe_actual))
 #=================================INGRESOS Y CONSULTAS MANUALES============================================
         app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
-        app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
-        app_bot.add_handler(CommandHandler(["perfil", "peso", "profile", "weight"], cmd_perfil))
+        app_bot.add_handler(CommandHandler(["comidas","meals","food"], cmd_comidas))
+        app_bot.add_handler(CommandHandler(["perfil", "profile"], cmd_perfil))
         app_bot.add_handler(CommandHandler(["receta", "recipe"], cmd_cargar_receta))
         app_bot.add_handler(CommandHandler(["get", "GET"], cmd_factor_handler))
         app_bot.add_handler(CommandHandler(["eliminar", "delete"], cmd_eliminar))
         app_bot.add_handler(CommandHandler(["borracomida", "delmeal"], cmd_borrar_comida))
 #=================================INGRESOS Y CONSULTAS CON IA============================================
-        app_bot.add_handler(CommandHandler(["presion", "presi", "p", "pressure"], cmd_presion_handler))  
+        app_bot.add_handler(CommandHandler(["presion", "presi", "pressure"], cmd_presion_handler))  
         app_bot.add_handler(CommandHandler(["dia", "d", "day"], cmd_diario))
         app_bot.add_handler(CommandHandler(["mes", "m", "month"], cmd_resumen))
-        app_bot.add_handler(CommandHandler(["semana", "s", "week"], cmd_mensaje))
+        app_bot.add_handler(CommandHandler(["semana", "s", "week", "w"], cmd_mensaje))
         app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
 #=================================ADMINISTRADOR============================================
         app_bot.add_handler(CommandHandler(["migrar"], cmd_migrar))
@@ -7543,6 +8083,9 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_reportes_pdf, pattern="^(resumen_|descargar_pdf_|enviar_inf_)"))        
+
+        # 🟢 NUEVO: Manejador agregado para los botones interactivos del comando /perfil
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_perfil, pattern="^(edit_perfil_|set_ritmo_|set_lang_)"))
 
         app_bot.add_handler(CallbackQueryHandler(callback_handler_actividades, pattern="^act_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_momentos, pattern="^set_m_"))
@@ -7570,5 +8113,6 @@ if __name__ == "__main__":
 # =============================================================================================================================================
 #                                               FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
+
 
 
