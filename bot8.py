@@ -1969,6 +1969,12 @@ async def cmd_importar_tabla(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # Limpiar nombres de columnas
         df.columns = [str(c).strip() for c in df.columns]
 
+        # 🔹 LIMPIEZA AUTOMÁTICA DE DUPLICADOS:
+        # Toma la primera columna como clave única y se queda con la última aparición (la de más abajo), 
+        # borrando por completo las filas anteriores repetidas.
+        columna_clave = df.columns[0]
+        df = df.drop_duplicates(subset=[columna_clave], keep='last')
+
         # Conectar y recrear/actualizar la tabla limpia
         conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df)
 
@@ -1999,7 +2005,7 @@ async def cmd_importar_tabla(update: Update, context: ContextTypes.DEFAULT_TYPE)
         cur.close()
         conn.close()
 
-        await update.message.reply_text(f"✅ ¡Éxito! La tabla `{nombre_tabla}` fue actualizada con {filas_insertadas} registros.", parse_mode="Markdown")
+        await update.message.reply_text(f"✅ ¡Éxito! La tabla `{nombre_tabla}` fue actualizada con {filas_insertadas} registros únicos.", parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Error al importar la tabla {nombre_tabla}: {e}", exc_info=True)
