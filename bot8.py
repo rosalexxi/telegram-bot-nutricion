@@ -6800,7 +6800,7 @@ def cmd_nueva_cuenta(datos_usuario):
     except Exception as e:
         logger.error(f"Error al guardar perfil inicial en {tabla_perfil} para {user_id}: {e}")
         
-# 🟢 Definición faltante que causaba el error NameError
+# 🟢 Definición correcta con su paréntesis de cierre
 conv_handler_ingreso = ConversationHandler(
     entry_points=[CommandHandler("alta", cmd_ingreso_start), CommandHandler("nuevo_usuario", cmd_nuevo_usuario)],
     states={
@@ -6818,6 +6818,7 @@ conv_handler_ingreso = ConversationHandler(
         ING_RITMO: [CallbackQueryHandler(ing_recibir_ritmo, pattern="^ritmo_")]
     },
     fallbacks=[CommandHandler("cancelar", cmd_cancelar_conversacion)]
+)
 
 #                       INICIO                             COMANDO PERFIL                     INICIO
 # ======================================================================================================================================
