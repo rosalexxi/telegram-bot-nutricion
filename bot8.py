@@ -3348,12 +3348,12 @@ async def callback_handler_reportes_pdf(update: Update, context: ContextTypes.DE
         f_str = data.replace("descargar_pdf_diario_", "")
         df = obtener_datos_usuario(user_id)
         pdf = generar_pdf_diario_bytes(f_str, df[df['Fecha'] == f_str] if not df.empty else pd.DataFrame(), user_id)
-        await context.bot.send_document(chat_id=query.message.chat_id, document=pdf, filename=f"Diario_{f_str}.pdf")
+        await context.bot.send_document(chat_id=query.message.chat_id, document=pdf, filename=f"D_{f_str}.pdf")
     elif data.startswith("descargar_pdf_presion_"):
         mes_str = data.replace("descargar_pdf_presion_", "")
         df_p = obtener_datos_presion_db(user_id)
         pdf_p = generar_pdf_presion_bytes(mes_str, df_p[df_p['Fecha_Dia'].str.startswith(mes_str)] if not df_p.empty else pd.DataFrame(), user_id)
-        await context.bot.send_document(chat_id=query.message.chat_id, document=pdf_p, filename=f"Presion_{mes_str}.pdf")
+        await context.bot.send_document(chat_id=query.message.chat_id, document=pdf_p, filename=f"P_{mes_str}.pdf")
     elif data.startswith("enviar_inf_"):
         target_user_id = int(data.replace("enviar_inf_", ""))
         ahora = obtener_ahora_arg()
@@ -4774,6 +4774,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ======================================================================================================================================
 #                   INICIO                                    COMANDOS INFORMES                                   INICIO  DB OK
 # =====================================================================================================================================
+
 #              INICIO                     FUNCIONES INFORMES                   INICIO
 # =============================================================================================================================================
 
@@ -5329,6 +5330,115 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
             Paragraph(th_fibr, header_style)
         ]]
 
+        mapa_momentos = {
+            "desayuno": traducciones.get("inf_diario_momento_desayuno", "Desayuno"),
+            "almuerzo": traducciones.get("inf_diario_momento_almuerzo", "Almuerzo"),
+            "merienda": traducciones.get("inf_diario_momento_merienda", "Merienda"),
+            "cena": traducciones.get("inf_diario_momento_cena", "Cena"),
+            "actividad": traducciones.get("inf_diario_momento_actividad", "Actividad Física")
+        }
+
+        def obtener_orden_momento(momento_val):
+            m_str = str(momento_val).strip().lower()
+            if "desayuno" in m_str: return 1
+            if "almuerzo" in m_str: return 2
+            if "merienda" in m_str: return 3
+            if "cena" in m_str: return 4
+            return 5
+
+        df_diario['orden_temp'] = df_diario['Momento'].apply(obtener_orden_momento)
+        df_ordenado = df_diario.sort_values('orden_temp')
+
+        for _, r in df_ordenado.iterrows():
+            momento_raw = str(r.get('Momento', '')).strip().lower()
+            momento_traducido = momento_raw.capitalize()
+            for k, v in mapa_momentos.items():
+                if k in momento_raw:
+                    momento_traducido = v
+                    break
+
+            table_data.append([
+                Paragraph(momento_traducido, body_style),
+                Paragraph(str(r.get('Alimento', '')), body_style),
+                Paragraph(f"{r.get('Peso', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Calorias', 0):.1f}", body_style),
+                Paragraph(f"{r.get('Proteinas', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Grasas', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Carbohidratos', 0):.1f}g", body_style),
+                Paragraph(f"{r.get('Fibras', 0):.1f}g", body_style)
+            ])
+
+        t = Table(table_data, colWidths=[70, 160, 45, 45, 45, 45, 45, 45])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 10))
+
+        c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
+        c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
+        b_neto = c_cons - c_quem
+
+        tot_cons_tpl = traducciones.get("PDF_diario_tot_consumidas", "• <b>Total Consumidas:</b> {c_cons:.1f} kcal")
+        tot_quem_tpl = traducciones.get("PDF_diario_tot_quemadas", "• <b>Total Quemadas:</b> {c_quem:.1f} kcal")
+        bal_neto_tpl = traducciones.get("PDF_diario_balance_neto", "• <b>Balance Neto:</b> {b_neto:.1f} kcal")
+
+        story.append(Paragraph(tot_cons_tpl.format(c_cons=c_cons), body_style))
+        story.append(Paragraph(tot_quem_tpl.format(c_quem=c_quem), body_style))
+        story.append(Paragraph(bal_neto_tpl.format(b_neto=b_neto), body_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer            
+def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#1E293B'))
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
+
+    t_titulo_tmpl = traducciones.get("PDF_diario_titulo", "Detalle Diario de Ingestas - {fecha_str}")
+    t_usr_tmpl = traducciones.get("PDF_diario_usuario_id", "**Usuario Telegram ID:** {user_id}")
+    
+    story = [
+        Paragraph(f"<b>{t_titulo_tmpl.format(fecha_str=fecha_str)}</b>", title_style),
+        Paragraph(t_usr_tmpl.format(user_id=user_id), body_style),
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
+    ]
+
+    if df_diario.empty:
+        msg_vacio = traducciones.get("PDF_diario_sin_reg", "No hay registros para esta fecha.")
+        story.append(Paragraph(msg_vacio, body_style))
+    else:
+        th_momento = traducciones.get("PDF_diario_th_momento", "Momento")
+        th_alimento = traducciones.get("PDF_diario_th_alimento", "Alimento / Detalle")
+        th_peso = traducciones.get("PDF_diario_th_peso", "Peso")
+        th_kcal = traducciones.get("PDF_diario_th_kcal", "Kcal")
+        th_prot = traducciones.get("PDF_diario_th_prot", "Prot")
+        th_gras = traducciones.get("PDF_diario_th_gras", "Gras")
+        th_carb = traducciones.get("PDF_diario_th_carb", "Carb")
+        th_fibr = traducciones.get("PDF_diario_th_fibr", "Fibr")
+
+        table_data = [[
+            Paragraph(th_momento, header_style),
+            Paragraph(th_alimento, header_style),
+            Paragraph(th_peso, header_style),
+            Paragraph(th_kcal, header_style),
+            Paragraph(th_prot, header_style),
+            Paragraph(th_gras, header_style),
+            Paragraph(th_carb, header_style),
+            Paragraph(th_fibr, header_style)
+        ]]
+
         for _, r in df_diario.iterrows():
             table_data.append([
                 Paragraph(str(r.get('Momento', '')), body_style),
@@ -5716,7 +5826,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             prot=_fmt(m.get('prom_prot', 0)),
             p_min=m.get('prot_min', 0), p_max=m.get('prot_max', 0),
             gras=_fmt(m.get('prom_gras', 0)),
-            g_min=m.get('gras_min', 0), g_max=m.get('gras_max', 0),
+            g_min=m.get('gras_min', 0), g_max=m.get('gras_min', 0),
             carb=_fmt(m.get('prom_carb', 0)),
             cb_min=m.get('carb_min', 0), cb_max=m.get('carb_max', 0),
             fibr=_fmt(m.get('prom_fibr', 0)),
@@ -6021,7 +6131,7 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         await context.bot.send_document(
             chat_id=query.message.chat_id,
             document=pdf_buffer,
-            filename=f"Reporte_Nutricional_{mes_str}.pdf",
+            filename=f"M_{mes_str}.pdf",
             caption=caption_tmpl.format(mes_str=mes_str),
             parse_mode="Markdown"
         )
