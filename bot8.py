@@ -2393,61 +2393,34 @@ def cargar_traducciones_en_memoria():
         print(f"❌ Javy ojejuhu oñemboguapy jave ñe'ẽ iñakãme: {e}")
 
 def obtener_idioma_usuario(user_id):
-    """Obtiene el idioma del usuario consultando la caché local o Supabase, conservando las mayúsculas (ES, EN, etc.)."""
-    if not user_id:
-        return 'ES'
-        
-    user_id_limpio = str(user_id).split('.')[0].strip()
-    
-    if user_id_limpio in CACHE_USUARIOS_IDIOMA:
-        return CACHE_USUARIOS_IDIOMA[user_id_limpio]
-
+    """Obtiene el idioma configurado para un usuario de Telegram desde Supabase."""
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        cur.execute('SELECT "User ID", "Idioma" FROM "Usuarios"')
-        filas = cur.fetchall()
+        cur.execute('SELECT "Idioma" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
+        row = cur.fetchone()
         cur.close()
         conn.close()
-
-        for fila in filas:
-            raw_id = fila[0]
-            if raw_id and str(raw_id).split('.')[0].strip() == user_id_limpio:
-                if fila[1]:
-                    idioma_db = str(fila[1]).strip().upper()
-                    CACHE_USUARIOS_IDIOMA[user_id_limpio] = idioma_db
-                    return idioma_db
+        if row and row[0]:
+            return str(row[0]).strip().lower()
     except Exception as e:
-        logger.error(f"Error al obtener el idioma del usuario {user_id}: {e}")
+        logger.error(f"Error obteniendo idioma para {user_id}: {e}")
+    return 'en'
     
-    CACHE_USUARIOS_IDIOMA[user_id_limpio] = 'ES'
-    return 'ES'
-
 def obtener_traducciones_db(lang):
-    """Consulta la tabla 'multi' en Supabase y devuelve un diccionario con las traducciones para el idioma especificado."""
-    traducciones = {}
+    """Obtiene las traducciones directamente desde la caché en memoria RAM (CACHE_TRADUCCIONES), con respaldo opcional."""
     idioma = str(lang).strip().upper()
     if not idioma:
-        idioma = 'ES'
+        idioma = 'EN'
         
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
-        # Consulta dinámica usando directamente el código de idioma (ej. "ES", "EN", "IT")
-        query = f'SELECT "variables", "{idioma}" FROM "multi"'
-        cur.execute(query)
-        filas = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        for fila in filas:
-            var_name = str(fila[0] or "").strip()
-            var_text = str(fila[1] or "").strip()
-            if var_name:
-                traducciones[var_name] = var_text
-    except Exception as e:
-        logger.error(f"Error al obtener traducciones de Supabase para el idioma {idioma}: {e}")
+    # Verificamos si el idioma ya está cargado en la caché global
+    if CACHE_TRADUCCIONES and idioma in CACHE_TRADUCCIONES:
+        return CACHE_TRADUCCIONES[idioma]
         
-    return traducciones
-
+    # Respaldo de seguridad por si la caché estuviera vacía al momento de la consulta
+    if CACHE_TRADUCCIONES and 'EN' in CACHE_TRADUCCIONES:
+        return CACHE_TRADUCCIONES['EN']       
+    return {}
+    
 def obtener_traducciones_usuario(user_id):
     """
     1. Obtiene el idioma del usuario utilizando la función centralizada.
