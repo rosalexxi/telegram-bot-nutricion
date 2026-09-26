@@ -73,12 +73,6 @@ GROQ_AUDIO      = "whisper-large-v3"
 GROQ_REVISION_2   = "openai/gpt-oss-20b"    # Revisión principal
 GROQ_REVISOR  = "qwen/qwen3.8-27b"      # Respaldo
 
-# ==========================================
-# CACHÉ GLOBAL EN MEMORIA RAM Y CARGA IN-MEMORY DINÁMICA
-# ==========================================
-CACHE_TRADUCCIONES = {}
-CACHE_USUARIOS_IDIOMA = {}
-
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GOOGLE_SHEETS_KEY_PATH = os.getenv("GOOGLE_SHEETS_KEY_PATH", "credentials.json")
@@ -2361,125 +2355,46 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
 #              INICIO                     FUNCIONES SOPORTE MULTILENGUAJE                   INICIO
 # =============================================================================================================================================
 
-def cargar_traducciones_en_memoria():
-    """Carga en memoria todos los idiomas y variables de la tabla 'multi' en Supabase."""
-    global CACHE_TRADUCCIONES
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
-        
-        # Nos aseguramos de leer la tabla esquivando problemas de mayúsculas/minúsculas en Postgres
-        cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND LOWER(table_name) = 'multi'")
-        row_table = cur.fetchone()
-        tabla_real = row_table[0] if row_table else "multi"
-        
-        cur.execute(f'SELECT * FROM "{tabla_real}"')
-        columnas = [desc[0] for desc in cur.description]
-        filas = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        # Identificar dinámicamente el índice de la columna 'variables'
-        columnas_lower = [c.lower() for c in columnas]
-        if "variables" in columnas_lower:
-            idx_var = columnas_lower.index("variables")
-        else:
-            idx_var = 1 if "id" in columnas_lower else 0
-
-        temp_traducciones = {}
-        
-        # Inicializamos los diccionarios por cada idioma encontrado (forzado a MAYÚSCULAS)
-        for col in columnas:
-            if col.lower() not in ['id', 'variables']:
-                temp_traducciones[col.upper()] = {}
-
-        # Rellenamos la caché
-        for fila in filas:
-            # IMPORTANTE: El nombre de la variable (ej: bot_conf_ingesta) SÍ debe ir en minúsculas 
-            # porque tu código lo busca así en los .get('bot_conf_ingesta')
-            var_name = str(fila[idx_var]).strip().lower() if fila[idx_var] is not None else ""
-            
-            if var_name:
-                for idx, col in enumerate(columnas):
-                    if col.lower() not in ['id', 'variables']:
-                        # La clave del idioma (ej: EN) va en MAYÚSCULAS
-                        idioma_key = col.upper()
-                        val = str(fila[idx] or "").strip()
-                        temp_traducciones[idioma_key][var_name] = val
-
-        CACHE_TRADUCCIONES = temp_traducciones
-        print(f"✅ Traducciones cargadas en memoria correctamente. Idiomas detectados: {list(temp_traducciones.keys())}")
-    except Exception as e:
-        logger.error(f"❌ Error al cargar traducciones en memoria: {e}")
-        print(f"❌ Error al cargar traducciones en memoria: {e}")
-        
 def obtener_idioma_usuario(user_id):
-    """Obtiene el idioma configurado para un usuario de Telegram desde Supabase."""
+    """Obtiene el idioma configurado para un usuario de Telegram desde Supabase[cite: 2]."""
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        # Traemos todos para filtrar en Python y esquivar el bug del ".0" de Excel
-        cur.execute('SELECT "User ID", "Idioma" FROM "Usuarios"')
+        cur.execute('SELECT "Idioma" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if row and row[0]:
+            return str(row[0]).strip().lower()
+    except Exception as e:
+        logger.error(f"Error obteniendo idioma para {user_id}: {e}")
+    return 'en'
+
+def obtener_traducciones_db(lang):
+    """Consulta la tabla 'multi' en Supabase y devuelve un diccionario con las traducciones[cite: 2]."""
+    traducciones = {}
+    col_lang = "ES" if str(lang).strip().lower() == "es" else "EN"
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
+        query = f'SELECT "variables", "{col_lang}" FROM "multi"'
+        cur.execute(query)
         filas = cur.fetchall()
         cur.close()
         conn.close()
-        
+
         for fila in filas:
-            raw_id = fila[0]
-            if raw_id and str(raw_id).split('.')[0].strip() == str(user_id).strip():
-                # Forzamos a MAYÚSCULAS para mantener consistencia estricta
-                return str(fila[1]).strip().upper() if fila[1] else 'ES'
+            var_name = str(fila[0]).strip()
+            var_text = str(fila[1] or "").strip()
+            if var_name:
+                traducciones[var_name] = var_text
     except Exception as e:
-        # Fallback por si la columna en Supabase está en minúsculas ("idioma")
-        try:
-            conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-            cur.execute('SELECT "User ID", "idioma" FROM "Usuarios"')
-            filas = cur.fetchall()
-            cur.close()
-            conn.close()
-            for fila in filas:
-                raw_id = fila[0]
-                if raw_id and str(raw_id).split('.')[0].strip() == str(user_id).strip():
-                    return str(fila[1]).strip().upper() if fila[1] else 'ES'
-        except Exception as e2:
-            logger.error(f"Error obteniendo idioma para {user_id}: {e2}")           
-    return 'ES' # Fallback por defecto en mayúsculas
-        
-def obtener_traducciones_db(lang):
-    """Obtiene las traducciones directamente desde la caché en memoria RAM."""
-    # Forzamos el idioma recibido a MAYÚSCULAS para buscar en la caché
-    idioma = str(lang).strip().upper() 
-    
-    if not idioma:
-        idioma = 'ES'
-        
-    # Verificamos si el idioma ya está cargado en la caché global
-    if CACHE_TRADUCCIONES and idioma in CACHE_TRADUCCIONES:
-        return CACHE_TRADUCCIONES[idioma]
-        
-    # Respaldo de seguridad
-    if CACHE_TRADUCCIONES and 'ES' in CACHE_TRADUCCIONES:
-        return CACHE_TRADUCCIONES['ES']           
-    return {}
-        
-def obtener_traducciones_usuario(user_id):
-    """
-    1. Obtiene el idioma del usuario utilizando la función centralizada.
-    2. Carga y devuelve el diccionario de traducciones y el código de idioma.
-    """
-    lang = obtener_idioma_usuario(user_id)
-    traducciones = obtener_traducciones_db(lang)
-    return traducciones, lang
+        logger.error(f"Error al obtener traducciones de Supabase para el idioma {lang}: {e}")
+    return traducciones
 
 def requiere_registro(func):
-    """Decorador limpio con avisos estándar adaptados[cite: 2]."""
+    """Decorador limpio con avisos estándar adaptados en inglés[cite: 2]."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = str(update.effective_user.id).strip()
-        
-        # 🟢 ¡SOLUCIÓN GLOBAL! Guardamos el ID del usuario acá. 
-        # Sirve para textos, audios, fotos y comandos de forma automática.
-        if update.effective_user:
-            context.user_data['current_user_id'] = update.effective_user.id
-
         encontrado = False
         esta_activo = True
 
@@ -2526,7 +2441,7 @@ def requiere_registro(func):
 
         return await func(update, context, *args, **kwargs)
     return wrapper
-        
+
 # =============================================================================================================================================
 #              FINAL                          FUNCIONES AUXILIARES INTERNAS                  FINAL
 # =============================================================================================================================================
@@ -3120,13 +3035,10 @@ def detectar_codigo_con_groq(image_bytes: bytes, user_id=None) -> str:
 #                  INICIO               INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO
 # ======================================================================================================================================
 
-async def render_confirmation_screen(msg_or_query, context, user_id=None):
-    # Si no viene el user_id directo, lo sacamos del contexto seguro
-    if not user_id:
-        user_id = context.user_data.get('current_user_id')
-
-    # Obtenemos las traducciones de este usuario puntual
-    traducciones, lang = obtener_traducciones_usuario(user_id)
+async def render_confirmation_screen(msg_or_query, context):
+    user_id = msg_or_query.from_user.id if hasattr(msg_or_query, 'from_user') and msg_or_query.from_user else (msg_or_query.message.from_user.id if hasattr(msg_or_query, 'message') and msg_or_query.message and hasattr(msg_or_query.message, 'from_user') and msg_or_query.message.from_user else None)
+    lang = obtener_idioma_usuario(user_id) if user_id and 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
     items = context.user_data.get('pending_items', [])
     fecha = context.user_data.get('pending_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
@@ -3217,9 +3129,9 @@ async def render_confirmation_screen(msg_or_query, context, user_id=None):
     markup = InlineKeyboardMarkup(keyboard)
 
     if hasattr(msg_or_query, 'edit_message_text'):
-        await msg_or_query.edit_message_text(txt, reply_markup=markup, parse_mode="HTML")
+        await msg_or_query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
     elif hasattr(msg_or_query, 'edit_text'):
-        await msg_or_query.edit_text(txt, reply_markup=markup, parse_mode="HTML")
+        await msg_or_query.edit_text(txt, reply_markup=markup, parse_mode="Markdown")
     else:
         msg_id = context.user_data.get('last_menu_msg_id')
         chat_id = msg_or_query.effective_chat.id if hasattr(msg_or_query, 'effective_chat') else None
@@ -3228,17 +3140,17 @@ async def render_confirmation_screen(msg_or_query, context, user_id=None):
         if msg_id and chat_id:
             try:
                 await context.bot.edit_message_text(
-                    chat_id=chat_id, message_id=msg_id, text=txt, reply_markup=markup, parse_mode="HTML"
+                    chat_id=chat_id, message_id=msg_id, text=txt, reply_markup=markup, parse_mode="Markdown"
                 )
                 editado = True
             except Exception:
                 editado = False
 
         if not editado and hasattr(msg_or_query, 'message') and msg_or_query.message:
-            nuevo_msg = await msg_or_query.message.reply_text(txt, reply_markup=markup, parse_mode="HTML")
+            nuevo_msg = await msg_or_query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
             context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
-            
-async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context, user_id=None):
+
+async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     items = data_json.get("items", [])
     tipo = data_json.get("tipo", "Comida")
     
@@ -3253,7 +3165,10 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context, user_id=N
     if tipo == "Actividad":
         momento = "Actividad"
         for item in items:
+            # 🟢 Forzar estrictamente el peso en 0 para que no guarde nada en la columna de Peso
             item["peso"] = 0
+            
+            # Asegurar que las calorías de la actividad sean negativas
             if item.get("calorias", 0) > 0:
                 item["calorias"] = -abs(item["calorias"])
     else:
@@ -3262,11 +3177,9 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context, user_id=N
     context.user_data['pending_items'] = items
     context.user_data['pending_fecha'] = fecha
     context.user_data['pending_momento'] = momento
-    if user_id:
-        context.user_data['current_user_id'] = user_id
 
-    await render_confirmation_screen(msg_obj, context, user_id=user_id)
-        
+    await render_confirmation_screen(msg_obj, context)
+    
 #               MANEJADORES INDEPENDIENTES Y EXCLUSIVOS PARA CADA GRUPO DE BOTONES (CERO COMPARTIDOS)
 # ======================================================================================================================================
 
@@ -7153,51 +7066,56 @@ conv_handler_ingreso = ConversationHandler(
 # =========================================================================================================================================
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    msg = traducciones.get('start_mensaje_bienvenida', 
+    msg = (
         "👋 **¡Bienvenido a tu Bot Nutricional Personalizado!**\n\n"
-        "Guía rápida de comandos e ingresos disponibles:\n\n"
+        "Guía rápida de comandos e ingestas disponibles:\n\n"
         "📌 **Comandos Principales:**\n"
+        "• `/inicio`: Resumen de los comando y PDF del manual.\n"
         "• `/alta`: Apertura de cuenta ingresando los datos.\n"
-        "• `/barra`: Ingresa por código de barras un comestible.\n"
-        "• `/borracomida`: Borra una comida de la Planilla.\n"
-        "• `/comidas`: Planilla de comidas precargadas y PDF.\n"
-        "• `/dia`: Ingestas del día, detalle nutricional y PDF.\n"
-        "• `/eliminar`: Borra ingestas y actividades.\n"
-        "• `/GET`: Actualiza GET por medio del reloj inteligente.\n"
-        "• `/inicio`: Resumen de comandos y PDF del manual.\n"
-        "• `/mes`: Reporte con estimación de peso y PDF.\n"
-        "• `/perfil`: Actualizar de datos biométricos.\n"
         "• `/presi`: Registro y consulta de presión arterial.\n"
+        "  `  /presi 120,80,70,nota` (Completo)\n"
+        "  `  /presi 120,80,70` (Sin nota)\n"
+        "  `  /presi 120,80` (Solo presión)\n"
+        "  `  /presi AAAA-MM` Promedio mensual y PDF.\n"
+        "• `/diario`: Ingestas del día detalle nutricional y PDF.\n"
+        "• `/semanal`: Estadística semanal (calorías, fibras, etc).\n"
+        "• `/mensual`: Reporte con estimación de peso y PDF.\n"
+        "• `/perfil`: Actualizacion de datos biométricos.\n"
+        "• `/peso`: Actualiza el peso del mes `/peso 90`.\n"
+        "• `/GET`: Actualiza el gasto calorico total `/peso 90`.\n"
+        "• `/eliminar`: Borra ingestas seleccionando dia.\n"
+        "• `/barra`: ingreso x codigo de barras `/barra Número`.\n"
+        "• `/comidas`: Listado predeterminadas y PDF.\n"
         "• `/receta`: Calculadora Web para registrar comidas.\n"
-        "• `/semana`: Estadística semanal (calorías, fibras, etc.).\n\n"
-        "📌 **Métodos de Registro:**\n"
-        "• **Ingestas con IA:** 📝 Texto, 🎤 Notas de voz, 📸 Fotos.\n"
-        "• **Modificación parcial:** por item \n"
-        "    `DESCRIPCION` manteniendo el peso recalcula IA.\n"
-        "    `DESCRIPCION,PESO` recalculo total por IA.\n"
-        "    `,PESO` recalculo sin intervencion de IA\n"
-        "• **Ingestas sin IA:** 📝 Comidas precargadas en planilla:\n"
+        "• `/borracomida`: Borra comidas de la planilla.\n\n"
+        "📌 **Métodos de Registro de ingestas:**\n"
+        "• **Con IA:** Texto, 🎤 Notas de voz, 📸 Fotos .\n"
+        "• **Modificación parcial:** Editar por item y reenvío a la IA\n"
+        "    `DESCRIPCION` manteniendo el peso\n"
+        "    `DESCRIPCION,PESO` modificando ambos campos\n"
+        "    `,PESO` manteniendo descripción\n"
+        "• **Sin IA:** Comidas precargadas y actividad física:\n"
         "    `*DESAYUNO`: menú completo\n"
-        "    `*PIZZA (porción),4`: 4 porciones de pizza\n"
-        "    `*TORTA (fracción x 100g),1.5`: 150 g de torta\n"
-        "• **Actividad fisica con IA:** 📝 Texto, 🎤 Notas de voz.\n"
-        "• **Modificación :** ingresar el nuevo valor de calorias\n\n"
-        "📄 *A continuación te comparto el manual en PDF.*"
+        "    `*PIZZA (porcion),4`: 4 porciones de pizza\n"
+        "    `*TORTA (fraccion x 100g),1.5`: 150 g de torta\n"
+        "📌 **Métodos de Registro de actividades:**\n"
+        "• **Con IA:** Texto, 🎤 Notas de voz.\n"
+        "• **Modificación parcial:** Editar ingresando calorias\n"
+        "📌 **Métodos de Registro de Presion**\n"
+        "• **Con IA:** 📸 Fotos .\n"
+        "• **Confirmacion:** ingresando nota aclaratoria\n\n"
+        "📄 *Te adjuntamos el Manual de Usuario completo en formato PDF.*"
     )
-    
     await update.message.reply_text(msg, parse_mode="Markdown")
     
-    pdf_buf = generar_pdf_instrucciones_bytes(traducciones)
+    # Generación y envío del documento PDF mejorado
+    pdf_buf = generar_pdf_instrucciones_bytes()
     await context.bot.send_document(
         chat_id=update.effective_chat.id,
         document=pdf_buf,
         filename="Manual_Bot_Nutricional.pdf"
-    )    
- 
+    )
+
 def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -8145,9 +8063,6 @@ def main():
         return
 
     try:
-        # 🚀 1. CARGA INICIAL EN MEMORIA RAM: Lee toda la tabla 'multi' de Supabase al arrancar
-        cargar_traducciones_en_memoria()
-
         app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
         job_queue = app_bot.job_queue
         tz = pytz.timezone('America/Argentina/Buenos_Aires')
@@ -8175,8 +8090,7 @@ def main():
 
 #==================================PROFESIONALES===============================================
         app_bot.add_handler(CommandHandler(["pacientes", "patients"], cmd_pacientes))
-        # Si tenés cmd_enviar_informe_actual, descomentalo. Si no, comentalo para que no dé error.
-        # app_bot.add_handler(CommandHandler(["informe", "report"], cmd_enviar_informe_actual))
+        app_bot.add_handler(CommandHandler(["informe", "report"], cmd_enviar_informe_actual))
 #=================================INGRESOS Y CONSULTAS MANUALES============================================
         app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
         app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
@@ -8192,18 +8106,14 @@ def main():
         app_bot.add_handler(CommandHandler(["semana", "s", "week"], cmd_mensaje))
         app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
 #=================================ADMINISTRADOR============================================
-        app_bot.add_handler(CommandHandler(["migrar"], cmd_migrar))
-        app_bot.add_handler(CommandHandler(["descargar"], cmd_descargar))
-        app_bot.add_handler(CommandHandler(["importar"], cmd_importar_tabla))
+        app_bot.add_handler(CommandHandler(["descargar","bajar"], cmd_descargar))
+        app_bot.add_handler(CommandHandler(["importar", "subir"], cmd_importar_tabla))
 
         app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_reportes_pdf, pattern="^(resumen_|descargar_pdf_|enviar_inf_)"))        
-
-        # ---> AGREGADO: Faltaba el manejador del menú Perfil / Idioma
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_perfil, pattern="^(edit_perfil_|set_ritmo_|set_lang_)"))
 
         app_bot.add_handler(CallbackQueryHandler(callback_handler_actividades, pattern="^act_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_momentos, pattern="^set_m_"))
@@ -8227,10 +8137,8 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
-    
-    
 
-
-
+# =============================================================================================================================================
+#                                               FINAL MAIN EXECUTION                                                    FINAL
+# =============================================================================================================================================
 
