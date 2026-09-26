@@ -7065,8 +7065,16 @@ conv_handler_ingreso = ConversationHandler(
 #                     INICIO                         COMANDO START                          INICIO  2026 09 05
 # =========================================================================================================================================
 
+# ======================================================================================================================================
+#                       INICIO                         COMANDO START                          INICIO  2026 09 05
+# =========================================================================================================================================
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = (
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    msg = traducciones.get('start_mensaje_bienvenida', 
         "👋 **¡Bienvenido a tu Bot Nutricional Personalizado!**\n\n"
         "Guía rápida de comandos e ingestas disponibles:\n\n"
         "📌 **Comandos Principales:**\n"
@@ -7082,7 +7090,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/mensual`: Reporte con estimación de peso y PDF.\n"
         "• `/perfil`: Actualizacion de datos biométricos.\n"
         "• `/peso`: Actualiza el peso del mes `/peso 90`.\n"
-        "• `/GET`: Actualiza el gasto calorico total `/peso 90`.\n"
+        "• `/GET`: Actualiza el gasto calorico total `/GET 2150`.\n"
         "• `/eliminar`: Borra ingestas seleccionando dia.\n"
         "• `/barra`: ingreso x codigo de barras `/barra Número`.\n"
         "• `/comidas`: Listado predeterminadas y PDF.\n"
@@ -7106,16 +7114,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• **Confirmacion:** ingresando nota aclaratoria\n\n"
         "📄 *Te adjuntamos el Manual de Usuario completo en formato PDF.*"
     )
+    
     await update.message.reply_text(msg, parse_mode="Markdown")
     
-    # Generación y envío del documento PDF mejorado
-    pdf_buf = generar_pdf_instrucciones_bytes()
+    pdf_buf = generar_pdf_instrucciones_bytes(traducciones)
     await context.bot.send_document(
         chat_id=update.effective_chat.id,
         document=pdf_buf,
         filename="Manual_Bot_Nutricional.pdf"
     )
-
+    
 def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
