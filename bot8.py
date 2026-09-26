@@ -8652,7 +8652,7 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
     if hasattr(query_or_update, 'edit_message_text'):
         await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
     else:
-        await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown"
+        await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
         
 async def _sub_manejar_foto_presion(update, context, res_presion, msg):
     user_id = update.effective_user.id
