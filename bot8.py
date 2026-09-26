@@ -8106,7 +8106,7 @@ def main():
         return
 
     try:
-        # 🚀 1. CARGA INICIAL EN MEMORIA RAM: Lee toda la tabla 'multi' de Supabase al arrancar (Ideal para reinicios de Render)
+        # 🚀 1. CARGA INICIAL EN MEMORIA RAM: Lee toda la tabla 'multi' de Supabase al arrancar
         cargar_traducciones_en_memoria()
 
         app_bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
@@ -8136,7 +8136,8 @@ def main():
 
 #==================================PROFESIONALES===============================================
         app_bot.add_handler(CommandHandler(["pacientes", "patients"], cmd_pacientes))
-        app_bot.add_handler(CommandHandler(["informe", "report"], cmd_enviar_informe_actual))
+        # Si tenés cmd_enviar_informe_actual, descomentalo. Si no, comentalo para que no dé error.
+        # app_bot.add_handler(CommandHandler(["informe", "report"], cmd_enviar_informe_actual))
 #=================================INGRESOS Y CONSULTAS MANUALES============================================
         app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
         app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
@@ -8162,6 +8163,9 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_reportes_pdf, pattern="^(resumen_|descargar_pdf_|enviar_inf_)"))        
 
+        # ---> AGREGADO: Faltaba el manejador del menú Perfil / Idioma
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_perfil, pattern="^(edit_perfil_|set_ritmo_|set_lang_)"))
+
         app_bot.add_handler(CallbackQueryHandler(callback_handler_actividades, pattern="^act_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_momentos, pattern="^set_m_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_fechas_diario, pattern="^(set_d_|diario_)"))
@@ -8184,11 +8188,9 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# =============================================================================================================================================
-#                                               FINAL MAIN EXECUTION                                                    FINAL
-# =============================================================================================================================================
-
+    
+    
+    
 
 
 
