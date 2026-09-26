@@ -6799,6 +6799,25 @@ def cmd_nueva_cuenta(datos_usuario):
         conn_p.close()
     except Exception as e:
         logger.error(f"Error al guardar perfil inicial en {tabla_perfil} para {user_id}: {e}")
+        
+# 🟢 Definición faltante que causaba el error NameError
+conv_handler_ingreso = ConversationHandler(
+    entry_points=[CommandHandler("alta", cmd_ingreso_start), CommandHandler("nuevo_usuario", cmd_nuevo_usuario)],
+    states={
+        ING_TERMINOS: [CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$")],
+        ING_PROFESIONAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_profesional)],
+        ING_NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_nombre)],
+        ING_EDAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_edad)],
+        ING_SEXO: [CallbackQueryHandler(ing_recibir_sexo, pattern="^sexo_")],
+        ING_ALTURA: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_altura)],
+        ING_PESO: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_peso)],
+        ING_MUNECA: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_muneca)],
+        ING_CUELLO: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cuello)],
+        ING_OCUPACION: [CallbackQueryHandler(ing_recibir_ocupacion, pattern="^ocup_")],
+        ING_CUMPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cumple)],
+        ING_RITMO: [CallbackQueryHandler(ing_recibir_ritmo, pattern="^ritmo_")]
+    },
+    fallbacks=[CommandHandler("cancelar", cmd_cancelar_conversacion)]
 
 #                       INICIO                             COMANDO PERFIL                     INICIO
 # ======================================================================================================================================
