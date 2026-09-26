@@ -2393,7 +2393,7 @@ def cargar_traducciones_en_memoria():
         print(f"❌ Javy ojejuhu oñemboguapy jave ñe'ẽ iñakãme: {e}")
 
 def obtener_idioma_usuario(user_id):
-    """Ohekávo pe usuario iñe'ẽ oĩva Supabase-pe, omantenévo mayúscula (ES, EN, IT, etc.)."""
+    """Obtiene el idioma del usuario consultando la caché local o Supabase, conservando las mayúsculas (ES, EN, etc.)."""
     if not user_id:
         return 'ES'
         
@@ -2417,82 +2417,66 @@ def obtener_idioma_usuario(user_id):
                     CACHE_USUARIOS_IDIOMA[user_id_limpio] = idioma_db
                     return idioma_db
     except Exception as e:
-        logger.error(f"Error ojejuhu ojeheka jave usuario iñe'ẽ: {e}")
+        logger.error(f"Error al obtener el idioma del usuario {user_id}: {e}")
     
     CACHE_USUARIOS_IDIOMA[user_id_limpio] = 'ES'
     return 'ES'
 
 def obtener_traducciones_db(lang):
-    """Omoñe'ẽ umi traducción iñakãme oĩva rupive pe ñe'ẽ ojeruréva rupive."""
-    global CACHE_TRADUCCIONES
-    idioma = str(lang).strip().upper()
-    
-    if not CACHE_TRADUCCIONES:
-        cargar_traducciones_en_memoria()
-        
-    if idioma not in CACHE_TRADUCCIONES:
-        idioma = 'ES'
-    
-    return CACHE_TRADUCCIONES.get(idioma, CACHE_TRADUCCIONES.get('ES', {}))
-    
-def obtener_traducciones_db(lang):
-    """Devuelve las traducciones directamente desde la memoria RAM del bot usando el código de idioma en mayúsculas."""
-    global CACHE_TRADUCCIONES
-    idioma = str(lang).strip().upper()
-    if idioma not in ['ES', 'EN']:
-        idioma = 'ES'
-    
-    # Si por algún motivo la memoria RAM está vacía, la poblamos en el momento
-    if not CACHE_TRADUCCIONES:
-        cargar_traducciones_en_memoria()
-        
-    return CACHE_TRADUCCIONES.get(idioma, CACHE_TRADUCCIONES.get('ES', {}))
-
-def obtener_traducciones_db(lang):
-    """Consulta la tabla 'multi' en Supabase y devuelve un diccionario con las traducciones[cite: 2]."""
+    """Consulta la tabla 'multi' en Supabase y devuelve un diccionario con las traducciones para el idioma especificado."""
     traducciones = {}
-    col_lang = "ES" if str(lang).strip().lower() == "es" else "EN"
+    idioma = str(lang).strip().upper()
+    if not idioma:
+        idioma = 'ES'
+        
     try:
         conn, cur = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
-        query = f'SELECT "variables", "{col_lang}" FROM "multi"'
+        # Consulta dinámica usando directamente el código de idioma (ej. "ES", "EN", "IT")
+        query = f'SELECT "variables", "{idioma}" FROM "multi"'
         cur.execute(query)
         filas = cur.fetchall()
         cur.close()
         conn.close()
 
         for fila in filas:
-            var_name = str(fila[0]).strip()
+            var_name = str(fila[0] or "").strip()
             var_text = str(fila[1] or "").strip()
             if var_name:
                 traducciones[var_name] = var_text
     except Exception as e:
-        logger.error(f"Error al obtener traducciones de Supabase para el idioma {lang}: {e}")
+        logger.error(f"Error al obtener traducciones de Supabase para el idioma {idioma}: {e}")
+        
     return traducciones
 
+def obtener_traducciones_usuario(user_id):
+    """
+    1. Obtiene el idioma del usuario utilizando la función centralizada.
+    2. Carga y devuelve el diccionario de traducciones y el código de idioma.
+    """
+    lang = obtener_idioma_usuario(user_id)
+    traducciones = obtener_traducciones_db(lang)
+    return traducciones, lang
+
 def requiere_registro(func):
-    """Decorador robusto adaptado al multilenguaje dinámico."""
+    """Decorador limpio con avisos estándar adaptados[cite: 2]."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = str(update.effective_user.id).strip()
         
-        # Obtenemos el idioma y las traducciones correspondientes al usuario
-        lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-        traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+        # 🟢 ¡SOLUCIÓN GLOBAL! Guardamos el ID del usuario acá. 
+        # Sirve para textos, audios, fotos y comandos de forma automática.
+        if update.effective_user:
+            context.user_data['current_user_id'] = update.effective_user.id
 
         encontrado = False
         esta_activo = True
 
-        # Textos dinámicos extraídos de la tabla multi (con respaldo por si faltara la clave)
-        mensaje_no_registrado = traducciones.get("dec_no_registrado", 
-            "⚠️ **¡Todavía no estás registrado!**\n\n"
-            "Para usar este comando y acceder a tu plan nutricional, necesitás registrarte primero.\n\n"
-            "👉 Usá el comando `/alta` para crear tu perfil en un par de pasos."
+        mensaje_no_registrado = (
+            "⚠️ **You are not registered yet!**\n\n"
+            "To use this command and access your nutrition plan, you need to sign up first.\n\n"
+            "👉 Use the `/alta` or `/signup` command to create your profile in a couple of steps."
         )
-        mensaje_deshabilitado = traducciones.get("dec_cuenta_deshabilitada", 
-            "❌ **Tu cuenta ha sido deshabilitada debido a inactividad o baja del sistema. Por favor, contactá al administrador del bot.**"
-        )
-        alerta_req_reg = traducciones.get("dec_alerta_req_reg", "⚠️ Registro requerido")
-        alerta_cta_dis = traducciones.get("dec_alerta_cta_dis", "⚠️ Cuenta deshabilitada")
+        mensaje_deshabilitado = "❌ **Your account has been disabled due to inactivity or system removal. Please contact the bot administrator.**"
 
         try:
             conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
@@ -2516,7 +2500,7 @@ def requiere_registro(func):
             if update.message:
                 await update.message.reply_text(mensaje_no_registrado, parse_mode="Markdown")
             elif update.callback_query:
-                await update.callback_query.answer(alerta_req_reg, show_alert=True)
+                await update.callback_query.answer("⚠️ Registration required", show_alert=True)
                 await update.callback_query.message.reply_text(mensaje_no_registrado, parse_mode="Markdown")
             return
 
@@ -2524,17 +2508,16 @@ def requiere_registro(func):
             if update.message:
                 await update.message.reply_text(mensaje_deshabilitado, parse_mode="Markdown")
             elif update.callback_query:
-                await update.callback_query.answer(alerta_cta_dis, show_alert=True)
+                await update.callback_query.answer("⚠️ Account disabled", show_alert=True)
                 await update.callback_query.message.reply_text(mensaje_deshabilitado, parse_mode="Markdown")
             return
 
         return await func(update, context, *args, **kwargs)
     return wrapper
-    
+        
 # =============================================================================================================================================
 #              FINAL                          FUNCIONES AUXILIARES INTERNAS                  FINAL
 # =============================================================================================================================================
-
 
 # ======================================================================================================================================       
 #                INICIO                       14 FUNCIONES IA GROQ                                      INICIO
@@ -3125,10 +3108,13 @@ def detectar_codigo_con_groq(image_bytes: bytes, user_id=None) -> str:
 #                  INICIO               INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO
 # ======================================================================================================================================
 
-async def render_confirmation_screen(msg_or_query, context):
-    user_id = msg_or_query.from_user.id if hasattr(msg_or_query, 'from_user') and msg_or_query.from_user else (msg_or_query.message.from_user.id if hasattr(msg_or_query, 'message') and msg_or_query.message and hasattr(msg_or_query.message, 'from_user') and msg_or_query.message.from_user else None)
-    lang = obtener_idioma_usuario(user_id) if user_id and 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+async def render_confirmation_screen(msg_or_query, context, user_id=None):
+    # Si no viene el user_id directo, lo sacamos del contexto seguro
+    if not user_id:
+        user_id = context.user_data.get('current_user_id')
+
+    # Obtenemos las traducciones de este usuario puntual
+    traducciones, lang = obtener_traducciones_usuario(user_id)
 
     items = context.user_data.get('pending_items', [])
     fecha = context.user_data.get('pending_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
@@ -3219,9 +3205,9 @@ async def render_confirmation_screen(msg_or_query, context):
     markup = InlineKeyboardMarkup(keyboard)
 
     if hasattr(msg_or_query, 'edit_message_text'):
-        await msg_or_query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
+        await msg_or_query.edit_message_text(txt, reply_markup=markup, parse_mode="HTML")
     elif hasattr(msg_or_query, 'edit_text'):
-        await msg_or_query.edit_text(txt, reply_markup=markup, parse_mode="Markdown")
+        await msg_or_query.edit_text(txt, reply_markup=markup, parse_mode="HTML")
     else:
         msg_id = context.user_data.get('last_menu_msg_id')
         chat_id = msg_or_query.effective_chat.id if hasattr(msg_or_query, 'effective_chat') else None
@@ -3230,17 +3216,17 @@ async def render_confirmation_screen(msg_or_query, context):
         if msg_id and chat_id:
             try:
                 await context.bot.edit_message_text(
-                    chat_id=chat_id, message_id=msg_id, text=txt, reply_markup=markup, parse_mode="Markdown"
+                    chat_id=chat_id, message_id=msg_id, text=txt, reply_markup=markup, parse_mode="HTML"
                 )
                 editado = True
             except Exception:
                 editado = False
 
         if not editado and hasattr(msg_or_query, 'message') and msg_or_query.message:
-            nuevo_msg = await msg_or_query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
+            nuevo_msg = await msg_or_query.message.reply_text(txt, reply_markup=markup, parse_mode="HTML")
             context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
-
-async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
+            
+async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context, user_id=None):
     items = data_json.get("items", [])
     tipo = data_json.get("tipo", "Comida")
     
@@ -3255,10 +3241,7 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     if tipo == "Actividad":
         momento = "Actividad"
         for item in items:
-            # 🟢 Forzar estrictamente el peso en 0 para que no guarde nada en la columna de Peso
             item["peso"] = 0
-            
-            # Asegurar que las calorías de la actividad sean negativas
             if item.get("calorias", 0) > 0:
                 item["calorias"] = -abs(item["calorias"])
     else:
@@ -3267,9 +3250,11 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     context.user_data['pending_items'] = items
     context.user_data['pending_fecha'] = fecha
     context.user_data['pending_momento'] = momento
+    if user_id:
+        context.user_data['current_user_id'] = user_id
 
-    await render_confirmation_screen(msg_obj, context)
-    
+    await render_confirmation_screen(msg_obj, context, user_id=user_id)
+        
 #               MANEJADORES INDEPENDIENTES Y EXCLUSIVOS PARA CADA GRUPO DE BOTONES (CERO COMPARTIDOS)
 # ======================================================================================================================================
 
