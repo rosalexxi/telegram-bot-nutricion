@@ -8585,7 +8585,6 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
 
     df_presion = obtener_datos_presion_db(user_id)
     if df_presion.empty:
-        # Mensaje informativo para el usuario convertido en variable
         txt = traducciones.get("sup_sin_presion_usuario", f"🩺 No blood pressure records found for user `{user_id}`.").format(user_id=user_id)
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(txt, parse_mode="Markdown")
@@ -8595,7 +8594,6 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
 
     df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
     if df_p_mes.empty:
-        # Mensaje informativo para el usuario convertido en variable
         txt = traducciones.get("sup_sin_presion_mes", f"🩺 No blood pressure records found for the month `{mes_str}`.").format(mes_str=mes_str)
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(txt, parse_mode="Markdown")
@@ -8626,8 +8624,8 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
     if hasattr(query_or_update, 'edit_message_text'):
         await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
     else:
-        await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown"
-        
+        await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
+                
 async def _sub_manejar_foto_presion(update, context, res_presion, msg):
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
