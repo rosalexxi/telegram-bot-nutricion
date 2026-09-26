@@ -5183,7 +5183,8 @@ async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
 async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
     """
-    Función auxiliar para procesar y renderizar el reporte del diario agrupado por evento.
+    Función auxiliar para procesar y renderizar el reporte del diario agrupado por evento
+    en orden cronológico estricto (Desayuno, Almuerzo, Merienda, Cena, Actividad) y formato limpio.
     """
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
@@ -5197,25 +5198,36 @@ async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
             texto = msg_no_reg.format(fecha_str=fecha_str)
             reply_markup = None
         else:
-            msg_reg_dia = traducciones.get("inf_diario_reg_dia", "📅 Registro del día {fecha_str}:\n\n")
-            texto = msg_reg_dia.format(fecha_str=fecha_str)
+            msg_reg_dia_tpl = traducciones.get("inf_diario_reg_dia", "📅 Registro del día {fecha_str}:\n\n")
+            texto = msg_reg_dia_tpl.format(fecha_str=fecha_str)
             
-            momentos_vistos = []
             agrupado = {}
-            
             for _, r in df_diario.iterrows():
-                momento = str(r.get('Momento', '')).strip()
+                momento = str(r.get('Momento', '')).strip().capitalize()
                 alimento = str(r.get('Alimento', '')).strip()
                 
                 if momento not in agrupado:
                     agrupado[momento] = []
-                    momentos_vistos.append(momento)
                 if alimento:
                     agrupado[momento].append(alimento)
 
-            for m in momentos_vistos:
-                items_str = ", ".join(agrupado[m])
-                texto += f"• {m}: {items_str}\n"
+            orden_momentos = [
+                ("Desayuno", traducciones.get("inf_diario_momento_desayuno", "Desayuno")),
+                ("Almuerzo", traducciones.get("inf_diario_momento_almuerzo", "Almuerzo")),
+                ("Merienda", traducciones.get("inf_diario_momento_merienda", "Merienda")),
+                ("Cena", traducciones.get("inf_diario_momento_cena", "Cena")),
+                ("Actividad", traducciones.get("inf_diario_momento_actividad", "Actividad Física"))
+            ]
+
+            for clave_ingles, etiqueta_mostrada in orden_momentos:
+                items_encontrados = []
+                for k_momento, lista_alimentos in agrupado.items():
+                    if clave_ingles.lower() in k_momento.lower():
+                        items_encontrados.extend(lista_alimentos)
+                
+                if items_encontrados:
+                    items_str = ", ".join(items_encontrados)
+                    texto += f"• {etiqueta_mostrada}: {items_str}\n"
 
             c_cons = df_diario[df_diario['Calorias'] > 0]['Calorias'].sum()
             c_quem = abs(df_diario[df_diario['Calorias'] < 0]['Calorias'].sum())
@@ -5241,7 +5253,9 @@ async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
             keyboard = [[InlineKeyboardButton(btn_pdf_text, callback_data=f"descargar_pdf_diario_{fecha_str}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Manejo unificado y seguro para editar el mensaje del callback o responder uno nuevo
+        # Reemplazamos los '\n' literales por saltos de línea reales de Python
+        texto = texto.replace('\\n', '\n')
+
         if hasattr(update_or_query, 'edit_message_text'):
             try:
                 await update_or_query.edit_message_text(texto, reply_markup=reply_markup, parse_mode="Markdown")
@@ -5258,7 +5272,7 @@ async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
             return
             
         msg_err_tmpl = traducciones.get("inf_diario_error", "❌ Error al consultar el diario para la fecha `{fecha_str}`: {e}")
-        msg_err = msg_err_tmpl.format(fecha_str=fecha_str, e=e)
+        msg_err = msg_err_tmpl.format(fecha_str=fecha_str, e=e).replace('\\n', '\n')
         
         if hasattr(update_or_query, 'edit_message_text'):
             try:
@@ -5712,7 +5726,9 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 
         pie_txt = traducciones.get("inf_mes_pie_pdf", "\n\n📄 Podés descargar el informe completo en PDF abajo:")
-        txt_final = f"{encabezado_txt}{pie_txt}"
+        
+        # Reemplazamos los '\n' literales por saltos de línea reales de Python
+        txt_final = f"{encabezado_txt}{pie_txt}".replace('\\n', '\n')
 
         btn_pdf_text = traducciones.get("inf_mes_btn_descargar", "📄 Descargar PDF Resumen Mensual")
         keyboard = [[InlineKeyboardButton(btn_pdf_text, callback_data=f"descargar_pdf_resumen_{mes_str}")]]
@@ -5726,12 +5742,12 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         logger.error(f"Error en mostrar_resumen_mes: {e}", exc_info=True)
         msg_err_tmpl = traducciones.get("inf_mes_error_gral", "⚠️ Ocurrió un error al generar el resumen mensual: {e}")
-        msg_err = msg_err_tmpl.format(e=e)
+        msg_err = msg_err_tmpl.format(e=e).replace('\\n', '\n')
         if update.callback_query:
             await update.callback_query.edit_message_text(msg_err)
         else:
             await update.message.reply_text(msg_err)
-                                                
+            
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
@@ -7062,10 +7078,6 @@ conv_handler_ingreso = ConversationHandler(
     fallbacks=[CommandHandler("cancelar", cmd_cancelar_conversacion)]
 )
 
-#                     INICIO                         COMANDO START                          INICIO  2026 09 05
-# =========================================================================================================================================
-
-# ======================================================================================================================================
 #                       INICIO                         COMANDO START                          INICIO  2026 09 05
 # =========================================================================================================================================
 
