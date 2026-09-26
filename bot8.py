@@ -2362,65 +2362,104 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
 # =============================================================================================================================================
 
 def cargar_traducciones_en_memoria():
-    """Ombyaty iñakãme opaite ñe'ẽ ha kolúmna oĩva la tabla 'multi' Supabase-pe."""
+    """Carga en memoria todos los idiomas y variables de la tabla 'multi' en Supabase."""
     global CACHE_TRADUCCIONES
     try:
         conn, cur = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
-        cur.execute('SELECT * FROM "multi"')
+        
+        # Nos aseguramos de leer la tabla esquivando problemas de mayúsculas/minúsculas en Postgres
+        cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND LOWER(table_name) = 'multi'")
+        row_table = cur.fetchone()
+        tabla_real = row_table[0] if row_table else "multi"
+        
+        cur.execute(f'SELECT * FROM "{tabla_real}"')
         columnas = [desc[0] for desc in cur.description]
         filas = cur.fetchall()
         cur.close()
         conn.close()
 
+        # Identificar dinámicamente el índice de la columna 'variables'
+        columnas_lower = [c.lower() for c in columnas]
+        if "variables" in columnas_lower:
+            idx_var = columnas_lower.index("variables")
+        else:
+            idx_var = 1 if "id" in columnas_lower else 0
+
         temp_traducciones = {}
+        
+        # Inicializamos los diccionarios por cada idioma encontrado (forzado a MAYÚSCULAS)
         for col in columnas:
             if col.lower() not in ['id', 'variables']:
                 temp_traducciones[col.upper()] = {}
 
+        # Rellenamos la caché
         for fila in filas:
-            var_name = str(fila[0]).strip() if fila[0] is not None else ""
+            # IMPORTANTE: El nombre de la variable (ej: bot_conf_ingesta) SÍ debe ir en minúsculas 
+            # porque tu código lo busca así en los .get('bot_conf_ingesta')
+            var_name = str(fila[idx_var]).strip().lower() if fila[idx_var] is not None else ""
+            
             if var_name:
                 for idx, col in enumerate(columnas):
                     if col.lower() not in ['id', 'variables']:
+                        # La clave del idioma (ej: EN) va en MAYÚSCULAS
                         idioma_key = col.upper()
                         val = str(fila[idx] or "").strip()
                         temp_traducciones[idioma_key][var_name] = val
 
         CACHE_TRADUCCIONES = temp_traducciones
-        print(f"✅ Oñemboguapy porã opaite ñe'ẽ iñakãme. Kolúmnakuéra ojejuhuáva: {list(temp_traducciones.keys())}")
+        print(f"✅ Traducciones cargadas en memoria correctamente. Idiomas detectados: {list(temp_traducciones.keys())}")
     except Exception as e:
-        logger.error(f"❌ Javy ojejuhu oñemboguapy jave ñe'ẽ iñakãme: {e}")
-        print(f"❌ Javy ojejuhu oñemboguapy jave ñe'ẽ iñakãme: {e}")
-
+        logger.error(f"❌ Error al cargar traducciones en memoria: {e}")
+        print(f"❌ Error al cargar traducciones en memoria: {e}")
+        
 def obtener_idioma_usuario(user_id):
     """Obtiene el idioma configurado para un usuario de Telegram desde Supabase."""
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        cur.execute('SELECT "Idioma" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
-        row = cur.fetchone()
+        # Traemos todos para filtrar en Python y esquivar el bug del ".0" de Excel
+        cur.execute('SELECT "User ID", "Idioma" FROM "Usuarios"')
+        filas = cur.fetchall()
         cur.close()
         conn.close()
-        if row and row[0]:
-            return str(row[0]).strip().lower()
+        
+        for fila in filas:
+            raw_id = fila[0]
+            if raw_id and str(raw_id).split('.')[0].strip() == str(user_id).strip():
+                # Forzamos a MAYÚSCULAS para mantener consistencia estricta
+                return str(fila[1]).strip().upper() if fila[1] else 'ES'
     except Exception as e:
-        logger.error(f"Error obteniendo idioma para {user_id}: {e}")
-    return 'en'
-    
+        # Fallback por si la columna en Supabase está en minúsculas ("idioma")
+        try:
+            conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+            cur.execute('SELECT "User ID", "idioma" FROM "Usuarios"')
+            filas = cur.fetchall()
+            cur.close()
+            conn.close()
+            for fila in filas:
+                raw_id = fila[0]
+                if raw_id and str(raw_id).split('.')[0].strip() == str(user_id).strip():
+                    return str(fila[1]).strip().upper() if fila[1] else 'ES'
+        except Exception as e2:
+            logger.error(f"Error obteniendo idioma para {user_id}: {e2}")           
+    return 'ES' # Fallback por defecto en mayúsculas
+        
 def obtener_traducciones_db(lang):
-    """Obtiene las traducciones directamente desde la caché en memoria RAM (CACHE_TRADUCCIONES), con respaldo opcional."""
-    idioma = str(lang).strip().upper()
+    """Obtiene las traducciones directamente desde la caché en memoria RAM."""
+    # Forzamos el idioma recibido a MAYÚSCULAS para buscar en la caché
+    idioma = str(lang).strip().upper() 
+    
     if not idioma:
-        idioma = 'EN'
+        idioma = 'ES'
         
     # Verificamos si el idioma ya está cargado en la caché global
     if CACHE_TRADUCCIONES and idioma in CACHE_TRADUCCIONES:
         return CACHE_TRADUCCIONES[idioma]
         
-    # Respaldo de seguridad por si la caché estuviera vacía al momento de la consulta
-    if CACHE_TRADUCCIONES and 'EN' in CACHE_TRADUCCIONES:
-        return CACHE_TRADUCCIONES['EN']       
+    # Respaldo de seguridad
+    if CACHE_TRADUCCIONES and 'ES' in CACHE_TRADUCCIONES:
+        return CACHE_TRADUCCIONES['ES']           
     return {}
-    
+        
 def obtener_traducciones_usuario(user_id):
     """
     1. Obtiene el idioma del usuario utilizando la función centralizada.
