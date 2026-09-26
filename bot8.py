@@ -5132,6 +5132,11 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
     peso_ref_val = float(m.get('peso_referencia', 0))
     act_min_val, act_max_val = calcular_rango_actividad_fisica(peso_act_val, peso_ref_val)
 
+    # Cálculo dinámico de días efectivos con registros en el rango
+    dias_efectivos = df_semana['Fecha_dt'].nunique()
+    if dias_efectivos <= 0:
+        dias_efectivos = 1
+
     minutos_totales_actividad = 0
     if 'Momento' in df_semana.columns and 'Alimento' in df_semana.columns:
         for _, row in df_semana.iterrows():
@@ -5143,7 +5148,8 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
                 if match:
                     minutos_totales_actividad += int(match.group(1))
 
-    prom_minutos_act = int(round(minutos_totales_actividad / 7.0))
+    # Se divide por los días efectivos reales en lugar de un 7 fijo
+    prom_minutos_act = int(round(minutos_totales_actividad / dias_efectivos))
 
     prom_alta, prom_baja = None, None
     try:
@@ -6439,14 +6445,14 @@ async def ejecutar_recordatorio_comidas(context, momento: str):
                                  
 
 # =============================================================================================================================================
-#                    FINAL                                    COMANDOS INFORMES                                        FINAL
+#                    FINAL                                    COMANDOS INFORMES                                   FINAL
 # =============================================================================================================================================
 
 # =====================================================================================================================================
-#                       INICIO                  COMANDOS INGRESOS                            INICIO
+#                    INICIO                                 COMANDOS INGRESOS                                     INICIO
 # ======================================================================================================================================
 
-#                                   INICIO                  COMANDO ALTA DE USUARIO                                 INICIO
+#                    INICIO                              COMANDO ALTA DE USUARIO                                 INICIO
 # ======================================================================================================================================
 
 async def obtener_idiomas_disponibles_db():
@@ -7203,6 +7209,7 @@ def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
         ]))
         return t_header
 
+    # PÁGINA 1: Alta al Sistema
     story.append(crear_encabezado())
     story.append(Spacer(1, 4))
     story.append(Paragraph(traducciones.get('pdf_sec_alta', "1. Alta al Sistema y Registro Inicial"), section_style))
@@ -7240,6 +7247,7 @@ def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
     story.append(t_alta)
     story.append(PageBreak())
 
+    # PÁGINA 2: Métodos de Registro y Calculadora Web
     story.append(crear_encabezado())
     story.append(Spacer(1, 4))
     story.append(Paragraph(traducciones.get('pdf_sec_metodos', "2. Métodos de Registro de Ingestas y Actividades"), section_style))
@@ -7328,6 +7336,7 @@ def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
     story.append(t_receta)
     story.append(PageBreak())
 
+    # PÁGINA 3: Comandos Principales
     story.append(crear_encabezado())
     story.append(Spacer(1, 4))
     story.append(Paragraph(traducciones.get('pdf_sec_cmds', "4. Comandos Principales del Sistema"), section_style))
@@ -7367,7 +7376,7 @@ def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
 
     doc.build(story)
     buffer.seek(0)
-    return buffer    
+    return buffer
 
 #                       INICIO                  COMANDO PERFIL Y GESTIÓN BIOMÉTRICA                    INICIO
 # ======================================================================================================================================
@@ -7912,17 +7921,12 @@ async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAUL
 #                       FINAL                        COMANDOS INGRESOS                                      FINAL
 # ======================================================================================================================================
 
-
 # =====================================================================================================================================
 #                       INICIO                  COMANDOS INGRESOS                            INICIO
 # ======================================================================================================================================
 
 #                       INICIO                         COMANDO START                          INICIO  2026 09 05
 # =========================================================================================================================================
-
-# ======================================================================================================================================
-#                       INICIO                  COMANDO START Y GENERACIÓN DE MANUAL PDF MULTILENGUAJE          INICIO
-# ======================================================================================================================================
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -8484,54 +8488,69 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
 
     if data == "edit_perfil_peso":
         context.user_data['awaiting_edit_perfil_peso'] = True
-        msg = await query.message.reply_text(traducciones.get('solic_nuevo_peso', "⚖️ Por favor, ingresá tu nuevo peso en kg (ej: `78.5`):"), parse_mode="Markdown")
+        msg_txt = traducciones.get('solic_nuevo_peso', "⚖️ Por favor, ingresá tu nuevo peso en kg (ej: `78.5`):")
+        msg = await query.message.reply_text(msg_txt.replace('\\n', '\n'), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
 
     elif data == "edit_perfil_altura":
         context.user_data['awaiting_edit_perfil_altura'] = True
-        msg = await query.message.reply_text(traducciones.get('solic_nueva_altura', "📏 Por favor, ingresá tu nueva altura en cm (ej: `175`):"), parse_mode="Markdown")
+        msg_txt = traducciones.get('solic_nueva_altura', "📏 Por favor, ingresá tu nueva altura en cm (ej: `175`):")
+        msg = await query.message.reply_text(msg_txt.replace('\\n', '\n'), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
 
     elif data == "edit_perfil_cintura":
         context.user_data['awaiting_edit_perfil_cintura'] = True
-        msg = await query.message.reply_text(traducciones.get('solic_nueva_cintura', "📏 Por favor, ingresá el nuevo perímetro de tu cintura en cm (ej: `84`):"), parse_mode="Markdown")
+        msg_txt = traducciones.get('solic_nueva_cintura', "📏 Por favor, ingresá el nuevo perímetro de tu cintura en cm (ej: `84`):")
+        msg = await query.message.reply_text(msg_txt.replace('\\n', '\n'), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
 
     elif data == "edit_perfil_cuello":
         context.user_data['awaiting_edit_perfil_cuello'] = True
-        msg = await query.message.reply_text(traducciones.get('solic_nuevo_cuello', "📐 Por favor, ingresá el nuevo perímetro de tu cuello en cm (ej: `37`):"), parse_mode="Markdown")
+        msg_txt = traducciones.get('solic_nuevo_cuello', "📐 Por favor, ingresá el nuevo perímetro de tu cuello en cm (ej: `37`):")
+        msg = await query.message.reply_text(msg_txt.replace('\\n', '\n'), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
 
     elif data == "edit_perfil_nombre":
         context.user_data['awaiting_edit_perfil_nombre'] = True
-        msg = await query.message.reply_text(traducciones.get('solic_nuevo_nombre', "👤 Por favor, ingresá tu nuevo Nombre y Apellido:"), parse_mode="Markdown")
+        msg_txt = traducciones.get('solic_nuevo_nombre', "👤 Por favor, ingresá tu nuevo Nombre y Apellido:")
+        msg = await query.message.reply_text(msg_txt.replace('\\n', '\n'), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
 
     elif data == "edit_perfil_prof":
         context.user_data['awaiting_edit_perfil_prof'] = True
-        msg = await query.message.reply_text(traducciones.get('solic_nuevo_prof', "🩺 Por favor, ingresá el ID de Telegram de tu nuevo profesional:"), parse_mode="Markdown")
+        msg_txt = traducciones.get('solic_nuevo_prof', "🩺 Por favor, ingresá el ID de Telegram de tu nuevo profesional:")
+        msg = await query.message.reply_text(msg_txt.replace('\\n', '\n'), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
 
     elif data == "edit_perfil_ritmo":
+        btn_r1 = traducciones.get('btn_ritmo_tranquilo', "1 - Tranquilo / Lento")
+        btn_r2 = traducciones.get('btn_ritmo_moderado', "2 - Moderado")
+        btn_r3 = traducciones.get('btn_ritmo_intenso', "3 - Intenso / Rápido")
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("1 - Tranquilo / Lento", callback_data="set_ritmo_1")],
-            [InlineKeyboardButton("2 - Moderado", callback_data="set_ritmo_2")],
-            [InlineKeyboardButton("3 - Intenso / Rápido", callback_data="set_ritmo_3")]
+            [InlineKeyboardButton(btn_r1, callback_data="set_ritmo_1")],
+            [InlineKeyboardButton(btn_r2, callback_data="set_ritmo_2")],
+            [InlineKeyboardButton(btn_r3, callback_data="set_ritmo_3")]
         ])
-        await query.message.reply_text(traducciones.get('solic_elegir_ritmo', "🎯 Seleccioná tu nuevo ritmo de dieta (1, 2 o 3):"), reply_markup=keyboard, parse_mode="Markdown")
+        txt_sel_ritmo = traducciones.get('solic_elegir_ritmo', "🎯 Seleccioná tu nuevo ritmo de dieta (1, 2 o 3):")
+        await query.message.reply_text(txt_sel_ritmo.replace('\\n', '\n'), reply_markup=keyboard, parse_mode="Markdown")
 
     elif data == "edit_perfil_ocupacion":
+        btn_o1 = traducciones.get('btn_ocup_nivel_1', "🪑 Nivel 1 (Sedentario)")
+        btn_o2 = traducciones.get('btn_ocup_nivel_2', "🚶 Nivel 2 (Moderado)")
+        btn_o3 = traducciones.get('btn_ocup_nivel_3', "🏃 Nivel 3 (Intenso)")
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🪑 Nivel 1 (Sedentario)", callback_data="set_ocup_1375")],
-            [InlineKeyboardButton("🚶 Nivel 2 (Moderado)", callback_data="set_ocup_1550")],
-            [InlineKeyboardButton("🏃 Nivel 3 (Intenso)", callback_data="set_ocup_1725")]
+            [InlineKeyboardButton(btn_o1, callback_data="set_ocup_1375")],
+            [InlineKeyboardButton(btn_o2, callback_data="set_ocup_1550")],
+            [InlineKeyboardButton(btn_o3, callback_data="set_ocup_1725")]
         ])
-        await query.message.reply_text(traducciones.get('solic_elegir_ocupacion', "🏃 Seleccioná tu nuevo nivel de ocupación / actividad:"), reply_markup=keyboard, parse_mode="Markdown")
+        txt_sel_ocup = traducciones.get('solic_elegir_ocupacion', "🏃 Seleccioná tu nuevo nivel de ocupación / actividad:")
+        await query.message.reply_text(txt_sel_ocup.replace('\\n', '\n'), reply_markup=keyboard, parse_mode="Markdown")
 
     elif data == "edit_perfil_idioma":
         idiomas_disp = await obtener_idiomas_disponibles_db() if 'obtener_idiomas_disponibles_db' in globals() else ['es', 'en']
         b_list = [[InlineKeyboardButton(f"🌐 {i.upper()}", callback_data=f"set_lang_{i}")] for i in idiomas_disp]
-        await query.message.reply_text(traducciones.get('solic_elegir_idioma', "🌐 Seleccioná tu idioma preferido:"), reply_markup=InlineKeyboardMarkup(b_list), parse_mode="Markdown")
+        txt_sel_lang = traducciones.get('solic_elegir_idioma', "🌐 Seleccioná tu idioma preferido:")
+        await query.message.reply_text(txt_sel_lang.replace('\\n', '\n'), reply_markup=InlineKeyboardMarkup(b_list), parse_mode="Markdown")
 
     elif data.startswith("set_ritmo_"):
         val_r = data.replace("set_ritmo_", "")
@@ -8543,10 +8562,13 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
             conn.commit()
             cur.close()
             conn.close()
-            await query.edit_message_text(f"✅ Ritmo de dieta actualizado a: **{val_r}**", parse_mode="Markdown")
+            
+            msg_ok_ritmo = traducciones.get('perfil_ritmo_actualizado_ok', "✅ ¡Ritmo actualizado exitosamente a *{ritmo}*!").format(ritmo=ritmo_txt.capitalize())
+            await query.edit_message_text(msg_ok_ritmo.replace('\\n', '\n'), parse_mode="Markdown")
         except Exception as e:
             logger.error(f"Error al actualizar ritmo para {user_id}: {e}")
-            await query.edit_message_text("❌ Error al actualizar el ritmo.")
+            msg_err_ritmo = traducciones.get('perfil_error_actualizar_ritmo', "❌ Error al actualizar el ritmo.")
+            await query.edit_message_text(msg_err_ritmo, parse_mode="Markdown")
 
     elif data.startswith("set_ocup_"):
         ocup_val = float(data.replace("set_ocup_", ""))
@@ -8565,16 +8587,20 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
             cur_p.close()
             conn_p.close()
 
-            await query.edit_message_text(f"✅ Ocupación actualizada correctamente.", parse_mode="Markdown")
+            msg_ok_ocup = traducciones.get('perfil_ocupacion_actualizada_ok', "✅ Ocupación actualizada correctamente.")
+            await query.edit_message_text(msg_ok_ocup.replace('\\n', '\n'), parse_mode="Markdown")
         except Exception as e:
             logger.error(f"Error al actualizar ocupación para {user_id}: {e}")
-            await query.edit_message_text("❌ Error al actualizar la ocupación.")
+            msg_err_ocup = traducciones.get('perfil_error_actualizar_ocupacion', "❌ Error al actualizar la ocupación.")
+            await query.edit_message_text(msg_err_ocup, parse_mode="Markdown")
 
     elif data.startswith("set_lang_"):
         nuevo_lang = data.replace("set_lang_", "")
         if 'actualizar_idioma_usuario' in globals():
             actualizar_idioma_usuario(user_id, nuevo_lang)
-        await query.edit_message_text(f"✅ Idioma actualizado a: **{nuevo_lang.upper()}**", parse_mode="Markdown")
+        msg_ok_lang = traducciones.get('perfil_lang_actualizado_ok', "✅ ¡Idioma actualizado exitosamente a *{lang}*!").format(lang=nuevo_lang.upper())
+        await query.edit_message_text(msg_ok_lang.replace('\\n', '\n'), parse_mode="Markdown")
+        
                 
 #                       INICIO                  COMANDOS PRESION                    INICIO
 # ======================================================================================================================================
@@ -8585,6 +8611,7 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
 
     df_presion = obtener_datos_presion_db(user_id)
     if df_presion.empty:
+        # Mensaje informativo para el usuario convertido en variable
         txt = traducciones.get("sup_sin_presion_usuario", f"🩺 No blood pressure records found for user `{user_id}`.").format(user_id=user_id)
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(txt, parse_mode="Markdown")
@@ -8594,6 +8621,7 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
 
     df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
     if df_p_mes.empty:
+        # Mensaje informativo para el usuario convertido en variable
         txt = traducciones.get("sup_sin_presion_mes", f"🩺 No blood pressure records found for the month `{mes_str}`.").format(mes_str=mes_str)
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(txt, parse_mode="Markdown")
@@ -8624,8 +8652,8 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
     if hasattr(query_or_update, 'edit_message_text'):
         await query_or_update.edit_message_text(txt, reply_markup=keyboard, parse_mode="Markdown")
     else:
-        await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
-                
+        await query_or_update.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown"
+        
 async def _sub_manejar_foto_presion(update, context, res_presion, msg):
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
@@ -8960,7 +8988,103 @@ async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAUL
             await query.edit_message_text(txt_err_db, parse_mode="Markdown")
         
         context.user_data.pop('temp_nuevo_factor', None)
-              
+
+#                      INICIO                            COMANDO PESO                                   INICIO
+# ======================================================================================================================================
+
+
+@requiere_registro
+async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Comando directo /peso o /weight para actualizar el peso mensual rápidamente 
+    o consultar el peso actual si no se proveen argumentos.
+    """
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    texto_mensaje = update.message.text.strip() if update.message and update.message.text else ""
+    raw_text = ""
+    for cmd in ['/peso', '/weight']:
+        if texto_mensaje.lower().startswith(cmd):
+            raw_text = texto_mensaje[len(cmd):].strip()
+            break
+
+    ahora = obtener_ahora_arg()
+    mes_actual = ahora.strftime("%Y-%m")
+    fecha_hoy = ahora.strftime("%Y-%m-%d")
+
+    if '_garantizar_fila_mes_actual' in globals():
+        _garantizar_fila_mes_actual(user_id, ahora)
+
+    # Si el usuario mandó el comando solo (/peso o /weight), le mostramos su peso actual y el recordatorio
+    if not raw_text:
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual) if 'obtener_perfil_usuario' in globals() else {}
+        peso_actual = parse_raw_val(perfil.get('PESO', perfil.get('Peso', 0))) if perfil else 0
+        
+        if peso_actual > 0:
+            txt_actual = traducciones.get('peso_consulta_actual', 
+                "⚖️ **Peso actual registrado ({mes_actual}):** `{peso_actual:.1f} kg`\n\n"
+                "Para actualizarlo, escribí:\n`/peso [nuevo_peso]` (ejemplo: `/peso 82.5`)"
+            ).format(mes_actual=mes_actual, peso_actual=peso_actual)
+        else:
+            txt_actual = traducciones.get('peso_no_registrado', 
+                "⚠️ No tenés un peso registrado para este mes.\n\n"
+                "Para registrarlo, escribí:\n`/peso [tu_peso]` (ejemplo: `/peso 82.5`)"
+            )
+        
+        await update.message.reply_text(txt_actual.replace('\\n', '\n'), parse_mode="Markdown")
+        return
+
+    # Si ingresó un valor, procedemos a actualizarlo
+    try:
+        texto_limpio = raw_text.split()[0].replace(',', '.')
+        nuevo_peso = float(texto_limpio)
+        
+        if not (30 <= nuevo_peso <= 300):
+            raise ValueError()
+
+        guardar_perfil_db(user_id, nuevo_peso, mes_actual, fecha_actualizacion=fecha_hoy)
+        
+        try:
+            conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+            cur_u.execute('UPDATE "Usuarios" SET "peso" = %s WHERE "User ID" = %s', (float(nuevo_peso), str(user_id)))
+            conn_u.commit()
+            cur_u.close()
+            conn_u.close()
+        except Exception as e_usr_peso:
+            logger.error(f"Error al sincronizar peso en tabla Usuarios para {user_id}: {e_usr_peso}")
+
+        perfil_actualizado = obtener_perfil_usuario(user_id, mes_target=mes_actual)
+        if perfil_actualizado:
+            edad = parse_raw_val(perfil_actualizado.get('EDAD', perfil_actualizado.get('Edad', 64)))
+            altura = parse_raw_val(perfil_actualizado.get('ALTURA', perfil_actualizado.get('Altura', 170)))
+            genero = str(perfil_actualizado.get('GENERO', perfil_actualizado.get('Genero', 'M')))
+            ocupacion = parse_raw_val(perfil_actualizado.get('ocupacion', 1.375))
+        else:
+            edad, altura, genero, ocupacion = 64.0, 170.0, "M", 1.375
+
+        tmb, get_val = calcular_tmb_y_get(nuevo_peso, altura, edad, genero, ocupacion)
+        unidades_kcal = traducciones.get('perfil_unidades_kcal', 'kcal/day' if lang == 'en' else 'kcal/día')
+        
+        txt_peso_act = traducciones.get('perfil_peso_actualizado_ok', 
+            "✅ **Peso actualizado correctamente para el mes `{mes_actual}`:**\n\n"
+            "• Nuevo Peso: `{nuevo_peso:.1f}` kg\n"
+            "• Fecha de registro: `{fecha_hoy}`\n"
+            "• **TMB Estimada:** `{tmb:.0f} {unidades}`\n"
+            "• **GET Estimado:** `{get_val:.0f} {unidades}`"
+        ).format(mes_actual=mes_actual, nuevo_peso=nuevo_peso, fecha_hoy=fecha_hoy, tmb=tmb, get_val=get_val, unidades=unidades_kcal)
+
+        await update.message.reply_text(txt_peso_act.replace('\\n', '\n'), parse_mode="Markdown")
+
+    except ValueError:
+        txt_err_num = traducciones.get('perfil_error_numero_valido', "❌ Por favor, ingresá un número válido para el peso. Ejemplo: `/peso 82.5`")
+        await update.message.reply_text(txt_err_num.replace('\\n', '\n'), parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error al procesar /peso rápido: {e}")
+        txt_err_gral = traducciones.get('perfil_error_guardar', "⚠️ Ocurrió un error al intentar guardar en la base de datos: {e}").format(e=e)
+        await update.message.reply_text(txt_err_gral.replace('\\n', '\n'), parse_mode="Markdown")
+        
 # ======================================================================================================================================
 #                       FINAL                        COMANDOS INGRESOS                                      FINAL
 # ======================================================================================================================================
@@ -9172,6 +9296,7 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 #                    FINAL                      COMANDOS PROFESIONALES                               FINAL  
 # ==========================================================================================================================================
 
+
 # ==========================================================================================================================================
 #                                   INICIO                                       MAIN                                       INICIO  
 # ==========================================================================================================================================
@@ -9227,18 +9352,19 @@ def main():
         app_bot.add_handler(CommandHandler(["pacientes", "patients"], cmd_pacientes))
         app_bot.add_handler(CommandHandler(["informe", "report"], cmd_enviar_informe_actual))
 #=================================INGRESOS Y CONSULTAS MANUALES============================================
+        app_bot.add_handler(CommandHandler(["alta", "register"], cmd_ingreso_start))
         app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
         app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
-        app_bot.add_handler(CommandHandler(["perfil", "peso", "profile", "weight"], cmd_perfil))
+        app_bot.add_handler(CommandHandler(["perfil", "profile"], cmd_perfil))
         app_bot.add_handler(CommandHandler(["receta", "recipe"], cmd_cargar_receta))
         app_bot.add_handler(CommandHandler(["get", "GET"], cmd_factor_handler))
         app_bot.add_handler(CommandHandler(["eliminar", "delete"], cmd_eliminar))
         app_bot.add_handler(CommandHandler(["borracomida", "delmeal"], cmd_borrar_comida))
-#=================================INGRESOS Y CONSULTAS CON IA============================================
+        app_bot.add_handler(CommandHandler(["peso", "weight"], cmd_peso_rapido))       
         app_bot.add_handler(CommandHandler(["presion", "presi", "p", "pressure"], cmd_presion_handler))  
         app_bot.add_handler(CommandHandler(["dia", "d", "day"], cmd_diario))
         app_bot.add_handler(CommandHandler(["mes", "m", "month"], cmd_resumen))
-        app_bot.add_handler(CommandHandler(["semana", "s", "week"], cmd_mensaje))
+        app_bot.add_handler(CommandHandler(["semana", "s", "w", "week"], cmd_mensaje))
         app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
 #=================================ADMINISTRADOR============================================
         app_bot.add_handler(CommandHandler(["descargar","bajar"], cmd_descargar))
@@ -9276,4 +9402,5 @@ if __name__ == "__main__":
 # =============================================================================================================================================
 #                                               FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
+
 
