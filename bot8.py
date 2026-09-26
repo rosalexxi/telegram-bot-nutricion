@@ -5027,7 +5027,8 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
 
     doc.build(story)
     buffer.seek(0)
-    return buffer            
+    return buffer 
+    
 def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
@@ -5073,9 +5074,37 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
             Paragraph(th_fibr, header_style)
         ]]
 
-        for _, r in df_diario.iterrows():
+        mapa_momentos = {
+            "desayuno": traducciones.get("inf_diario_momento_desayuno", "Desayuno"),
+            "almuerzo": traducciones.get("inf_diario_momento_almuerzo", "Almuerzo"),
+            "merienda": traducciones.get("inf_diario_momento_merienda", "Merienda"),
+            "cena": traducciones.get("inf_diario_momento_cena", "Cena"),
+            "actividad": traducciones.get("inf_diario_momento_actividad", "Actividad Física")
+        }
+
+        # 🔹 ORDEN CRONOLÓGICO ESTRICTO: Desayuno (1) -> Almuerzo (2) -> Merienda (3) -> Cena (4) -> Actividad (5)
+        def obtener_orden_momento(momento_val):
+            m_str = str(momento_val).strip().lower()
+            if "desayuno" in m_str: return 1
+            if "almuerzo" in m_str: return 2
+            if "merienda" in m_str: return 3
+            if "cena" in m_str: return 4
+            return 5 # Actividad o cualquier otro
+
+        df_diario = df_diario.copy()
+        df_diario['orden_temp'] = df_diario['Momento'].apply(obtener_orden_momento)
+        df_ordenado = df_diario.sort_values('orden_temp')
+
+        for _, r in df_ordenado.iterrows():
+            momento_raw = str(r.get('Momento', '')).strip().lower()
+            momento_traducido = momento_raw.capitalize()
+            for k, v in mapa_momentos.items():
+                if k in momento_raw:
+                    momento_traducido = v
+                    break
+
             table_data.append([
-                Paragraph(str(r.get('Momento', '')), body_style),
+                Paragraph(momento_traducido, body_style),
                 Paragraph(str(r.get('Alimento', '')), body_style),
                 Paragraph(f"{r.get('Peso', 0):.1f}g", body_style),
                 Paragraph(f"{r.get('Calorias', 0):.1f}", body_style),
@@ -7547,6 +7576,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📄 *Te adjuntamos el Manual de Usuario completo en formato PDF.*"
     )
     
+    # Reemplazamos los '\n' literales por saltos de línea reales de Python
+    msg = msg.replace('\\n', '\n')
+    
     await update.message.reply_text(msg, parse_mode="Markdown")
     
     pdf_buf = generar_pdf_instrucciones_bytes(traducciones)
@@ -7982,12 +8014,17 @@ def cmd_nueva_cuenta(datos_usuario):
 #                       INICIO                             COMANDO PERFIL                     INICIO
 # ======================================================================================================================================
 
+# ======================================================================================================================================
+#                       INICIO                  COMANDO PERFIL Y GESTIÓN BIOMÉTRICA                    INICIO
+# ======================================================================================================================================
+
 @requiere_registro
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
+    # 🔹 Limpieza dinámica: Soporta tanto /perfil como /peso de forma indistinta
     texto_mensaje = update.message.text.strip() if update.message and update.message.text else ""
     raw_text = texto_mensaje
     for cmd in ['/perfil', '/peso']:
@@ -7999,17 +8036,20 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mes_actual = ahora.strftime("%Y-%m")
     fecha_hoy = ahora.strftime("%Y-%m-%d")
 
+    # 🔹 GARANTIZAR FILA DEL MES: Asegura que la estructura del mes actual exista en el histórico mensual
     if '_garantizar_fila_mes_actual' in globals():
         _garantizar_fila_mes_actual(user_id, ahora)
 
-    # CASO 1: Ingreso rápido de peso mensual (/peso 82.5 o /perfil 82.5)
+    # CASO 1: Ingreso rápido de peso mensual (/perfil 82.5 o /peso 82.5)
     if raw_text:
         try:
             texto_limpio = raw_text.split()[0].replace(',', '.')
             nuevo_peso = float(texto_limpio)
             
+            # 1. Guardar en la tabla histórica mensual (Perfil_<user_id>) con su fecha de actualización
             guardar_perfil_db(user_id, nuevo_peso, mes_actual, fecha_actualizacion=fecha_hoy)
             
+            # 2. Actualizar también el peso en la tabla maestra 'Usuarios' para mantenerlo sincronizado
             try:
                 conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
                 cur_u.execute('UPDATE "Usuarios" SET "peso" = %s WHERE "User ID" = %s', (float(nuevo_peso), str(user_id)))
@@ -8019,11 +8059,15 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e_usr_peso:
                 logger.error(f"Error al sincronizar peso en tabla Usuarios para {user_id}: {e_usr_peso}")
 
-            data_usr = obtener_datos_completos_usuario(user_id, mes_target=mes_actual)
-            edad = calcular_edad_desde_cumple(data_usr.get('cumple', '')) if data_usr.get('cumple') else 64
-            altura = parse_raw_val(data_usr.get('ALTURA', 170))
-            genero = str(data_usr.get('Sexo', 'M'))
-            ocupacion = parse_raw_val(data_usr.get('ocupacion', 1.375))
+            perfil_actualizado = obtener_perfil_usuario(user_id, mes_target=mes_actual)
+            
+            if perfil_actualizado:
+                edad = parse_raw_val(perfil_actualizado.get('EDAD', perfil_actualizado.get('Edad', 64)))
+                altura = parse_raw_val(perfil_actualizado.get('ALTURA', perfil_actualizado.get('Altura', 170)))
+                genero = str(perfil_actualizado.get('GENERO', perfil_actualizado.get('Genero', 'M')))
+                ocupacion = parse_raw_val(perfil_actualizado.get('ocupacion', perfil_actualizado.get('OCUPACION', 1.375)))
+            else:
+                edad, altura, genero, ocupacion = 64.0, 170.0, "M", 1.375
 
             tmb, get_val = calcular_tmb_y_get(nuevo_peso, altura, edad, genero, ocupacion)
             unidades_kcal = traducciones.get('perfil_unidades_kcal', 'kcal/day' if lang == 'en' else 'kcal/día')
@@ -8040,7 +8084,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         except ValueError:
-            txt_err_num = traducciones.get('perfil_error_numero_valido', "❌ Por favor, ingresá un número válido para el peso. Ejemplo: `/peso 82.5`")
+            txt_err_num = traducciones.get('perfil_error_numero_valido', "❌ Por favor, ingresá un número válido para el peso. Ejemplo: `/peso 82.5` o `/perfil 82.5`")
             await update.message.reply_text(txt_err_num.replace('\\n', '\n'), parse_mode="Markdown")
             return
         except Exception as e:
@@ -8051,79 +8095,66 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # CASO 2: Consulta del Menú Interactivo de Perfil
     try:
-        data_usr = obtener_datos_completos_usuario(user_id, mes_target=mes_actual)
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
+        datos_grales = obtener_datos_usuario_general(user_id) if 'obtener_datos_usuario_general' in globals() else {}
 
-        if data_usr:
-            nombre = data_usr.get('Nombre', 'S/D')
-            sexo = data_usr.get('Sexo', 'S/D')
-            cumple = data_usr.get('cumple', 'S/D')
-            profesional = data_usr.get('profesional', 'S/D')
-            cintura = data_usr.get('cintura_cm', 'S/D')
-            cuello = data_usr.get('cuello_cm', 'S/D')
-            ritmo_crudo = data_usr.get('ritmo_preferido', '2')
-            ritmo_num = formatear_ritmo_numero(ritmo_crudo)
+        if perfil:
+            peso = parse_raw_val(perfil.get('PESO', perfil.get('Peso', 0)))
+            altura = parse_raw_val(perfil.get('ALTURA', perfil.get('Altura', 0)))
+            edad = parse_raw_val(perfil.get('EDAD', perfil.get('Edad', 0)))
+            genero = str(perfil.get('GENERO', perfil.get('Genero', 'M')))
+            ocupacion = parse_raw_val(perfil.get('ocupacion', perfil.get('OCUPACION', 1.375)))
+            fecha_act_peso = perfil.get('Fecha_Actualizacion', 'S/D')
 
-            ocupacion = parse_raw_val(data_usr.get('ocupacion', 1.375))
-            ocup_icono = formatear_ocupacion_icono(ocupacion)
-            
-            idioma_usr = data_usr.get('Idioma', lang)
-            edad = calcular_edad_desde_cumple(cumple) if cumple != 'S/D' else parse_raw_val(data_usr.get('EDAD', 0))
-            peso = parse_raw_val(data_usr.get('PESO', 0))
-            altura = parse_raw_val(data_usr.get('ALTURA', 0))
+            cintura = datos_grales.get('cintura_cm', 'S/D')
+            cuello = datos_grales.get('cuello_cm', 'S/D')
+            ritmo = datos_grales.get('ritmo_preferido', 'moderado')
+            profesional = datos_grales.get('profesional', 'S/D')
+            idioma_usr = datos_grales.get('Idioma', lang)
 
-            tmb, get_val = calcular_tmb_y_get(peso, altura, edad, sexo, ocupacion)
+            tmb, get_val = calcular_tmb_y_get(peso, altura, edad, genero, ocupacion)
             unidades_kcal = traducciones.get('perfil_unidades_kcal', 'kcal/day' if lang == 'en' else 'kcal/día')
             
             txt_perfil = (
                 f"👤 **{traducciones.get('perfil_titulo_biometrico', 'Perfil Biométrico Actual')} ({mes_actual}):**\n\n"
-                f"• **User ID:** `{user_id}`\n"
-                f"• **Nombre:** `{nombre}`\n"
-                f"• **Sexo:** `{sexo}`\n"
-                f"• **Cumpleaños:** `{cumple}` (Edad: {edad:.0f} años)\n"
-                f"• **ID Profesional:** `{profesional}`\n"
-                f"• **Cintura:** `{cintura} cm`\n"
-                f"• **Cuello:** `{cuello} cm`\n"
-                f"• **Altura:** `{altura:.1f} cm`\n"
-                f"• **Peso Actual:** `{peso:.1f} kg`\n"
-                f"• **Ritmo de Dieta:** `{ritmo_num}`\n"
-                f"• **Ocupación:** `{ocup_icono}`\n"
-                f"• **Idioma:** `{str(idioma_usr).upper()}`\n\n"
+                f"• {traducciones.get('perfil_lbl_edad', 'Edad')}: `{edad:.0f}` {traducciones.get('perfil_anos', 'años')}\n"
+                f"• {traducciones.get('perfil_lbl_peso', 'Peso')}: `{peso:.1f}` kg *(Act: {fecha_act_peso})*\n"
+                f"• {traducciones.get('perfil_lbl_altura', 'Altura')}: `{altura:.1f}` cm\n"
+                f"• {traducciones.get('perfil_lbl_cintura', 'Cintura')}: `{cintura}` cm\n"
+                f"• {traducciones.get('perfil_lbl_cuello', 'Cuello')}: `{cuello}` cm\n"
+                f"• {traducciones.get('perfil_lbl_ritmo', 'Ritmo de avance')}: `{str(ritmo).capitalize()}`\n"
+                f"• {traducciones.get('perfil_lbl_idioma', 'Idioma')}: `{str(idioma_usr).upper()}`\n"
+                f"• {traducciones.get('perfil_lbl_profesional', 'ID Profesional')}: `{profesional}`\n\n"
                 f"• **{traducciones.get('perfil_lbl_tmb', 'TMB Estimada')}:** `{tmb:.0f} {unidades_kcal}`\n"
                 f"• **{traducciones.get('perfil_lbl_get', 'GET Estimado')}:** `{get_val:.0f} {unidades_kcal}`"
-            ).replace('\\n', '\n')
+            )
         else:
             txt_perfil = traducciones.get('perfil_no_registrado', "👤 **Perfil no registrado para este mes.** Podés cargar tu peso ejecutando:\n`/peso 82.5`")
 
+        # Menú interactivo con botones Inline
         keyboard = [
             [
                 InlineKeyboardButton(traducciones.get('btn_edit_peso', "⚖️ Peso"), callback_data="edit_perfil_peso"),
-                InlineKeyboardButton(traducciones.get('btn_edit_altura', "📏 Altura"), callback_data="edit_perfil_altura")
+                InlineKeyboardButton(traducciones.get('btn_edit_cintura', "📏 Cintura"), callback_data="edit_perfil_cintura")
             ],
             [
-                InlineKeyboardButton(traducciones.get('btn_edit_cintura', "📏 Cintura"), callback_data="edit_perfil_cintura"),
-                InlineKeyboardButton(traducciones.get('btn_edit_cuello', "📐 Cuello"), callback_data="edit_perfil_cuello")
+                InlineKeyboardButton(traducciones.get('btn_edit_cuello', "📐 Cuello"), callback_data="edit_perfil_cuello"),
+                InlineKeyboardButton(traducciones.get('btn_edit_ritmo', "🎯 Ritmo"), callback_data="edit_perfil_ritmo")
             ],
             [
-                InlineKeyboardButton(traducciones.get('btn_edit_ritmo', "🎯 Ritmo (1-3)"), callback_data="edit_perfil_ritmo"),
-                InlineKeyboardButton(traducciones.get('btn_edit_ocup', "🏃 Ocupación"), callback_data="edit_perfil_ocupacion")
-            ],
-            [
-                InlineKeyboardButton(traducciones.get('btn_edit_nombre', "👤 Nombre"), callback_data="edit_perfil_nombre"),
+                InlineKeyboardButton(traducciones.get('btn_edit_idioma', "🌐 Idioma"), callback_data="edit_perfil_idioma"),
                 InlineKeyboardButton(traducciones.get('btn_edit_prof', "🩺 Profesional"), callback_data="edit_perfil_prof")
-            ],
-            [
-                InlineKeyboardButton(traducciones.get('btn_edit_idioma', "🌐 Idioma"), callback_data="edit_perfil_idioma")
             ]
         ]
         markup = InlineKeyboardMarkup(keyboard)
 
-        await update.message.reply_text(txt_perfil, reply_markup=markup, parse_mode="Markdown")
+        await update.message.reply_text(txt_perfil.replace('\\n', '\n'), reply_markup=markup, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Error al consultar perfil: {e}")
         txt_err_read = traducciones.get('perfil_error_lectura', "⚠️ Ocurrió un error al leer tu perfil: {e}").format(e=e)
         await update.message.reply_text(txt_err_read.replace('\\n', '\n'), parse_mode="Markdown")
-
+        
 #      INICIO                               CALLBACKS INTERACTIVOS  PERFIL               INICIO
 # ======================================================================================================================================
 
@@ -8945,7 +8976,6 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 # ==========================================================================================================================================
 #                    FINAL                      COMANDOS PROFESIONALES                               FINAL  
 # ==========================================================================================================================================
-
 
 # ==========================================================================================================================================
 #                                   INICIO                                       MAIN                                       INICIO  
