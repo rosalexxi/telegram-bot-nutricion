@@ -7928,48 +7928,64 @@ async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAUL
 #                       INICIO                         COMANDO START                          INICIO  2026 09 05
 # =========================================================================================================================================
 
+#                       INICIO                         COMANDO START                          INICIO  2026 09 05
+# =========================================================================================================================================
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
     msg = traducciones.get('start_mensaje_bienvenida', 
-        "👋 **Welcome to your Personalized Nutritional Bot!**\n\n"
-        "Quick guide of available commands and intakes:\n\n"
-        "📌 **Main Commands:**\n"
-        "• `/start` / `/inicio`: Summary of commands and manual PDF.\n"
-        "• `/alta`: Account opening by entering data.\n"
-        "• `/presi`: Blood pressure registration and consultation.\n"
-        "  `  /presi 120,80,70,note` (Complete)\n"
-        "  `  /presi 120,80,70` (Without note)\n"
-        "  `  /presi 120,80` (Pressure only)\n"
-        "  `  /presi YYYY-MM` Monthly average and PDF.\n"
-        "• `/day` / `/diario`: Daily food intake nutritional detail and PDF.\n"
-        "• `/week` / `/semanal`: Weekly statistics (calories, fiber, etc.).\n"
-        "• `/month` / `/mensual`: Report with weight estimation and PDF.\n"
-        "• `/perfil`: Update biometric data.\n"
-        "• `/peso`: Update monthly weight `/peso 90`.\n"
-        "• `/GET`: Update total caloric expenditure `/GET 2150`.\n"
-        "• `/eliminar`: Delete intakes by selecting a day.\n"
-        "• `/barra`: Barcode entry `/barra Number`.\n"
-        "• `/comidas`: Default list and PDF.\n"
-        "• `/receta`: Web calculator to log meals.\n"
-        "• `/borracomida`: Delete meals from the sheet.\n\n"
-        "📌 **Intake Registration Methods:**\n"
-        "• **With AI:** Text, 🎤 Voice notes, 📸 Photos.\n"
-        "• **Without AI:** Preloaded meals and physical activity.\n\n"
-        "📄 *Attached is the complete User Manual in PDF format.*"
+        "👋 **¡Bienvenido a tu Bot Nutricional Personalizado!**\n\n"
+        "Guía rápida de comandos e ingestas disponibles:\n\n"
+        "📌 **Comandos Principales:**\n"
+        "• `/inicio`: Resumen de los comando y PDF del manual.\n"
+        "• `/alta`: Apertura de cuenta ingresando los datos.\n"
+        "• `/presi`: Registro y consulta de presión arterial.\n"
+        "  `  /presi 120,80,70,nota` (Completo)\n"
+        "  `  /presi 120,80,70` (Sin nota)\n"
+        "  `  /presi 120,80` (Solo presión)\n"
+        "  `  /presi AAAA-MM` Promedio mensual y PDF.\n"
+        "• `/diario`: Ingestas del día detalle nutricional y PDF.\n"
+        "• `/semanal`: Estadística semanal (calorías, fibras, etc).\n"
+        "• `/mensual`: Reporte con estimación de peso y PDF.\n"
+        "• `/perfil`: Actualizacion de datos biométricos.\n"
+        "• `/peso`: Actualiza el peso del mes `/peso 90`.\n"
+        "• `/GET`: Actualiza el gasto calorico total `/GET 2150`.\n"
+        "• `/eliminar`: Borra ingestas seleccionando dia.\n"
+        "• `/barra`: ingreso x codigo de barras `/barra Número`.\n"
+        "• `/comidas`: Listado predeterminadas y PDF.\n"
+        "• `/receta`: Calculadora Web para registrar comidas.\n"
+        "• `/borracomida`: Borra comidas de la planilla.\n\n"
+        "📌 **Métodos de Registro de ingestas:**\n"
+        "• **Con IA:** Texto, 🎤 Notas de voz, 📸 Fotos .\n"
+        "• **Modificación parcial:** Editar por item y reenvío a la IA\n"
+        "    `DESCRIPCION` manteniendo el peso\n"
+        "    `DESCRIPCION,PESO` modificando ambos campos\n"
+        "    `,PESO` manteniendo descripción\n"
+        "• **Sin IA:** Comidas precargadas y actividad física:\n"
+        "    `*DESAYUNO`: menú completo\n"
+        "    `*PIZZA (porcion),4`: 4 porciones de pizza\n"
+        "    `*TORTA (fraccion x 100g),1.5`: 150 g de torta\n"
+        "📌 **Métodos de Registro de actividades:**\n"
+        "• **Con IA:** Texto, 🎤 Notas de voz.\n"
+        "• **Modificación parcial:** Editar ingresando calorias\n"
+        "📌 **Métodos de Registro de Presion**\n"
+        "• **Con IA:** 📸 Fotos .\n"
+        "• **Confirmacion:** ingresando nota aclaratoria\n\n"
+        "📄 *Te adjuntamos el Manual de Usuario completo en formato PDF.*"
     )
     
-    await update.message.reply_text(msg.replace('\\n', '\n'), parse_mode="Markdown")
+    await update.message.reply_text(msg, parse_mode="Markdown")
     
     pdf_buf = generar_pdf_instrucciones_bytes(traducciones)
     await context.bot.send_document(
         chat_id=update.effective_chat.id,
         document=pdf_buf,
         filename="Manual_Bot_Nutricional.pdf"
-    )    
-
+    )
+    
 def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -7990,14 +8006,38 @@ def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
     BG_CARD = colors.HexColor('#F1F5F9')
     BORDER_COLOR = colors.HexColor('#E2E8F0')
 
-    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=18, leading=22, textColor=PRIMARY, fontName='Helvetica-Bold', spaceAfter=2)
-    subtitle_style = ParagraphStyle('DocSubTitle', parent=styles['Normal'], fontSize=9.5, leading=12, textColor=SECONDARY, fontName='Helvetica-Bold', spaceAfter=8)
-    section_style = ParagraphStyle('DocSection', parent=styles['Heading2'], fontSize=12, leading=15, textColor=PRIMARY, fontName='Helvetica-Bold', spaceBefore=4, spaceAfter=6)
-    subsection_style = ParagraphStyle('DocSubSection', parent=styles['Heading3'], fontSize=9.5, leading=12, textColor=SECONDARY, fontName='Helvetica-Bold', spaceBefore=3, spaceAfter=2)
-    body_style = ParagraphStyle('DocBody', parent=styles['Normal'], fontSize=9.5, leading=12, textColor=TEXT_MAIN, fontName='Helvetica')
-    body_bold = ParagraphStyle('DocBodyBold', parent=body_style, fontName='Helvetica-Bold')
-    code_style = ParagraphStyle('DocCode', parent=styles['Normal'], fontSize=10, leading=13, textColor=PRIMARY, fontName='Courier-Bold')
-    body_bold_white = ParagraphStyle('DocBodyBoldWhite', parent=styles['Normal'], fontSize=9.5, leading=12, textColor=colors.white, fontName='Helvetica-Bold')
+    title_style = ParagraphStyle(
+        'DocTitle', parent=styles['Heading1'], 
+        fontSize=18, leading=22, textColor=PRIMARY, fontName='Helvetica-Bold', spaceAfter=2
+    )
+    subtitle_style = ParagraphStyle(
+        'DocSubTitle', parent=styles['Normal'], 
+        fontSize=9.5, leading=12, textColor=SECONDARY, fontName='Helvetica-Bold', spaceAfter=8
+    )
+    section_style = ParagraphStyle(
+        'DocSection', parent=styles['Heading2'], 
+        fontSize=12, leading=15, textColor=PRIMARY, fontName='Helvetica-Bold', spaceBefore=4, spaceAfter=6
+    )
+    subsection_style = ParagraphStyle(
+        'DocSubSection', parent=styles['Heading3'], 
+        fontSize=9.5, leading=12, textColor=SECONDARY, fontName='Helvetica-Bold', spaceBefore=3, spaceAfter=2
+    )
+    
+    body_style = ParagraphStyle(
+        'DocBody', parent=styles['Normal'], 
+        fontSize=9.5, leading=12, textColor=TEXT_MAIN, fontName='Helvetica'
+    )
+    body_bold = ParagraphStyle(
+        'DocBodyBold', parent=body_style, fontName='Helvetica-Bold'
+    )
+    code_style = ParagraphStyle(
+        'DocCode', parent=styles['Normal'], 
+        fontSize=10, leading=13, textColor=PRIMARY, fontName='Courier-Bold'
+    )
+    body_bold_white = ParagraphStyle(
+        'DocBodyBoldWhite', parent=styles['Normal'], 
+        fontSize=9.5, leading=12, textColor=colors.white, fontName='Helvetica-Bold'
+    )
 
     story = []
 
@@ -8017,25 +8057,26 @@ def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
         ]))
         return t_header
 
+    # ================= PÁGINA 1: Alta al Sistema =================
     story.append(crear_encabezado())
     story.append(Spacer(1, 4))
     story.append(Paragraph(traducciones.get('pdf_sec_alta', "1. System Registration and Initial Setup"), section_style))
     
     alta_data = [
         [Paragraph(traducciones.get('pdf_col_comando', "Command / Field"), body_bold_white), Paragraph(traducciones.get('pdf_col_descripcion', "Detailed Description and Usage Format"), body_bold_white)],
-        [Paragraph("<b>/alta</b>", code_style), Paragraph(traducciones.get('pdf_desc_alta', "<b>Registration Start Command:</b> Initiates account creation and nutritional profile setup."), body_style)],
-        [Paragraph(traducciones.get('pdf_lbl_prof', "Professional ID"), code_style), Paragraph(traducciones.get('pdf_desc_prof', "<b>Professional Validation:</b> Enter the authorized professional's Telegram ID."), body_style)],
-        [Paragraph(traducciones.get('pdf_lbl_nombre', "Full Name"), code_style), Paragraph(traducciones.get('pdf_desc_nombre', "<b>Identification:</b> Enter patient name or nickname (minimum 2 characters)."), body_style)],
-        [Paragraph(traducciones.get('pdf_lbl_edad', "Age"), code_style), Paragraph(traducciones.get('pdf_desc_edad', "<b>Age in years:</b> Enter a valid numeric value between 10 and 110 years."), body_style)],
-        [Paragraph(traducciones.get('pdf_lbl_sexo', "Biological Sex"), code_style), Paragraph(traducciones.get('pdf_desc_sexo', "<b>Button Selection:</b> Choose Male (M) or Female (F) via interactive keyboard."), body_style)],
-        [Paragraph(traducciones.get('pdf_lbl_altura', "Height"), code_style), Paragraph(traducciones.get('pdf_desc_altura', "<b>Height in cm:</b> Enter height in cm (e.g., <code>175</code>, range 100 to 230 cm)."), body_style)],
-        [Paragraph(traducciones.get('pdf_lbl_peso', "Current Weight"), code_style), Paragraph(traducciones.get('pdf_desc_peso', "<b>Weight in kg:</b> Enter current weight in kg (e.g., <code>82.5</code> kg, range 30 to 300 kg)."), body_style)],
-        [Paragraph(traducciones.get('pdf_lbl_cintura', "Waist"), code_style), Paragraph(traducciones.get('pdf_desc_cintura', "<b>Waist perimeter:</b> Enter measurement in cm to calculate body build."), body_style)],
-        [Paragraph(traducciones.get('pdf_lbl_cuello', "Neck"), code_style), Paragraph(traducciones.get('pdf_desc_cuello', "<b>Neck perimeter:</b> Enter measurement in cm to calculate body build."), body_style)],
-        [Paragraph(traducciones.get('pdf_lbl_ocupacion', "Activity Level"), code_style), Paragraph(traducciones.get('pdf_desc_ocupacion', "<b>Activity Level:</b> Select usual activity level via buttons."), body_style)],
-        [Paragraph(traducciones.get('pdf_lbl_cumple', "Birth Date"), code_style), Paragraph(traducciones.get('pdf_desc_cumple', "<b>Birthday:</b> Enter birth date mandatory in format <code>YYYY-MM-DD</code>."), body_style)],
-        [Paragraph(traducciones.get('pdf_lbl_intensidad', "Intensity"), code_style), Paragraph(traducciones.get('pdf_desc_intensidad', "<b>Progress pace:</b> Select rhythm level (Easy, Moderate, or Intense)."), body_style)],
-        [Paragraph("<b>/cancelar</b>", code_style), Paragraph(traducciones.get('pdf_desc_cancelar', "<b>Cancel Registration:</b> Aborts signup process at any time."), body_style)]
+        [Paragraph("<b>/register</b>", code_style), Paragraph(traducciones.get('pdf_desc_alta', "<b>Registration Start Command:</b> Initiates the account opening and nutritional profile creation process."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_prof', "<b>Professional ID</b>"), code_style), Paragraph(traducciones.get('pdf_desc_prof', "<b>Professional Validation:</b> Enter the authorized professional's Telegram ID to link and validate the account."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_nombre', "<b>Name and Surname</b>"), code_style), Paragraph(traducciones.get('pdf_desc_nombre', "<b>Identification:</b> Enter the name or nickname under which the patient will appear in the system (minimum 2 characters)."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_edad', "<b>Age</b>"), code_style), Paragraph(traducciones.get('pdf_desc_edad', "<b>Age in years:</b> Enter a valid numerical value between 10 and 110 years."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_sexo', "<b>Biological Sex</b>"), code_style), Paragraph(traducciones.get('pdf_desc_sexo', "<b>Button Selection:</b> Choose between Male (M) or Female (F) using the interactive keyboard."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_altura', "<b>Height</b>"), code_style), Paragraph(traducciones.get('pdf_desc_altura', "<b>Height in centimeters:</b> Enter height in cm (e.g., <code>175</code> for 1.75 m, valid range 100 to 230 cm)."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_peso', "<b>Current Weight</b>"), code_style), Paragraph(traducciones.get('pdf_desc_peso', "<b>Weight in kilograms:</b> Enter current weight in kg (e.g., <code>82.5</code> kg, valid range 30 to 300 kg)."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_cintura', "<b>Waist</b>"), code_style), Paragraph(traducciones.get('pdf_desc_cintura', "<b>Waist perimeter:</b> Enter measurement in cm (e.g., <code>90</code> cm) to calculate body frame."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_cuello', "<b>Neck</b>"), code_style), Paragraph(traducciones.get('pdf_desc_cuello', "<b>Neck perimeter:</b> Enter measurement in cm (e.g., <code>40</code> cm) to calculate body frame."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_ocupacion', "<b>Occupation / Activity</b>"), code_style), Paragraph(traducciones.get('pdf_desc_ocupacion', "<b>Activity Level:</b> Select habitual activity level via buttons (Sedentary/Light, Moderate, or Intense)."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_cumple', "<b>Date of Birth</b>"), code_style), Paragraph(traducciones.get('pdf_desc_cumple', "<b>Birthday:</b> Mandatory date of birth entry in format <code>YYYY-MM-DD</code> (e.g., <code>1985-04-12</code>)."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_intensidad', "<b>Intensity</b>"), code_style), Paragraph(traducciones.get('pdf_desc_intensidad', "<b>Pace/Rhythm:</b> Select the stage pace level (Steady, Moderate, or Intense)."), body_style)],
+        [Paragraph("<b>/cancelar</b>", code_style), Paragraph(traducciones.get('pdf_desc_cancelar', "<b>Cancel Registration:</b> Aborts the registration process at any time and clears temporary data."), body_style)]
     ]
 
     t_alta = Table(alta_data, colWidths=[130, 410])
@@ -8054,97 +8095,136 @@ def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
     story.append(t_alta)
     story.append(PageBreak())
 
+    # ================= PÁGINA 2: Métodos de Registro y Calculadora Web =================
+    story.append(crear_encabezado())
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(traducciones.get('pdf_sec_metodos', "2. Intake and Activity Logging Methods"), section_style))
+
+    story.append(Paragraph(traducciones.get('pdf_subsec_ia', "A. With AI Intervention (Text, Voice, and Image)"), subsection_style))
+    
+    registro_ia_data = [
+        [Paragraph(traducciones.get('pdf_ia_texto', "<b>Free Text:</b> Write your meals naturally detailing portions. Detail physical activity indicating type, duration, and intensity."), body_style)],
+        [Paragraph(traducciones.get('pdf_ia_voz', "<b>Voice Notes:</b> Dictate your intake or activity via voice note; AI will convert audio to text and process nutritional data."), body_style)],
+        [Paragraph(traducciones.get('pdf_ia_foto', "<b>Gallery / Camera Photos:</b> Send a photo of the plate with or without clarifying description."), body_style)],
+        [Paragraph(traducciones.get('pdf_ia_edicion', "<b>Intake Editing & Confirmation Process:</b><br/>• <b>Meal Time:</b> Breakfast, Lunch, Snack, or Dinner.<br/>• <b>Partial Edit:</b> Select item by item sending a <i>new description</i>, <i>,new weight</i>, or <i>new description,new weight</i>.<br/>• <b>Date & Save:</b> Confirm consumption date to record in your spreadsheet."), body_style)],
+        [Paragraph(traducciones.get('pdf_ia_actividad', "<b>Activity Editing & Confirmation Process:</b><br/>• <b>Meal Time:</b> Activity.<br/>• <b>Partial Edit:</b> Enter a new burned calories value.<br/>• <b>Date & Save:</b> Confirm to record in your spreadsheet."), body_style)]
+    ]
+
+    t_reg_ia = Table(registro_ia_data, colWidths=[540])
+    t_reg_ia.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), BG_LIGHT),
+        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('TOPPADDING', (0,0), (-1,-1), 3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+        ('RIGHTPADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(t_reg_ia)
+    story.append(Spacer(1, 4))
+
+    story.append(Paragraph(traducciones.get('pdf_subsec_sin_ia', "B. Without AI Intervention (Preloaded Meals)"), subsection_style))
+
+    direct_data = [
+        [Paragraph(traducciones.get('pdf_col_tipo_reg', "Record Type"), body_bold_white), Paragraph(traducciones.get('pdf_col_sintaxis', "Syntax"), body_bold_white), Paragraph(traducciones.get('pdf_col_ejemplos', "Examples and Operation"), body_bold_white)],
+        [
+            Paragraph(traducciones.get('pdf_reg_plantilla', "<b>Meal Template</b>"), body_style),
+            Paragraph("<code>*CODE, QTY</code>", code_style),
+            Paragraph(traducciones.get('pdf_desc_plantilla', "• <code>*BREAKFAST,1</code> Logs 1 unit.<br/>• <code>*PIZZA,4</code> Logs 4 portions."), body_style)
+        ],
+        [
+            Paragraph(traducciones.get('pdf_reg_barra', "<b>Barcode</b>"), body_style),
+            Paragraph("<code>/barra NUMBER</code>", code_style),
+            Paragraph(traducciones.get('pdf_desc_barra', "• <code>/barra 7790742363107</code><br/>Enter product EAN to check 100g fractions."), body_style)
+        ]
+    ]
+
+    t_direct = Table(direct_data, colWidths=[120, 130, 290])
+    t_direct.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), PRIMARY),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('TOPPADDING', (0,0), (-1,-1), 3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+        ('LEFTPADDING', (0,0), (-1,-1), 5),
+        ('RIGHTPADDING', (0,0), (-1,-1), 5),
+        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, BG_LIGHT])
+    ]))
+    story.append(t_direct)
+    story.append(Spacer(1, 4))
+
+    story.append(Paragraph(traducciones.get('pdf_sec_calc', "3. Web Nutritional Calculator (/receta)"), section_style))
+    story.append(Paragraph(traducciones.get('pdf_desc_calc', "Allows uploading prepared recipes or habitual food combinations directly into your personal spreadsheet."), body_style))
+
+    receta_data = [
+        [
+            Paragraph(traducciones.get('pdf_receta_ej1', "Example 1: Combination (BREAKFAST)"), body_bold_white),
+            Paragraph(traducciones.get('pdf_receta_ej2', "Example 2: Prepared Recipe (CAKE)"), body_bold_white)
+        ],
+        [
+            Paragraph("• <b>Code:</b> <code>BREAKFAST</code><br/>• <b>Desc:</b> Traditional breakfast.<br/>• <b>Criteria:</b> Portions = 1.", body_style),
+            Paragraph("• <b>Code:</b> <code>CAKE</code><br/>• <b>Desc:</b> Homemade cake.<br/>• <b>Criteria:</b> 100g fraction.", body_style)
+        ]
+    ]
+
+    t_receta = Table(receta_data, colWidths=[270, 270])
+    t_receta.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), PRIMARY),
+        ('BACKGROUND', (0,1), (-1,1), BG_CARD),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('TOPPADDING', (0,0), (-1,-1), 3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+        ('LEFTPADDING', (0,0), (-1,-1), 5),
+        ('RIGHTPADDING', (0,0), (-1,-1), 5),
+        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR)
+    ]))
+    story.append(t_receta)
+    story.append(PageBreak())
+
+    # ================= PÁGINA 3: Comandos Principales =================
+    story.append(crear_encabezado())
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(traducciones.get('pdf_sec_cmds', "4. Main System Commands"), section_style))
+    
+    cmds_data = [
+        [Paragraph(traducciones.get('pdf_col_cmd', "Command"), body_bold_white), Paragraph(traducciones.get('pdf_col_desc_cmd', "Detailed Description and Usage Format"), body_bold_white)],
+        [Paragraph("<b>/barra</b>", code_style), Paragraph(traducciones.get('pdf_cmd_barra', "<b>Barcode:</b> Enter barcode to check product in 100g fractions."), body_style)],
+        [Paragraph("<b>/borracomida</b>", code_style), Paragraph(traducciones.get('pdf_cmd_borra', "<b>Delete meal:</b> Allows removing a preloaded meal."), body_style)],
+        [Paragraph("<b>/comidas</b>", code_style), Paragraph(traducciones.get('pdf_cmd_comidas', "<b>Meal sheet:</b> List of preloaded meals and PDF download."), body_style)],
+        [Paragraph("<b>/dia</b>", code_style), Paragraph(traducciones.get('pdf_cmd_dia', "<b>Daily summary:</b> Displays day's intake and detailed PDF download."), body_style)],
+        [Paragraph("<b>/eliminar</b>", code_style), Paragraph(traducciones.get('pdf_cmd_eliminar', "<b>Delete records:</b> Allows deleting intakes and activities by selecting the day."), body_style)],
+        [Paragraph("<b>/GET</b>", code_style), Paragraph(traducciones.get('pdf_cmd_get', "<b>Total Energy Expenditure:</b> Updates TEE via 24-hour base calories (e.g., <code>/GET 2150</code>)."), body_style)],
+        [Paragraph("<b>/inicio</b>", code_style), Paragraph(traducciones.get('pdf_cmd_inicio', "<b>Main guide:</b> Displays quick guide of commands and inputs."), body_style)],
+        [Paragraph("<b>/mes</b>", code_style), Paragraph(traducciones.get('pdf_cmd_mes', "<b>Monthly summary:</b> Monthly report, calories, weight estimation, and complete PDF."), body_style)],
+        [Paragraph("<b>/perfil</b>", code_style), Paragraph(traducciones.get('pdf_cmd_perfil', "<b>Biometric data:</b> Displays body data loaded in the system."), body_style)],
+        [Paragraph("<b>/peso</b>", code_style), Paragraph(traducciones.get('pdf_cmd_peso', "<b>Weight update:</b> Updates registered weight for the current month."), body_style)],
+        [Paragraph("<b>/presi</b>", code_style), Paragraph(traducciones.get('pdf_cmd_presi', "<b>Blood pressure:</b> Registration (<code>/presi HIGH,LOW,PULSE,NOTE</code>) and monthly query (<code>/presi YYYY-MM</code>)."), body_style)],
+        [Paragraph("<b>/receta</b>", code_style), Paragraph(traducciones.get('pdf_cmd_receta', "<b>Nutritional calculator:</b> Direct access to the web recipe module."), body_style)],
+        [Paragraph("<b>/semana</b>", code_style), Paragraph(traducciones.get('pdf_cmd_semana', "<b>Weekly average:</b> Weekly statistics of calories, proteins, and macronutrients."), body_style)],
+        [Paragraph(traducciones.get('pdf_lbl_atajos', "Shortcuts"), code_style), Paragraph("<b>• /diario:</b> <code>/d</code><br/><b>• /semanal:</b> <code>/s</code><br/><b>• /mensual:</b> <code>/m</code>", body_style)]
+    ]
+
+    t_cmds = Table(cmds_data, colWidths=[110, 430])
+    t_cmds.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), PRIMARY),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('TOPPADDING', (0,0), (-1,-1), 3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+        ('RIGHTPADDING', (0,0), (-1,-1), 6),
+        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, BG_LIGHT])
+    ]))
+    
+    story.append(t_cmds)
+
     doc.build(story)
     buffer.seek(0)
     return buffer
-    
-# ======================================================================================================================================
-#                       INICIO                  COMANDOS ALTA COMANDOS PERFIL                INICIO
-# ======================================================================================================================================
-
-#                       INICIO                  FUNCIONES COMUNES ALTA Y PERFIL                INICIO
-# ======================================================================================================================================
-
-def calcular_edad_desde_cumple(cumple_str):
-    """Calcula la edad actual en años a partir de una fecha de nacimiento 'AAAA-MM-DD'."""
-    try:
-        f_cumple = datetime.strptime(str(cumple_str).strip(), "%Y-%m-%d")
-        hoy = datetime.now(ARG_TZ)
-        edad = hoy.year - f_cumple.year - ((hoy.month, hoy.day) < (f_cumple.month, f_cumple.day))
-        return max(0, edad)
-    except Exception:
-        return 0
-
-def obtener_datos_completos_usuario(user_id, mes_target=None):
-    """
-    Obtiene y combina los datos unificados del usuario desde la tabla maestra 'Usuarios' 
-    y la tabla mensual histórica 'Perfil_<user_id>' respetando nombres exactos.
-    """
-    if not mes_target:
-        mes_target = datetime.now(ARG_TZ).strftime("%Y-%m")
-        
-    datos = {}
-    
-    # 1. Obtener de la tabla maestra 'Usuarios'
-    try:
-        conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        cur_u.execute('SELECT * FROM "Usuarios"')
-        filas = cur_u.fetchall()
-        colnames = [desc[0] for desc in cur_u.description]
-        cur_u.close()
-        conn_u.close()
-        
-        for fila in filas:
-            reg = dict(zip(colnames, fila))
-            raw_id = str(reg.get("User ID", "")).split('.')[0].strip()
-            if raw_id == str(user_id).strip():
-                datos.update(reg)
-                break
-    except Exception as e:
-        logger.error(f"Error al leer tabla Usuarios para {user_id}: {e}")
-
-    # 2. Obtener de la tabla mensual 'Perfil_<user_id>'
-    try:
-        tabla_perfil = f"Perfil_{user_id}"
-        conn_p, cur_p = _asegurar_tabla_y_conectar(tabla_perfil, tipo_tabla="perfil")
-        cur_p.execute(f'SELECT * FROM "{tabla_perfil}" WHERE "MES" = %s', (str(mes_target),))
-        fila_p = cur_p.fetchone()
-        colnames_p = [desc[0] for desc in cur_p.description] if cur_p.description else []
-        cur_p.close()
-        conn_p.close()
-        
-        if fila_p:
-            reg_p = dict(zip(colnames_p, fila_p))
-            datos.update(reg_p)
-    except Exception as e:
-        logger.error(f"Error al leer {tabla_perfil} para {user_id}: {e}")
-
-    return datos
-
-def formatear_ocupacion_icono(ocupacion_val):
-    """Devuelve el icono y nivel correspondiente según la ocupación."""
-    try:
-        val = float(ocupacion_val)
-    except ValueError:
-        val = 1.375
-    
-    if val <= 1.375:
-        return "🪑 Nivel 1 (Sedentario)"
-    elif val <= 1.550:
-        return "🚶 Nivel 2 (Moderado)"
-    else:
-        return "🏃 Nivel 3 (Intenso)"
-
-def formatear_ritmo_numero(ritmo_val):
-    """Mapea el ritmo de avance a número (1, 2 o 3)."""
-    r_str = str(ritmo_val).lower().strip()
-    if '1' in r_str or 'tranquilo' in r_str or 'slow' in r_str:
-        return "1"
-    elif '3' in r_str or 'intenso' in r_str or 'fast' in r_str:
-        return "3"
-    else:
-        return "2"
-
 #                       INICIO                       COMANDO ALTA                 INICIO
 # ======================================================================================================================================
 
