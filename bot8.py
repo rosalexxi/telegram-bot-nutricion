@@ -2024,6 +2024,8 @@ def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=No
 #              INICIO                       9  FUNCIONES MIGRAR FUNCIONES DESCARGAR                           INICIO
 # =============================================================================================================================================
 
+        app_bot.add_handler(CommandHandler(["importar"], cmd_importar_tabla))
+
 async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando para traducir o completar celdas vacías de un Excel en Supabase o adjunto.
@@ -2162,10 +2164,8 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando exclusivo para el administrador para importar/actualizar una tabla 
     específica directamente desde un archivo Excel adjunto en Telegram (en memoria RAM).
-    Uso: /importar nombre_de_tabla (con el archivo .xlsx adjunto)
-    """
+    Uso: /subir nombre_de_tabla (con el archivo .xlsx adjunto)
     user_id = update.effective_user.id
-    
     # 🔒 BLOQUE DE SEGURIDAD: Solo permitido para tu ID de usuario
     ADMIN_USER_ID = 7363062724
     if user_id != ADMIN_USER_ID:
@@ -2174,7 +2174,8 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return
-
+    """
+    
     # 1. Verificar si se indicó el nombre de la tabla
     if not context.args or len(context.args) == 0:
         await update.message.reply_text(
