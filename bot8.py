@@ -836,22 +836,6 @@ def get_user_worksheet(user_id):
 #              INICIO                           2  FUNCIONES CONEXIONES                            INICIO
 # =============================================================================================================================================
 
-def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
-    """Función auxiliar para migración que recrea la tabla limpia."""
-    conn = _obtener_conexion_db()
-    cur = conn.cursor()
-    cur.execute(f'DROP TABLE IF EXISTS "{tabla_nombre}" CASCADE;')
-    conn.commit()
-    
-    if df_muestra is not None and not df_muestra.empty:
-        cols_def = []
-        for col in df_muestra.columns:
-            cols_def.append(f'"{col}" TEXT')
-        cols_sql = ", ".join(cols_def)
-        cur.execute(f'CREATE TABLE "{tabla_nombre}" (id SERIAL PRIMARY KEY, {cols_sql});')
-        conn.commit()
-    return conn, cur
-
 def _obtener_conexion_db():
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
@@ -864,10 +848,6 @@ def _obtener_conexion_db():
     return psycopg2.connect(db_url)
 
 def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
-    """
-    Crea o asegura la tabla en Supabase. Realiza una búsqueda insensible a mayúsculas/minúsculas 
-    para reutilizar la tabla existente (sea minúscula o mayúscula) y evitar duplicados.
-    """
     conn = _obtener_conexion_db()
     cur = conn.cursor()
 
@@ -910,7 +890,6 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
                     "ocupacion" DOUBLE PRECISION,
                     "MES" TEXT,
                     "Fecha_Actualizacion" TEXT,
-                    "Peso_ideal" DOUBLE PRECISION,
                     "Cumple" TEXT
                 );
             """)
@@ -951,11 +930,13 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
                     "Notificaciones" TEXT,
                     "Fecha Alta" TEXT,
                     "Sexo" TEXT,
-                    "Altura" DOUBLE PRECISION,
-                    "muneca" DOUBLE PRECISION,
-                    "ocupacion" DOUBLE PRECISION,
                     "cumple" TEXT,
-                    "profesional" TEXT
+                    "profesional" TEXT,
+                    "reloj_actualizado_mes" TEXT,
+                    "Idioma" TEXT,
+                    "cintura_cm" DOUBLE PRECISION,
+                    "cuello_cm" DOUBLE PRECISION,
+                    "ritmo_preferido" TEXT
                 );
             """)
         elif tipo_tabla == "categorias_comida":
@@ -985,8 +966,7 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
         conn.commit()
 
     return conn, cur
-
-
+    
 #              INICIO                     4 FUNCIONES BIOMETRIA Y FUNCIONES PRESION                       INICIO
 # =============================================================================================================================================
 
@@ -1642,7 +1622,7 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
 
         logger.info(f"Inicializando nueva fila mensual ({mes_actual_str}) para User {user_id} en Supabase...")
 
-        cur.execute(f'SELECT "EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "Peso_ideal", "Cumple" FROM "{tabla_nombre}" ORDER BY id DESC LIMIT 1')
+        cur.execute(f'SELECT "EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "Cumple" FROM "{tabla_nombre}" ORDER BY id DESC LIMIT 1')
         ultima_fila = cur.fetchone()
         
         if ultima_fila:
@@ -1651,20 +1631,18 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
             altura_val = ultima_fila[2] or 1.70
             genero_val = ultima_fila[3] or "M"
             ocupacion_val = ultima_fila[4] or 1.375
-            peso_ideal_val = ultima_fila[5] or 0.0
-            cumple_val = ultima_fila[6] or ""
+            cumple_val = ultima_fila[5] or ""
         else:
             edad_val = "64"
             peso_val = 70.0
             altura_val = 1.70
             genero_val = "M"
             ocupacion_val = 1.375
-            peso_ideal_val = 0.0
             cumple_val = ""
 
         cur.execute(f"""
-            INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Cumple")
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             str(edad_val),
             float(peso_val),
@@ -1673,7 +1651,6 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
             float(ocupacion_val),
             str(mes_actual_str),
             ahora_dt.strftime("%Y-%m-%d"),
-            float(peso_ideal_val),
             str(cumple_val)
         ))
         
@@ -1688,7 +1665,7 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
             cur.close()
         if 'conn' in locals() and conn:
             conn.close()
-   
+            
 def obtener_todos_usuarios() -> list:
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
@@ -1974,8 +1951,8 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
             """, (peso_real, ahora.strftime("%Y-%m-%d"), str(mes)))
         else:
             cur.execute(f"""
-                INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Cumple")
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 str(edad) if edad is not None else "64",
                 peso_real,
@@ -1984,7 +1961,6 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                 float(ocupacion) if ocupacion is not None else 1.375,
                 str(mes),
                 ahora.strftime("%Y-%m-%d"),
-                0.0,
                 ""
             ))
         conn.commit()
@@ -1992,13 +1968,12 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         conn.close()
     except Exception as e:
         logger.error(f"Error al guardar perfil en Supabase (Perfil_{user_id}): {e}")
-
+        
 def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=None):
     """Actualiza el factor de ocupación en la tabla Perfil_<user_id> y el control en Usuarios."""
     user_id_str = str(user_id).strip()
     mes_marca = str(reloj_actualizado) if reloj_actualizado else str(mes_actual)
 
-    # 1. Actualizar en la tabla maestra 'Usuarios' (para el control de límite mensual del reloj)
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
         query_u = """
@@ -2011,14 +1986,12 @@ def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=No
         cur.close()
         conn.close()
     except Exception as e:
-        logger.error(f"Error al actualizar la tabla Usuarios en Supabase para {user_id}: {e}")
+        pass # Ignoramos el error en caso de que Ocupacion no exista en Usuarios, ya se guarda en Perfil
 
-    # 2. Actualizar en la tabla 'Perfil_<user_id>' (que es de donde el comando /perfil y las métricas leen la ocupación del mes)
     try:
         tabla_perfil = f"Perfil_{user_id}"
         conn_p, cur_p = _asegurar_tabla_y_conectar(tabla_perfil, tipo_tabla="perfil")
         
-        # Intentar actualizar el registro del mes actual
         query_p = f"""
             UPDATE "{tabla_perfil}"
             SET "ocupacion" = %s
@@ -2026,14 +1999,13 @@ def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=No
         """
         cur_p.execute(query_p, (float(nuevo_factor), str(mes_actual)))
         
-        # Si por alguna razón no existía una fila para este mes en la tabla de perfil, la insertamos
         if cur_p.rowcount == 0:
             cur_p.execute(f'SELECT id FROM "{tabla_perfil}" WHERE "MES" = %s', (str(mes_actual),))
             if not cur_p.fetchone():
                 cur_p.execute(f"""
-                    INSERT INTO "{tabla_perfil}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, ("64", 0.0, 167.0, "M", float(nuevo_factor), str(mes_actual), obtener_ahora_arg().strftime("%Y-%m-%d"), 0.0, ""))
+                    INSERT INTO "{tabla_perfil}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Cumple")
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, ("64", 0.0, 167.0, "M", float(nuevo_factor), str(mes_actual), obtener_ahora_arg().strftime("%Y-%m-%d"), ""))
             else:
                 cur_p.execute(query_p, (float(nuevo_factor), str(mes_actual)))
                 
@@ -2045,6 +2017,22 @@ def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=No
 
 #              INICIO                       9  FUNCIONES MIGRAR FUNCIONES DESCARGAR                           INICIO
 # =============================================================================================================================================
+
+def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
+    """Función auxiliar para migración que recrea la tabla limpia."""
+    conn = _obtener_conexion_db()
+    cur = conn.cursor()
+    cur.execute(f'DROP TABLE IF EXISTS "{tabla_nombre}" CASCADE;')
+    conn.commit()
+    
+    if df_muestra is not None and not df_muestra.empty:
+        cols_def = []
+        for col in df_muestra.columns:
+            cols_def.append(f'"{col}" TEXT')
+        cols_sql = ", ".join(cols_def)
+        cur.execute(f'CREATE TABLE "{tabla_nombre}" (id SERIAL PRIMARY KEY, {cols_sql});')
+        conn.commit()
+    return conn, cur
 
 async def cmd_importar_tabla(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
