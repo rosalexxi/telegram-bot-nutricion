@@ -7331,6 +7331,17 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
         txt_err_read = traducciones.get('perfil_error_lectura', "⚠️ Ocurrió un error al leer tu perfil: {e}").format(e=e)
         await update.message.reply_text(txt_err_read.replace('\\n', '\n'), parse_mode="Markdown")
 
+async def cmd_cancelar_conversacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancela cualquier flujo de conversación activo y limpia los datos temporales."""
+    context.user_data.clear()
+    if update.message:
+        await update.message.reply_text("❌ Operación cancelada.", parse_mode="Markdown")
+    elif update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text("❌ Operación cancelada.", parse_mode="Markdown")
+    return ConversationHandler.END
+    
+
 #      INICIO                               CALLBACKS INTERACTIVOS  PERFIL               INICIO
 # ======================================================================================================================================
 
