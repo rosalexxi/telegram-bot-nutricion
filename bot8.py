@@ -7140,6 +7140,7 @@ def cmd_nuevo_usuario(datos_usuario):
     mes_actual = datetime.now(ARG_TZ).strftime("%Y-%m")
     fecha_alta = datetime.now(ARG_TZ).strftime("%Y-%m-%d")
 
+    # 1. Guardar o actualizar datos generales en la tabla central 'Usuarios' (sin columnas de perfil)
     try:
         conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
         cur_u.execute('SELECT COUNT(*) FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
@@ -7150,23 +7151,23 @@ def cmd_nuevo_usuario(datos_usuario):
                 UPDATE "Usuarios" SET
                     "Nombre" = %s, "Estado" = %s, "Ultimo Mes Peso" = %s, "Notificaciones" = %s,
                     "Fecha Alta" = %s, "Sexo" = %s, "cumple" = %s, "profesional" = %s,
-                    "cintura_cm" = %s, "cuello_cm" = %s, "ritmo_preferido" = %s, "Idioma" = %s,
-                    "Ocupacion" = %s, "Altura" = %s, "Peso" = %s
+                    "cintura_cm" = %s, "cuello_cm" = %s, "ritmo_preferido" = %s, "Idioma" = %s
                 WHERE "User ID" = %s
             """
-            valores_usr = (nombre, 0, mes_actual, "Si", fecha_alta, sexo, cumple, profesional, cintura, cuello, ritmo, idioma, ocupacion, altura, peso, str(user_id))
+            valores_usr = (nombre, 0, mes_actual, "Si", fecha_alta, sexo, cumple, profesional, cintura, cuello, ritmo, idioma, str(user_id))
         else:
             query_usr = """
-                INSERT INTO "Usuarios" ("User ID", "Nombre", "Estado", "Ultimo Mes Peso", "Notificaciones", "Fecha Alta", "Sexo", "cumple", "profesional", "cintura_cm", "cuello_cm", "ritmo_preferido", "Idioma", "Ocupacion", "Altura", "Peso")
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO "Usuarios" ("User ID", "Nombre", "Estado", "Ultimo Mes Peso", "Notificaciones", "Fecha Alta", "Sexo", "cumple", "profesional", "cintura_cm", "cuello_cm", "ritmo_preferido", "Idioma")
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
-            valores_usr = (str(user_id), nombre, 0, mes_actual, "Si", fecha_alta, sexo, cumple, profesional, cintura, cuello, ritmo, idioma, ocupacion, altura, peso)
+            valores_usr = (str(user_id), nombre, 0, mes_actual, "Si", fecha_alta, sexo, cumple, profesional, cintura, cuello, ritmo, idioma)
 
         cur_u.execute(query_usr, valores_usr)
         conn_u.commit(); cur_u.close(); conn_u.close()
     except Exception as e:
         logger.error(f"Error alta tabla Usuarios: {e}")
 
+    # 2. Guardar los datos específicos del período en la tabla dinámica 'Perfil_<user_id>'
     try:
         tabla_perfil = f"Perfil_{user_id}"
         conn_p, cur_p = _asegurar_tabla_y_conectar(tabla_perfil, tipo_tabla="perfil")
@@ -7177,7 +7178,7 @@ def cmd_nuevo_usuario(datos_usuario):
         conn_p.commit(); cur_p.close(); conn_p.close()
     except Exception as e:
         logger.error(f"Error alta tabla Perfil: {e}")
-
+        
 #                       INICIO                             COMANDO PERFIL                     INICIO
 # ======================================================================================================================================
 
