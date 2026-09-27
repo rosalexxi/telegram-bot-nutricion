@@ -6770,7 +6770,8 @@ def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
     buffer.seek(0)
     return buffer    
 
-#                       INICIO                  FUNCIONES COMUNES ALTA Y PERFIL                INICIO
+# ======================================================================================================================================
+#                       INICIO                  FUNCIONES COMUNES ALTA Y PERFIL                            INICIO
 # ======================================================================================================================================
 
 def _verificar_profesional_valido(prof_id_str):
@@ -7286,7 +7287,8 @@ async def cmd_cancelar_conversacion(update: Update, context: ContextTypes.DEFAUL
     return ConversationHandler.END
 
 
-#                       INICIO                       COMANDO ALTA                 INICIO
+# ======================================================================================================================================
+#                       INICIO                               COMANDO ALTA                                   INICIO
 # ======================================================================================================================================
 
 async def obtener_idiomas_disponibles_db():
@@ -7362,7 +7364,8 @@ async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(texto_advertencia.replace('\\n', '\n'), reply_markup=keyboard, parse_mode="Markdown")
     return ING_TERMINOS
 
-    ing_recibir_profesionalquery = update.callback_query
+async def ing_aceptar_terminos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
     await query.answer()
 
     lang = context.user_data.get('ing_idioma', 'en')
