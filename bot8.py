@@ -6818,6 +6818,48 @@ def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
 #                       INICIO                               COMANDO ALTA Y FLUJO COMPLETO                      INICIO
 # ======================================================================================================================================
 
+# ======================================================================================================================================
+#                       INICIO                               COMANDO ALTA Y FLUJO COMPLETO                      INICIO
+# ======================================================================================================================================
+
+def _verificar_estado_usuario_en_hoja(user_id):
+    """Verifica si el usuario ya existe en la base de datos y devuelve su estado actual."""
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur.execute('SELECT "Estado" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
+        fila = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        if fila is not None:
+            estado = fila[0]
+            if estado is None:
+                return "0"
+            return str(estado).strip()
+        return None
+    except Exception as e:
+        logger.error(f"Error al verificar estado del usuario {user_id}: {e}")
+        return None
+
+def _verificar_profesional_valido(prof_id):
+    """Verifica si el ID de Telegram ingresado pertenece a un profesional registrado."""
+    prof_limpio = str(prof_id).strip()
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Profesionales", tipo_tabla="profesionales")
+        cur.execute('SELECT "User ID" FROM "Profesionales"')
+        filas = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        for fila in filas:
+            id_db = str(fila[0] or "").split('.')[0].strip()
+            if id_db == prof_limpio:
+                return True
+        return False
+    except Exception as e:
+        logger.error(f"Error al verificar profesional {prof_id}: {e}")
+        return False
+
 async def obtener_idiomas_disponibles_db():
     idiomas_info = []
     try:
@@ -7223,20 +7265,24 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             txt_perfil = traducciones.get('perfil_no_registrado', "👤 **Perfil no registrado para este mes.** Podés cargar tu peso ejecutando:\n`/peso 82.5`")
 
         # 🟢 Menú interactivo con botones Inline (Reacomodados sin Ocupación)
+
+
+# 🟢 Menú interactivo con botones Inline (Reacomodados con Altura)
         keyboard = [
             [
                 InlineKeyboardButton(traducciones.get('btn_edit_peso', "⚖️ Peso"), callback_data="edit_perfil_peso"),
-                InlineKeyboardButton(traducciones.get('btn_edit_cintura', "📏 Cintura"), callback_data="edit_perfil_cintura")
+                InlineKeyboardButton(traducciones.get('btn_edit_altura', "📏 Altura"), callback_data="edit_perfil_altura")
             ],
             [
-                InlineKeyboardButton(traducciones.get('btn_edit_cuello', "📐 Cuello"), callback_data="edit_perfil_cuello"),
-                InlineKeyboardButton(traducciones.get('btn_edit_ritmo', "🎯 Ritmo"), callback_data="edit_perfil_ritmo")
+                InlineKeyboardButton(traducciones.get('btn_edit_cintura', "📏 Cintura"), callback_data="edit_perfil_cintura"),
+                InlineKeyboardButton(traducciones.get('btn_edit_cuello', "📐 Cuello"), callback_data="edit_perfil_cuello")
             ],
             [
-                InlineKeyboardButton(traducciones.get('btn_edit_idioma', "🌐 Idioma"), callback_data="edit_perfil_idioma"),
-                InlineKeyboardButton(traducciones.get('btn_edit_nombre', "👤 Nombre"), callback_data="edit_perfil_nombre")
+                InlineKeyboardButton(traducciones.get('btn_edit_ritmo', "🎯 Ritmo"), callback_data="edit_perfil_ritmo"),
+                InlineKeyboardButton(traducciones.get('btn_edit_idioma', "🌐 Idioma"), callback_data="edit_perfil_idioma")
             ],
             [
+                InlineKeyboardButton(traducciones.get('btn_edit_nombre', "👤 Nombre"), callback_data="edit_perfil_nombre"),
                 InlineKeyboardButton(traducciones.get('btn_edit_prof', "🩺 Profesional"), callback_data="edit_perfil_prof")
             ]
         ]
@@ -7297,6 +7343,11 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
     if data == "edit_perfil_peso":
         context.user_data['awaiting_edit_perfil_peso'] = True
         msg = await query.message.reply_text(traducciones.get('solic_nuevo_peso', "⚖️ Por favor, ingresá tu nuevo peso en kg (ej: `78.5`):"), parse_mode="Markdown")
+        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+
+    elif data == "edit_perfil_altura":
+        context.user_data['awaiting_edit_perfil_altura'] = True
+        msg = await query.message.reply_text(traducciones.get('solic_nueva_altura', "📏 Por favor, ingresá tu nueva altura en cm (ej: `175`):"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
 
     elif data == "edit_perfil_cintura":
