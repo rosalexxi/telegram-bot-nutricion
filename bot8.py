@@ -4955,38 +4955,62 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     txt_analizando_img = traducciones.get("bot_analizando_imagen", "📸 Analizando imagen...")
     msg = await update.message.reply_text(txt_analizando_img)
-    try:
-        photo_bytes = await (await update.message.photo[-1].get_file()).download_as_bytearray()
-        base64_image = base64.b64encode(photo_bytes).decode('utf-8')
-        user_caption = update.message.caption or ""
-        
-        res_presion = analizar_foto_presion_con_groq(base64_image)
-        if res_presion.get("es_presion") and float(res_presion.get("alta", 0)) > 0:
-            return await _sub_manejar_foto_presion(update, context, res_presion, msg)
-
-        image_bytes = bytes(base64.b64decode(base64_image))
-        np_arr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-        
-        tiene_codigo_local = False
-        if img is not None:
-            detector = cv2.barcode.BarcodeDetector()
-            retval, points = detector.detect(img)
-            if retval:
-                tiene_codigo_local = True
-
-        if tiene_codigo_local:
-            await msg.edit_text("🔍 Código de barras detectado. Leyendo números del envase...")
-            codigo_leido = detectar_y_leer_codigo_barras_ia(base64_image)
+    
+    max_intentos = 2
+    exito = False
+    
+    for intento in range(1, max_intentos + 1):
+        try:
+            photo_bytes = await (await update.message.photo[-1].get_file()).download_as_bytearray()
+            base64_image = base64.b64encode(photo_bytes).decode('utf-8')
+            user_caption = update.message.caption or ""
             
-            if codigo_leido and len(codigo_leido.strip()) >= 4:
-                await msg.delete()
-                return await procesar_codigo_ingresado(update.message, context, codigo_leido.strip())
+            res_presion = analizar_foto_presion_con_groq(base64_image)
+            if res_presion.get("es_presion") and float(res_presion.get("alta", 0)) > 0:
+                exito = True
+                return await _sub_manejar_foto_presion(update, context, res_presion, msg)
 
-        return await _sub_manejar_foto_plato_ia(update, context, base64_image, user_caption, msg)
+            image_bytes = bytes(base64.b64decode(base64_image))
+            np_arr = np.frombuffer(image_bytes, np.uint8)
+            img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            
+            tiene_codigo_local = False
+            if img is not None:
+                detector = cv2.barcode.BarcodeDetector()
+                retval, points = detector.detect(img)
+                if retval:
+                    tiene_codigo_local = True
 
-    except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar imagen: {e}")
+            if tiene_codigo_local:
+                txt_barra_det = traducciones.get("bot_barra_detectada", "🔍 Código de barras detectado. Leyendo números del envase...")
+                await msg.edit_text(txt_barra_det)
+                codigo_leido = detectar_y_leer_codigo_barras_ia(base64_image)
+                
+                if codigo_leido and len(codigo_leido.strip()) >= 4:
+                    await msg.delete()
+                    exito = True
+                    return await procesar_codigo_ingresado(update.message, context, codigo_leido.strip())
+
+            exito = True
+            return await _sub_manejar_foto_plato_ia(update, context, base64_image, user_caption, msg)
+
+        except Exception as e:
+            logger.warning(f"⚠️ Intento {intento}/{max_intentos} fallido al procesar imagen para usuario {user_id}: {e}")
+            if intento < max_intentos:
+                txt_reintento_tpl = traducciones.get("bot_reintento_foto", "⏳ Demora en el servidor (Intento {intento}), reintentando automáticamente...")
+                await msg.edit_text(txt_reintento_tpl.format(intento=intento))
+                await asyncio.sleep(2)
+            else:
+                break
+
+    if not exito:
+        txt_error_timeout = traducciones.get(
+            "bot_error_timeout_foto", 
+            "⚠️ **Error de conexión o tiempo de espera agotado al procesar la imagen.**\n\n"
+            "La detección de fotos está experimentando inconvenientes temporales en el sistema. "
+            "Por favor, ingresá los datos o la descripción escribiéndola por **texto** o enviando una nota de **voz**."
+        )
+        await msg.edit_text(txt_error_timeout, parse_mode="Markdown")
 
 @requiere_registro
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
