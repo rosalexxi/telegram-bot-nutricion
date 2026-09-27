@@ -8510,7 +8510,7 @@ def main():
         app_bot.add_handler(CommandHandler(["pacientes", "patients"], cmd_pacientes))
         app_bot.add_handler(CommandHandler(["informe", "report"], cmd_enviar_informe_actual))
 #=================================INGRESOS Y CONSULTAS MANUALES============================================
-        app_bot.add_handler(CommandHandler(["alta", "register"], cmd_ingreso_start))
+#       app_bot.add_handler(CommandHandler(["alta", "register"], cmd_ingreso_start))
         app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
         app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
         app_bot.add_handler(CommandHandler(["perfil", "profile"], cmd_perfil))
