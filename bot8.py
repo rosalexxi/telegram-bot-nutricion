@@ -2024,54 +2024,6 @@ def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=No
 #              INICIO                       9  FUNCIONES MIGRAR FUNCIONES DESCARGAR                           INICIO
 # =============================================================================================================================================
 
-import re
-import urllib.request
-import urllib.parse
-import json
-
-# Patrón para detectar variables entre llaves
-PATTERN_VARS = re.compile(r'\{[^}]+\}')
-
-def traducir_texto_seguro(text, target_lang):
-    """Traduce un texto manteniendo intactas las variables entre llaves."""
-    if not isinstance(text, str) or not text.strip():
-        return text
-    
-    # 1. Encontrar todas las variables entre llaves
-    matches = PATTERN_VARS.findall(text)
-    
-    # 2. Reemplazarlas temporalmente por comodines seguros (__T0__, __T1__, etc.)
-    placeholders = {}
-    protected_text = text
-    for i, match in enumerate(matches):
-        placeholder = f"__T{i}__"
-        placeholders[placeholder] = match
-        protected_text = protected_text.replace(match, placeholder)
-        
-    # 3. Llamar al servicio de traducción web gratuito de Google
-    url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=es&tl={target_lang}&dt=t&q=" + urllib.parse.quote(protected_text)
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-    
-    try:
-        with urllib.request.urlopen(req) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            translated_text = "".join([sentence[0] for sentence in result[0]])
-            
-            # 4. Restaurar las variables originales exactamente como estaban
-            for placeholder, original in placeholders.items():
-                translated_text = translated_text.replace(placeholder, original)
-                translated_text = re.sub(r'__\s*t\s*(\d+)\s*__', r'{\1}', translated_text, flags=tr.IGNORECASE if 'tr' in globals() else re.IGNORECASE)
-                
-            # Segunda pasada de seguridad por si queda algún comodín numérico suelto
-            for placeholder, original in placeholders.items():
-                num = re.search(r'\d+', placeholder).group()
-                translated_text = translated_text.replace(f"__T{num}__", original)
-                
-            return translated_text
-    except Exception as e:
-        logger.error(f"Error traduciendo a {target_lang}: {e}")
-        return text
-
 async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando para traducir o completar celdas vacías de un Excel en Supabase o adjunto.
@@ -2189,20 +2141,8 @@ async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"Error en /traducir: {e}", exc_info=True)
         await mensaje_espera.edit_text(f"❌ Error al procesar: `{e}`", parse_mode="Markdown")
         
-
 def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
     """Función auxiliar para migración que recrea la tabla limpia."""
-
-    user_id = update.effective_user.id
-    
-    # 🔒 BLOQUE DE SEGURIDAD: Solo permitido para tu ID de usuario
-    ADMIN_USER_ID = 7363062724
-    if user_id != ADMIN_USER_ID:
-        await update.message.reply_text(
-            "⛔ **Acceso denegado:** No tenés permisos para ejecutar este comando.",
-            parse_mode="Markdown"
-        )
-        return
 
     conn = _obtener_conexion_db()
     cur = conn.cursor()
@@ -2319,6 +2259,7 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error al importar la tabla {nombre_tabla}: {e}", exc_info=True)
         await mensaje_espera.edit_text(f"❌ Error al importar la tabla: `{e}`", parse_mode="Markdown")
+        
 async def cmd_importar_tabla(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando para importar/actualizar una tabla específica desde un archivo Excel en el servidor.
