@@ -6804,6 +6804,8 @@ def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
     doc.build(story)
     buffer.seek(0)
     return buffer    
+#                       INICIO                               COMANDO ALTA Y FLUJO COMPLETO                      INICIO
+# ======================================================================================================================================
 
 async def obtener_idiomas_disponibles_db():
     idiomas_info = []
@@ -6899,9 +6901,6 @@ async def ing_recibir_ocupacion(update: Update, context: ContextTypes.DEFAULT_TY
     await query.edit_message_text("Ingresá tu **peso actual en kg** (ejemplo: `82.5`):", parse_mode="Markdown")
     return ING_PESO
 
-        
-#                       INICIO                               COMANDO ALTA Y FLUJO COMPLETO                      INICIO
-# ======================================================================================================================================
 
 async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -7192,6 +7191,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ocupacion = parse_raw_val(perfil_completo.get('ocupacion', perfil_completo.get('OCUPACION', 1.375)))
             fecha_act_peso = perfil_completo.get('Fecha_Actualizacion', 'S/D')
 
+            nombre = perfil_completo.get('Nombre', 'S/D')
             cintura = perfil_completo.get('cintura_cm', 'S/D')
             cuello = perfil_completo.get('cuello_cm', 'S/D')
             ritmo = perfil_completo.get('ritmo_preferido', 'moderado')
@@ -7202,12 +7202,14 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             txt_perfil = (
                 f"👤 **{traducciones.get('perfil_titulo_biometrico', 'Perfil Biométrico Actual')} ({mes_actual}):**\n\n"
+                f"• {traducciones.get('perfil_lbl_nombre', 'Nombre')}: `{nombre}`\n"
                 f"• {traducciones.get('perfil_lbl_edad', 'Edad')}: `{edad:.0f}` {traducciones.get('perfil_anos', 'años')}\n"
                 f"• {traducciones.get('perfil_lbl_peso', 'Peso')}: `{peso:.1f}` kg *(Act: {fecha_act_peso})*\n"
                 f"• {traducciones.get('perfil_lbl_altura', 'Altura')}: `{altura:.1f}` cm\n"
                 f"• {traducciones.get('perfil_lbl_cintura', 'Cintura')}: `{cintura}` cm\n"
                 f"• {traducciones.get('perfil_lbl_cuello', 'Cuello')}: `{cuello}` cm\n"
                 f"• {traducciones.get('perfil_lbl_ritmo', 'Ritmo de avance')}: `{str(ritmo).capitalize()}`\n"
+                f"• {traducciones.get('perfil_lbl_ocupacion', 'Ocupación')}: `{formatear_ocupacion_icono(ocupacion)}`\n"
                 f"• {traducciones.get('perfil_lbl_idioma', 'Idioma')}: `{str(idioma_usr).upper()}`\n"
                 f"• {traducciones.get('perfil_lbl_profesional', 'ID Profesional')}: `{profesional}`\n\n"
                 f"• **{traducciones.get('perfil_lbl_tmb', 'TMB Estimada')}:** `{tmb:.0f} kcal/día`\n"
@@ -7216,7 +7218,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             txt_perfil = traducciones.get('perfil_no_registrado', "👤 **Perfil no registrado para este mes.** Podés cargar tu peso ejecutando:\n`/peso 82.5`")
 
-        # 🟢 Menú interactivo con botones Inline (MANTENIENDO EL BOTÓN DE PESO AQUÍ)
+        # 🟢 Menú interactivo con botones Inline (INCLUYENDO NOMBRE Y OCUPACIÓN)
         keyboard = [
             [
                 InlineKeyboardButton(traducciones.get('btn_edit_peso', "⚖️ Peso"), callback_data="edit_perfil_peso"),
@@ -7224,10 +7226,14 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ],
             [
                 InlineKeyboardButton(traducciones.get('btn_edit_cuello', "📐 Cuello"), callback_data="edit_perfil_cuello"),
-                InlineKeyboardButton(traducciones.get('btn_edit_ritmo', "🎯 Ritmo"), callback_data="edit_perfil_ritmo")
+                InlineKeyboardButton(traducciones.get('btn_edit_ocup', "🏃 Ocupación"), callback_data="edit_perfil_ocupacion")
             ],
             [
-                InlineKeyboardButton(traducciones.get('btn_edit_idioma', "🌐 Idioma"), callback_data="edit_perfil_idioma"),
+                InlineKeyboardButton(traducciones.get('btn_edit_ritmo', "🎯 Ritmo"), callback_data="edit_perfil_ritmo"),
+                InlineKeyboardButton(traducciones.get('btn_edit_idioma', "🌐 Idioma"), callback_data="edit_perfil_idioma")
+            ],
+            [
+                InlineKeyboardButton(traducciones.get('btn_edit_nombre', "👤 Nombre"), callback_data="edit_perfil_nombre"),
                 InlineKeyboardButton(traducciones.get('btn_edit_prof', "🩺 Profesional"), callback_data="edit_perfil_prof")
             ]
         ]
@@ -7253,6 +7259,28 @@ async def cmd_cancelar_conversacion(update: Update, context: ContextTypes.DEFAUL
 
 #      INICIO                               CALLBACKS INTERACTIVOS  PERFIL               INICIO
 # ======================================================================================================================================
+
+def actualizar_ritmo_usuario(user_id, nuevo_ritmo):
+    """Actualiza el ritmo preferido del usuario en Supabase."""
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur.execute('UPDATE "Usuarios" SET "ritmo_preferido" = %s WHERE "User ID" = %s', (str(nuevo_ritmo), str(user_id)))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error al actualizar ritmo para {user_id}: {e}")
+
+def actualizar_idioma_usuario(user_id, nuevo_idioma):
+    """Actualiza el idioma del usuario en Supabase."""
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur.execute('UPDATE "Usuarios" SET "Idioma" = %s WHERE "User ID" = %s', (str(nuevo_idioma), str(user_id)))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error al actualizar idioma para {user_id}: {e}")
 
 @requiere_registro
 async def callback_handler_editar_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -7299,7 +7327,19 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
         ])
         await query.message.reply_text(traducciones.get('solic_elegir_ritmo', "🎯 Seleccioná tu nuevo ritmo de avance deseado:"), reply_markup=keyboard, parse_mode="Markdown")
 
+    elif data == "edit_perfil_ocupacion":
+        btn_o1 = traducciones.get('btn_ocup_nivel_1', "🪑 Nivel 1 (Sedentario/Ligero)")
+        btn_o2 = traducciones.get('btn_ocup_nivel_2', "🚶 Nivel 2 (Moderado)")
+        btn_o3 = traducciones.get('btn_ocup_nivel_3', "🏃 Nivel 3 (Intenso)")
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(btn_o1, callback_data="set_ocup_1375")],
+            [InlineKeyboardButton(btn_o2, callback_data="set_ocup_1550")],
+            [InlineKeyboardButton(btn_o3, callback_data="set_ocup_1725")]
+        ])
+        await query.message.reply_text(traducciones.get('solic_elegir_ocupacion', "🏃 Seleccioná tu nuevo nivel de ocupación / actividad:"), reply_markup=keyboard, parse_mode="Markdown")
+
     elif data == "edit_perfil_idioma":
+        # Ejecuta la función dinámica que lee la tabla multi (la que pasaste arriba)
         idiomas_disp = await obtener_idiomas_disponibles_db() if 'obtener_idiomas_disponibles_db' in globals() else [{'codigo': 'es', 'nombre': 'Español', 'bandera': '🇪🇸'}, {'codigo': 'en', 'nombre': 'English', 'bandera': '🇺🇸'}]
         b_list = [[InlineKeyboardButton(f"{i['bandera']} {i['nombre']}", callback_data=f"set_lang_{i['codigo']}")] for i in idiomas_disp]
         await query.message.reply_text(traducciones.get('solic_elegir_idioma', "🌐 Seleccioná tu idioma preferido:"), reply_markup=InlineKeyboardMarkup(b_list), parse_mode="Markdown")
@@ -7308,32 +7348,29 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
         val_r = data.replace("set_ritmo_", "")
         ritmos_map = {"1": "tranquilo", "2": "moderado", "3": "intenso"}
         ritmo_txt = ritmos_map.get(val_r, "moderado")
-        try:
-            conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-            cur.execute('UPDATE "Usuarios" SET "ritmo_preferido" = %s WHERE "User ID" = %s', (ritmo_txt, str(user_id)))
-            conn.commit()
-            cur.close()
-            conn.close()
-            msg_ok = traducciones.get('perfil_ritmo_actualizado_ok', "✅ ¡Ritmo actualizado exitosamente a *{ritmo}*!").format(ritmo=ritmo_txt.capitalize())
-            await query.edit_message_text(msg_ok, parse_mode="Markdown")
-        except Exception as e:
-            logger.error(f"Error al actualizar ritmo para {user_id}: {e}")
-            await query.edit_message_text(traducciones.get('perfil_error_actualizar_ritmo', "❌ Error al actualizar el ritmo."), parse_mode="Markdown")
+        
+        actualizar_ritmo_usuario(user_id, ritmo_txt)
+        
+        msg_ok = traducciones.get('perfil_ritmo_actualizado_ok', "✅ ¡Ritmo actualizado exitosamente a *{ritmo}*!").format(ritmo=ritmo_txt.capitalize())
+        await query.edit_message_text(msg_ok, parse_mode="Markdown")
+
+    elif data.startswith("set_ocup_"):
+        ocup_val = float(data.replace("set_ocup_", ""))
+        mes_actual = obtener_ahora_arg().strftime("%Y-%m")
+        
+        guardar_ocupacion_db(user_id, ocup_val, mes_actual) if 'guardar_ocupacion_db' in globals() else None
+        
+        msg_ok_ocup = traducciones.get('perfil_ocupacion_actualizada_ok', "✅ Ocupación actualizada correctamente.")
+        await query.edit_message_text(msg_ok_ocup, parse_mode="Markdown")
 
     elif data.startswith("set_lang_"):
         nuevo_lang = data.replace("set_lang_", "")
-        try:
-            conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-            cur.execute('UPDATE "Usuarios" SET "Idioma" = %s WHERE "User ID" = %s', (nuevo_lang, str(user_id)))
-            conn.commit()
-            cur.close()
-            conn.close()
-            msg_ok = traducciones.get('perfil_lang_actualizado_ok', "✅ ¡Idioma actualizado exitosamente a *{lang}*!").format(lang=nuevo_lang.upper())
-            await query.edit_message_text(msg_ok, parse_mode="Markdown")
-        except Exception as e:
-            logger.error(f"Error al actualizar idioma para {user_id}: {e}")
-            await query.edit_message_text("❌ Error al actualizar el idioma.", parse_mode="Markdown")
-                
+        
+        actualizar_idioma_usuario(user_id, nuevo_lang)
+        
+        msg_ok = traducciones.get('perfil_lang_actualizado_ok', "✅ ¡Idioma actualizado exitosamente a *{lang}*!").format(lang=nuevo_lang.upper())
+        await query.edit_message_text(msg_ok, parse_mode="Markdown")
+        
 #                       INICIO                  COMANDOS PRESION                    INICIO
 # ======================================================================================================================================
 
@@ -8060,7 +8097,8 @@ conv_handler_ingreso = ConversationHandler(
         ING_CUELLO: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cuello)],
         ING_OCUPACION: [CallbackQueryHandler(ing_recibir_ocupacion, pattern="^ocup_")],
         ING_CUMPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cumple)],
-        ING_RITMO: [CallbackQueryHandler(ing_recibir_ritmo, pattern="^ritmo_")]
+        ING_RITMO: [CallbackQueryHandler(ing_recibir_ritmo, pattern="^ritmo_")],
+        ING_IDIOMA: [CallbackQueryHandler(ing_recibir_idioma, pattern="^set_lang_")]
     },
     fallbacks=[CommandHandler("cancelar", cmd_cancelar_conversacion)]
 )
@@ -8135,7 +8173,7 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(callback_btn_cancelar_registro, pattern="^cancel_entry$"))
         app_bot.add_handler(CallbackQueryHandler(callback_btn_guardar_registro, pattern="^confirm_save$"))        
        
-       # Patrón delimitado para que 'manejar_callback_eliminacion' no capture a 'del_item_'
+        # Patrón delimitado para que 'manejar_callback_eliminacion' no capture a 'del_item_'
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_(d_|mom_|reg_|borrar)"))
 
         # 🟢 3. NUEVO MANEJADOR: Interacciones del menú /perfil (Esto revive los botones)
