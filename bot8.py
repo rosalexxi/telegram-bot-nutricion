@@ -3853,7 +3853,9 @@ async def _sub_manejar_plantilla_comida(update, context, raw_text, user_id):
         msg = await update.message.reply_text(txt_proc)
         await procesar_y_mostrar_confirmacion({"items": [item_gen], "tipo": "Comida"}, msg, context)
     else:
-        txt_err_noenc = traducciones.get('bot_error_comida_no_enc', f"❌ No se encontró la comida `*{nombre_plantilla}` en tu planilla `Comidas_{user_id}`.")
+        # 🟢 Mensaje de error controlado estrictamente por traducciones.get
+        txt_tpl = traducciones.get('bot_error_comida_no_enc', "❌ No se encontró la comida `*{nombre}` en tu planilla `Comidas_{user_id}`.")
+        txt_err_noenc = txt_tpl.format(nombre=nombre_plantilla, user_id=user_id)
         await update.message.reply_text(txt_err_noenc, parse_mode="Markdown")
         
 async def _sub_manejar_ingesta_libre_ia(update, context, raw_text):
@@ -4406,9 +4408,13 @@ def generar_pdf_comidas_bytes(plantillas, user_id=None):
         ]]
         
         for p in plantillas:
+            # 🟢 Limpieza estricta del caracter '§' para que no salga impreso en el PDF
+            nombre_limpio = str(p.get("Nombre", "")).replace('§', '').strip()
+            desc_limpia = str(p.get("Descripcion") or p.get("Momento", "")).replace('§', '').strip()
+
             table_data.append([
-                Paragraph(str(p.get("Nombre", "")), body_style),
-                Paragraph(str(p.get("Descripcion") or p.get("Momento", "")), body_style),
+                Paragraph(nombre_limpio, body_style),
+                Paragraph(desc_limpia, body_style),
                 Paragraph(f"{p.get('Peso', 0):.1f}", body_style),
                 Paragraph(f"{p.get('Calorias', 0):.1f}", body_style),
                 Paragraph(f"{p.get('Proteinas', 0):.1f}", body_style),
@@ -4432,7 +4438,7 @@ def generar_pdf_comidas_bytes(plantillas, user_id=None):
     doc.build(story)
     buffer.seek(0)
     return buffer
-    
+
 @requiere_registro
 async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
