@@ -7285,25 +7285,6 @@ async def cmd_cancelar_conversacion(update: Update, context: ContextTypes.DEFAUL
     await update.message.reply_text("❌ Registro de cuenta cancelado.")
     return ConversationHandler.END
 
-# 🟢 Definición faltante que causaba el error NameError
-conv_handler_ingreso = ConversationHandler(
-    entry_points=[CommandHandler("alta", cmd_ingreso_start), CommandHandler("nuevo_usuario", cmd_nuevo_usuario)],
-    states={
-        ING_TERMINOS: [CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$")],
-        ING_PROFESIONAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_profesional)],
-        ING_NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_nombre)],
-        ING_EDAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_edad)],
-        ING_SEXO: [CallbackQueryHandler(ing_recibir_sexo, pattern="^sexo_")],
-        ING_ALTURA: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_altura)],
-        ING_PESO: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_peso)],
-        ING_MUNECA: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_muneca)],
-        ING_CUELLO: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cuello)],
-        ING_OCUPACION: [CallbackQueryHandler(ing_recibir_ocupacion, pattern="^ocup_")],
-        ING_CUMPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cumple)],
-        ING_RITMO: [CallbackQueryHandler(ing_recibir_ritmo, pattern="^ritmo_")]
-    },
-    fallbacks=[CommandHandler("cancelar", cmd_cancelar_conversacion)]
-)
 
 #                       INICIO                       COMANDO ALTA                 INICIO
 # ======================================================================================================================================
@@ -7488,7 +7469,6 @@ def cmd_nueva_cuenta(datos_usuario):
     except Exception as e:
         logger.error(f"Error al guardar perfil inicial en {tabla_perfil} para {user_id}: {e}")
         
-
 #                       INICIO                             COMANDO PERFIL                     INICIO
 # ======================================================================================================================================
 
@@ -8454,9 +8434,8 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 # ==========================================================================================================================================
 #                    FINAL                      COMANDOS PROFESIONALES                               FINAL  
 # ==========================================================================================================================================
-
 # ==========================================================================================================================================
-#                                   INICIO                                       MAIN                                       INICIO  
+#                                   INICIO                                       MAIN                                   INICIO  
 # ==========================================================================================================================================
 
 async def job_recordatorio_manana(context):
@@ -8472,6 +8451,28 @@ async def job_recordatorio_tarde(context):
         await ejecutar_recordatorio_comidas(context, momento='tarde')
     except Exception as e:
         logger.error(f"❌ Error in job_recordatorio_tarde: {e}")
+
+
+# 🟢 1. Definimos el ConversationHandler AQUÍ ARRIBA (antes de main y después de todas sus funciones)
+conv_handler_ingreso = ConversationHandler(
+    entry_points=[CommandHandler(["alta", "register"], cmd_ingreso_start), CommandHandler("nuevo_usuario", cmd_nuevo_usuario)],
+    states={
+        ING_TERMINOS: [CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$")],
+        ING_PROFESIONAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_profesional)],
+        ING_NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_nombre)],
+        ING_EDAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_edad)],
+        ING_SEXO: [CallbackQueryHandler(ing_recibir_sexo, pattern="^sexo_")],
+        ING_ALTURA: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_altura)],
+        ING_PESO: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_peso)],
+        ING_MUNECA: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_muneca)],
+        ING_CUELLO: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cuello)],
+        ING_OCUPACION: [CallbackQueryHandler(ing_recibir_ocupacion, pattern="^ocup_")],
+        ING_CUMPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cumple)],
+        ING_RITMO: [CallbackQueryHandler(ing_recibir_ritmo, pattern="^ritmo_")]
+    },
+    fallbacks=[CommandHandler("cancelar", cmd_cancelar_conversacion)]
+)
+
 
 def main():
     threading.Thread(target=run_flask, daemon=True).start()
@@ -8504,13 +8505,13 @@ def main():
         else:
             print("⚠️ Warning: job_queue is not available.")
        
+        # 🟢 2. Aquí adentro ya se puede usar sin problemas porque ya fue definido arriba
         app_bot.add_handler(conv_handler_ingreso)
 
-#==================================PROFESIONALES===============================================
+        # ==================================PROFESIONALES===============================================
         app_bot.add_handler(CommandHandler(["pacientes", "patients"], cmd_pacientes))
         app_bot.add_handler(CommandHandler(["informe", "report"], cmd_enviar_informe_actual))
-#=================================INGRESOS Y CONSULTAS MANUALES============================================
-#       app_bot.add_handler(CommandHandler(["alta", "register"], cmd_ingreso_start))
+        # =================================INGRESOS Y CONSULTAS MANUALES============================================
         app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
         app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
         app_bot.add_handler(CommandHandler(["perfil", "profile"], cmd_perfil))
@@ -8518,13 +8519,13 @@ def main():
         app_bot.add_handler(CommandHandler(["get", "GET"], cmd_factor_handler))
         app_bot.add_handler(CommandHandler(["eliminar", "delete"], cmd_eliminar))
         app_bot.add_handler(CommandHandler(["borracomida", "delmeal"], cmd_borrar_comida))
-        app_bot.add_handler(CommandHandler(["peso", "weight"], cmd_peso_rapido))       
+        app_bot.add_handler(CommandHandler(["peso", "weight"], cmd_peso_rapido))        
         app_bot.add_handler(CommandHandler(["presion", "presi", "p", "pressure"], cmd_presion_handler))  
         app_bot.add_handler(CommandHandler(["dia", "d", "day"], cmd_diario))
         app_bot.add_handler(CommandHandler(["mes", "m", "month"], cmd_resumen))
         app_bot.add_handler(CommandHandler(["semana", "s", "w", "week"], cmd_mensaje))
         app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
-#=================================ADMINISTRADOR============================================
+        # =================================ADMINISTRADOR============================================
         app_bot.add_handler(CommandHandler(["descargar","bajar"], cmd_descargar))
         app_bot.add_handler(CommandHandler(["importar", "subir"], cmd_importar_tabla))
 
@@ -8560,5 +8561,4 @@ if __name__ == "__main__":
 # =============================================================================================================================================
 #                                               FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
-
 
