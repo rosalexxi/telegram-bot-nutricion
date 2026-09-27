@@ -4289,61 +4289,6 @@ async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_err_pdf = traducciones.get("bot_error_gen_pdf", "❌ Ocurrió un error al generar el archivo PDF.")
         await update.message.reply_text(msg_err_pdf)
 
-@requiere_registro
-async def cmd_borrar_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    # Obtener idioma y traducciones para el usuario
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-    
-    if context.args:
-        nombre_a_borrar = " ".join(context.args).strip()
-        
-        comida_encontrada = buscar_comida_precargada_exacta(user_id, nombre_a_borrar)
-        
-        if not comida_encontrada:
-            msg_no_enc = traducciones.get("bot_comida_no_encontrada", f"❌ No se encontró ninguna comida registrada con el nombre exacto: <b>{nombre_a_borrar}</b>.")
-            await update.message.reply_text(
-                msg_no_enc.format(nombre=nombre_a_borrar),
-                parse_mode="HTML"
-            )
-            return
-        
-        exito = eliminar_comida_precargada_db(user_id, comida_encontrada['nombre'])
-        
-        if exito:
-            msg_exito = traducciones.get("bot_comida_borrada_exito", f"✅ La comida <b>{comida_encontrada['nombre']}</b> ha sido eliminada exitosamente de tu planilla.")
-            await update.message.reply_text(
-                msg_exito.format(nombre=comida_encontrada['nombre']),
-                parse_mode="HTML"
-            )
-        else:
-            msg_err_db = traducciones.get("bot_error_db_borrar", f"❌ Hubo un error en la base de datos al intentar borrar <b>{comida_encontrada['nombre']}</b>.")
-            await update.message.reply_text(
-                msg_err_db.format(nombre=comida_encontrada['nombre']),
-                parse_mode="HTML"
-            )
-        return
-
-    comidas = obtener_comidas_usuario(user_id)
-    
-    if not comidas:
-        msg_no_reg = traducciones.get("bot_no_comidas_borrar", f"📋 No hay comidas predeterminadas registradas para eliminar.")
-        await update.message.reply_text(msg_no_reg)
-        return
-
-    txt = construir_texto_listado_comidas(user_id, comidas)
-    msg_instruccion = traducciones.get("bot_como_borrar_comida", "\n🗑️ <b>¿Cómo borrar una comida?</b>\nCopiá el nombre exacto de la lista de arriba y escribí el comando de la siguiente forma:\n<code>/borrarcomida Nombre de la Comida</code>")
-    txt += msg_instruccion
-    
-    try:
-        await update.message.reply_text(txt, parse_mode="HTML")
-    except Exception as e:
-        print(f"Error enviando texto de borrado: {e}")
-        msg_err_list = traducciones.get("bot_error_mostrar_listado", "📋 Ocurrió un error al mostrar el listado.")
-        await update.message.reply_text(msg_err_list)
-
 def buscar_comida_precargada_exacta(user_id, texto_codigo):
     codigo_buscado = texto_codigo.strip().upper()
     comidas_usuario = obtener_comidas_usuario(user_id)
@@ -4568,8 +4513,63 @@ async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await procesar_codigo_ingresado(update.message, context, barcode_text)
                
 
-#                   INICIO                       COMANDO ELIMINAR INGESTAS ACTIVIDAD                         INICIO
+#                   INICIO                       COMANDO ELIMINAR INGESTAS COMIDA ACTIVIDAD                         INICIO
 # ======================================================================================================================================
+
+@requiere_registro
+async def cmd_borrar_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    # Obtener idioma y traducciones para el usuario
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    
+    if context.args:
+        nombre_a_borrar = " ".join(context.args).strip()
+        
+        comida_encontrada = buscar_comida_precargada_exacta(user_id, nombre_a_borrar)
+        
+        if not comida_encontrada:
+            msg_no_enc = traducciones.get("bot_comida_no_encontrada", f"❌ No se encontró ninguna comida registrada con el nombre exacto: <b>{nombre_a_borrar}</b>.")
+            await update.message.reply_text(
+                msg_no_enc.format(nombre=nombre_a_borrar),
+                parse_mode="HTML"
+            )
+            return
+        
+        exito = eliminar_comida_precargada_db(user_id, comida_encontrada['nombre'])
+        
+        if exito:
+            msg_exito = traducciones.get("bot_comida_borrada_exito", f"✅ La comida <b>{comida_encontrada['nombre']}</b> ha sido eliminada exitosamente de tu planilla.")
+            await update.message.reply_text(
+                msg_exito.format(nombre=comida_encontrada['nombre']),
+                parse_mode="HTML"
+            )
+        else:
+            msg_err_db = traducciones.get("bot_error_db_borrar", f"❌ Hubo un error en la base de datos al intentar borrar <b>{comida_encontrada['nombre']}</b>.")
+            await update.message.reply_text(
+                msg_err_db.format(nombre=comida_encontrada['nombre']),
+                parse_mode="HTML"
+            )
+        return
+
+    comidas = obtener_comidas_usuario(user_id)
+    
+    if not comidas:
+        msg_no_reg = traducciones.get("bot_no_comidas_borrar", f"📋 No hay comidas predeterminadas registradas para eliminar.")
+        await update.message.reply_text(msg_no_reg)
+        return
+
+    txt = construir_texto_listado_comidas(user_id, comidas)
+    msg_instruccion = traducciones.get("bot_como_borrar_comida", "\n🗑️ <b>¿Cómo borrar una comida?</b>\nCopiá el nombre exacto de la lista de arriba y escribí el comando de la siguiente forma:\n<code>/borrarcomida Nombre de la Comida</code>")
+    txt += msg_instruccion
+    
+    try:
+        await update.message.reply_text(txt, parse_mode="HTML")
+    except Exception as e:
+        print(f"Error enviando texto de borrado: {e}")
+        msg_err_list = traducciones.get("bot_error_mostrar_listado", "📋 Ocurrió un error al mostrar el listado.")
+        await update.message.reply_text(msg_err_list)
 
 @requiere_registro
 async def cmd_eliminar(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4678,9 +4678,9 @@ async def render_pantalla_items_eliminar(query, user_id, context):
                 InlineKeyboardButton(f"❌ {nombre_corto}", callback_data=f"del_reg_{item_id}")
             ])
 
-    # Botón universal para borrar todo el momento y el de volver
-    keyboard.append([InlineKeyboardButton("🗑️ ⚠️", callback_data="del_borrar_todo_momento")])
+    # 🟢 Oñemboguema upe botón "del_borrar_todo_momento". Añemoĩnte upe botón de volver / salir ojehecha haguã.
     keyboard.append([InlineKeyboardButton("🔙", callback_data="del_volver_momentos")])
+    keyboard.append([InlineKeyboardButton("❌ Salir", callback_data="del_salir_pantalla")])
 
     markup = InlineKeyboardMarkup(keyboard)
     try:
@@ -4688,6 +4688,7 @@ async def render_pantalla_items_eliminar(query, user_id, context):
     except Exception:
         await query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
         
+@requiere_registro
 async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -4723,28 +4724,11 @@ async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEF
             
         await render_pantalla_items_eliminar(query, user_id, context)
 
-    elif data == "del_borrar_todo_momento":
-        fecha = context.user_data.get('del_fecha')
-        momento = context.user_data.get('del_momento')
-        
-        df = obtener_datos_usuario(user_id)
-        if not df.empty and 'Fecha' in df.columns and 'Momento' in df.columns:
-            df['Fecha_clean'] = df['Fecha'].astype(str).str.strip()
-            df['Momento_clean'] = df['Momento'].astype(str).str.strip().str.lower()
-            momento_busqueda = momento.strip().lower()
-
-            if momento_busqueda == 'actividad':
-                df_filtrado = df[(df['Fecha_clean'] == str(fecha).strip()) & (df['Momento_clean'].isin(['actividad', 'actividad física', 'ejercicio']))]
-            else:
-                df_filtrado = df[(df['Fecha_clean'] == str(fecha).strip()) & (df['Momento_clean'] == momento_busqueda)]
-
-            for _, r in df_filtrado.iterrows():
-                if 'id_registro' in r:
-                    eliminar_reg_id = int(r['id_registro'])
-                    eliminar_registro_por_id(user_id, eliminar_reg_id)
-                    
-        await query.answer("🗑️ Todos los registros de este momento fueron eliminados.", show_alert=True)
-        await mostrar_selector_momento_eliminar(query, context)
+    elif data == "del_salir_pantalla":
+        try:
+            await query.message.delete()
+        except Exception:
+            await query.edit_message_text("🗑️ Operación finalizada.")
 
     elif data in ["del_cambiar_fecha", "del_volver_momentos"]:
         await mostrar_selector_momento_eliminar(query, context)
