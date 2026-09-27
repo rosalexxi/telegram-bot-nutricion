@@ -6528,7 +6528,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
-    # Texto por defecto corregido (usando un solo * para negritas)
+    # Texto por defecto
     msg = traducciones.get('start_mensaje_bienvenida', 
         "👋 *Bienvenido a tu Asistente Nutricional!*\n\n"
         "Guía rápida de comandos disponibles:\n\n"
@@ -6549,9 +6549,20 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📄 _Te adjuntamos el Manual de Usuario completo en PDF._"
     )
     
-    texto_final = msg.replace('\\n', '\n')
+    # 1. Limpieza de base: convertimos etiquetas de tabla ocultas o saltos literales en saltos reales
+    texto_final = msg.replace('<br>', '\n').replace('\\n', '\n')
     
-    # Intenta enviar con Markdown. Si hay un error de sintaxis, lo envía como texto plano.
+    # 2. Eliminamos los saltos de línea exagerados (si hay 3 o más, los aplastamos a 2)
+    texto_final = re.sub(r'\n{2,}', '\n\n', texto_final)
+    
+    # 3. MÁGIA: Agrupamos las listas. Si hay un salto de línea doble antes de un punto, lo convertimos en simple
+    texto_final = texto_final.replace('\n\n•', '\n•')
+    texto_final = texto_final.replace('\n\n/', '\n/')
+    texto_final = texto_final.replace('\n\n`*', '\n`*')
+    texto_final = texto_final.replace('\n\nDESCRIPCION', '\nDESCRIPCION')
+    texto_final = texto_final.replace('\n\n,PESO', '\n,PESO')
+    
+    # Intenta enviar con Markdown. Si hay un error de sintaxis, lo envía como texto plano para no fallar.
     try:
         await update.message.reply_text(texto_final, parse_mode="Markdown")
     except Exception as e:
@@ -6567,7 +6578,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         logger.error(f"Error generando PDF manual en /start: {e}")
-
+        
 def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
