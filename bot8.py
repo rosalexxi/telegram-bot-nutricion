@@ -1110,6 +1110,44 @@ def obtener_ultima_presion(recs_presion_all):
         logger.error(f"Error al formatear última presión: {e}")
     return presion_str
 
+def obtener_datos_completos_usuario(user_id, mes_target=None):
+    """Obtiene los datos combinados de la tabla Usuarios y Perfil_{user_id}."""
+    datos_completos = {}
+    try:
+        # 1. Obtenemos los datos fijos de la tabla 'Usuarios'
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        query = """
+            SELECT "Nombre", "Sexo", "cumple", "profesional", "cintura_cm", 
+                   "cuello_cm", "ritmo_preferido", "Idioma" 
+            FROM "Usuarios" 
+            WHERE "User ID" = %s
+        """
+        cur.execute(query, (str(user_id),))
+        fila = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if fila:
+            datos_completos.update({
+                'Nombre': str(fila[0] or 'S/D'),
+                'Sexo': str(fila[1] or 'S/D'),
+                'cumple': str(fila[2] or 'S/D'),
+                'profesional': str(fila[3] or 'S/D'),
+                'cintura_cm': float(fila[4] or 0.0),
+                'cuello_cm': float(fila[5] or 0.0),
+                'ritmo_preferido': str(fila[6] or '2'),
+                'Idioma': str(fila[7] or 'es')
+            })
+    except Exception as e:
+        logger.error(f"Error obteniendo datos fijos de Usuarios: {e}")
+
+    # 2. Combinamos con los datos dinámicos del mes actual usando tu función original
+    perfil_mes = obtener_perfil_usuario(user_id, mes_target=mes_target)
+    if perfil_mes:
+        datos_completos.update(perfil_mes)
+
+    return datos_completos if datos_completos else None
+    
 def obtener_perfil_usuario(user_id, mes_target=None):
     try:
         tabla_nombre = f"Perfil_{user_id}"
@@ -7134,131 +7172,63 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
-    texto_mensaje = update.message.text.strip() if update.message and update.message.text else ""
-    raw_text = texto_mensaje
-    for cmd in ['/perfil', '/peso']:
-        if texto_mensaje.lower().startswith(cmd):
-            raw_text = texto_mensaje[len(cmd):].strip()
-            break
-
     ahora = obtener_ahora_arg()
     mes_actual = ahora.strftime("%Y-%m")
-    fecha_hoy = ahora.strftime("%Y-%m-%d")
 
+    # 🔹 GARANTIZAR FILA DEL MES: Asegura que la estructura del mes actual exista
     if '_garantizar_fila_mes_actual' in globals():
         _garantizar_fila_mes_actual(user_id, ahora)
 
-    # CASO 1: Ingreso rápido de peso mensual (/peso 82.5 o /perfil 82.5)
-    if raw_text:
-        try:
-            texto_limpio = raw_text.split()[0].replace(',', '.')
-            nuevo_peso = float(texto_limpio)
-            
-            guardar_perfil_db(user_id, nuevo_peso, mes_actual, fecha_actualizacion=fecha_hoy)
-            
-            try:
-                conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-                cur_u.execute('UPDATE "Usuarios" SET "peso" = %s WHERE "User ID" = %s', (float(nuevo_peso), str(user_id)))
-                conn_u.commit()
-                cur_u.close()
-                conn_u.close()
-            except Exception as e_usr_peso:
-                logger.error(f"Error al sincronizar peso en tabla Usuarios para {user_id}: {e_usr_peso}")
-
-            data_usr = obtener_datos_completos_usuario(user_id, mes_target=mes_actual)
-            edad = calcular_edad_desde_cumple(data_usr.get('cumple', '')) if data_usr.get('cumple') else 64
-            altura = parse_raw_val(data_usr.get('ALTURA', 170))
-            genero = str(data_usr.get('Sexo', 'M'))
-            ocupacion = parse_raw_val(data_usr.get('ocupacion', 1.375))
-
-            tmb, get_val = calcular_tmb_y_get(nuevo_peso, altura, edad, genero, ocupacion)
-            unidades_kcal = traducciones.get('perfil_unidades_kcal', 'kcal/day' if lang == 'en' else 'kcal/día')
-            
-            txt_peso_act = traducciones.get('perfil_peso_actualizado_ok', 
-                "✅ **Peso actualizado correctamente para el mes `{mes_actual}`:**\n\n"
-                "• Nuevo Peso: `{nuevo_peso:.1f}` kg\n"
-                "• Fecha de registro: `{fecha_hoy}`\n"
-                "• **TMB Estimada:** `{tmb:.0f} {unidades}`\n"
-                "• **GET Estimado:** `{get_val:.0f} {unidades}`"
-            ).format(mes_actual=mes_actual, nuevo_peso=nuevo_peso, fecha_hoy=fecha_hoy, tmb=tmb, get_val=get_val, unidades=unidades_kcal)
-
-            await update.message.reply_text(txt_peso_act.replace('\\n', '\n'), parse_mode="Markdown")
-            return
-
-        except ValueError:
-            txt_err_num = traducciones.get('perfil_error_numero_valido', "❌ Por favor, ingresá un número válido para el peso. Ejemplo: `/peso 82.5`")
-            await update.message.reply_text(txt_err_num.replace('\\n', '\n'), parse_mode="Markdown")
-            return
-        except Exception as e:
-            logger.error(f"Error al procesar /perfil o /peso: {e}")
-            txt_err_gral = traducciones.get('perfil_error_guardar', "⚠️ Ocurrió un error al intentar guardar en la base de datos: {e}").format(e=e)
-            await update.message.reply_text(txt_err_gral.replace('\\n', '\n'), parse_mode="Markdown")
-            return
-
-    # CASO 2: Consulta del Menú Interactivo de Perfil
+    # 🔹 CONSULTA DEL MENÚ INTERACTIVO DE PERFIL (Único caso)
     try:
-        data_usr = obtener_datos_completos_usuario(user_id, mes_target=mes_actual)
+        # Usamos la función puente que junta la tabla de Usuarios y el mes del Perfil
+        perfil_completo = obtener_datos_completos_usuario(user_id, mes_target=mes_actual)
 
-        if data_usr:
-            nombre = data_usr.get('Nombre', 'S/D')
-            sexo = data_usr.get('Sexo', 'S/D')
-            cumple = data_usr.get('cumple', 'S/D')
-            profesional = data_usr.get('profesional', 'S/D')
-            cintura = data_usr.get('cintura_cm', 'S/D')
-            cuello = data_usr.get('cuello_cm', 'S/D')
-            ritmo_crudo = data_usr.get('ritmo_preferido', '2')
-            ritmo_num = formatear_ritmo_numero(ritmo_crudo)
+        if perfil_completo:
+            peso = parse_raw_val(perfil_completo.get('PESO', perfil_completo.get('Peso', 0)))
+            altura = parse_raw_val(perfil_completo.get('ALTURA', perfil_completo.get('Altura', 0)))
+            edad = parse_raw_val(perfil_completo.get('EDAD', perfil_completo.get('Edad', 0)))
+            genero = str(perfil_completo.get('GENERO', perfil_completo.get('Sexo', 'M')))
+            ocupacion = parse_raw_val(perfil_completo.get('ocupacion', perfil_completo.get('OCUPACION', 1.375)))
+            fecha_act_peso = perfil_completo.get('Fecha_Actualizacion', 'S/D')
 
-            ocupacion = parse_raw_val(data_usr.get('ocupacion', 1.375))
-            ocup_icono = formatear_ocupacion_icono(ocupacion)
-            
-            idioma_usr = data_usr.get('Idioma', lang)
-            edad = calcular_edad_desde_cumple(cumple) if cumple != 'S/D' else parse_raw_val(data_usr.get('EDAD', 0))
-            peso = parse_raw_val(data_usr.get('PESO', 0))
-            altura = parse_raw_val(data_usr.get('ALTURA', 0))
+            cintura = perfil_completo.get('cintura_cm', 'S/D')
+            cuello = perfil_completo.get('cuello_cm', 'S/D')
+            ritmo = perfil_completo.get('ritmo_preferido', 'moderado')
+            profesional = perfil_completo.get('profesional', 'S/D')
+            idioma_usr = perfil_completo.get('Idioma', lang)
 
-            tmb, get_val = calcular_tmb_y_get(peso, altura, edad, sexo, ocupacion)
-            unidades_kcal = traducciones.get('perfil_unidades_kcal', 'kcal/day' if lang == 'en' else 'kcal/día')
+            tmb, get_val = calcular_tmb_y_get(peso, altura, edad, genero, ocupacion)
             
             txt_perfil = (
                 f"👤 **{traducciones.get('perfil_titulo_biometrico', 'Perfil Biométrico Actual')} ({mes_actual}):**\n\n"
-                f"• **User ID:** `{user_id}`\n"
-                f"• **Nombre:** `{nombre}`\n"
-                f"• **Sexo:** `{sexo}`\n"
-                f"• **Cumpleaños:** `{cumple}` (Edad: {edad:.0f} años)\n"
-                f"• **ID Profesional:** `{profesional}`\n"
-                f"• **Cintura:** `{cintura} cm`\n"
-                f"• **Cuello:** `{cuello} cm`\n"
-                f"• **Altura:** `{altura:.1f} cm`\n"
-                f"• **Peso Actual:** `{peso:.1f} kg`\n"
-                f"• **Ritmo de Dieta:** `{ritmo_num}`\n"
-                f"• **Ocupación:** `{ocup_icono}`\n"
-                f"• **Idioma:** `{str(idioma_usr).upper()}`\n\n"
-                f"• **{traducciones.get('perfil_lbl_tmb', 'TMB Estimada')}:** `{tmb:.0f} {unidades_kcal}`\n"
-                f"• **{traducciones.get('perfil_lbl_get', 'GET Estimado')}:** `{get_val:.0f} {unidades_kcal}`"
-            ).replace('\\n', '\n')
+                f"• {traducciones.get('perfil_lbl_edad', 'Edad')}: `{edad:.0f}` {traducciones.get('perfil_anos', 'años')}\n"
+                f"• {traducciones.get('perfil_lbl_peso', 'Peso')}: `{peso:.1f}` kg *(Act: {fecha_act_peso})*\n"
+                f"• {traducciones.get('perfil_lbl_altura', 'Altura')}: `{altura:.1f}` cm\n"
+                f"• {traducciones.get('perfil_lbl_cintura', 'Cintura')}: `{cintura}` cm\n"
+                f"• {traducciones.get('perfil_lbl_cuello', 'Cuello')}: `{cuello}` cm\n"
+                f"• {traducciones.get('perfil_lbl_ritmo', 'Ritmo de avance')}: `{str(ritmo).capitalize()}`\n"
+                f"• {traducciones.get('perfil_lbl_idioma', 'Idioma')}: `{str(idioma_usr).upper()}`\n"
+                f"• {traducciones.get('perfil_lbl_profesional', 'ID Profesional')}: `{profesional}`\n\n"
+                f"• **{traducciones.get('perfil_lbl_tmb', 'TMB Estimada')}:** `{tmb:.0f} kcal/día`\n"
+                f"• **{traducciones.get('perfil_lbl_get', 'GET Estimado')}:** `{get_val:.0f} kcal/día`"
+            )
         else:
             txt_perfil = traducciones.get('perfil_no_registrado', "👤 **Perfil no registrado para este mes.** Podés cargar tu peso ejecutando:\n`/peso 82.5`")
 
+        # 🟢 Menú interactivo con botones Inline (MANTENIENDO EL BOTÓN DE PESO AQUÍ)
         keyboard = [
             [
                 InlineKeyboardButton(traducciones.get('btn_edit_peso', "⚖️ Peso"), callback_data="edit_perfil_peso"),
-                InlineKeyboardButton(traducciones.get('btn_edit_altura', "📏 Altura"), callback_data="edit_perfil_altura")
+                InlineKeyboardButton(traducciones.get('btn_edit_cintura', "📏 Cintura"), callback_data="edit_perfil_cintura")
             ],
             [
-                InlineKeyboardButton(traducciones.get('btn_edit_cintura', "📏 Cintura"), callback_data="edit_perfil_cintura"),
-                InlineKeyboardButton(traducciones.get('btn_edit_cuello', "📐 Cuello"), callback_data="edit_perfil_cuello")
+                InlineKeyboardButton(traducciones.get('btn_edit_cuello', "📐 Cuello"), callback_data="edit_perfil_cuello"),
+                InlineKeyboardButton(traducciones.get('btn_edit_ritmo', "🎯 Ritmo"), callback_data="edit_perfil_ritmo")
             ],
             [
-                InlineKeyboardButton(traducciones.get('btn_edit_ritmo', "🎯 Ritmo (1-3)"), callback_data="edit_perfil_ritmo"),
-                InlineKeyboardButton(traducciones.get('btn_edit_ocup', "🏃 Ocupación"), callback_data="edit_perfil_ocupacion")
-            ],
-            [
-                InlineKeyboardButton(traducciones.get('btn_edit_nombre', "👤 Nombre"), callback_data="edit_perfil_nombre"),
+                InlineKeyboardButton(traducciones.get('btn_edit_idioma', "🌐 Idioma"), callback_data="edit_perfil_idioma"),
                 InlineKeyboardButton(traducciones.get('btn_edit_prof', "🩺 Profesional"), callback_data="edit_perfil_prof")
-            ],
-            [
-                InlineKeyboardButton(traducciones.get('btn_edit_idioma', "🌐 Idioma"), callback_data="edit_perfil_idioma")
             ]
         ]
         markup = InlineKeyboardMarkup(keyboard)
@@ -7268,8 +7238,8 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error al consultar perfil: {e}")
         txt_err_read = traducciones.get('perfil_error_lectura', "⚠️ Ocurrió un error al leer tu perfil: {e}").format(e=e)
-        await update.message.reply_text(txt_err_read.replace('\\n', '\n'), parse_mode="Markdown")
-
+        await update.message.reply_text(txt_err_read, parse_mode="Markdown")
+        
 async def cmd_cancelar_conversacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancela cualquier flujo de conversación activo y limpia los datos temporales."""
     context.user_data.clear()
@@ -7295,69 +7265,44 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
 
     if data == "edit_perfil_peso":
         context.user_data['awaiting_edit_perfil_peso'] = True
-        msg_txt = traducciones.get('solic_nuevo_peso', "⚖️ Por favor, ingresá tu nuevo peso en kg (ej: `78.5`):")
-        msg = await query.message.reply_text(msg_txt.replace('\\n', '\n'), parse_mode="Markdown")
-        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
-
-    elif data == "edit_perfil_altura":
-        context.user_data['awaiting_edit_perfil_altura'] = True
-        msg_txt = traducciones.get('solic_nueva_altura', "📏 Por favor, ingresá tu nueva altura en cm (ej: `175`):")
-        msg = await query.message.reply_text(msg_txt.replace('\\n', '\n'), parse_mode="Markdown")
+        msg = await query.message.reply_text(traducciones.get('solic_nuevo_peso', "⚖️ Por favor, ingresá tu nuevo peso en kg (ej: `78.5`):"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
 
     elif data == "edit_perfil_cintura":
         context.user_data['awaiting_edit_perfil_cintura'] = True
-        msg_txt = traducciones.get('solic_nueva_cintura', "📏 Por favor, ingresá el nuevo perímetro de tu cintura en cm (ej: `84`):")
-        msg = await query.message.reply_text(msg_txt.replace('\\n', '\n'), parse_mode="Markdown")
+        msg = await query.message.reply_text(traducciones.get('solic_nueva_cintura', "📏 Por favor, ingresá el nuevo perímetro de tu cintura en cm (ej: `84`):"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
 
     elif data == "edit_perfil_cuello":
         context.user_data['awaiting_edit_perfil_cuello'] = True
-        msg_txt = traducciones.get('solic_nuevo_cuello', "📐 Por favor, ingresá el nuevo perímetro de tu cuello en cm (ej: `37`):")
-        msg = await query.message.reply_text(msg_txt.replace('\\n', '\n'), parse_mode="Markdown")
+        msg = await query.message.reply_text(traducciones.get('solic_nuevo_cuello', "📐 Por favor, ingresá el nuevo perímetro de tu cuello en cm (ej: `37`):"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
 
     elif data == "edit_perfil_nombre":
         context.user_data['awaiting_edit_perfil_nombre'] = True
-        msg_txt = traducciones.get('solic_nuevo_nombre', "👤 Por favor, ingresá tu nuevo Nombre y Apellido:")
-        msg = await query.message.reply_text(msg_txt.replace('\\n', '\n'), parse_mode="Markdown")
+        msg = await query.message.reply_text(traducciones.get('solic_nuevo_nombre', "👤 Por favor, ingresá tu nuevo Nombre y Apellido:"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
 
     elif data == "edit_perfil_prof":
         context.user_data['awaiting_edit_perfil_prof'] = True
-        msg_txt = traducciones.get('solic_nuevo_prof', "🩺 Por favor, ingresá el ID de Telegram de tu nuevo profesional:")
-        msg = await query.message.reply_text(msg_txt.replace('\\n', '\n'), parse_mode="Markdown")
+        msg = await query.message.reply_text(traducciones.get('solic_nuevo_prof', "🩺 Por favor, ingresá el ID de Telegram de tu nuevo profesional:"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
 
     elif data == "edit_perfil_ritmo":
-        btn_r1 = traducciones.get('btn_ritmo_tranquilo', "1 - Tranquilo / Lento")
-        btn_r2 = traducciones.get('btn_ritmo_moderado', "2 - Moderado")
-        btn_r3 = traducciones.get('btn_ritmo_intenso', "3 - Intenso / Rápido")
+        btn_r1 = traducciones.get('btn_ritmo_tranquilo', "🟢 Tranquilo / Lento")
+        btn_r2 = traducciones.get('btn_ritmo_moderado', "🟡 Moderado")
+        btn_r3 = traducciones.get('btn_ritmo_intenso', "🔴 Intenso / Rápido")
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(btn_r1, callback_data="set_ritmo_1")],
             [InlineKeyboardButton(btn_r2, callback_data="set_ritmo_2")],
             [InlineKeyboardButton(btn_r3, callback_data="set_ritmo_3")]
         ])
-        txt_sel_ritmo = traducciones.get('solic_elegir_ritmo', "🎯 Seleccioná tu nuevo ritmo de dieta (1, 2 o 3):")
-        await query.message.reply_text(txt_sel_ritmo.replace('\\n', '\n'), reply_markup=keyboard, parse_mode="Markdown")
-
-    elif data == "edit_perfil_ocupacion":
-        btn_o1 = traducciones.get('btn_ocup_nivel_1', "🪑 Nivel 1 (Sedentario)")
-        btn_o2 = traducciones.get('btn_ocup_nivel_2', "🚶 Nivel 2 (Moderado)")
-        btn_o3 = traducciones.get('btn_ocup_nivel_3', "🏃 Nivel 3 (Intenso)")
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton(btn_o1, callback_data="set_ocup_1375")],
-            [InlineKeyboardButton(btn_o2, callback_data="set_ocup_1550")],
-            [InlineKeyboardButton(btn_o3, callback_data="set_ocup_1725")]
-        ])
-        txt_sel_ocup = traducciones.get('solic_elegir_ocupacion', "🏃 Seleccioná tu nuevo nivel de ocupación / actividad:")
-        await query.message.reply_text(txt_sel_ocup.replace('\\n', '\n'), reply_markup=keyboard, parse_mode="Markdown")
+        await query.message.reply_text(traducciones.get('solic_elegir_ritmo', "🎯 Seleccioná tu nuevo ritmo de avance deseado:"), reply_markup=keyboard, parse_mode="Markdown")
 
     elif data == "edit_perfil_idioma":
-        idiomas_disp = await obtener_idiomas_disponibles_db() if 'obtener_idiomas_disponibles_db' in globals() else ['es', 'en']
-        b_list = [[InlineKeyboardButton(f"🌐 {i.upper()}", callback_data=f"set_lang_{i}")] for i in idiomas_disp]
-        txt_sel_lang = traducciones.get('solic_elegir_idioma', "🌐 Seleccioná tu idioma preferido:")
-        await query.message.reply_text(txt_sel_lang.replace('\\n', '\n'), reply_markup=InlineKeyboardMarkup(b_list), parse_mode="Markdown")
+        idiomas_disp = await obtener_idiomas_disponibles_db() if 'obtener_idiomas_disponibles_db' in globals() else [{'codigo': 'es', 'nombre': 'Español', 'bandera': '🇪🇸'}, {'codigo': 'en', 'nombre': 'English', 'bandera': '🇺🇸'}]
+        b_list = [[InlineKeyboardButton(f"{i['bandera']} {i['nombre']}", callback_data=f"set_lang_{i['codigo']}")] for i in idiomas_disp]
+        await query.message.reply_text(traducciones.get('solic_elegir_idioma', "🌐 Seleccioná tu idioma preferido:"), reply_markup=InlineKeyboardMarkup(b_list), parse_mode="Markdown")
 
     elif data.startswith("set_ritmo_"):
         val_r = data.replace("set_ritmo_", "")
@@ -7369,44 +7314,25 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
             conn.commit()
             cur.close()
             conn.close()
-            
-            msg_ok_ritmo = traducciones.get('perfil_ritmo_actualizado_ok', "✅ ¡Ritmo actualizado exitosamente a *{ritmo}*!").format(ritmo=ritmo_txt.capitalize())
-            await query.edit_message_text(msg_ok_ritmo.replace('\\n', '\n'), parse_mode="Markdown")
+            msg_ok = traducciones.get('perfil_ritmo_actualizado_ok', "✅ ¡Ritmo actualizado exitosamente a *{ritmo}*!").format(ritmo=ritmo_txt.capitalize())
+            await query.edit_message_text(msg_ok, parse_mode="Markdown")
         except Exception as e:
             logger.error(f"Error al actualizar ritmo para {user_id}: {e}")
-            msg_err_ritmo = traducciones.get('perfil_error_actualizar_ritmo', "❌ Error al actualizar el ritmo.")
-            await query.edit_message_text(msg_err_ritmo, parse_mode="Markdown")
-
-    elif data.startswith("set_ocup_"):
-        ocup_val = float(data.replace("set_ocup_", ""))
-        mes_actual = datetime.now(ARG_TZ).strftime("%Y-%m")
-        try:
-            conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-            cur.execute('UPDATE "Usuarios" SET "ocupacion" = %s WHERE "User ID" = %s', (ocup_val, str(user_id)))
-            conn.commit()
-            cur.close()
-            conn.close()
-
-            tabla_perfil = f"Perfil_{user_id}"
-            conn_p, cur_p = _asegurar_tabla_y_conectar(tabla_perfil, tipo_tabla="perfil")
-            cur_p.execute(f'UPDATE "{tabla_perfil}" SET "ocupacion" = %s WHERE "MES" = %s', (ocup_val, mes_actual))
-            conn_p.commit()
-            cur_p.close()
-            conn_p.close()
-
-            msg_ok_ocup = traducciones.get('perfil_ocupacion_actualizada_ok', "✅ Ocupación actualizada correctamente.")
-            await query.edit_message_text(msg_ok_ocup.replace('\\n', '\n'), parse_mode="Markdown")
-        except Exception as e:
-            logger.error(f"Error al actualizar ocupación para {user_id}: {e}")
-            msg_err_ocup = traducciones.get('perfil_error_actualizar_ocupacion', "❌ Error al actualizar la ocupación.")
-            await query.edit_message_text(msg_err_ocup, parse_mode="Markdown")
+            await query.edit_message_text(traducciones.get('perfil_error_actualizar_ritmo', "❌ Error al actualizar el ritmo."), parse_mode="Markdown")
 
     elif data.startswith("set_lang_"):
         nuevo_lang = data.replace("set_lang_", "")
-        if 'actualizar_idioma_usuario' in globals():
-            actualizar_idioma_usuario(user_id, nuevo_lang)
-        msg_ok_lang = traducciones.get('perfil_lang_actualizado_ok', "✅ ¡Idioma actualizado exitosamente a *{lang}*!").format(lang=nuevo_lang.upper())
-        await query.edit_message_text(msg_ok_lang.replace('\\n', '\n'), parse_mode="Markdown")
+        try:
+            conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+            cur.execute('UPDATE "Usuarios" SET "Idioma" = %s WHERE "User ID" = %s', (nuevo_lang, str(user_id)))
+            conn.commit()
+            cur.close()
+            conn.close()
+            msg_ok = traducciones.get('perfil_lang_actualizado_ok', "✅ ¡Idioma actualizado exitosamente a *{lang}*!").format(lang=nuevo_lang.upper())
+            await query.edit_message_text(msg_ok, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Error al actualizar idioma para {user_id}: {e}")
+            await query.edit_message_text("❌ Error al actualizar el idioma.", parse_mode="Markdown")
                 
 #                       INICIO                  COMANDOS PRESION                    INICIO
 # ======================================================================================================================================
