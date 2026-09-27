@@ -6533,7 +6533,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         filename="Manual_Bot_Nutricional.pdf"
     )    
  
- def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
+def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, 
