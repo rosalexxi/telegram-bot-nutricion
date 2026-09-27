@@ -3525,6 +3525,50 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 #               MANEJADORES INDEPENDIENTES Y EXCLUSIVOS PARA CADA GRUPO DE BOTONES (CERO COMPARTIDOS)
 # ======================================================================================================================================
 
+async def callback_handler_presion_foto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    if data == "presion_guardar_directo":
+        datos_presion = context.user_data.pop('pending_presion_foto', None)
+        context.user_data.pop('awaiting_presion_nota', None)
+        
+        if datos_presion:
+            alta = datos_presion.get("alta")
+            baja = datos_presion.get("baja")
+            pulsaciones = datos_presion.get("pulsaciones")
+            
+            guardar_presion_db(user_id, alta, baja, pulsaciones, nota="")
+            
+            pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
+            await query.edit_message_text(
+                f"✅ **¡Presión arterial registrada con éxito!**\n\n"
+                f"• Presión Alta: `{alta:.0f} mmHg`\n"
+                f"• Presión Baja: `{baja:.0f} mmHg`{pul_txt}",
+                parse_mode="Markdown"
+            )
+        else:
+            await query.edit_message_text("⚠️ Los datos temporales de la presión expiraron.")
+
+    elif data == "presion_pedir_nota":
+        context.user_data['awaiting_presion_nota'] = True
+        txt_pedir_nota = traducciones.get("bot_pedir_nota_presion", "✏️ Por favor, escribí la nota o detalle para este registro de presión (o escribí `cancelar` para anular):")
+        await query.message.reply_text(txt_pedir_nota, parse_mode="Markdown")
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+
+    elif data == "cancelar_presion_foto":
+        context.user_data.pop('pending_presion_foto', None)
+        context.user_data.pop('awaiting_presion_nota', None)
+        txt_canc = traducciones.get("bot_presion_cancelada", "❌ Registro de presión cancelado.")
+        await query.edit_message_text(txt_canc)
+        
 @requiere_registro
 async def callback_handler_actividades(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -4700,7 +4744,7 @@ async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEF
         await mostrar_selector_momento_eliminar(query, context)
         
 
-#                INICIO                             MANEJADOR COMIDAS ACTIVIDAD                                 INICIO DB OK
+#                INICIO                             MANEJADOR COMIDAS ACTIVIDAD PRESION                                INICIO DB OK
 # =====================================================================================================================================
 
 async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id):
@@ -8417,6 +8461,8 @@ def main():
         app_bot.add_handler(CommandHandler("traducir", cmd_traducir_excel))
         app_bot.add_handler(CommandHandler("subir", cmd_subir))
 
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^presion_"))
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^cancelar_presion_foto$"))
         app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
