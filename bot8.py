@@ -27,6 +27,12 @@ import cv2
 import numpy as np
 import requests
 import math
+import urllib.request
+import urllib.parse
+
+# Patrón para detectar variables entre llaves
+PATTERN_VARS = re.compile(r'\{[^}]+\}')
+
 
 from typing import Dict, Tuple, List, Optional, Any            
 from urllib.parse import urlparse 
@@ -2018,8 +2024,186 @@ def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=No
 #              INICIO                       9  FUNCIONES MIGRAR FUNCIONES DESCARGAR                           INICIO
 # =============================================================================================================================================
 
+import re
+import urllib.request
+import urllib.parse
+import json
+
+# Patrón para detectar variables entre llaves
+PATTERN_VARS = re.compile(r'\{[^}]+\}')
+
+def traducir_texto_seguro(text, target_lang):
+    """Traduce un texto manteniendo intactas las variables entre llaves."""
+    if not isinstance(text, str) or not text.strip():
+        return text
+    
+    # 1. Encontrar todas las variables entre llaves
+    matches = PATTERN_VARS.findall(text)
+    
+    # 2. Reemplazarlas temporalmente por comodines seguros (__T0__, __T1__, etc.)
+    placeholders = {}
+    protected_text = text
+    for i, match in enumerate(matches):
+        placeholder = f"__T{i}__"
+        placeholders[placeholder] = match
+        protected_text = protected_text.replace(match, placeholder)
+        
+    # 3. Llamar al servicio de traducción web gratuito de Google
+    url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=es&tl={target_lang}&dt=t&q=" + urllib.parse.quote(protected_text)
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    
+    try:
+        with urllib.request.urlopen(req) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            translated_text = "".join([sentence[0] for sentence in result[0]])
+            
+            # 4. Restaurar las variables originales exactamente como estaban
+            for placeholder, original in placeholders.items():
+                translated_text = translated_text.replace(placeholder, original)
+                translated_text = re.sub(r'__\s*t\s*(\d+)\s*__', r'{\1}', translated_text, flags=tr.IGNORECASE if 'tr' in globals() else re.IGNORECASE)
+                
+            # Segunda pasada de seguridad por si queda algún comodín numérico suelto
+            for placeholder, original in placeholders.items():
+                num = re.search(r'\d+', placeholder).group()
+                translated_text = translated_text.replace(f"__T{num}__", original)
+                
+            return translated_text
+    except Exception as e:
+        logger.error(f"Error traduciendo a {target_lang}: {e}")
+        return text
+
+async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Comando para traducir o completar celdas vacías de un Excel en Supabase o adjunto.
+    Uso: 
+      - /traducir multi IT (traduce o completa el italiano)
+      - /traducir multi (completa todas las celdas vacías de todos los idiomas)
+    """
+    user_id = update.effective_user.id
+    
+    # 🔒 BLOQUE DE SEGURIDAD (Solo tu ID)
+    ADMIN_USER_ID = 7363062724
+    if user_id != ADMIN_USER_ID:
+        await update.message.reply_text("⛔ No tenés permisos para ejecutar este comando.", parse_mode="Markdown")
+        return
+
+    if not context.args or len(context.args) == 0:
+        await update.message.reply_text(
+            "⚠️ Indica el nombre de la tabla y opcionalmente el idioma.\n"
+            "Ejemplo: `/traducir multi IT` o simplemente `/traducir multi`",
+            parse_mode="Markdown"
+        )
+        return
+
+    nombre_tabla = context.args[0].strip()
+    # Si pasaron un segundo argumento, es el idioma específico (ej. 'IT', 'FR', 'PT')
+    idioma_especifico = context.args[1].strip().lower() if len(context.args) > 1 else None
+
+    documento = update.message.document
+    if not documento or not documento.file_name.endswith('.xlsx'):
+        await update.message.reply_text(f"⚠️ Adjuntá el archivo Excel (`.xlsx`) junto con el comando.", parse_mode="Markdown")
+        return
+
+    mensaje_espera = await update.message.reply_text(
+        f"🔄 Procesando traducción para la tabla `{nombre_tabla}`...", 
+        parse_mode="Markdown"
+    )
+
+    try:
+        file_obj = await context.bot.get_file(documento.file_id)
+        file_bytes = await file_obj.download_as_bytearray()
+        
+        buffer_in = io.BytesIO(file_bytes)
+        df = pd.read_excel(buffer_in)
+
+        if df.empty or 'ES' not in df.columns:
+            await mensaje_espera.edit_text("❌ El archivo debe tener una columna `ES` (Español).", parse_mode="Markdown")
+            return
+
+        df.columns = [str(c).strip() for c in df.columns]
+
+        # Determinar qué columnas procesar
+        if idioma_especifico:
+            cols_a_procesar = [idioma_especifico.upper()]
+            if cols_a_procesar[0] not in df.columns:
+                df[cols_a_procesar[0]] = "" # Si la columna no existe, la crea
+        else:
+            # Si no especifica idioma, procesa todas las columnas que no sean 'variables', 'ES', 'EN'
+            cols_a_procesar = [c for c in df.columns if c.upper() not in ['VARIABLES', 'ES', 'EN']]
+
+        total_celdas = len(df)
+        for col in cols_a_procesar:
+            lang_code = col.lower()
+            await mensaje_espera.edit_text(f"🔄 Traduciendo columna `{col}`...", parse_mode="Markdown")
+            
+            nueva_columna = []
+            for idx, row in df.iterrows():
+                texto_es = str(row['ES']) if pd.notna(row['ES']) else ""
+                valor_actual = str(row[col]) if col in df.columns and pd.notna(row[col]) else ""
+                
+                # LÓGICA INTELIGENTE: Si hay idioma específico, traduce todo. Si es general, solo traduce si está vacío o NaN
+                if idioma_especifico or not valor_actual.strip() or valor_actual.strip().lower() == 'nan':
+                    traducido = traducir_texto_seguro(texto_es, lang_code)
+                    nueva_columna.append(traducido)
+                else:
+                    nueva_columna.append(row[col]) # Mantiene lo que ya estaba escrito
+            
+            df[col] = nueva_columna
+
+        # Limpiar duplicados por si acaso en la primera columna
+        columna_clave = df.columns[0]
+        df = df.drop_duplicates(subset=[columna_clave], keep='last')
+
+        # Guardar automáticamente los cambios en Supabase con borrón y cuenta nueva
+        conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df)
+
+        columnas = list(df.columns)
+        cols_sql = ', '.join([f'"{c}"' for c in columnas])
+        placeholders = ', '.join(['%s'] * len(columnas))
+        
+        query_insert = f'INSERT INTO "{nombre_tabla}" ({cols_sql}) VALUES ({placeholders})'
+
+        for _, row in df.iterrows():
+            valores = [None if pd.isna(row[col]) else str(row[col]).strip() for col in columnas]
+            cur.execute(query_insert, tuple(valores))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        # Generar también el archivo Excel de salida para enviártelo por Telegram de regalo
+        buffer_out = io.BytesIO()
+        with pd.ExcelWriter(buffer_out, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name=nombre_tabla[:31])
+        buffer_out.seek(0)
+
+        await update.message.reply_document(
+            document=buffer_out,
+            filename=f"actualizado_{documento.file_name}",
+            caption=f"✅ **¡Traducción y actualización completada con éxito!**\nTabla `{nombre_tabla}` sincronizada en Supabase.",
+            parse_mode="Markdown"
+        )
+        await mensaje_espera.delete()
+
+    except Exception as e:
+        logger.error(f"Error en /traducir: {e}", exc_info=True)
+        await mensaje_espera.edit_text(f"❌ Error al procesar: `{e}`", parse_mode="Markdown")
+        
+
 def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
     """Función auxiliar para migración que recrea la tabla limpia."""
+
+    user_id = update.effective_user.id
+    
+    # 🔒 BLOQUE DE SEGURIDAD: Solo permitido para tu ID de usuario
+    ADMIN_USER_ID = 7363062724
+    if user_id != ADMIN_USER_ID:
+        await update.message.reply_text(
+            "⛔ **Acceso denegado:** No tenés permisos para ejecutar este comando.",
+            parse_mode="Markdown"
+        )
+        return
+
     conn = _obtener_conexion_db()
     cur = conn.cursor()
     cur.execute(f'DROP TABLE IF EXISTS "{tabla_nombre}" CASCADE;')
@@ -2034,6 +2218,107 @@ def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
         conn.commit()
     return conn, cur
 
+async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Comando exclusivo para el administrador para importar/actualizar una tabla 
+    específica directamente desde un archivo Excel adjunto en Telegram (en memoria RAM).
+    Uso: /importar nombre_de_tabla (con el archivo .xlsx adjunto)
+    """
+    user_id = update.effective_user.id
+    
+    # 🔒 BLOQUE DE SEGURIDAD: Solo permitido para tu ID de usuario
+    ADMIN_USER_ID = 7363062724
+    if user_id != ADMIN_USER_ID:
+        await update.message.reply_text(
+            "⛔ **Acceso denegado:** No tenés permisos para ejecutar este comando.",
+            parse_mode="Markdown"
+        )
+        return
+
+    # 1. Verificar si se indicó el nombre de la tabla
+    if not context.args or len(context.args) == 0:
+        await update.message.reply_text(
+            "⚠️ Por favor, indica el nombre de la tabla a importar junto con el archivo adjunto.\n"
+            "Ejemplo: `/importar multi`",
+            parse_mode="Markdown"
+        )
+        return
+
+    nombre_tabla = context.args[0].strip()
+    nombre_archivo_esperado = f"{nombre_tabla}.xlsx"
+
+    # 2. Verificar si el usuario adjuntó un documento Excel (.xlsx)
+    documento = update.message.document
+    if not documento or not documento.file_name.endswith('.xlsx'):
+        await update.message.reply_text(
+            f"⚠️ Por favor, adjuntá un archivo Excel (`{nombre_archivo_esperado}`) junto con el comando `/importar {nombre_tabla}`.",
+            parse_mode="Markdown"
+        )
+        return
+
+    mensaje_espera = await update.message.reply_text(
+        f"🔄 Descargando `{documento.file_name}` y reescribiendo la tabla `{nombre_tabla}` en Supabase...", 
+        parse_mode="Markdown"
+    )
+
+    try:
+        # 3. Descargar el archivo directamente a la memoria RAM (BytesIO) sin tocar el disco
+        file_obj = await context.bot.get_file(documento.file_id)
+        file_bytes = await file_obj.download_as_bytearray()
+        
+        buffer_in = io.BytesIO(file_bytes)
+        df = pd.read_excel(buffer_in)
+
+        if df.empty:
+            await mensaje_espera.edit_text(f"⚠️ El archivo adjunto está vacío.", parse_mode="Markdown")
+            return
+
+        # Limpiar nombres de columnas
+        df.columns = [str(c).strip() for c in df.columns]
+
+        # 🔹 LIMPIEZA AUTOMÁTICA DE DUPLICADOS:
+        # Toma la primera columna como clave única y se queda con la última aparición (la de más abajo)
+        columna_clave = df.columns[0]
+        df = df.drop_duplicates(subset=[columna_clave], keep='last')
+
+        # Conectar, limpiar y recrear la tabla completa en Supabase
+        conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df)
+
+        columnas = list(df.columns)
+        cols_sql = ', '.join([f'"{c}"' for c in columnas])
+        placeholders = ', '.join(['%s'] * len(columnas))
+        
+        query_insert = f"""
+            INSERT INTO "{nombre_tabla}" ({cols_sql})
+            VALUES ({placeholders})
+        """
+
+        filas_insertadas = 0
+        for _, row in df.iterrows():
+            valores = []
+            for col in columnas:
+                val = row[col]
+                if pd.isna(val):
+                    val = None
+                else:
+                    val = str(val).strip()
+                valores.append(val)
+
+            cur.execute(query_insert, tuple(valores))
+            filas_insertadas += 1
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        await mensaje_espera.edit_text(
+            f"✅ ¡Éxito! La tabla `{nombre_tabla}` fue reescrita y actualizada en Supabase con {filas_insertadas} registros únicos.", 
+            parse_mode="Markdown"
+        )
+
+    except Exception as e:
+        logger.error(f"Error al importar la tabla {nombre_tabla}: {e}", exc_info=True)
+        await mensaje_espera.edit_text(f"❌ Error al importar la tabla: `{e}`", parse_mode="Markdown")
 async def cmd_importar_tabla(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando para importar/actualizar una tabla específica desde un archivo Excel en el servidor.
@@ -2041,6 +2326,16 @@ async def cmd_importar_tabla(update: Update, context: ContextTypes.DEFAULT_TYPE)
     El archivo Excel debe llamarse igual que la tabla (ej. multi.xlsx) o estar especificado.
     """
     user_id = update.effective_user.id
+    
+    # 🔒 BLOQUE DE SEGURIDAD: Solo permitido para tu ID de usuario
+    ADMIN_USER_ID = 7363062724
+    if user_id != ADMIN_USER_ID:
+        await update.message.reply_text(
+            "⛔ **Acceso denegado:** No tenés permisos para ejecutar este comando.",
+            parse_mode="Markdown"
+        )
+        return
+
     
     if not context.args or len(context.args) == 0:
         await update.message.reply_text(
@@ -8177,7 +8472,9 @@ def main():
         app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
         # =================================ADMINISTRADOR============================================
         app_bot.add_handler(CommandHandler(["descargar","bajar"], cmd_descargar))
-        app_bot.add_handler(CommandHandler(["importar", "subir"], cmd_importar_tabla))
+        app_bot.add_handler(CommandHandler(["importar"], cmd_importar_tabla))
+        app_bot.add_handler(CommandHandler("traducir", cmd_traducir_excel))
+        app_bot.add_handler(CommandHandler("subir", cmd_subir))
 
         app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
