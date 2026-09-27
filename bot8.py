@@ -2540,7 +2540,6 @@ def obtener_nombre_lenguaje_ia(user_id=None):
     if not user_id:
         return "Spanish"
     try:
-        from FuncionesSupabaseMulti import _asegurar_tabla_y_conectar
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
         cur.execute('SELECT "lenguajes" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
         row = cur.fetchone()
@@ -6770,532 +6769,21 @@ def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
     buffer.seek(0)
     return buffer    
 
+#                       INICIO                               COMANDO ALTA Y FLUJO COMPLETO                      INICIO
 # ======================================================================================================================================
-#                       INICIO                  FUNCIONES COMUNES ALTA Y PERFIL                            INICIO
-# ======================================================================================================================================
 
-def _verificar_profesional_valido(prof_id_str):
-    """Verifica si el ID del profesional existe en la tabla 'Profesionales' de Supabase."""
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Profesionales", tipo_tabla="profesionales")
-        query = 'SELECT "User ID" FROM "Profesionales"'
-        cur.execute(query)
-        filas = cur.fetchall()
-        cur.close()
-        conn.close()
-        
-        for fila in filas:
-            id_p = str(fila[0] or "").split('.')[0].strip()
-            if id_p == str(prof_id_str).strip():
-                return True
-    except Exception as e:
-        logger.error(f"Error al verificar profesionales en Supabase: {e}")
-    return False
-
-async def ing_recibir_profesional(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    prof_id = update.message.text.strip()
-    lang = context.user_data.get('ing_idioma', 'en')
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-    
-    loop = asyncio.get_running_loop()
-    es_valido = await loop.run_in_executor(None, _verificar_profesional_valido, prof_id)
-    
-    if not es_valido:
-        txt_err_prof = traducciones.get('ing_error_profesional_invalido', 
-            "⚠️ **ID de profesional no válido**\n\n"
-            "El número ingresado no figura en la lista de profesionales autorizados. "
-            "Por favor, verificá el ID con tu profesional e intentalo nuevamente o escribí `/cancelar`."
-        )
-        await update.message.reply_text(txt_err_prof, parse_mode="Markdown")
-        return ING_PROFESIONAL
-
-    context.user_data['ing_profesional'] = prof_id
-    txt_solic_nombre = traducciones.get('ing_solicitar_nombre', 
-        "✅ **Profesional verificado correctamente.**\n\n"
-        "📝 **Apertura de Ficha Nutricional**\n"
-        "Por favor, indicá tu **Nombre y Apellido / Apodo**:"
-    )
-    await update.message.reply_text(txt_solic_nombre, parse_mode="Markdown")
-    return ING_NOMBRE
-
-def calcular_edad_desde_cumple(cumple_str):
-    """Calcula la edad actual en años a partir de una fecha de nacimiento 'AAAA-MM-DD'."""
-    try:
-        f_cumple = datetime.strptime(str(cumple_str).strip(), "%Y-%m-%d")
-        hoy = datetime.now(ARG_TZ)
-        edad = hoy.year - f_cumple.year - ((hoy.month, hoy.day) < (f_cumple.month, f_cumple.day))
-        return max(0, edad)
-    except Exception:
-        return 0
-
-def obtener_datos_completos_usuario(user_id, mes_target=None):
-    """
-    Obtiene y combina los datos unificados del usuario desde la tabla maestra 'Usuarios' 
-    y la tabla mensual histórica 'Perfil_<user_id>' respetando nombres exactos.
-    """
-    if not mes_target:
-        mes_target = datetime.now(ARG_TZ).strftime("%Y-%m")
-        
-    datos = {}
-    
-    # 1. Obtener de la tabla maestra 'Usuarios'
-    try:
-        conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        cur_u.execute('SELECT * FROM "Usuarios"')
-        filas = cur_u.fetchall()
-        colnames = [desc[0] for desc in cur_u.description]
-        cur_u.close()
-        conn_u.close()
-        
-        for fila in filas:
-            reg = dict(zip(colnames, fila))
-            raw_id = str(reg.get("User ID", "")).split('.')[0].strip()
-            if raw_id == str(user_id).strip():
-                datos.update(reg)
-                break
-    except Exception as e:
-        logger.error(f"Error al leer tabla Usuarios para {user_id}: {e}")
-
-    # 2. Obtener de la tabla mensual 'Perfil_<user_id>'
-    try:
-        tabla_perfil = f"Perfil_{user_id}"
-        conn_p, cur_p = _asegurar_tabla_y_conectar(tabla_perfil, tipo_tabla="perfil")
-        cur_p.execute(f'SELECT * FROM "{tabla_perfil}" WHERE "MES" = %s', (str(mes_target),))
-        fila_p = cur_p.fetchone()
-        colnames_p = [desc[0] for desc in cur_p.description] if cur_p.description else []
-        cur_p.close()
-        conn_p.close()
-        
-        if fila_p:
-            reg_p = dict(zip(colnames_p, fila_p))
-            datos.update(reg_p)
-    except Exception as e:
-        logger.error(f"Error al leer {tabla_perfil} para {user_id}: {e}")
-
-    return datos
-
-def formatear_ocupacion_icono(ocupacion_val):
-    """Devuelve el icono y nivel correspondiente según la ocupación."""
-    try:
-        val = float(ocupacion_val)
-    except ValueError:
-        val = 1.375
-    
-    if val <= 1.375:
-        return "🪑 Nivel 1 (Sedentario)"
-    elif val <= 1.550:
-        return "🚶 Nivel 2 (Moderado)"
-    else:
-        return "🏃 Nivel 3 (Intenso)"
-
-def formatear_ritmo_numero(ritmo_val):
-    """Mapea el ritmo de avance a número (1, 2 o 3)."""
-    r_str = str(ritmo_val).lower().strip()
-    if '1' in r_str or 'tranquilo' in r_str or 'slow' in r_str:
-        return "1"
-    elif '3' in r_str or 'intenso' in r_str or 'fast' in r_str:
-        return "3"
-    else:
-        return "2"
-        
-def _verificar_estado_usuario_en_hoja(user_id):
-    """Verifica si el usuario existe en Supabase y devuelve su estado o None."""
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        query = 'SELECT "User ID", "Estado" FROM "Usuarios"'
-        cur.execute(query)
-        filas = cur.fetchall()
-        cur.close()
-        conn.close()
-        
-        for fila in filas:
-            raw_id = fila[0]
-            if raw_id and str(raw_id).split('.')[0].strip() == str(user_id).strip():
-                estado_val = fila[1]
-                return str(estado_val if estado_val is not None else "0").strip()
-    except Exception as e:
-        logger.error(f"Error al verificar estado de usuario en Supabase: {e}")
-    return None
-    
-async def ing_recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    nombre = update.message.text.strip()
-    lang = context.user_data.get('ing_idioma', 'en')
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    if len(nombre) < 2:
-        txt_err_nom = traducciones.get('ing_error_nombre_valido', "⚠️ Por favor, ingresá un nombre válido.")
-        await update.message.reply_text(txt_err_nom)
-        return ING_NOMBRE
-    
-    context.user_data['ing_nombre'] = nombre
-    txt_solic_edad = traducciones.get('ing_solicitar_edad', "Ingresá tu **edad** en años (ejemplo: `35`):")
-    await update.message.reply_text(txt_solic_edad, parse_mode="Markdown")
-    return ING_EDAD
-
-async def ing_recibir_edad(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    txt = update.message.text.strip()
-    lang = context.user_data.get('ing_idioma', 'en')
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    if not txt.isdigit() or not (10 <= int(txt) <= 110):
-        txt_err_edad = traducciones.get('ing_error_edad_valida', "⚠️ Por favor, ingresá una edad válida en números (ejemplo: `35`).")
-        await update.message.reply_text(txt_err_edad)
-        return ING_EDAD
-    
-    context.user_data['ing_edad'] = int(txt)
-    
-    btn_masc = traducciones.get('btn_sexo_masculino', "Masculino 👨")
-    btn_fem = traducciones.get('btn_sexo_femenino', "Femenino 👩")
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(btn_masc, callback_data="sexo_M"),
-         InlineKeyboardButton(btn_fem, callback_data="sexo_F")]
-    ])
-    txt_solic_sexo = traducciones.get('ing_solicitar_sexo', "Seleccioná tu **sexo biológico**:")
-    await update.message.reply_text(txt_solic_sexo, reply_markup=keyboard, parse_mode="Markdown")
-    return ING_SEXO
-
-async def ing_recibir_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    lang = context.user_data.get('ing_idioma', 'en')
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-    
-    sexo = "M" if query.data == "sexo_M" else "F"
-    context.user_data['ing_sexo'] = sexo
-    
-    sexo_str_label = traducciones.get('label_masculino', 'Masculino') if sexo == 'M' else traducciones.get('label_femenino', 'Femenino')
-    txt_sexo_reg = traducciones.get('ing_sexo_registrado', 
-        "Sexo registrado: *{sexo_label}*.\n\n"
-        "Ahora ingresá tu **altura en centímetros** (ejemplo: `175` para 1,75 m):"
-    ).format(sexo_label=sexo_str_label)
-
-    await query.edit_message_text(txt_sexo_reg, parse_mode="Markdown")
-    return ING_ALTURA
-
-async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    txt = update.message.text.strip().replace(',', '.')
-    lang = context.user_data.get('ing_idioma', 'en')
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    try:
-        alt = float(txt)
-        if not (100 <= alt <= 230): raise ValueError()
-    except ValueError:
-        txt_err_alt = traducciones.get('ing_error_altura_valida', "⚠️ Ingresá una altura válida en centímetros (ejemplo: `170`).")
-        await update.message.reply_text(txt_err_alt)
-        return ING_ALTURA
-
-    context.user_data['ing_altura'] = alt
-    txt_solic_peso = traducciones.get('ing_solicitar_peso', "Ingresá tu **peso actual en kg** (ejemplo: `82.5`):")
-    await update.message.reply_text(txt_solic_peso, parse_mode="Markdown")
-    return ING_PESO
-
-async def ing_recibir_peso(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    txt = update.message.text.strip().replace(',', '.')
-    lang = context.user_data.get('ing_idioma', 'en')
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    try:
-        peso = float(txt)
-        if not (30 <= peso <= 300): raise ValueError()
-    except ValueError:
-        txt_err_peso = traducciones.get('ing_error_peso_valido', "⚠️ Ingresá un peso válido en kg (ejemplo: `75.4`).")
-        await update.message.reply_text(txt_err_peso)
-        return ING_PESO
-
-    context.user_data['ing_peso'] = peso
-    txt_solic_cintura = traducciones.get('ing_solicitar_cintura', 
-        "Ingresá el **perímetro de tu cintura en cm** (ejemplo: `85`):\n"
-        "_(Se utiliza junto con el cuello para calcular tu porcentaje de grasa)_"
-    )
-    await update.message.reply_text(txt_solic_cintura, parse_mode="Markdown")
-    return ING_MUNECA
-
-async def ing_recibir_muneca(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    txt = update.message.text.strip().replace(',', '.')
-    lang = context.user_data.get('ing_idioma', 'en')
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    try:
-        cintura = float(txt)
-        if not (50 <= cintura <= 200): raise ValueError()
-    except ValueError:
-        txt_err_cintura = traducciones.get('ing_error_cintura_valida', "⚠️ Ingresá un perímetro de cintura válido en cm (ejemplo: `85`).")
-        await update.message.reply_text(txt_err_cintura, parse_mode="Markdown")
-        return ING_MUNECA
-
-    context.user_data['ing_cintura'] = cintura
-    txt_solic_cuello = traducciones.get('ing_solicitar_cuello', 
-        "Ingresá el **perímetro de tu cuello en cm** (ejemplo: `38`):\n"
-        "_(Se utiliza junto con la cintura para calcular tu composición corporal)_"
-    )
-    await update.message.reply_text(txt_solic_cuello, parse_mode="Markdown")
-    return ING_CUELLO
-
-async def ing_recibir_cuello(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    txt = update.message.text.strip().replace(',', '.')
-    lang = context.user_data.get('ing_idioma', 'en')
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    try:
-        cuello = float(txt)
-        if not (20 <= cuello <= 60): raise ValueError()
-    except ValueError:
-        txt_err_cuello = traducciones.get('ing_error_cuello_valido', "⚠️ Ingresá un perímetro de cuello válido en cm (ejemplo: `38`).")
-        await update.message.reply_text(txt_err_cuello, parse_mode="Markdown")
-        return ING_CUELLO
-
-    context.user_data['ing_cuello'] = cuello
-    
-    btn_ocup_1 = traducciones.get('btn_ocup_nivel_1', "🪑 Nivel 1")
-    btn_ocup_2 = traducciones.get('btn_ocup_nivel_2', "🚶 Nivel 2")
-    btn_ocup_3 = traducciones.get('btn_ocup_nivel_3', "🏃 Nivel 3")
-    
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(btn_ocup_1, callback_data="ocup_1375")],
-        [InlineKeyboardButton(btn_ocup_2, callback_data="ocup_1550")],
-        [InlineKeyboardButton(btn_ocup_3, callback_data="ocup_1725")]
-    ])
-    
-    texto_explicativo = traducciones.get('ing_texto_explicativo_ocupacion', 
-        "Seleccioná tu **nivel de actividad u ocupación habitual** (sin considerar los ejercicios programados):\n\n"
-        "• **Nivel 1 (🪑):** Actividad ligera / sedentario (persona sentada, oficina).\n"
-        "• **Nivel 2 (🚶):** Actividad moderada (persona caminando, movimiento constante).\n"
-        "• **Nivel 3 (🏃):** Actividad intensa (esfuerzo físico exigente)."
-    )
-    
-    await update.message.reply_text(texto_explicativo, reply_markup=keyboard, parse_mode="Markdown")
-    return ING_OCUPACION
-        
-async def ing_recibir_ocupacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    lang = context.user_data.get('ing_idioma', 'en')
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-    
-    val_str = query.data.replace("ocup_", "")
-    try:
-        ocupacion = int(val_str)
-    except ValueError:
-        ocupacion = 1375
-        
-    context.user_data['ing_ocupacion'] = ocupacion
-    
-    txt_ocup_reg = traducciones.get('ing_ocupacion_registrada', 
-        "Nivel de actividad registrado: {ocupacion}.\n\n"
-        "Por último, ingresá tu **fecha de nacimiento** en formato `AAAA-MM-DD` (ejemplo: `1985-04-12`):"
-    ).format(ocupacion=ocupacion)
-
-    await query.edit_message_text(txt_ocup_reg, parse_mode="Markdown")
-    return ING_CUMPLE
-
-def clasificar_brecha_peso(peso_actual: float, peso_ideal: float) -> tuple[str, float, bool]:
-    """
-    Calcula la diferencia porcentual entre el peso actual y el peso ideal.
-    Retorna: (nivel_desvio, porcentaje_diferencia, es_sobrepeso)
-    Niveles: 'bajo', 'moderado', 'elevado'
-    """
-    if peso_ideal <= 0:
-        return "moderado", 0.0, True
-
-    diferencia_kg = peso_actual - peso_ideal
-    es_sobrepeso = diferencia_kg >= 0
-    porcentaje_dif = (abs(diferencia_kg) / peso_ideal) * 100
-
-    if porcentaje_dif <= 15.0:
-        nivel = "bajo"
-    elif porcentaje_dif <= 30.0:
-        nivel = "moderado"
-    else:
-        nivel = "elevado"
-
-    return nivel, round(porcentaje_dif, 1), es_sobrepeso
-
-def obtener_texto_evaluacion_ritmo(nivel: str, es_sobrepeso: bool, traducciones: dict) -> str:
-    """
-    Genera el mensaje descriptivo del nivel de desvío y la recomendación de ritmo 
-    utilizando estrictamente variables multilenguaje.
-    """
-    if es_sobrepeso:
-        if nivel == "bajo":
-            desc_nivel = traducciones.get('eval_sobrepeso_bajo', "tu nivel de sobrepeso es bajo (estás muy cerca de tu meta)")
-        elif nivel == "moderado":
-            desc_nivel = traducciones.get('eval_sobrepeso_moderado', "tu nivel de sobrepeso es moderado")
-        else:
-            desc_nivel = traducciones.get('eval_sobrepeso_elevado', "tu nivel de sobrepeso es elevado")
-    else:
-        if nivel == "bajo":
-            desc_nivel = traducciones.get('eval_deficit_bajo', "tu margen por debajo del peso de referencia es leve")
-        elif nivel == "moderado":
-            desc_nivel = traducciones.get('eval_deficit_moderado', "tu diferencia respecto al peso de referencia es moderada")
-        else:
-            desc_nivel = traducciones.get('eval_deficit_elevado', "tu diferencia respecto al peso de referencia es considerable")
-
-    if nivel == "elevado":
-        sugerencia = traducciones.get('sugerencia_ritmo_intenso', "💡 *Sugerencia basada en tus métricas:* Te recomendamos un ritmo **Intenso / Rápido** para un avance firme en esta etapa inicial.")
-    elif nivel == "moderado":
-        sugerencia = traducciones.get('sugerencia_ritmo_moderado', "💡 *Sugerencia basada en tus métricas:* Te recomendamos un ritmo **Moderado** (el más equilibrado y constante).")
-    else:
-        sugerencia = traducciones.get('sugerencia_ritmo_tranquilo', "💡 *Sugerencia basada en tus métricas:* Te recomendamos un ritmo **Tranquilo / Lento**, ideal para consolidar los últimos ajustes de forma sostenible.")
-
-    titulo_eval = traducciones.get('titulo_evaluacion_corporal', "📊 Analizando tus perímetros corporales (cintura y cuello), detectamos que {desc_nivel}.")
-    pregunta_ritmo = traducciones.get('pregunta_eleccion_ritmo', "Para organizar tu etapa de trabajo de manera realista y saludable, ¿qué ritmo preferís aplicar?")
-
-    return (
-        f"{titulo_eval.format(desc_nivel=desc_nivel)}\n\n"
-        f"{sugerencia}\n\n"
-        f"{pregunta_ritmo}"
-    )
-
-async def ing_recibir_cumple(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    cumple_str = update.message.text.strip()
-    user_id = update.effective_user.id
-    lang = context.user_data.get('ing_idioma', 'en')
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    try:
-        datetime.strptime(cumple_str, "%Y-%m-%d")
-    except ValueError:
-        txt_err_fec = traducciones.get('ing_error_fecha_invalida', "⚠️ Formato de fecha inválido. Usá el formato `AAAA-MM-DD` (ejemplo: `1990-08-25`).")
-        await update.message.reply_text(txt_err_fec, parse_mode="Markdown")
-        return ING_CUMPLE
-
-    context.user_data['ing_datos_usuario_temp'] = {
-        "user_id": user_id,
-        "nombre": context.user_data.get('ing_nombre'),
-        "edad": context.user_data.get('ing_edad'),
-        "sexo": context.user_data.get('ing_sexo'),
-        "altura": context.user_data.get('ing_altura'),
-        "peso": context.user_data.get('ing_peso'),
-        "muneca": context.user_data.get('ing_cintura'),
-        "ocupacion": context.user_data.get('ing_ocupacion'),
-        "cumple": cumple_str,
-        "profesional": context.user_data.get('ing_profesional')
-    }
-
-    datos_temp = context.user_data['ing_datos_usuario_temp']
-    peso_ideal_calc = round(calcular_peso_ideal(datos_temp["sexo"], datos_temp["altura"]), 1)
-    nivel, porcentaje, es_sobrepeso = clasificar_brecha_peso(datos_temp["peso"], peso_ideal_calc)
-    
-    texto_evaluacion = obtener_texto_evaluacion_ritmo(nivel, es_sobrepeso, traducciones)
-
-    btn_tranquilo = traducciones.get('btn_ritmo_tranquilo', "🟢 Tranquilo / Lento")
-    btn_moderado = traducciones.get('btn_ritmo_moderado', "🟡 Moderado")
-    btn_intenso = traducciones.get('btn_ritmo_intenso', "🔴 Intenso / Rápido")
-
-    keyboard = [
-        [InlineKeyboardButton(btn_tranquilo, callback_data="ritmo_tranquilo")],
-        [InlineKeyboardButton(btn_moderado, callback_data="ritmo_moderado")],
-        [InlineKeyboardButton(btn_intenso, callback_data="ritmo_intenso")]
-    ]
-    markup = InlineKeyboardMarkup(keyboard)
-
-    txt_exito_cumple = traducciones.get('ing_fecha_registrada_exito', "✅ **¡Fecha registrada con éxito!**\n\n{texto_evaluacion}").format(texto_evaluacion=texto_evaluacion)
-
-    await update.message.reply_text(
-        txt_exito_cumple,
-        reply_markup=markup,
-        parse_mode="Markdown"
-    )
-    
-    return ING_RITMO
-
-async def ing_recibir_ritmo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    user_id = query.from_user.id
-    lang = context.user_data.get('ing_idioma', 'en')
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    ritmo_seleccionado = query.data.replace("ritmo_", "")
-
-    datos_usuario = context.user_data.get('ing_datos_usuario_temp', {})
-    if not datos_usuario:
-        txt_err_temp = traducciones.get('ing_error_datos_temp', "❌ Hubo un error en los datos temporales. Por favor, iniciá el registro nuevamente con `/ingreso`.")
-        await query.edit_message_text(txt_err_temp)
-        context.user_data.clear()
-        return ConversationHandler.END
-
-    datos_usuario["ritmo"] = ritmo_seleccionado
-    datos_usuario["contextura"] = calcular_contextura(datos_usuario["sexo"], datos_usuario["altura"], datos_usuario["muneca"])
-    datos_usuario["peso_ideal"] = round(calcular_peso_ideal(datos_usuario["sexo"], datos_usuario["altura"]), 1)
-    datos_usuario["peso_etapa"] = calcular_peso_etapa(datos_usuario["peso"], datos_usuario["peso_ideal"])
-    
-    genero_str = "femenino" if str(datos_usuario["sexo"]).upper() in ["F", "FEMENINO", "MUJER"] else "masculino"
-    tmb, get_calorias = calcular_tmb_y_get(
-        peso_actual=datos_usuario["peso"], 
-        altura_cm=datos_usuario["altura"], 
-        edad=datos_usuario["edad"], 
-        genero=genero_str, 
-        actividad=datos_usuario["ocupacion"], 
-        peso_ideal=datos_usuario["peso_ideal"]
-    )
-    datos_usuario["tmb"] = tmb
-    datos_usuario["get"] = get_calorias
-    
-    txt_procesando = traducciones.get('ing_procesando_informe_ia', "✅ Ritmo seleccionado: *{ritmo_cap}*.\n\n⏳ *Creando planillas y redactando tu informe inicial personalizado con IA...*").format(ritmo_cap=ritmo_seleccionado.capitalize())
-
-    await query.edit_message_text(
-        txt_procesando,
-        parse_mode="Markdown"
-    )
-
-    try:
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, cmd_nueva_cuenta, datos_usuario)
-
-        _, pdf_buf = await procesar_informe_inicial_ia(datos_usuario)
-
-        resumen_plantilla = traducciones.get('ing_resumen_cuenta_lista', 
-            "🎉 **¡Tu cuenta y planillas están listas!**\n\n"
-            "👤 **Paciente:** {nombre} | **ID:** `{user_id}`\n"
-            "⚖️ **Peso Actual:** `{peso} kg` ➔ **Objetivo Etapa 1:** `{peso_etapa} kg`\n"
-            "🎯 **Ritmo Elegido:** `{ritmo_cap}`\n"
-            "🔥 **TMB:** `{tmb_rnd} kcal` | **GET:** `{get_rnd} kcal`\n\n"
-            "📄 *Te hemos enviado tu informe nutricional inicial detallado en formato PDF ajustado a tu ritmo.*"
-        ).format(
-            nombre=datos_usuario['nombre'],
-            user_id=user_id,
-            peso=datos_usuario['peso'],
-            peso_etapa=datos_usuario['peso_etapa'],
-            ritmo_cap=ritmo_seleccionado.capitalize(),
-            tmb_rnd=round(tmb),
-            get_rnd=round(get_calorias)
-        )
-
-        await query.message.reply_text(resumen_plantilla, parse_mode="Markdown")
-
-        filename_pdf = f"Informe_Inicial_{datos_usuario['nombre'].replace(' ', '_')}.pdf"
-        await context.bot.send_document(
-            chat_id=query.message.chat_id,
-            document=pdf_buf,
-            filename=filename_pdf
-        )
-
-    except Exception as e:
-        logger.error(f"Error al inicializar cuenta o generar informe para {user_id}: {e}")
-        txt_err_gen = traducciones.get('ing_error_proceso_general', "❌ Ocurrió un error al procesar el ingreso: {e}").format(e=e)
-        await query.message.reply_text(txt_err_gen)
-
-    context.user_data.clear()
-    return ConversationHandler.END
-    
-async def cmd_cancelar_conversacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    await update.message.reply_text("❌ Registro de cuenta cancelado.")
-    return ConversationHandler.END
-
-
-# ======================================================================================================================================
-#                       INICIO                               COMANDO ALTA                                   INICIO
-# ======================================================================================================================================
 
 async def obtener_idiomas_disponibles_db():
-    """Consulta dinámicamente las columnas de la tabla 'multi' en Supabase para ver qué idiomas están disponibles."""
-    idiomas = ['en'] # Fallback base
+    """
+    Consulta dinámicamente la tabla 'multi' en Supabase para extraer los códigos de idioma,
+    sus nombres descriptivos y banderas desde las filas 'lenguajes' y 'banderas'.
+    Retorna una lista de diccionarios con: {'codigo': 'es', 'nombre': 'Español', 'bandera': '🇦🇷'}
+    """
+    idiomas_info = []
     try:
         conn, cur = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
+        
+        # 1. Obtener los nombres de las columnas (códigos de idioma: 'es', 'en', etc.)
         cur.execute("""
             SELECT column_name 
             FROM information_schema.columns 
@@ -7303,26 +6791,45 @@ async def obtener_idiomas_disponibles_db():
               AND LOWER(table_name) = 'multi'
               AND LOWER(column_name) NOT IN ('id', 'variables')
         """)
+        cols = [f[0].strip().lower() for f in cur.fetchall() if f[0]]
+
+        # 2. Consultar las filas clave ('lenguajes' y 'banderas') para armar el selector
+        cur.execute('SELECT * FROM "multi"')
         filas = cur.fetchall()
+        colnames = [desc[0].strip().lower() for desc in cur.description]
         cur.close()
         conn.close()
-        if filas:
-            idiomas = [str(f[0]).strip().lower() for f in filas if f[0]]
+
+        dict_filas = {}
+        for fila in filas:
+            reg = dict(zip(colnames, fila))
+            var_key = str(reg.get('variables', '')).strip().lower()
+            dict_filas[var_key] = reg
+
+        row_lenguajes = dict_filas.get('lenguajes', {})
+        row_banderas = dict_filas.get('banderas', {})
+
+        for col in cols:
+            nombre = str(row_lenguajes.get(col, col.upper())).strip()
+            bandera = str(row_banderas.get(col, '🌐')).strip()
+            idiomas_info.append({
+                'codigo': col,
+                'nombre': nombre,
+                'bandera': bandera
+            })
+
     except Exception as e:
-        logger.error(f"Error al obtener idiomas disponibles de Supabase: {e}")
-    return idiomas
+        logger.error(f"Error al obtener idiomas dinámicos de Supabase: {e}")
+        # Fallback por seguridad si ocurre algún inconveniente
+        idiomas_info = [{'codigo': 'es', 'nombre': 'Español', 'bandera': '🇪🇸'}, {'codigo': 'en', 'nombre': 'English', 'bandera': '🇺🇸'}]
+    
+    return idiomas_info
 
 async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    tg_lang = update.effective_user.language_code
-    idioma_detectado = 'en'
     
-    if tg_lang:
-        codigo_base = tg_lang.split('-')[0].lower()
-        idiomas_bd = await obtener_idiomas_disponibles_db()
-        if codigo_base in idiomas_bd:
-            idioma_detectado = codigo_base
-            
+    # Detección inicial de idioma
+    idioma_detectado = 'es'
     context.user_data['ing_idioma'] = idioma_detectado
     traducciones = obtener_traducciones_db(idioma_detectado) if 'obtener_traducciones_db' in globals() else {}
 
@@ -7350,9 +6857,6 @@ async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Este asistente es una herramienta de cálculo automatizado orientada a sumar y restar calorías, "
         "registrar ingestas y macronutrientes de forma práctica. **No posee un valor médico ni científico:** "
         "las recomendaciones emitidas son generadas por una Inteligencia Artificial de carácter generalizado.\n\n"
-        "Todo seguimiento clínico o nutricional formal debe ser realizado exclusivamente por un profesional de la salud competente. "
-        "Si decidís utilizar el bot de forma independiente, debés comprender que su función se limita estrictamente al balance cuantitativo "
-        "de calorías y nutrientes, sin reemplazar la consulta médica.\n\n"
         "👉 *Para continuar con la apertura de tu cuenta y aceptar los términos, por favor presioná el botón de abajo:*"
     )
 
@@ -7368,86 +6872,290 @@ async def ing_aceptar_terminos(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
 
-    lang = context.user_data.get('ing_idioma', 'en')
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
     if query.data == "aceptar_terminos_ok":
-        txt_terminos_ok = traducciones.get('ing_terminos_aceptados_msg', 
+        txt_terminos_ok = (
             "✅ **Términos aceptados correctamente.**\n\n"
             "🔑 **Apertura de Ficha - Validación de Profesional**\n\n"
             "Para comenzar el registro, por favor ingresá el **ID de Telegram del profesional**:"
         )
-        await query.edit_message_text(txt_terminos_ok.replace('\\n', '\n'), parse_mode="Markdown")
+        await query.edit_message_text(txt_terminos_ok, parse_mode="Markdown")
         return ING_PROFESIONAL
     return ING_TERMINOS
 
-async def cmd_nuevo_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    return await cmd_ingreso_start(update, context)
+async def ing_recibir_profesional(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    prof_id = update.message.text.strip()
+    
+    loop = asyncio.get_running_loop()
+    es_valido = await loop.run_in_executor(None, _verificar_profesional_valido, prof_id)
+    
+    if not es_valido:
+        txt_err_prof = (
+            "⚠️ **ID de profesional no válido**\n\n"
+            "El número ingresado no figura en la lista de profesionales autorizados. "
+            "Por favor, verificá el ID con tu profesional e intentalo nuevamente o escribí `/cancelar`."
+        )
+        await update.message.reply_text(txt_err_prof, parse_mode="Markdown")
+        return ING_PROFESIONAL
+
+    context.user_data['ing_profesional'] = prof_id
+    txt_solic_nombre = (
+        "✅ **Profesional verificado correctamente.**\n\n"
+        "📝 **Apertura de Ficha Nutricional**\n"
+        "Por favor, indicá tu **Nombre y Apellido / Apodo**:"
+    )
+    await update.message.reply_text(txt_solic_nombre, parse_mode="Markdown")
+    return ING_NOMBRE
+
+async def ing_recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    nombre = update.message.text.strip()
+    if len(nombre) < 2:
+        await update.message.reply_text("⚠️ Por favor, ingresá un nombre válido.")
+        return ING_NOMBRE
+    
+    context.user_data['ing_nombre'] = nombre
+    
+    btn_masc = "Masculino 👨"
+    btn_fem = "Femenino 👩"
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(btn_masc, callback_data="sexo_M"),
+         InlineKeyboardButton(btn_fem, callback_data="sexo_F")]
+    ])
+    await update.message.reply_text("Seleccioná tu **sexo biológico**:", reply_markup=keyboard, parse_mode="Markdown")
+    return ING_SEXO
+
+async def ing_recibir_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    sexo = "M" if query.data == "sexo_M" else "F"
+    context.user_data['ing_sexo'] = sexo
+    
+    await query.edit_message_text("Ahora ingresá tu **fecha de nacimiento** en formato `AAAA-MM-DD` (ejemplo: `1985-04-12`):", parse_mode="Markdown")
+    return ING_CUMPLE
+
+async def ing_recibir_cumple(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    cumple_str = update.message.text.strip()
+    try:
+        datetime.strptime(cumple_str, "%Y-%m-%d")
+    except ValueError:
+        await update.message.reply_text("⚠️ Formato de fecha inválido. Usá el formato `AAAA-MM-DD` (ejemplo: `1990-08-25`).", parse_mode="Markdown")
+        return ING_CUMPLE
+
+    context.user_data['ing_cumple'] = cumple_str
+    
+    # Siguiente paso: Cintura
+    await update.message.reply_text("Ingresá el **perímetro de tu cintura en cm** (ejemplo: `85`):", parse_mode="Markdown")
+    return ING_MUNECA # Nota: Usamos tu estado actual asignado para cintura
+
+async def ing_recibir_muneca(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    txt = update.message.text.strip().replace(',', '.')
+    try:
+        cintura = float(txt)
+        if not (50 <= cintura <= 200): raise ValueError()
+    except ValueError:
+        await update.message.reply_text("⚠️ Ingresá un perímetro de cintura válido en cm (ejemplo: `85`).", parse_mode="Markdown")
+        return ING_MUNECA
+
+    context.user_data['ing_cintura'] = cintura
+    await update.message.reply_text("Ingresá el **perímetro de tu cuello en cm** (ejemplo: `38`):", parse_mode="Markdown")
+    return ING_CUELLO
+
+async def ing_recibir_cuello(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    txt = update.message.text.strip().replace(',', '.')
+    try:
+        cuello = float(txt)
+        if not (20 <= cuello <= 60): raise ValueError()
+    except ValueError:
+        await update.message.reply_text("⚠️ Ingresá un perímetro de cuello válido en cm (ejemplo: `38`).", parse_mode="Markdown")
+        return ING_CUELLO
+
+    context.user_data['ing_cuello'] = cuello
+    
+    # Presentar botones de Ritmo preferido
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🟢 Tranquilo / Lento", callback_data="ritmo_tranquilo")],
+        [InlineKeyboardButton("🟡 Moderado", callback_data="ritmo_moderado")],
+        [InlineKeyboardButton("🔴 Intenso / Rápido", callback_data="ritmo_intenso")]
+    ])
+    await update.message.reply_text("🎯 Seleccioná tu **ritmo de avance deseado**:", reply_markup=keyboard, parse_mode="Markdown")
+    return ING_RITMO
+
+async def ing_recibir_ritmo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    ritmo_seleccionado = query.data.replace("ritmo_", "")
+    context.user_data['ing_ritmo'] = ritmo_seleccionado
+
+    # Siguiente paso: Selección dinámica de Idioma desde la tabla 'multi'
+    idiomas_disp = await obtener_idiomas_disponibles_db()
+    b_list = []
+    for item in idiomas_disp:
+        b_list.append([InlineKeyboardButton(f"{item['bandera']} {item['nombre']}", callback_data=f"set_lang_{item['codigo']}")])
+    
+    markup_lang = InlineKeyboardMarkup(b_list)
+    await query.edit_message_text("🌐 Seleccioná tu **idioma preferido**:", reply_markup=markup_lang, parse_mode="Markdown")
+    return ING_IDIOMA # Asegurá tener registrado este estado en tu ConversationHandler
+
+async def ing_recibir_idioma(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang_code = query.data.replace("set_lang_", "")
+    context.user_data['ing_idioma'] = lang_code
+
+    # Siguiente paso: Ocupación por botones
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🪑 Nivel 1", callback_data="ocup_1375")],
+        [InlineKeyboardButton("🚶 Nivel 2", callback_data="ocup_1550")],
+        [InlineKeyboardButton("🏃 Nivel 3", callback_data="ocup_1725")]
+    ])
+    texto_explicativo = (
+        "Seleccioná tu **nivel de actividad u ocupación habitual**:\n\n"
+        "• **Nivel 1 (🪑):** Actividad ligera / sedentario.\n"
+        "• **Nivel 2 (🚶):** Actividad moderada.\n"
+        "• **Nivel 3 (🏃):** Actividad intensa."
+    )
+    await query.edit_message_text(texto_explicativo, reply_markup=keyboard, parse_mode="Markdown")
+    return ING_OCUPACION
+
+async def ing_recibir_ocupacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    val_str = query.data.replace("ocup_", "")
+    try:
+        ocupacion = int(val_str)
+    except ValueError:
+        ocupacion = 1375
+        
+    context.user_data['ing_ocupacion'] = ocupacion
+    
+    # Siguiente paso: Peso y Altura final
+    await query.edit_message_text("Ingresá tu **peso actual en kg** (ejemplo: `82.5`):", parse_mode="Markdown")
+    return ING_PESO
+
+async def ing_recibir_peso(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    txt = update.message.text.strip().replace(',', '.')
+    try:
+        peso = float(txt)
+        if not (30 <= peso <= 300): raise ValueError()
+    except ValueError:
+        await update.message.reply_text("⚠️ Ingresá un peso válido en kg (ejemplo: `75.4`).", parse_mode="Markdown")
+        return ING_PESO
+
+    context.user_data['ing_peso'] = peso
+    await update.message.reply_text("Ingresá tu **altura en centímetros** (ejemplo: `175` para 1,75 m):", parse_mode="Markdown")
+    return ING_ALTURA
+
+async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    txt = update.message.text.strip().replace(',', '.')
+    try:
+        alt = float(txt)
+        if not (100 <= alt <= 230): raise ValueError()
+    except ValueError:
+        await update.message.reply_text("⚠️ Ingresá una altura válida en centímetros (ejemplo: `170`).", parse_mode="Markdown")
+        return ING_ALTURA
+
+    context.user_data['ing_altura'] = alt
+
+    # Proceso final de guardado consolidado
+    user_id = update.effective_user.id
+    datos_usuario = {
+        "user_id": user_id,
+        "nombre": context.user_data.get('ing_nombre'),
+        "sexo": context.user_data.get('ing_sexo'),
+        "cumple": context.user_data.get('ing_cumple'),
+        "profesional": context.user_data.get('ing_profesional'),
+        "cintura": context.user_data.get('ing_cintura'),
+        "cuello": context.user_data.get('ing_cuello'),
+        "ritmo": context.user_data.get('ing_ritmo'),
+        "idioma": context.user_data.get('ing_idioma'),
+        "ocupacion": context.user_data.get('ing_ocupacion'),
+        "peso": context.user_data.get('ing_peso'),
+        "altura": context.user_data.get('ing_altura')
+    }
+
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, cmd_nueva_cuenta, datos_usuario)
+        
+        await update.message.reply_text(
+            "🎉 **¡Tu cuenta y planillas están listas con éxito!**\n\n"
+            "Ya podés comenzar a registrar tus ingestas y utilizar todos los comandos del bot.",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error(f"Error al registrar cuenta final para {user_id}: {e}")
+        await update.message.reply_text(f"❌ Ocurrió un error al procesar el alta: {e}")
+
+    context.user_data.clear()
+    return ConversationHandler.END
+
 
 def cmd_nueva_cuenta(datos_usuario):
     """
-    Crea o actualiza el registro respetando estrictamente los nombres de columnas 
-    de las tablas Usuarios y Perfil_<user_id>.
+    Crea o actualiza el registro en la tabla maestra 'Usuarios' y genera la tabla histórica mensual Perfil_<user_id>.
     """
     user_id = datos_usuario.get("user_id")
     nombre = datos_usuario.get("nombre")
     sexo = datos_usuario.get("sexo", "M")
-    altura = float(datos_usuario.get("altura", 0))
-    peso = float(datos_usuario.get("peso", 0))
-    cintura = float(datos_usuario.get("cintura", 0))
-    cuello = float(datos_usuario.get("cuello", 0))
-    ocupacion = float(datos_usuario.get("ocupacion", 1.375))
     cumple = datos_usuario.get("cumple", "")
     profesional = datos_usuario.get("profesional", "")
+    cintura = float(datos_usuario.get("cintura", 0))
+    cuello = float(datos_usuario.get("cuello", 0))
     ritmo = datos_usuario.get("ritmo", "moderado")
     idioma = datos_usuario.get("idioma", "es")
+    ocupacion = float(datos_usuario.get("ocupacion", 1.375))
+    peso = float(datos_usuario.get("peso", 0))
+    altura = float(datos_usuario.get("altura", 0))
 
     edad = calcular_edad_desde_cumple(cumple)
     mes_actual = datetime.now(ARG_TZ).strftime("%Y-%m")
-    fecha_act = datetime.now(ARG_TZ).strftime("%Y-%m-%d")
     fecha_alta = datetime.now(ARG_TZ).strftime("%Y-%m-%d")
 
-    # 1. Grabar en la tabla maestra 'Usuarios' con nombres exactos de columnas
+    # 1. Guardar o actualizar en la tabla maestra 'Usuarios'
     try:
         conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        query_usr = """
-            INSERT INTO "Usuarios" ("User ID", "Nombre", "Estado", "Ultimo Mes Peso", "Notificaciones", "Fecha Alta", "Sexo", "cumple", "profesional", "cintura_cm", "cuello_cm", "ritmo_preferido", "Idioma")
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT ("User ID") DO UPDATE SET
-                "Nombre" = EXCLUDED."Nombre",
-                "Estado" = EXCLUDED."Estado",
-                "Ultimo Mes Peso" = EXCLUDED."Ultimo Mes Peso",
-                "Notificaciones" = EXCLUDED."Notificaciones",
-                "Fecha Alta" = EXCLUDED."Fecha Alta",
-                "Sexo" = EXCLUDED."Sexo",
-                "cumple" = EXCLUDED."cumple",
-                "profesional" = EXCLUDED."profesional",
-                "cintura_cm" = EXCLUDED."cintura_cm",
-                "cuello_cm" = EXCLUDED."cuello_cm",
-                "ritmo_preferido" = EXCLUDED."ritmo_preferido",
-                "Idioma" = EXCLUDED."Idioma"
-        """
-        valores_usr = (
-            str(user_id),
-            str(nombre),
-            0,
-            str(mes_actual),
-            "Si",
-            str(fecha_alta),
-            str(sexo),
-            str(cumple),
-            str(profesional),
-            float(cintura),
-            float(cuello),
-            str(ritmo),
-            str(idioma)
-        )
+        cur_u.execute('SELECT COUNT(*) FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
+        existe = cur_u.fetchone()[0] > 0
+
+        if existe:
+            query_usr = """
+                UPDATE "Usuarios" SET
+                    "Nombre" = %s,
+                    "Estado" = %s,
+                    "Ultimo Mes Peso" = %s,
+                    "Notificaciones" = %s,
+                    "Fecha Alta" = %s,
+                    "Sexo" = %s,
+                    "cumple" = %s,
+                    "profesional" = %s,
+                    "cintura_cm" = %s,
+                    "cuello_cm" = %s,
+                    "ritmo_preferido" = %s,
+                    "Idioma" = %s,
+                    "Ocupacion" = %s
+                WHERE "User ID" = %s
+            """
+            valores_usr = (
+                str(nombre), 0, str(mes_actual), "Si", str(fecha_alta),
+                str(sexo), str(cumple), str(profesional), float(cintura),
+                float(cuello), str(ritmo), str(idioma), float(ocupacion), str(user_id)
+            )
+        else:
+            query_usr = """
+                INSERT INTO "Usuarios" ("User ID", "Nombre", "Estado", "Ultimo Mes Peso", "Notificaciones", "Fecha Alta", "Sexo", "cumple", "profesional", "cintura_cm", "cuello_cm", "ritmo_preferido", "Idioma", "Ocupacion")
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            valores_usr = (
+                str(user_id), str(nombre), 0, str(mes_actual), "Si", str(fecha_alta),
+                str(sexo), str(cumple), str(profesional), float(cintura),
+                float(cuello), str(ritmo), str(idioma), float(ocupacion)
+            )
+
         cur_u.execute(query_usr, valores_usr)
         conn_u.commit()
         cur_u.close()
         conn_u.close()
     except Exception as e:
-        logger.error(f"Error al insertar en la tabla maestra 'Usuarios' para {user_id}: {e}")
+        logger.error(f"Error al guardar en tabla 'Usuarios' para {user_id}: {e}")
 
     # 2. Crear / Actualizar tabla histórica mensual Perfil_<user_id>
     try:
@@ -7463,7 +7171,7 @@ def cmd_nueva_cuenta(datos_usuario):
             str(sexo),
             float(ocupacion),
             str(mes_actual),
-            str(fecha_act),
+            str(fecha_alta),
             str(cumple)
         ))
         conn_p.commit()
@@ -7471,7 +7179,7 @@ def cmd_nueva_cuenta(datos_usuario):
         conn_p.close()
     except Exception as e:
         logger.error(f"Error al guardar perfil inicial en {tabla_perfil} para {user_id}: {e}")
-        
+
 #                       INICIO                             COMANDO PERFIL                     INICIO
 # ======================================================================================================================================
 
@@ -7743,7 +7451,6 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
             actualizar_idioma_usuario(user_id, nuevo_lang)
         msg_ok_lang = traducciones.get('perfil_lang_actualizado_ok', "✅ ¡Idioma actualizado exitosamente a *{lang}*!").format(lang=nuevo_lang.upper())
         await query.edit_message_text(msg_ok_lang.replace('\\n', '\n'), parse_mode="Markdown")
-        
                 
 #                       INICIO                  COMANDOS PRESION                    INICIO
 # ======================================================================================================================================
