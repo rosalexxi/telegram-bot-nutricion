@@ -1012,6 +1012,15 @@ def calcular_rango_actividad_fisica(peso_actual: float, peso_referencia: float) 
 
     return min_minutos, max_minutos
 
+def calcular_edad_desde_cumple(cumple_str: str) -> int:
+    try:
+        nacimiento = datetime.strptime(cumple_str, "%Y-%m-%d")
+        ahora = datetime.now()
+        edad = ahora.year - nacimiento.year - ((ahora.month, ahora.day) < (nacimiento.month, nacimiento.day))
+        return max(10, edad)
+    except Exception:
+        return 64
+
 def aplicar_calibracion_reloj(factor_previo: float, get_reloj: float, tmb: float, max_variacion_pct: float = 0.10) -> float:
     """
     Calibra el factor de actividad usando el GET medido por un reloj inteligente,
@@ -1578,6 +1587,70 @@ def obtener_pacientes_por_medico(prof_id):
 #              INICIO                                  7 FUNCIONES USUARIOS                        INICIO
 # =============================================================================================================================================
 
+def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
+    mes_actual_str = ahora_dt.strftime("%Y-%m")
+    tabla_nombre = f"Perfil_{user_id}"
+
+    try:
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+        
+        cur.execute(f'SELECT id FROM "{tabla_nombre}" WHERE "MES" = %s', (str(mes_actual_str),))
+        fila_existente = cur.fetchone()
+        
+        if fila_existente:
+            cur.close()
+            conn.close()
+            return
+
+        logger.info(f"Inicializando nueva fila mensual ({mes_actual_str}) para User {user_id} en Supabase...")
+
+        cur.execute(f'SELECT "EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "Peso_ideal", "Cumple" FROM "{tabla_nombre}" ORDER BY id DESC LIMIT 1')
+        ultima_fila = cur.fetchone()
+        
+        if ultima_fila:
+            edad_val = ultima_fila[0] or "64"
+            peso_val = ultima_fila[1] or 70.0
+            altura_val = ultima_fila[2] or 1.70
+            genero_val = ultima_fila[3] or "M"
+            ocupacion_val = ultima_fila[4] or 1.375
+            peso_ideal_val = ultima_fila[5] or 0.0
+            cumple_val = ultima_fila[6] or ""
+        else:
+            edad_val = "64"
+            peso_val = 70.0
+            altura_val = 1.70
+            genero_val = "M"
+            ocupacion_val = 1.375
+            peso_ideal_val = 0.0
+            cumple_val = ""
+
+        cur.execute(f"""
+            INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            str(edad_val),
+            float(peso_val),
+            float(altura_val),
+            str(genero_val),
+            float(ocupacion_val),
+            str(mes_actual_str),
+            ahora_dt.strftime("%Y-%m-%d"),
+            float(peso_ideal_val),
+            str(cumple_val)
+        ))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        logger.info(f"Fila del mes {mes_actual_str} creada exitosamente en Supabase para User {user_id}")
+
+    except Exception as e:
+        logger.error(f"Error al garantizar fila mensual en Supabase para User {user_id}: {e}")
+        if 'cur' in locals() and cur:
+            cur.close()
+        if 'conn' in locals() and conn:
+            conn.close()
+   
 def obtener_todos_usuarios() -> list:
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
@@ -3211,101 +3284,6 @@ async def callback_handler_actividades(update: Update, context: ContextTypes.DEF
         context.user_data.pop('awaiting_activity_voice', None)
         await query.edit_message_text("❌ Registro de actividad cancelado.")
 
-@requiere_registro
-async def callback_handler_momentos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    context.user_data['last_menu_msg_id'] = query.message.message_id
-    
-    if data.startswith("set_m_"):
-        context.user_data['pending_momento'] = data.replace("set_m_", "")
-        await render_confirmation_screen(query, context)
-       
-@requiere_registro
-async def callback_handler_fechas_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    user_id = query.from_user.id
-    context.user_data['last_menu_msg_id'] = query.message.message_id
-
-    if data == "set_d_hoy":
-        context.user_data['pending_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
-        await render_confirmation_screen(query, context)
-    elif data == "set_d_ayer":
-        context.user_data['pending_fecha'] = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
-        await render_confirmation_screen(query, context)
-    elif data in ["set_d_otro", "set_d_custom"]:
-        context.user_data['awaiting_custom_date'] = True
-        msg = await query.message.reply_text("📅 Ingresá la fecha deseada para la ingesta (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
-        context.user_data['msg_solicitud_fecha_id'] = msg.message_id
-    elif data == "diario_hoy":
-        await mostrar_diario_fecha(query, user_id, obtener_ahora_arg().strftime("%Y-%m-%d"))
-    elif data == "diario_ayer":
-        await mostrar_diario_fecha(query, user_id, (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d"))
-    elif data == "diario_otro":
-        context.user_data['awaiting_diario_custom_date'] = True
-        msg = await query.message.reply_text("📅 Ingresá la fecha del diario que querés consultar (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
-        context.user_data['msg_solicitud_diario_fecha_id'] = msg.message_id
-
-@requiere_registro
-async def callback_handler_editar_anular(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    context.user_data['last_menu_msg_id'] = query.message.message_id
-
-    if data.startswith("edit_item_"):
-        idx = int(data.replace("edit_item_", "")) - 1
-        context.user_data.update({'awaiting_edit_item_val': True, 'editing_item_idx': idx})
-        momento_actual = context.user_data.get('pending_momento', 'Comida')
-        items = context.user_data.get('pending_items', [])
-        es_codigo_barras = (0 <= idx < len(items) and items[idx].get('fuente') == "Open Food Facts")
-
-        if momento_actual == 'Actividad':
-            await query.message.reply_text("✏️ Ingresá el nuevo valor de calorías para la actividad (ej: `220`):", parse_mode="Markdown")
-        elif es_codigo_barras:
-            await query.message.reply_text("⚖️ Ingresá el **nuevo peso en gramos** para este producto (ej: `150`):", parse_mode="Markdown")
-        else:
-            await query.message.reply_text("✏️ Ingresá la nueva descripción y/o peso para este alimento:")
-    elif data.startswith("del_item_"):
-        idx = int(data.replace("del_item_", "")) - 1
-        items = context.user_data.get('pending_items', [])
-        if 0 <= idx < len(items): items.pop(idx)
-        if not items:
-            await query.edit_message_text("❌ Todos los ítems fueron eliminados.")
-            context.user_data.pop('last_menu_msg_id', None)
-        else:
-            await render_confirmation_screen(query, context)
-
-@requiere_registro
-async def callback_handler_guardar_cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    user_id = query.from_user.id
-    context.user_data['last_menu_msg_id'] = query.message.message_id
-
-    if data == "cancel_entry":
-        context.user_data.pop('pending_items', None)
-        context.user_data.pop('last_menu_msg_id', None)
-        await query.edit_message_text("🗑️ Registro cancelado.")
-    elif data == "confirm_save":
-        items = context.user_data.get('pending_items', [])
-        fecha = context.user_data.get('pending_fecha')
-        momento = context.user_data.get('pending_momento')
-
-        if items and fecha and momento:
-            tipo_registro = "Actividad" if momento == "Actividad" else "Comida"
-            guardar_en_sheets(user_id, items, fecha, momento, tipo=tipo_registro)
-            
-            txt_conf = f"✅ **¡Actividad guardada exitosamente!**\n📅 `{fecha}`" if momento == "Actividad" else f"✅ **¡Ingesta guardada exitosamente!**\n📅 `{fecha}` | `{momento}`"
-            await query.edit_message_text(txt_conf, parse_mode="Markdown")
-            context.user_data.pop('pending_items', None)
-            context.user_data.pop('last_menu_msg_id', None)
-        else:
-            await query.edit_message_text("❌ No se encontraron datos para guardar.")
 
 @requiere_registro
 async def callback_handler_eliminacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3963,70 +3941,6 @@ def construir_texto_listado_comidas(user_id, comidas):
         
     return txt
  
-def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
-    mes_actual_str = ahora_dt.strftime("%Y-%m")
-    tabla_nombre = f"Perfil_{user_id}"
-
-    try:
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
-        
-        cur.execute(f'SELECT id FROM "{tabla_nombre}" WHERE "MES" = %s', (str(mes_actual_str),))
-        fila_existente = cur.fetchone()
-        
-        if fila_existente:
-            cur.close()
-            conn.close()
-            return
-
-        logger.info(f"Inicializando nueva fila mensual ({mes_actual_str}) para User {user_id} en Supabase...")
-
-        cur.execute(f'SELECT "EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "Peso_ideal", "Cumple" FROM "{tabla_nombre}" ORDER BY id DESC LIMIT 1')
-        ultima_fila = cur.fetchone()
-        
-        if ultima_fila:
-            edad_val = ultima_fila[0] or "64"
-            peso_val = ultima_fila[1] or 70.0
-            altura_val = ultima_fila[2] or 1.70
-            genero_val = ultima_fila[3] or "M"
-            ocupacion_val = ultima_fila[4] or 1.375
-            peso_ideal_val = ultima_fila[5] or 0.0
-            cumple_val = ultima_fila[6] or ""
-        else:
-            edad_val = "64"
-            peso_val = 70.0
-            altura_val = 1.70
-            genero_val = "M"
-            ocupacion_val = 1.375
-            peso_ideal_val = 0.0
-            cumple_val = ""
-
-        cur.execute(f"""
-            INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Peso_ideal", "Cumple")
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            str(edad_val),
-            float(peso_val),
-            float(altura_val),
-            str(genero_val),
-            float(ocupacion_val),
-            str(mes_actual_str),
-            ahora_dt.strftime("%Y-%m-%d"),
-            float(peso_ideal_val),
-            str(cumple_val)
-        ))
-        
-        conn.commit()
-        cur.close()
-        conn.close()
-        logger.info(f"Fila del mes {mes_actual_str} creada exitosamente en Supabase para User {user_id}")
-
-    except Exception as e:
-        logger.error(f"Error al garantizar fila mensual en Supabase para User {user_id}: {e}")
-        if 'cur' in locals() and cur:
-            cur.close()
-        if 'conn' in locals() and conn:
-            conn.close()
-   
 #                      INICIO                               COMANDOS COMIDAS PRECARGADAS                              INICIO  DB OK
 # =======================================================================================================================================
 @requiere_registro
@@ -6576,10 +6490,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
+    # Texto por defecto corregido (usando un solo * para negritas)
     msg = traducciones.get('start_mensaje_bienvenida', 
-        "👋 **Bienvenido a tu Asistente Nutricional!**\n\n"
+        "👋 *Bienvenido a tu Asistente Nutricional!*\n\n"
         "Guía rápida de comandos disponibles:\n\n"
-        "📌 **Comandos Principales:**\n"
+        "📌 *Comandos Principales:*\n"
         "• `/start` / `/inicio`: Resumen de comandos y PDF manual.\n"
         "• `/alta`: Apertura de cuenta.\n"
         "• `/presi`: Registro de presión arterial.\n"
@@ -6593,10 +6508,17 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/barra`: Ingreso de código de barras.\n"
         "• `/comidas`: Listado predeterminado y PDF.\n"
         "• `/receta`: Calculadora web de comidas.\n\n"
-        "📄 *Te adjuntamos el Manual de Usuario completo en PDF.*"
+        "📄 _Te adjuntamos el Manual de Usuario completo en PDF._"
     )
     
-    await update.message.reply_text(msg.replace('\\n', '\n'), parse_mode="Markdown")
+    texto_final = msg.replace('\\n', '\n')
+    
+    # Intenta enviar con Markdown. Si hay un error de sintaxis, lo envía como texto plano.
+    try:
+        await update.message.reply_text(texto_final, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error de formato Markdown en /start: {e}")
+        await update.message.reply_text(texto_final)
     
     try:
         pdf_buf = generar_pdf_instrucciones_bytes(traducciones)
@@ -6606,7 +6528,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             filename="Manual_Bot_Nutricional.pdf"
         )
     except Exception as e:
-        logger.error(f"Error generando PDF manual en /start: {e}") 
+        logger.error(f"Error generando PDF manual en /start: {e}")
+
 def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -6872,15 +6795,6 @@ async def obtener_idiomas_disponibles_db():
         logger.error(f"Error tabla multi (idiomas): {e}")
         idiomas_info = [{'codigo': 'es', 'nombre': 'Español', 'bandera': '🇪🇸'}, {'codigo': 'en', 'nombre': 'English', 'bandera': '🇺🇸'}]
     return idiomas_info
-
-def calcular_edad_desde_cumple(cumple_str: str) -> int:
-    try:
-        nacimiento = datetime.strptime(cumple_str, "%Y-%m-%d")
-        ahora = datetime.now()
-        edad = ahora.year - nacimiento.year - ((ahora.month, ahora.day) < (nacimiento.month, nacimiento.day))
-        return max(10, edad)
-    except Exception:
-        return 64
 
 # Funciones de flujo secuencial del alta
 async def ing_recibir_muneca(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -7189,6 +7103,31 @@ def cmd_nuevo_usuario(datos_usuario):
 #                       INICIO                             COMANDO PERFIL                     INICIO
 # ======================================================================================================================================
 
+def formatear_ritmo_numero(ritmo_crudo):
+    """Convierte el valor crudo del ritmo en un texto amigable."""
+    ritmo_str = str(ritmo_crudo).strip().lower()
+    if ritmo_str in ['1', 'tranquilo', 'lento']:
+        return "1 (Tranquilo 🐢)"
+    elif ritmo_str in ['3', 'intenso', 'rapido', 'rápido']:
+        return "3 (Intenso 🚀)"
+    else:
+        return "2 (Moderado 🚶)"
+
+def formatear_ocupacion_icono(factor_ocupacion):
+    """Convierte el factor numérico de ocupación en un texto con iconos."""
+    try:
+        f = float(factor_ocupacion)
+        if f <= 1.25:
+            return "Sedentario 🛋️"
+        elif f <= 1.45:
+            return "Ligero 🚶"
+        elif f <= 1.65:
+            return "Moderado 🏃"
+        else:
+            return "Intenso 🏋️"
+    except (ValueError, TypeError):
+        return "Desconocido ❓"
+        
 @requiere_registro
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -8262,14 +8201,19 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_reportes_pdf, pattern="^(resumen_|descargar_pdf_|enviar_inf_)"))        
 
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_actividades, pattern="^act_"))
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_momentos, pattern="^set_m_"))
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_fechas_diario, pattern="^(set_d_|diario_)"))
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_anular, pattern="^(edit_item_|del_item_)"))
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_guardar_cancelar, pattern="^(cancel_entry$|confirm_save$)"))
-        
-        # Patrón delimitado para que 'manejar_callback_eliminacion' no capture a 'del_item_'
+        # Manejadores de la pantalla de confirmación (Modulares con traducción)
+        app_bot.add_handler(CallbackQueryHandler(callback_btn_momento, pattern="^set_m_"))
+        app_bot.add_handler(CallbackQueryHandler(callback_btn_fechas_diario, pattern="^(set_d_|diario_)"))
+        app_bot.add_handler(CallbackQueryHandler(callback_btn_editar_item, pattern="^edit_item_"))
+        app_bot.add_handler(CallbackQueryHandler(callback_btn_anular_item, pattern="^del_item_"))
+        app_bot.add_handler(CallbackQueryHandler(callback_btn_cancelar_registro, pattern="^cancel_entry$"))
+        app_bot.add_handler(CallbackQueryHandler(callback_btn_guardar_registro, pattern="^confirm_save$"))        
+       
+       # Patrón delimitado para que 'manejar_callback_eliminacion' no capture a 'del_item_'
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_(d_|mom_|reg_|borrar)"))
+
+        # 🟢 3. NUEVO MANEJADOR: Interacciones del menú /perfil (Esto revive los botones)
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_perfil, pattern="^(edit_perfil_|set_ritmo_|set_ocup_|set_lang_)"))
 
         app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
         app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
@@ -8288,4 +8232,3 @@ if __name__ == "__main__":
 # =============================================================================================================================================
 #                                               FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
-
