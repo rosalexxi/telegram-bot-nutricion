@@ -7115,7 +7115,7 @@ async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     try:
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, cmd_nueva_cuenta, datos_usuario)
+        await loop.run_in_executor(None, cmd_nuevo_usuario, datos_usuario)
         
         await update.message.reply_text(
             "🎉 **¡Tu cuenta y planillas están listas con éxito!**\n\n"
@@ -7130,7 +7130,7 @@ async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ConversationHandler.END
 
 # Cierre del alta para guardar a las DB (Corregida con todos los campos)
-def cmd_nueva_cuenta(datos_usuario):
+def cmd_nuevo_usuario(datos_usuario):
     user_id = datos_usuario.get("user_id")
     nombre = datos_usuario.get("nombre")
     sexo = datos_usuario.get("sexo", "M")
