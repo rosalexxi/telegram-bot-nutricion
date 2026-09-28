@@ -4987,7 +4987,7 @@ async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEF
 #                INICIO                             MANEJADOR COMIDAS ACTIVIDAD PRESION                                INICIO DB OK
 # =====================================================================================================================================
 
-async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id):
+async def _sub_manejar_edicion_perfil_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE, raw_text, chat_id):
     user_id = update.effective_user.id
     mes_actual = obtener_ahora_arg().strftime("%Y-%m")
 
@@ -4995,9 +4995,6 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
         try:
             nuevo_val = float(raw_text.replace(',', '.'))
             guardar_perfil_db(user_id, peso=nuevo_val, mes=mes_actual)
-            conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-            cur.execute('UPDATE "Usuarios" SET "peso" = %s WHERE "User ID" = %s', (nuevo_val, str(user_id)))
-            conn.commit(); cur.close(); conn.close()
             await update.message.reply_text(f"✅ Peso actualizado a `{nuevo_val} kg`.", parse_mode="Markdown")
         except:
             await update.message.reply_text("❌ Valor inválido. Ingresá números.")
@@ -5057,7 +5054,7 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
         except:
             await update.message.reply_text("❌ Valor inválido.")
         context.user_data['awaiting_edit_perfil_prof'] = False
-        
+                
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, chat_id = update.effective_user.id, update.effective_chat.id
@@ -7988,48 +7985,93 @@ async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not (30 <= nuevo_peso <= 300):
             raise ValueError()
 
-        guardar_perfil_db(user_id, nuevo_peso, mes_actual)
-        
-        try:
-            conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-            cur_u.execute('UPDATE "Usuarios" SET "peso" = %s WHERE "User ID" = %s', (float(nuevo_peso), str(user_id)))
-            conn_u.commit()
-            cur_u.close()
-            conn_u.close()
-        except Exception as e_usr_peso:
-            logger.error(f"Error al sincronizar peso en tabla Usuarios para {user_id}: {e_usr_peso}")
+def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
+    """Guarda el perfil, actualiza el peso y auto-calibra el factor de actividad para mantener la consistencia real."""
+    ahora = obtener_ahora_arg()
+    
+    if not mes:
+        mes = ahora.strftime("%Y-%m")
 
-        perfil_actualizado = obtener_perfil_usuario(user_id, mes_target=mes_actual)
-        if perfil_actualizado:
-            edad = parse_raw_val(perfil_actualizado.get('EDAD', perfil_actualizado.get('Edad', 64)))
-            altura = parse_raw_val(perfil_actualizado.get('ALTURA', perfil_actualizado.get('Altura', 170)))
-            genero = str(perfil_actualizado.get('GENERO', perfil_actualizado.get('Genero', 'M')))
-            ocupacion = parse_raw_val(perfil_actualizado.get('ocupacion', 1.375))
-            if ocupacion > 10: ocupacion = ocupacion / 1000.0
+    peso_real = float(peso)
+    if peso_real > 1000: peso_real /= 1000.0
+
+    try:
+        tabla_nombre = f"Perfil_{user_id}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+        
+        # Recuperamos los datos previos del mes para ver el peso inicial
+        cur.execute(f'SELECT "EDAD", "ALTURA", "GENERO", "ocupacion", "PESO" FROM "{tabla_nombre}" WHERE "MES" = %s', (str(mes),))
+        fila_previa = cur.fetchone()
+
+        edad_val = int(edad) if edad is not None else (int(fila_previa[0]) if fila_previa and fila_previa[0] else 64)
+        altura_val = float(altura) if altura is not None else (float(fila_previa[1]) if fila_previa and fila_previa[1] else 170.0)
+        genero_val = str(genero) if genero else (str(fila_previa[2]) if fila_previa and fila_previa[2] else "M")
+        
+        factor_previo = float(ocupacion) if ocupacion is not None else (float(fila_previa[3]) if fila_previa and fila_previa[3] else 1.375)
+        
+        # Tomamos el peso del primer registro del mes como base para medir la variación real
+        peso_inicio_mes = float(fila_previa[4]) if fila_previa and fila_previa[4] else peso_real
+
+        # -------------------------------------------------------------
+        # 🟢 AUTO-CALIBRACIÓN DEL FACTOR: Hace que la física del bot coincida con la balanza
+        # -------------------------------------------------------------
+        nuevo_factor = factor_previo
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+
+        if not df_datos.empty and 'Fecha' in df_datos.columns:
+            df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes)].copy()
+            dias_registrados = df_mes['Fecha'].nunique()
+
+            if dias_registrados >= 2:
+                tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
+                tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in df_mes.columns else 0.0
+
+                ingesta_diaria = tot_cons_mes / dias_registrados
+                ejercicio_diario = tot_quem_mes / dias_registrados
+
+                delta_peso = peso_real - peso_inicio_mes  # Diferencia real en la balanza
+
+                tmb_pura, _ = calcular_tmb_y_get(peso_actual=peso_real, altura_cm=altura_val, edad=edad_val, genero=genero_val, actividad=1.0)
+                if tmb_pura <= 0:
+                    tmb_pura = 1813.0
+
+                # Despejamos el gasto real necesario para que la ecuación dé exactamente la variación de la balanza
+                gasto_diario_total = ingesta_diaria - ((delta_peso * 7700.0) / dias_registrados)
+                factor_calculado = (gasto_diario_total - ejercicio_diario) / tmb_pura
+
+                # Aplicamos topes de seguridad razonables (entre 1.20 y 1.85)
+                nuevo_factor = max(1.20, min(1.85, round(factor_calculado, 3)))
+
+        # Guardamos en la base de datos el nuevo peso y el factor calibrado
+        if fila_previa:
+            cur.execute(f"""
+                UPDATE "{tabla_nombre}"
+                SET "PESO" = %s, "ocupacion" = %s, "Fecha_Actualizacion" = %s
+                WHERE "MES" = %s
+            """, (peso_real, nuevo_factor, ahora.strftime("%Y-%m-%d"), str(mes)))
         else:
-            edad, altura, genero, ocupacion = 64.0, 170.0, "M", 1.375
+            cur.execute(f"""
+                INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Cumple")
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                str(edad_val),
+                peso_real,
+                altura_val,
+                genero_val,
+                nuevo_factor,
+                str(mes),
+                ahora.strftime("%Y-%m-%d"),
+                ""
+            ))
+        conn.commit()
+        cur.close()
+        conn.close()
 
-        tmb, get_val = calcular_tmb_y_get(nuevo_peso, altura, edad, genero, ocupacion)
-        unidades_kcal = traducciones.get('perfil_unidades_kcal', 'kcal/day' if lang == 'en' else 'kcal/día')
-        
-        txt_peso_act = traducciones.get('perfil_peso_actualizado_ok', 
-            "✅ **Peso actualizado correctamente para el mes `{mes_actual}`:**\n\n"
-            "• Nuevo Peso: `{nuevo_peso:.1f}` kg\n"
-            "• Fecha de registro: `{fecha_hoy}`\n"
-            "• **TMB Estimada:** `{tmb:.0f} {unidades}`\n"
-            "• **GET Estimado:** `{get_val:.0f} {unidades}`"
-        ).format(mes_actual=mes_actual, nuevo_peso=nuevo_peso, fecha_hoy=fecha_hoy, tmb=tmb, get_val=get_val, unidades=unidades_kcal)
+        guardar_ocupacion_db(user_id, nuevo_factor, mes)
 
-        await update.message.reply_text(txt_peso_act.replace('\\n', '\n'), parse_mode="Markdown")
-
-    except ValueError:
-        txt_err_num = traducciones.get('perfil_error_numero_valido', "❌ Por favor, ingresá un número válido para el peso. Ejemplo: `/peso 82.5`")
-        await update.message.reply_text(txt_err_num.replace('\\n', '\n'), parse_mode="Markdown")
     except Exception as e:
-        logger.error(f"Error al procesar /peso rápido: {e}")
-        txt_err_gral = traducciones.get('perfil_error_guardar', "⚠️ Ocurrió un error al intentar guardar en la base de datos: {e}").format(e=e)
-        await update.message.reply_text(txt_err_gral.replace('\\n', '\n'), parse_mode="Markdown")
-                
+        logger.error(f"Error al guardar perfil y auto-calibrar en Supabase (Perfil_{user_id}): {e}")
+                        
 #                       INICIO                  COMANDOS PRESION                    INICIO
 # ======================================================================================================================================
 
