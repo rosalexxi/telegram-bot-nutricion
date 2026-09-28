@@ -172,25 +172,24 @@ HTML_CALCULADORA_RECETAS = """
         }
         .flag-btn:hover { border-color: var(--primary); background: #f0fdf4; }
 
-        /* Contenedor central totalmente traslúcido */
         .content-wrapper { 
             max-width: 950px; 
             margin: 20px auto; 
-            background: rgba(255, 255, 255, 0.50); 
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
+            background: rgba(255, 255, 255, 0.30); 
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
             padding: 25px; 
             border-radius: 12px; 
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1); 
-            border: 1px solid rgba(255, 255, 255, 0.6);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08); 
+            border: 1px solid rgba(255, 255, 255, 0.4);
             width: 90%; 
             box-sizing: border-box; 
             flex: 1;
         }
 
         .content-box { 
-            background: rgba(255, 255, 255, 0.65); 
-            border: 1px solid rgba(226, 232, 240, 0.8); 
+            background: rgba(255, 255, 255, 0.40); 
+            border: 1px solid rgba(226, 232, 240, 0.6); 
             border-radius: 8px; 
             padding: 20px; 
             margin-top: 15px; 
@@ -242,7 +241,7 @@ HTML_CALCULADORA_RECETAS = """
             font-size: 0.85rem; 
             font-weight: normal; 
             color: #333;
-            background: rgba(255, 255, 255, 0.9);
+            background: rgba(255, 255, 255, 0.75);
         }
         textarea { height: 70px; resize: vertical; }
         
@@ -255,16 +254,13 @@ HTML_CALCULADORA_RECETAS = """
         #loading { display: none; text-align: center; margin-top: 8px; font-style: italic; color: #7f8c8d; font-size: 0.85rem; }
         #resultado-section { display: none; margin-top: 15px; border-top: 2px solid rgba(0,0,0,0.1); padding-top: 8px; }
         
-        /* Estilos de la tabla de desglose */
         table.calc-tbl { width: 100%; border-collapse: collapse; margin-top: 6px; }
-        table.calc-tbl th, table.calc-tbl td { border: 1px solid #cbd5e1; padding: 4px 6px; text-align: center; vertical-align: middle; background: rgba(255, 255, 255, 0.7); }
-        table.calc-tbl th { background-color: rgba(241, 245, 249, 0.9); font-weight: bold; font-size: 0.8rem; color: #1e293b; }
+        table.calc-tbl th, table.calc-tbl td { border: 1px solid #cbd5e1; padding: 5px; text-align: center; vertical-align: middle; background: rgba(255, 255, 255, 0.5); }
+        table.calc-tbl th { background-color: rgba(241, 245, 249, 0.8); font-weight: bold; font-size: 0.8rem; color: #1e293b; }
         
-        /* Fila de totales con fuente más grande y destacada */
-        table.calc-tbl tr.total-row { background-color: rgba(230, 244, 234, 0.9); font-weight: bold; font-size: 1.05rem; color: #065f46; }
-        table.calc-tbl tr.total-row td { padding: 8px 6px; }
+        table.calc-tbl tr.total-row { background-color: rgba(230, 244, 234, 0.85); font-weight: bold; font-size: 0.85rem; color: #065f46; }
+        table.calc-tbl tr.total-row td { padding: 6px; }
         
-        /* Fuente achicada para los ingredientes individuales */
         .editable-cell {
             width: 100%;
             padding: 3px 4px;
@@ -278,7 +274,7 @@ HTML_CALCULADORA_RECETAS = """
         }
         .editable-cell:hover, .editable-cell:focus {
             border-color: var(--primary);
-            background: rgba(255, 255, 255, 0.95);
+            background: rgba(255, 255, 255, 0.9);
             outline: none;
         }
 
@@ -287,10 +283,10 @@ HTML_CALCULADORA_RECETAS = """
         .btn-copy { background-color: #2980b9; margin-top: 6px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
         .btn-copy:hover { background-color: #1f6391; }
         
-        .user-badge { background: rgba(224, 242, 254, 0.9); color: #0369a1; padding: 5px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; display: inline-block; margin-bottom: 8px; }
+        .user-badge { background: rgba(224, 242, 254, 0.8); color: #0369a1; padding: 5px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; display: inline-block; margin-bottom: 8px; }
 
         footer { 
-            background: rgba(44, 62, 80, 0.9); 
+            background: rgba(44, 62, 80, 0.85); 
             backdrop-filter: blur(5px);
             color: white; 
             text-align: center; 
@@ -347,7 +343,6 @@ HTML_CALCULADORA_RECETAS = """
 
 <div class="content-wrapper">
 
-    <!-- INICIO -->
     <div id="section-inicio" class="section-content active">
         <h1 data-var="01_titulo_inicio"></h1>
         <div class="content-box">
@@ -361,7 +356,6 @@ HTML_CALCULADORA_RECETAS = """
         </div>
     </div>
 
-    <!-- INGRESO DE DATOS -->
     <div id="section-ingreso" class="section-content">
         <h1 data-var="01_titulo_ingreso"></h1>
         <div class="content-box">
@@ -375,7 +369,6 @@ HTML_CALCULADORA_RECETAS = """
         </div>
     </div>
 
-    <!-- EL ALTA -->
     <div id="section-alta" class="section-content">
         <h1 data-var="01_titulo_alta"></h1>
         <div class="content-box">
@@ -389,7 +382,6 @@ HTML_CALCULADORA_RECETAS = """
         </div>
     </div>
 
-    <!-- GUÍA DE COMANDOS -->
     <div id="section-comandos" class="section-content">
         <h1 data-var="01_titulo_comandos"></h1>
         <div class="content-box">
@@ -398,12 +390,11 @@ HTML_CALCULADORA_RECETAS = """
                     <img src="{{ url_for('static', filename='foto4.png') }}" alt="Comandos" onerror="this.style.display='none'">
                     <div class="img-caption" data-var="01_cap_comandos"></div>
                 </div>
-                <p data-var="01_texto_comandos"></p>
+                <p data-var="01_cap_comandos"></p>
             </div>
         </div>
     </div>
 
-    <!-- PREGUNTAS FRECUENTES -->
     <div id="section-faq" class="section-content">
         <h1 data-var="01_titulo_faq"></h1>
         <div class="content-box">
@@ -414,64 +405,63 @@ HTML_CALCULADORA_RECETAS = """
     {% if user_id %}
     <div id="section-calculadora" class="section-content">
         <div class="calculator-section">
-            <h2 data-var="01_titulo_calc"></h2>
-            <p data-var="01_desc_calc"></p>
+            <h2 data-var="01_titulo_calc">Calculadora Web</h2>
+            <p data-var="01_desc_calc">Herramienta avanzada para registrar y calcular recetas.</p>
 
-            <div class="user-badge"><span data-var="01_user_conectado"></span>: {{ user_id }}</div>
+            <div class="user-badge"><span data-var="01_user_conectado">Usuario Conectado</span>: {{ user_id }}</div>
             
             <div class="row">
                 <div class="col" style="flex: 0.4;">
-                    <label for="codigo"><span data-var="01_label_codigo"></span>:</label>
+                    <label for="codigo"><span data-var="01_label_codigo">Código</span>:</label>
                     <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()">
                 </div>
                 <div class="col">
-                    <label for="descripcion"><span data-var="01_label_descripcion"></span>:</label>
+                    <label for="descripcion"><span data-var="01_label_descripcion">Descripción</span>:</label>
                     <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún">
                 </div>
             </div>
 
-            <label for="recetaText"><span data-var="01_label_ingredientes"></span>:</label>
+            <label for="recetaText"><span data-var="01_label_ingredientes">Ingredientes y Cantidad</span>:</label>
             <textarea id="recetaText" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca"></textarea>
 
             <div class="row">
                 <div class="col">
-                    <label for="tipoCalculo"><span data-var="01_label_criterio"></span>:</label>
+                    <label for="tipoCalculo"><span data-var="01_label_criterio">Criterio de División</span>:</label>
                     <select id="tipoCalculo" onchange="toggleCriterio()">
-                        <option value="porciones" data-var="01_opt_porciones"></option>
-                        <option value="gramos" data-var="01_opt_gramos"></option>
+                        <option value="porciones" data-var="01_opt_porciones">Porciones</option>
+                        <option value="gramos" data-var="01_opt_gramos">Gramos Totales</option>
                     </select>
                 </div>
                 <div class="col" id="colPorciones">
-                    <label for="porciones"><span data-var="01_label_porciones"></span>:</label>
+                    <label for="porciones"><span data-var="01_label_porciones">Porciones</span>:</label>
                     <input type="number" id="porciones" value="1" min="1">
                 </div>
             </div>
 
-            <button class="calc-btn" onclick="calcularReceta()"><span data-var="01_btn_calcular"></span></button>
+            <button class="calc-btn" onclick="calcularReceta()"><span data-var="01_btn_calcular">✨ Calcular Fila con IA</span></button>
 
-            <div id="loading" data-var="01_loading_ia"></div>
+            <div id="loading" data-var="01_loading_ia">Calculando macronutrientes...</div>
 
             <div id="resultado-section">
-                <h3 data-var="01_sub_fila_generada">Desglose de Ingredientes e Ítems</h3>
                 <div style="overflow-x: auto;">
                     <table class="calc-tbl" id="tablaNutricional">
                         <thead>
                             <tr>
                                 <th data-var="01_th_nombre">Nombre</th>
-                                <th data-var="01_th_peso">Peso (g)</th>
-                                <th data-var="01_th_calorias">Calorías</th>
-                                <th data-var="01_th_proteinas">Proteínas</th>
-                                <th data-var="01_th_grasas">Grasas</th>
-                                <th data-var="01_th_carbohidratos">Carbos</th>
-                                <th data-var="01_th_fibras">Fibras</th>
+                                <th data-var="01_th_peso">⚖️ Peso (g)</th>
+                                <th data-var="01_th_calorias">🔥 Calorías</th>
+                                <th data-var="01_th_proteinas">🥩 Proteínas</th>
+                                <th data-var="01_th_grasas">🥑 Grasas</th>
+                                <th data-var="01_th_carbohidratos">🍞 Carbos</th>
+                                <th data-var="01_th_fibras">🌾 Fibras</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <!-- Filas dinámicas sin columna de descripción ni letras de columnas -->
+                            <!-- Filas dinámicas -->
                         </tbody>
                         <tfoot>
                             <tr class="total-row" id="filaTotales">
-                                <td>TOTALES</td>
+                                <td><span data-var="01_th_totales">Totales</span></td>
                                 <td id="totPeso">0</td>
                                 <td id="totCal">0</td>
                                 <td id="totProt">0</td>
@@ -483,8 +473,8 @@ HTML_CALCULADORA_RECETAS = """
                     </table>
                 </div>
 
-                <button class="btn-save" onclick="guardarEnGoogleSheets()"><span data-var="01_btn_guardar">Confirmar y Guardar</span></button>
-                <button class="btn-copy" onclick="copiarFilaExcel()"><span data-var="01_btn_copiar">Copiar Fila Total para Excel</span></button>
+                <button class="btn-save" onclick="guardarEnGoogleSheets()"><span data-var="01_btn_guardar">💾 Guardar Directamente en Planilla</span></button>
+                <button class="btn-copy" onclick="copiarFilaExcel()"><span data-var="01_btn_copiar">📋 Copiar Fila para Excel</span></button>
             </div>
         </div>
     </div>
@@ -494,12 +484,12 @@ HTML_CALCULADORA_RECETAS = """
 
 <footer>
     <div class="footer-links">
-        <a onclick="reproducirAudioguia()" class="footer-link" data-var="01_btn_audioguia"></a>
-        <a href="manual.pdf" target="_blank" class="footer-link" data-var="01_btn_manual"></a>
-        <a href="https://instagram.com/ianutribot" target="_blank" class="footer-link" data-var="01_btn_instagram"></a>
-        <a href="mailto:ianutribot@gmail.com" class="footer-link" data-var="01_btn_mail"></a>
+        <a onclick="reproducirAudioguia()" class="footer-link" data-var="01_btn_audioguia">🎧 Audioguía</a>
+        <a id="linkManual" href="#" target="_blank" class="footer-link" data-var="01_btn_manual">📖 Manual (PDF)</a>
+        <a href="https://instagram.com/ianutribot" target="_blank" class="footer-link" data-var="01_btn_instagram">📸 Instagram</a>
+        <a href="mailto:ianutribot@gmail.com" class="footer-link" data-var="01_btn_mail">✉️ Mail</a>
     </div>
-    <div class="footer-info" data-var="01_footer_rights"></div>
+    <div class="footer-info" data-var="01_footer_rights">© 2026 IA NutriBot - Todos los derechos reservados.</div>
 </footer>
 
 <script>
@@ -517,7 +507,9 @@ HTML_CALCULADORA_RECETAS = """
         document.body.style.backgroundImage = `url('${fondosNutricion[randomIndex]}')`;
     }
 
+    let idiomasDisponiblesGlobal = [];
     let idiomaActual = 'es';
+    let nombreLargoActual = 'Español';
     const currentUserId = "{{ user_id }}";
     let itemsDesglosadosGlobal = [];
 
@@ -529,6 +521,7 @@ HTML_CALCULADORA_RECETAS = """
             container.innerHTML = '';
             
             if (data.idiomas && Array.isArray(data.idiomas)) {
+                idiomasDisponiblesGlobal = data.idiomas;
                 data.idiomas.forEach(langObj => {
                     const btn = document.createElement('a');
                     btn.className = 'flag-btn';
@@ -546,6 +539,12 @@ HTML_CALCULADORA_RECETAS = """
     async function cambiarIdioma(lang) {
         try {
             idiomaActual = lang;
+            
+            const objLang = idiomasDisponiblesGlobal.find(i => i.code === lang);
+            if (objLang && objLang.name) {
+                nombreLargoActual = objLang.name;
+            }
+
             const response = await fetch(`/api/traducciones?lang=${lang}`);
             if (!response.ok) throw new Error("No se pudieron cargar las traducciones.");
             const traducciones = await response.json();
@@ -556,6 +555,12 @@ HTML_CALCULADORA_RECETAS = """
                     el.innerText = traducciones[clave];
                 }
             });
+
+            const linkManual = document.getElementById('linkManual');
+            if (linkManual) {
+                const nombrePdf = traducciones['manual_pdf'] || 'manual.pdf';
+                linkManual.href = nombrePdf;
+            }
         } catch (err) {
             console.error("Error al cambiar idioma:", err);
         }
@@ -736,12 +741,12 @@ HTML_CALCULADORA_RECETAS = """
             tFibr += parseFloat(item.fibras) || 0;
         });
 
-        document.getElementById('totPeso').innerText = tPeso.toFixed(1);
-        document.getElementById('totCal').innerText = tCal.toFixed(1);
-        document.getElementById('totProt').innerText = tProt.toFixed(1);
-        document.getElementById('totGras').innerText = tGras.toFixed(1);
-        document.getElementById('totCarb').innerText = tCarb.toFixed(1);
-        document.getElementById('totFibr').innerText = tFibr.toFixed(1);
+        document.getElementById('totPeso').innerText = Math.round(tPeso);
+        document.getElementById('totCal').innerText = Math.round(tCal);
+        document.getElementById('totProt').innerText = Math.round(tProt);
+        document.getElementById('totGras').innerText = Math.round(tGras);
+        document.getElementById('totCarb').innerText = Math.round(tCarb);
+        document.getElementById('totFibr').innerText = Math.round(tFibr);
     }
 
     async function guardarEnGoogleSheets() {
@@ -915,7 +920,7 @@ def api_calcular_receta():
             f"- Las calorías ('calorias')\n"
             f"- Las proteínas en gramos ('proteinas')\n"
             f"- Las grasas en gramos ('grasas')\n"
-            f"- Les carbohidratos en gramos ('carbohidratos')\n"
+            f"- Los carbohidratos en gramos ('carbohidratos')\n"
             f"- Las fibras en gramos ('fibras')\n\n"
             f"REGLA ESTRICTA: Responde ÚNICAMENTE con un objeto JSON válido, sin textos adicionales, saludos ni explicaciones. "
             f"El JSON debe tener exactamente esta estructura:\n"
