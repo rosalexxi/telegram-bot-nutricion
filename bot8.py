@@ -124,7 +124,7 @@ HTML_CALCULADORA_RECETAS = """
             --primary-dark: #219150;
             --secondary: #2c3e50;
             --bg-light: #f4f6f9;
-            --text-color: #333;
+            --text-color: #0f172a;
         }
         
         html, body { 
@@ -132,26 +132,20 @@ HTML_CALCULADORA_RECETAS = """
             margin: 0; 
             padding: 0; 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            background-color: var(--bg-light); 
             color: var(--text-color); 
             display: flex;
             flex-direction: column;
-        }
-        
-        /* Estilos dinámicos para PC (Fondo de nutrición aleatorio) */
-        @media (min-width: 1024px) {
-            body {
-                background-size: cover;
-                background-position: center;
-                background-attachment: fixed;
-                /* Capa semitransparente para que la lectura siga siendo perfecta */
-                background-blend-mode: overlay;
-                background-color: rgba(244, 246, 249, 0.92);
-            }
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            background-blend-mode: overlay;
+            background-color: rgba(244, 246, 249, 0.85);
+            transition: background-image 1.5s ease-in-out;
         }
         
         header { 
-            background: white; 
+            background: rgba(255, 255, 255, 0.85); 
+            backdrop-filter: blur(5px);
             box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
             position: sticky;
             top: 0;
@@ -160,89 +154,149 @@ HTML_CALCULADORA_RECETAS = """
         .nav-container { max-width: 1100px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; }
         .logo { font-size: 1.2rem; font-weight: bold; color: var(--primary); text-decoration: none; cursor: pointer; }
         .nav-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .nav-links a { text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 0.82rem; transition: color 0.2s; cursor: pointer; }
+        .nav-links a { text-decoration: none; color: var(--secondary); font-weight: bold; font-size: 0.88rem; transition: color 0.2s; cursor: pointer; }
         .nav-links a:hover, .nav-links a.active { color: var(--primary); }
         
-        /* Estilo para los botones de banderas dinámicos */
+        /* Contenedor dinámico de banderas (solo muestra la bandera y el tooltip en PC) */
         .lang-flags-container { display: flex; align-items: center; gap: 6px; margin-left: 10px; }
-        .flag-btn { background: white; border: 1px solid #ccc; border-radius: 4px; padding: 3px 7px; font-size: 0.8rem; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--secondary); transition: all 0.2s; }
+        .flag-btn { 
+            background: rgba(255, 255, 255, 0.9); 
+            border: 1px solid #cbd5e1; 
+            border-radius: 4px; 
+            padding: 4px 8px; 
+            font-size: 1.15rem; 
+            cursor: pointer; 
+            text-decoration: none; 
+            display: inline-flex; 
+            align-items: center; 
+            transition: all 0.2s; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
         .flag-btn:hover { border-color: var(--primary); background: #f0fdf4; }
 
+        /* Contenedor central TOTALMENTE TRASLÚCIDO */
         .content-wrapper { 
-            max-width: 900px; 
+            max-width: 950px; 
             margin: 20px auto; 
-            background: white; 
+            background: rgba(255, 255, 255, 0.75); 
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
             padding: 25px; 
             border-radius: 12px; 
-            box-shadow: 0 4px 15px rgba(0,0,0,0.05); 
+            box-shadow: 0 8px 32px rgba(0,0,0,0.12); 
+            border: 1px solid rgba(255, 255, 255, 0.4);
             width: 90%; 
             box-sizing: border-box; 
             flex: 1;
         }
 
         .content-box { 
-            background: #ffffff; 
-            border: 1px solid #e2e8f0; 
+            background: rgba(255, 255, 255, 0.70); 
+            border: 1px solid rgba(203, 213, 225, 0.6); 
             border-radius: 8px; 
             padding: 20px; 
             margin-top: 15px; 
-            box-shadow: 0 2px 4px rgba(0,0,0,0.02); 
+            box-shadow: 0 2px 6px rgba(0,0,0,0.02); 
         }
 
-        h1 { color: var(--secondary); margin-top: 0; font-size: 1.4rem; margin-bottom: 12px; }
-        p { margin-bottom: 0; color: #444; font-size: 0.9rem; text-align: justify; line-height: 1.6; white-space: pre-line; }
+        h1 { color: var(--secondary); margin-top: 0; font-size: 1.4rem; margin-bottom: 12px; font-weight: bold; }
+        p { margin-bottom: 0; color: #0f172a; font-size: 0.98rem; font-weight: bold; text-align: justify; line-height: 1.6; white-space: pre-line; }
 
         .article-content { overflow: hidden; }
+        
+        /* Imagen con marco delicado y efecto 3D */
         .newspaper-img {
             float: left; 
             width: 45%; 
             margin-right: 20px; 
             margin-bottom: 10px;
-            background-color: #f8fafc;
-            border: 2px dashed #cbd5e1;
-            border-radius: 8px;
+            background-color: #ffffff;
+            border: 1px solid #94a3b8;
+            border-radius: 6px;
             padding: 6px;
             box-sizing: border-box;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18), inset 0 0 0 1px rgba(255, 255, 255, 0.8);
         }
         .newspaper-img img {
             width: 100%;
             aspect-ratio: 4 / 3; 
             object-fit: cover;
-            border-radius: 4px;
+            border-radius: 3px;
             display: block;
+            border: 1px solid #cbd5e1;
         }
         .img-caption {
             font-size: 0.75rem;
-            color: #666;
+            color: #334155;
             text-align: center;
-            margin-top: 5px;
+            margin-top: 6px;
             font-style: italic;
+            font-weight: bold;
         }
 
         .section-content { display: none; }
         .section-content.active { display: block; }
 
         .calculator-section { margin-top: 5px; }
-        label { font-weight: bold; display: block; margin-top: 8px; margin-bottom: 2px; font-size: 0.85rem; }
-        input[type="text"], input[type="number"], select, textarea { width: 100%; padding: 7px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 0.85rem; }
-        textarea { height: 70px; resize: vertical; }
+        label { font-weight: bold; display: block; margin-top: 10px; margin-bottom: 3px; font-size: 0.95rem; color: #0f172a; }
+        
+        /* Cajas de texto y inputs en BOLD (Negrita) */
+        input[type="text"], input[type="number"], select, textarea { 
+            width: 100%; 
+            padding: 9px; 
+            border: 1.5px solid #64748b; 
+            border-radius: 6px; 
+            box-sizing: border-box; 
+            font-size: 1rem; 
+            font-weight: bold; 
+            color: #020617;
+            background: rgba(255, 255, 255, 0.9);
+        }
+        textarea { height: 80px; resize: vertical; font-weight: bold; }
+        
         .row { display: flex; gap: 10px; }
         .col { flex: 1; }
-        button.calc-btn { background-color: var(--primary); color: white; padding: 9px; border: none; border-radius: 4px; width: 100%; font-size: 0.9rem; font-weight: bold; cursor: pointer; margin-top: 12px; }
+        
+        button.calc-btn { background-color: var(--primary); color: white; padding: 11px; border: none; border-radius: 6px; width: 100%; font-size: 1rem; font-weight: bold; cursor: pointer; margin-top: 14px; box-shadow: 0 2px 5px rgba(39, 174, 96, 0.3); }
         button.calc-btn:hover { background-color: var(--primary-dark); }
-        #loading { display: none; text-align: center; margin-top: 8px; font-style: italic; color: #7f8c8d; font-size: 0.85rem; }
-        #resultado-section { display: none; margin-top: 15px; border-top: 2px solid #eee; padding-top: 8px; }
-        table.calc-tbl { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 0.8rem; }
-        table.calc-tbl th, table.calc-tbl td { border: 1px solid #ddd; padding: 5px; text-align: center; }
-        table.calc-tbl th { background-color: #f2f2f2; }
-        .btn-save { background-color: #8e44ad; margin-top: 8px; color: white; padding: 9px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
+        
+        #loading { display: none; text-align: center; margin-top: 8px; font-style: italic; color: #334155; font-size: 0.95rem; font-weight: bold; }
+        #resultado-section { display: none; margin-top: 15px; border-top: 2px solid #94a3b8; padding-top: 8px; }
+        
+        table.calc-tbl { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 0.88rem; }
+        table.calc-tbl th, table.calc-tbl td { border: 1px solid #64748b; padding: 6px; text-align: center; vertical-align: middle; }
+        table.calc-tbl th { background-color: rgba(226, 232, 240, 0.9); font-weight: bold; color: #020617; font-size: 0.9rem; }
+        table.calc-tbl tr.total-row { background-color: rgba(220, 252, 231, 0.9); font-weight: bold; font-size: 0.95rem; color: #166534; }
+        
+        /* Cajas de texto editables de la tabla en BOLD (Negrita) */
+        .editable-cell {
+            width: 100%;
+            padding: 6px;
+            border: 1px solid transparent;
+            background: rgba(255, 255, 255, 0.7);
+            text-align: center;
+            font-size: 0.9rem;
+            font-weight: bold;
+            color: #020617;
+            border-radius: 4px;
+        }
+        .editable-cell:hover, .editable-cell:focus {
+            border-color: var(--primary);
+            background: #ffffff;
+            outline: none;
+            box-shadow: 0 0 4px rgba(39, 174, 96, 0.4);
+        }
+
+        .btn-save { background-color: #8e44ad; margin-top: 12px; color: white; padding: 11px; border: none; border-radius: 6px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.95rem; box-shadow: 0 2px 5px rgba(142, 68, 173, 0.3); }
         .btn-save:hover { background-color: #71368a; }
-        .btn-copy { background-color: #2980b9; margin-top: 6px; color: white; padding: 9px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
+        .btn-copy { background-color: #2980b9; margin-top: 8px; color: white; padding: 11px; border: none; border-radius: 6px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.95rem; box-shadow: 0 2px 5px rgba(41, 128, 185, 0.3); }
         .btn-copy:hover { background-color: #1f6391; }
-        .user-badge { background: #e0f2fe; color: #0369a1; padding: 5px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; display: inline-block; margin-bottom: 8px; }
+        
+        .user-badge { background: rgba(224, 242, 254, 0.9); color: #0369a1; padding: 6px 10px; border-radius: 6px; font-size: 0.9rem; font-weight: bold; display: inline-block; margin-bottom: 8px; border: 1px solid #bae6fd; }
 
         footer { 
-            background: var(--secondary); 
+            background: rgba(44, 62, 80, 0.92); 
+            backdrop-filter: blur(5px);
             color: white; 
             text-align: center; 
             padding: 18px 15px 35px 15px; 
@@ -260,17 +314,17 @@ HTML_CALCULADORA_RECETAS = """
         .footer-link { 
             color: white; 
             text-decoration: none; 
-            font-weight: 600; 
+            font-weight: bold; 
             padding: 6px 14px; 
-            background: rgba(255,255,255,0.1); 
+            background: rgba(255,255,255,0.15); 
             border-radius: 4px; 
-            font-size: 0.75rem; 
+            font-size: 0.8rem; 
             transition: background 0.2s; 
             display: inline-block; 
             cursor: pointer; 
         }
-        .footer-link:hover { background: rgba(255,255,255,0.2); }
-        .footer-info { opacity: 0.8; font-size: 0.7rem; }
+        .footer-link:hover { background: rgba(255,255,255,0.3); }
+        .footer-info { opacity: 0.9; font-size: 0.75rem; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -291,7 +345,7 @@ HTML_CALCULADORA_RECETAS = """
             {% if user_id %}
             <a id="nav-calculadora" onclick="showSection('calculadora')" data-var="01_menu_calculadora">Calculadora Web</a>
             {% endif %}
-            <!-- Contenedor dinámico de banderas y nombres de idiomas -->
+            <!-- Contenedor dinámico de banderas (solo muestra la bandera y el tooltip en PC) -->
             <div id="langFlagsContainer" class="lang-flags-container"></div>
         </div>
     </div>
@@ -404,28 +458,40 @@ HTML_CALCULADORA_RECETAS = """
             <div id="loading" data-var="01_loading_ia"></div>
 
             <div id="resultado-section">
-                <h3 data-var="01_sub_fila_generada"></h3>
+                <h3 data-var="01_sub_fila_generada">Desglose de Ingredientes e Ítems</h3>
                 <div style="overflow-x: auto;">
                     <table class="calc-tbl" id="tablaNutricional">
                         <thead>
                             <tr>
-                                <th data-var="01_th_nombre"></th>
-                                <th data-var="01_th_descripcion"></th>
-                                <th data-var="01_th_peso"></th>
-                                <th data-var="01_th_calorias"></th>
-                                <th data-var="01_th_proteinas"></th>
-                                <th data-var="01_th_grasas"></th>
-                                <th data-var="01_th_carbohidratos"></th>
-                                <th data-var="01_th_fibras"></th>
+                                <th data-var="01_th_nombre">Nombre</th>
+                                <th data-var="01_th_descripcion">Descripción</th>
+                                <th data-var="01_th_peso">Peso (g)</th>
+                                <th data-var="01_th_calorias">Calorías</th>
+                                <th data-var="01_th_proteinas">Proteínas</th>
+                                <th data-var="01_th_grasas">Grasas</th>
+                                <th data-var="01_th_carbohidratos">Carbos</th>
+                                <th data-var="01_th_fibras">Fibras</th>
                             </tr>
                         </thead>
                         <tbody>
+                            <!-- Filas dinámicas editables -->
                         </tbody>
+                        <tfoot>
+                            <tr class="total-row" id="filaTotales">
+                                <td colspan="2">TOTALES</td>
+                                <td id="totPeso">0</td>
+                                <td id="totCal">0</td>
+                                <td id="totProt">0</td>
+                                <td id="totGras">0</td>
+                                <td id="totCarb">0</td>
+                                <td id="totFibr">0</td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
 
-                <button class="btn-save" onclick="guardarEnGoogleSheets()"><span data-var="01_btn_guardar"></span></button>
-                <button class="btn-copy" onclick="copiarFilaExcel()"><span data-var="01_btn_copiar"></span></button>
+                <button class="btn-save" onclick="guardarEnGoogleSheets()"><span data-var="01_btn_guardar">Confirmar y Guardar</span></button>
+                <button class="btn-copy" onclick="copiarFilaExcel()"><span data-var="01_btn_copiar">Copiar Fila Total para Excel</span></button>
             </div>
         </div>
     </div>
@@ -444,22 +510,23 @@ HTML_CALCULADORA_RECETAS = """
 </footer>
 
 <script>
-    // Listado automático de imágenes de alta calidad de nutrición para PC (Fondo aleatorio)
     const fondosNutricion = [
-        "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1920&q=80", // Ensalada fresca
-        "https://images.unsplash.com/photo-1498837167922-ddd27525d352?auto=format&fit=crop&w=1920&q=80", // Verduras saludables
-        "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=1920&q=80", // Bowl saludable
-        "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=1920&q=80"  // Plato colorido fitness
+        "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1920&q=80",
+        "https://images.unsplash.com/photo-1498837167922-ddd27525d352?auto=format&fit=crop&w=1920&q=80",
+        "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=1920&q=80",
+        "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=1920&q=80",
+        "https://images.unsplash.com/photo-1490645935967-10de6ba17061?auto=format&fit=crop&w=1920&q=80",
+        "https://images.unsplash.com/photo-1505253716362-afaea1d3d1af?auto=format&fit=crop&w=1920&q=80"
     ];
 
-    function aplicarFondoAleatorio() {
-        if (window.innerWidth >= 1024) {
-            const randomIndex = Math.floor(Math.random() * fondosNutricion.length);
-            document.body.style.backgroundImage = `url('${fondosNutricion[randomIndex]}')`;
-        }
+    function aplicarFondoAleatorioRotativo() {
+        const randomIndex = Math.floor(Math.random() * fondosNutricion.length);
+        document.body.style.backgroundImage = `url('${fondosNutricion[randomIndex]}')`;
     }
 
-    let idiomaActual = 'en';
+    let idiomaActual = 'es';
+    const currentUserId = "{{ user_id }}";
+    let itemsDesglosadosGlobal = [];
 
     async function cargarBanderasIdiomas() {
         try {
@@ -468,12 +535,12 @@ HTML_CALCULADORA_RECETAS = """
             const container = document.getElementById('langFlagsContainer');
             container.innerHTML = '';
             
-            // data.idiomas debe traer objetos como: [{code: 'es', name: 'Español', flag: '🇪🇸'}, {code: 'en', name: 'English', flag: '🇺🇸'}]
             if (data.idiomas && Array.isArray(data.idiomas)) {
                 data.idiomas.forEach(langObj => {
                     const btn = document.createElement('a');
                     btn.className = 'flag-btn';
-                    btn.innerHTML = `${langObj.flag} ${langObj.name}`;
+                    btn.innerHTML = langObj.flag;     // Solo muestra la bandera a la vista
+                    btn.title = langObj.name;         // Tooltip nativo con el nombre largo al pasar el mouse (PC)
                     btn.onclick = () => cambiarIdioma(langObj.code);
                     container.appendChild(btn);
                 });
@@ -502,7 +569,9 @@ HTML_CALCULADORA_RECETAS = """
     }
 
     async function inicializarIdiomaWeb() {
-        aplicarFondoAleatorio();
+        aplicarFondoAleatorioRotativo();
+        setInterval(aplicarFondoAleatorioRotativo, 30000);
+
         await cargarBanderasIdiomas();
 
         const urlParams = new URLSearchParams(window.location.search);
@@ -521,7 +590,7 @@ HTML_CALCULADORA_RECETAS = """
             }
         }
 
-        await cambiarIdioma('en');
+        await cambiarIdioma('es');
     }
 
     window.addEventListener('DOMContentLoaded', () => {
@@ -535,14 +604,12 @@ HTML_CALCULADORA_RECETAS = """
         if ('speechSynthesis' in window) {
             window.speechSynthesis.cancel();
             try {
-                // Obtenemos la audioguía dinámica correspondiente al idioma actual desde la API
                 const response = await fetch(`/api/audioguia?lang=${idiomaActual}`);
                 if (!response.ok) throw new Error("No se pudo cargar la audioguía para este idioma.");
                 const data = await response.json();
-                const textoGuia = data.guia;
                 
                 const langSpeech = idiomaActual === 'es' ? 'es-AR' : 'en-US';
-                const utterance = new SpeechSynthesisUtterance(textoGuia);
+                const utterance = new SpeechSynthesisUtterance(data.guia);
                 utterance.lang = langSpeech;
                 utterance.rate = 1.0;
                 window.speechSynthesis.speak(utterance);
@@ -570,9 +637,6 @@ HTML_CALCULADORA_RECETAS = """
         
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-
-    const currentUserId = "{{ user_id }}";
-    let ultimoResultadoCalculado = null;
 
     function toggleCriterio() {
         const tipo = document.getElementById('tipoCalculo').value;
@@ -617,30 +681,16 @@ HTML_CALCULADORA_RECETAS = """
             });
 
             const responseText = await response.text();
-
             if (responseText.trim().startsWith('<')) {
-                console.error("Error del servidor (HTML):", responseText);
-                alert("❌ El servidor falló (Código HTTP: " + response.status + "). Revisa los logs en el panel de Render.");
+                alert("❌ El servidor falló (Código HTTP: " + response.status + ").");
                 return;
             }
 
             const data = JSON.parse(responseText);
             
-            if (response.ok) {
-                ultimoResultadoCalculado = data;
-                const tbody = document.querySelector('#tablaNutricional tbody');
-                tbody.innerHTML = `
-                    <tr id="filaExcel">
-                        <td>${data.nombre}</td>
-                        <td>${data.descripcion}</td>
-                        <td>${data.peso}</td>
-                        <td>${data.calorias}</td>
-                        <td>${data.proteinas}</td>
-                        <td>${data.grasas}</td>
-                        <td>${data.carbohidratos}</td>
-                        <td>${data.fibras}</td>
-                    </tr>
-                `;
+            if (response.ok && data.items && Array.isArray(data.items)) {
+                itemsDesglosadosGlobal = data.items;
+                renderizarTablaEditable();
                 document.getElementById('resultado-section').style.display = 'block';
             } else {
                 alert("❌ Error al calcular: " + (data.error || "Intente nuevamente."));
@@ -652,15 +702,72 @@ HTML_CALCULADORA_RECETAS = """
         }
     }
 
+    function renderizarTablaEditable() {
+        const tbody = document.querySelector('#tablaNutricional tbody');
+        tbody.innerHTML = '';
+
+        itemsDesglosadosGlobal.forEach((item, index) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="text" class="editable-cell" value="${item.alimento || ''}" onchange="actualizarItem(${index}, 'alimento', this.value)"></td>
+                <td><input type="text" class="editable-cell" value="${document.getElementById('descripcion').value}" onchange="actualizarItem(${index}, 'descripcion', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.peso || 0}" onchange="actualizarItem(${index}, 'peso', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.calorias || 0}" onchange="actualizarItem(${index}, 'calorias', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.proteinas || 0}" onchange="actualizarItem(${index}, 'proteinas', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.grasas || 0}" onchange="actualizarItem(${index}, 'grasas', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.carbohidratos || 0}" onchange="actualizarItem(${index}, 'carbohidratos', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.fibras || 0}" onchange="actualizarItem(${index}, 'fibras', this.value)"></td>
+            `;
+            tbody.appendChild(tr);
+        });
+        recalcularTotales();
+    }
+
+    function actualizarItem(index, campo, valor) {
+        if (campo === 'alimento' || campo === 'descripcion') {
+            itemsDesglosadosGlobal[index][campo] = valor;
+        } else {
+            itemsDesglosadosGlobal[index][campo] = parseFloat(valor) || 0;
+        }
+        recalcularTotales();
+    }
+
+    function recalcularTotales() {
+        let tPeso = 0, tCal = 0, tProt = 0, tGras = 0, tCarb = 0, tFibr = 0;
+
+        itemsDesglosadosGlobal.forEach(item => {
+            tPeso += parseFloat(item.peso) || 0;
+            tCal += parseFloat(item.calorias) || 0;
+            tProt += parseFloat(item.proteinas) || 0;
+            tGras += parseFloat(item.grasas) || 0;
+            tCarb += parseFloat(item.carbohidratos) || 0;
+            tFibr += parseFloat(item.fibras) || 0;
+        });
+
+        document.getElementById('totPeso').innerText = tPeso.toFixed(1);
+        document.getElementById('totCal').innerText = tCal.toFixed(1);
+        document.getElementById('totProt').innerText = tProt.toFixed(1);
+        document.getElementById('totGras').innerText = tGras.toFixed(1);
+        document.getElementById('totCarb').innerText = tCarb.toFixed(1);
+        document.getElementById('totFibr').innerText = tFibr.toFixed(1);
+    }
+
     async function guardarEnGoogleSheets() {
-        if (!currentUserId) {
-            alert("No hay ID de usuario asociado.");
+        if (!currentUserId || itemsDesglosadosGlobal.length === 0) {
+            alert("No hay datos calculados para guardar.");
             return;
         }
-        if (!ultimoResultadoCalculado) {
-            alert("Primero calculá la receta antes de guardar.");
-            return;
-        }
+
+        const filaTotalConsolidada = {
+            nombre: document.getElementById('codigo').value.trim(),
+            descripcion: document.getElementById('descripcion').value.trim(),
+            peso: parseFloat(document.getElementById('totPeso').innerText),
+            calorias: parseFloat(document.getElementById('totCal').innerText),
+            proteinas: parseFloat(document.getElementById('totProt').innerText),
+            grasas: parseFloat(document.getElementById('totGras').innerText),
+            carbohidratos: parseFloat(document.getElementById('totCarb').innerText),
+            fibras: parseFloat(document.getElementById('totFibr').innerText)
+        };
 
         try {
             const response = await fetch('/api/guardar-comida', {
@@ -668,16 +775,15 @@ HTML_CALCULADORA_RECETAS = """
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     user_id: currentUserId,
-                    fila: ultimoResultadoCalculado
+                    fila: filaTotalConsolidada
                 })
             });
 
             const res = await response.json();
             if (response.ok) {
                 if (res.codigo_guardado) {
-                    ultimoResultadoCalculado.nombre = res.codigo_guardado;
-                    const tdNombre = document.querySelector('#filaExcel td:first-child');
-                    if (tdNombre) tdNombre.innerText = res.codigo_guardado;
+                    filaTotalConsolidada.nombre = res.codigo_guardado;
+                    document.getElementById('codigo').value = res.codigo_guardado;
                 }
                 alert("✅ ¡Éxito! " + res.message);
             } else {
@@ -689,13 +795,22 @@ HTML_CALCULADORA_RECETAS = """
     }
 
     function copiarFilaExcel() {
-        const fila = document.getElementById('filaExcel');
-        if (!fila) return;
-        const celdas = Array.from(fila.querySelectorAll('td')).map(td => td.innerText);
+        const codigo = document.getElementById('codigo').value.trim();
+        const descripcion = document.getElementById('descripcion').value.trim();
+        const celdas = [
+            codigo,
+            descripcion,
+            document.getElementById('totPeso').innerText,
+            document.getElementById('totCal').innerText,
+            document.getElementById('totProt').innerText,
+            document.getElementById('totGras').innerText,
+            document.getElementById('totCarb').innerText,
+            document.getElementById('totFibr').innerText
+        ];
         const textoCopiable = celdas.join('\\t');
 
         navigator.clipboard.writeText(textoCopiable).then(() => {
-            alert("¡Fila copiada! Podés pegarla en tu Excel con Ctrl + V.");
+            alert("¡Fila total copiada! Podés pegarla en tu Excel con Ctrl + V.");
         }).catch(err => {
             alert("Error al copiar al portapapeles.");
         });
@@ -723,25 +838,41 @@ def servir_manual_pdf():
 
 @app.route('/api/config-idiomas', methods=['GET'])
 def api_config_idiomas():
-    """Endpoint que devuelve los idiomas disponibles con sus banderas para la barra superior."""
+    """Endpoint que extrae dinámicamente los códigos en MAYÚSCULAS, nombres largos y banderas desde la tabla 'multi' de Supabase."""
     try:
-        # Aquí defines los idiomas que lee de tu base de datos o tabla multi
-        idiomas_disponibles = [
-            {"code": "es", "name": "Español", "flag": "🇪🇸"},
-            {"code": "en", "name": "English", "flag": "🇺🇸"}
-        ]
-        return jsonify({"idiomas": idiomas_disponibles}), 200
+        conn, cur = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_schema = 'public' AND LOWER(table_name) = 'multi' AND LOWER(column_name) NOT IN ('id', 'variables')
+        """)
+        cols = [f[0].strip().upper() for f in cur.fetchall() if f[0]]
+
+        cur.execute('SELECT * FROM "multi"')
+        filas = cur.fetchall()
+        colnames = [desc[0].strip().lower() for desc in cur.description]
+        cur.close(); conn.close()
+
+        dict_filas = {str(dict(zip(colnames, fila)).get('variables', '')).strip().lower(): dict(zip(colnames, fila)) for fila in filas}
+        row_lenguajes = dict_filas.get('lenguajes', {})
+        row_banderas = dict_filas.get('banderas', {})
+
+        idiomas_info = []
+        for col in cols:
+            col_lower = col.lower()
+            idiomas_info.append({
+                'code': col_lower,
+                'name': str(row_lenguajes.get(col_lower, row_lenguajes.get(col, col))).strip(),
+                'flag': str(row_banderas.get(col_lower, row_banderas.get(col, '🌐'))).strip()
+            })
+        return jsonify({"idiomas": idiomas_info}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 @app.route('/api/audioguia', methods=['GET'])
 def api_audioguia():
-    """Endpoint para obtener la audioguía en formato texto según el idioma solicitado."""
     lang = request.args.get('lang', 'es')
     try:
-        # Busca en la base de datos la variable 'guia' para el idioma correspondiente
-        # (puedes adaptarlo a tu función obtener_traducciones_db o una específica para guías)
         traducciones = obtener_traducciones_db(lang)
         texto_guia = traducciones.get("guia", "Bienvenido a la audioguía del asistente nutricional.")
         return jsonify({"guia": texto_guia}), 200
@@ -762,7 +893,7 @@ def api_traducciones():
 @app.route('/api/usuario-idioma', methods=['GET'])
 def api_usuario_idioma():
     user_id = request.args.get('user_id')
-    lang = 'en'
+    lang = 'es'
     if user_id:
         try:
             lang = obtener_idioma_usuario(user_id)
@@ -770,9 +901,78 @@ def api_usuario_idioma():
             pass
     return jsonify({"lang": lang}), 200
 
+
+@app.route('/api/calcular-receta', methods=['POST'])
+def api_calcular_receta():
+    try:
+        data = request.json
+        codigo = data.get('codigo')
+        descripcion = data.get('descripcion')
+        receta = data.get('receta')
+        tipo_calculo = data.get('tipoCalculo')
+        porciones = int(data.get('porciones', 1))
+
+        client_ai = globals().get('client_ai')
+        if not client_ai:
+            return jsonify({"error": "El cliente de IA no está configurado."}), 500
+
+        prompt_ia = (
+            f"Analiza la siguiente receta o listado de ingredientes: '{receta}'. "
+            f"Desglósalo estrictamente **ítem por ítem** (ingrediente por ingrediente o componente por componente). "
+            f"Para cada ítem, calcula de forma independiente y precisa:\n"
+            f"- El nombre del alimento o ingrediente ('alimento')\n"
+            f"- El peso estimado en gramos ('peso')\n"
+            f"- Las calorías ('calorias')\n"
+            f"- Las proteínas en gramos ('proteinas')\n"
+            f"- Las grasas en gramos ('grasas')\n"
+            f"- Los carbohidratos en gramos ('carbohidratos')\n"
+            f"- Las fibras en gramos ('fibras')\n\n"
+            f"REGLA ESTRICTA: Responde ÚNICAMENTE con un objeto JSON válido, sin textos adicionales, saludos ni explicaciones. "
+            f"El JSON debe tener exactamente esta estructura:\n"
+            "{\n"
+            '  "items": [\n'
+            '    {"alimento": "nombre del ingrediente", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
+            "  ]\n"
+            "}"
+        )
+
+        response = client_ai.chat.completions.create(
+            model=globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile"),
+            messages=[
+                {"role": "system", "content": "Eres un nutricionista clínico experto en análisis de recetas y desglose de macronutrientes."},
+                {"role": "user", "content": prompt_ia}
+            ],
+            temperature=0.1,
+            response_format={"type": "json_object"}
+        )
+
+        resultado_json = json.loads(response.choices[0].message.content)
+        items = resultado_json.get("items", [])
+
+        if tipo_calculo == 'porciones' and porciones > 1:
+            for item in items:
+                item['peso'] = round(float(item.get('peso', 0)) / porciones, 2)
+                item['calorias'] = round(float(item.get('calorias', 0)) / porciones, 2)
+                item['proteinas'] = round(float(item.get('proteinas', 0)) / porciones, 2)
+                item['grasas'] = round(float(item.get('grasas', 0)) / porciones, 2)
+                item['carbohidratos'] = round(float(item.get('carbohidratos', 0)) / porciones, 2)
+                item['fibras'] = round(float(item.get('fibras', 0)) / porciones, 2)
+
+        return jsonify({
+            "nombre": codigo,
+            "descripcion": descripcion,
+            "items": items
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en api_calcular_receta: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
 # =====================================================================================================================================
 #              FINAL                                  PAGINA WEB (CALCULADORA UNICA)                        FINAL
-# ======================================================================================================================================
+# =====================================================================================================================================
+
+# =====================================================================================================================================
 
 # =============================================================================================================================================
 #              INICIO                                   FUNCIONES SUPABASE                           INICIO
@@ -1097,37 +1297,42 @@ def obtener_ultima_presion(recs_presion_all):
     return presion_str
 
 def obtener_datos_completos_usuario(user_id, mes_target=None):
-    """Obtiene los datos combinados de la tabla Usuarios y Perfil_{user_id}."""
+    """Obtiene los datos combinados de la tabla Usuarios y Perfil_{user_id} de forma segura."""
     datos_completos = {}
     try:
-        # 1. Obtenemos los datos fijos de la tabla 'Usuarios'
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        query = """
-            SELECT "Nombre", "Sexo", "cumple", "profesional", "cintura_cm", 
-                   "cuello_cm", "ritmo_preferido", "Idioma" 
-            FROM "Usuarios" 
-            WHERE "User ID" = %s
-        """
-        cur.execute(query, (str(user_id),))
-        fila = cur.fetchone()
-        cur.close()
+        conn = _obtener_conexion_db()
+        df = pd.read_sql('SELECT * FROM "Usuarios"', conn)
         conn.close()
 
-        if fila:
+        fila_usuario = None
+        user_id_str = str(user_id).strip()
+        if not df.empty:
+            for _, row in df.iterrows():
+                raw_id = row.get("User ID")
+                if raw_id and str(raw_id).split('.')[0].strip() == user_id_str:
+                    fila_usuario = row
+                    break
+
+        if fila_usuario is not None:
             datos_completos.update({
-                'Nombre': str(fila[0] or 'S/D'),
-                'Sexo': str(fila[1] or 'S/D'),
-                'cumple': str(fila[2] or 'S/D'),
-                'profesional': str(fila[3] or 'S/D'),
-                'cintura_cm': float(fila[4] or 0.0),
-                'cuello_cm': float(fila[5] or 0.0),
-                'ritmo_preferido': str(fila[6] or '2'),
-                'Idioma': str(fila[7] or 'es')
+                'Nombre': str(fila_usuario.get("Nombre", 'S/D') or 'S/D'),
+                'Sexo': str(fila_usuario.get("Sexo", 'S/D') or 'S/D'),
+                'cumple': str(fila_usuario.get("cumple", 'S/D') or 'S/D'),
+                'profesional': str(fila_usuario.get("profesional", 'S/D') or 'S/D'),
+                'cintura_cm': float(fila_usuario.get("cintura_cm", 0.0) or 0.0),
+                'cuello_cm': float(fila_usuario.get("cuello_cm", 0.0) or 0.0),
+                'ritmo_preferido': str(fila_usuario.get("ritmo_preferido", '2') or '2'),
+                'Idioma': str(fila_usuario.get("Idioma", 'es') or 'es')
+            })
+        else:
+            # Valores por defecto si el usuario no se encuentra en la tabla
+            datos_completos.update({
+                'Nombre': 'S/D', 'Sexo': 'S/D', 'cumple': 'S/D', 'profesional': 'S/D',
+                'cintura_cm': 0.0, 'cuello_cm': 0.0, 'ritmo_preferido': '2', 'Idioma': 'es'
             })
     except Exception as e:
         logger.error(f"Error obteniendo datos fijos de Usuarios: {e}")
 
-    # 2. Combinamos con los datos dinámicos del mes actual usando tu función original
     perfil_mes = obtener_perfil_usuario(user_id, mes_target=mes_target)
     if perfil_mes:
         datos_completos.update(perfil_mes)
@@ -1253,23 +1458,19 @@ def obtener_datos_presion_db(user_id):
         logger.error(f"Error al obtener datos de presión de Supabase: {e}")
         return pd.DataFrame()
         
-
 def obtener_ultimo_peso(user_id: int) -> dict:
     try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        query = """
-            SELECT "User ID", "Ultimo Mes Peso", "Notificaciones"
-            FROM "Usuarios"
-        """
-        cur.execute(query)
-        filas = cur.fetchall()
-        cur.close()
+        conn = _obtener_conexion_db()
+        df = pd.read_sql('SELECT * FROM "Usuarios"', conn)
         conn.close()
 
-        for fila in filas:
-            raw_id = fila[0]
+        if df.empty:
+            return None
+
+        for _, row in df.iterrows():
+            raw_id = row.get("User ID")
             if raw_id and str(raw_id).split('.')[0].strip() == str(user_id).strip():
-                fecha_peso = fila[1]
+                fecha_peso = row.get("Ultimo Mes Peso")
                 if fecha_peso:
                     return {"fecha": str(fecha_peso).strip()}
                     
@@ -1277,7 +1478,7 @@ def obtener_ultimo_peso(user_id: int) -> dict:
     except Exception as e:
         logger.error(f"Error en obtener_ultimo_peso para User {user_id}: {e}")
         return None
-
+        
 def obtener_promedio_calorias_mes_actual(u_id, ahora):
     calorias_str = "S/D"
     try:
@@ -1586,22 +1787,19 @@ def obtener_especialidad_profesional(prof_id):
 def obtener_pacientes_por_medico(prof_id):
     pacientes = []
     try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        query = """
-            SELECT "User ID", "Nombre", "Estado", "profesional"
-            FROM "Usuarios"
-        """
-        cur.execute(query)
-        filas = cur.fetchall()
-        cur.close()
+        conn = _obtener_conexion_db()
+        df = pd.read_sql('SELECT * FROM "Usuarios"', conn)
         conn.close()
 
-        for fila in filas:
-            p_id = str(fila[3] or "").split('.')[0].strip()
+        if df.empty:
+            return []
+
+        for _, row in df.iterrows():
+            p_id = str(row.get("profesional", "") or "").split('.')[0].strip()
             if p_id == str(prof_id).strip():
-                u_id = str(fila[0] or "").split('.')[0].strip()
-                nombre = fila[1] or "Sin Nombre"
-                estado = fila[2] if fila[2] is not None else "Activo"
+                u_id = str(row.get("User ID", "") or "").split('.')[0].strip()
+                nombre = row.get("Nombre") or "Sin Nombre"
+                estado = row.get("Estado") if row.get("Estado") is not None else "Activo"
                 if str(estado).lower() in ['activo', 'sí', 'si', 'true', '1']:
                     pacientes.append({"user_id": u_id, "nombre": nombre})
     except Exception as e:
@@ -1674,38 +1872,36 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
             
 def obtener_todos_usuarios() -> list:
     try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        query = """
-            SELECT "User ID", "Nombre", "Estado", "Ultimo Mes Peso", "Notificaciones", 
-                   "Fecha Alta", "Sexo", "Altura", "muneca", "ocupacion", "cumple", "profesional"
-            FROM "Usuarios"
-        """
-        cur.execute(query)
-        filas = cur.fetchall()
-        cur.close()
+        conn = _obtener_conexion_db()
+        df = pd.read_sql('SELECT * FROM "Usuarios"', conn)
         conn.close()
 
+        if df.empty:
+            return []
+
         records = []
-        for fila in filas:
+        for _, row in df.iterrows():
             records.append({
-                "User ID": fila[0],
-                "Nombre": fila[1],
-                "Estado": fila[2],
-                "Ultimo Mes Peso": fila[3],
-                "Notificaciones": fila[4],
-                "Fecha Alta": fila[5],
-                "Sexo": fila[6],
-                "Altura": fila[7],
-                "muneca": fila[8],
-                "ocupacion": fila[9],
-                "cumple": fila[10],
-                "profesional": fila[11]
+                "User ID": row.get("User ID"),
+                "Nombre": row.get("Nombre", "Sin Nombre"),
+                "Estado": row.get("Estado", 0),
+                "Ultimo Mes Peso": row.get("Ultimo Mes Peso", ""),
+                "Notificaciones": row.get("Notificaciones", "No"),
+                "Fecha Alta": row.get("Fecha Alta", ""),
+                "Sexo": row.get("Sexo", "M"),
+                "cumple": row.get("cumple", ""),
+                "profesional": row.get("profesional", ""),
+                "reloj_actualizado_mes": row.get("reloj_actualizado_mes", ""),
+                "Idioma": row.get("Idioma", "es"),
+                "cintura_cm": row.get("cintura_cm", 0.0),
+                "cuello_cm": row.get("cuello_cm", 0.0),
+                "ritmo_preferido": row.get("ritmo_preferido", "moderado")
             })
         return records
     except Exception as e:
         logger.error(f"Error al obtener usuarios de Supabase: {e}")
         return []
-
+        
 def obtener_registros_usuario(user_id: str) -> list:
     try:
         tabla_nombre = f"User_{user_id}"
@@ -1769,32 +1965,29 @@ def eliminar_registro_por_id(user_id, item_id):
     return True
 
 def obtener_datos_usuario_general(user_id):
-    """Obtiene los datos generales del usuario desde la tabla 'Usuarios'."""
+    """Obtiene los datos generales del usuario desde la tabla 'Usuarios' de forma segura."""
     try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        query = """
-            SELECT "User ID", "ocupacion", "reloj_actualizado_mes"
-            FROM "Usuarios"
-        """
-        cur.execute(query)
-        filas = cur.fetchall()
-        cur.close()
+        conn = _obtener_conexion_db()
+        df = pd.read_sql('SELECT * FROM "Usuarios"', conn)
         conn.close()
 
+        if df.empty:
+            return {}
+
         user_id_str = str(user_id).strip()
-        for fila in filas:
-            raw_id = fila[0]
+        for _, row in df.iterrows():
+            raw_id = row.get("User ID")
             if raw_id and str(raw_id).split('.')[0].strip() == user_id_str:
                 return {
-                    "user_id": fila[0],
-                    "ocupacion": fila[1],
-                    "reloj_actualizado_mes": fila[2]
+                    "user_id": raw_id,
+                    "ocupacion": row.get("ocupacion", 1.375),
+                    "reloj_actualizado_mes": row.get("reloj_actualizado_mes", "")
                 }
         return {}
     except Exception as e:
         logger.error(f"Error al obtener datos generales de usuario para {user_id}: {e}")
         return {}
-        
+                
 
 #              INICIO                                  8 FUNCIONES GUARDAR                        INICIO
 # =============================================================================================================================================
@@ -1933,38 +2126,78 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
         logger.error(f"Error al grabar Presión en Supabase (Presion_{user_id}): {e}")
 
 def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
-    """Guarda y actualiza los datos del perfil y peso del usuario exclusivamente en Supabase."""
+    """Guarda y actualiza los datos del perfil y peso del usuario en Supabase con auto-calibración de factor."""
     ahora = obtener_ahora_arg()
     
     if not mes:
         mes = ahora.strftime("%Y-%m")
 
+    peso_real = float(peso)
+    if peso_real > 1000: peso_real /= 1000.0
+
     try:
         tabla_nombre = f"Perfil_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
         
-        cur.execute(f'SELECT id FROM "{tabla_nombre}" WHERE "MES" = %s', (str(mes),))
-        fila_supa = cur.fetchone()
+        # 1. Recuperamos el perfil previo de este mes para comparar (si existe)
+        cur.execute(f'SELECT "EDAD", "ALTURA", "GENERO", "ocupacion", "PESO" FROM "{tabla_nombre}" WHERE "MES" = %s', (str(mes),))
+        fila_previa = cur.fetchone()
+
+        edad_val = int(edad) if edad is not None else (int(fila_previa[0]) if fila_previa and fila_previa[0] else 64)
+        altura_val = float(altura) if altura is not None else (float(fila_previa[1]) if fila_previa and fila_previa[1] else 170.0)
+        genero_val = str(genero) if genero else (str(fila_previa[2]) if fila_previa and fila_previa[2] else "M")
         
-        peso_real = float(peso)
-        if peso_real > 1000: peso_real /= 1000.0
-        
-        if fila_supa:
+        # Factor inicial por defecto o el que ya venía guardado
+        factor_previo = float(ocupacion) if ocupacion is not None else (float(fila_previa[3]) if fila_previa and fila_previa[3] else 1.375)
+        peso_inicio_mes = float(fila_previa[4]) if fila_previa and fila_previa[4] else peso_real
+
+        # -------------------------------------------------------------
+        # 🟢 AUTO-CALIBRACIÓN DINÁMICA DEL FACTOR DE ACTIVIDAD
+        # -------------------------------------------------------------
+        nuevo_factor = factor_previo
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+
+        if not df_datos.empty and 'Fecha' in df_datos.columns:
+            df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes)].copy()
+            dias_registrados = df_mes['Fecha'].nunique()
+
+            if dias_registrados >= 3:  # Con al menos 3 días de registros ya podemos calibrar
+                tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
+                tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in df_mes.columns else 0.0
+
+                ingesta_diaria = tot_cons_mes / dias_registrados
+                ejercicio_diario = tot_quem_mes / dias_registrados
+
+                delta_peso = peso_real - peso_inicio_mes
+
+                tmb_pura, _ = calcular_tmb_y_get(peso_actual=peso_real, altura_cm=altura_val, edad=edad_val, genero=genero_val, actividad=1.0)
+                if tmb_pura <= 0:
+                    tmb_pura = 1813.0
+
+                # Despejamos el gasto real en base al cambio de peso en la balanza
+                gasto_diario_total = ingesta_diaria - ((delta_peso * 7700.0) / dias_registrados)
+                factor_calculado = (gasto_diario_total - ejercicio_diario) / tmb_pura
+
+                # Aplicamos topes de seguridad (entre 1.20 y 1.85)
+                nuevo_factor = max(1.20, min(1.85, round(factor_calculado, 3)))
+
+        # 2. Guardado en la base de datos
+        if fila_previa:
             cur.execute(f"""
                 UPDATE "{tabla_nombre}"
-                SET "PESO" = %s, "Fecha_Actualizacion" = %s
+                SET "PESO" = %s, "ocupacion" = %s, "Fecha_Actualizacion" = %s
                 WHERE "MES" = %s
-            """, (peso_real, ahora.strftime("%Y-%m-%d"), str(mes)))
+            """, (peso_real, nuevo_factor, ahora.strftime("%Y-%m-%d"), str(mes)))
         else:
             cur.execute(f"""
                 INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Cumple")
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """, (
-                str(edad) if edad is not None else "64",
+                str(edad_val),
                 peso_real,
-                float(altura) if altura is not None else 1.72,
-                str(genero) if genero else "M",
-                float(ocupacion) if ocupacion is not None else 1.375,
+                altura_val,
+                genero_val,
+                nuevo_factor,
                 str(mes),
                 ahora.strftime("%Y-%m-%d"),
                 ""
@@ -1972,9 +2205,13 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         conn.commit()
         cur.close()
         conn.close()
+
+        # Sincronizamos también el factor en la tabla general de Usuarios si corresponde
+        guardar_ocupacion_db(user_id, nuevo_factor, mes)
+
     except Exception as e:
-        logger.error(f"Error al guardar perfil en Supabase (Perfil_{user_id}): {e}")
-        
+        logger.error(f"Error al guardar perfil y auto-calibrar en Supabase (Perfil_{user_id}): {e}")
+                
 def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=None):
     """Actualiza el factor de ocupación en la tabla Perfil_<user_id> y el control en Usuarios."""
     user_id_str = str(user_id).strip()
@@ -3820,7 +4057,7 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
         except Exception: pass
     await render_confirmation_screen(update, context)
 
-async def _sub_manejar_plantilla_comida(update, context, raw_text, user_id):
+async def _sub_manejar_plantilla_comida(update: Update, context: ContextTypes.DEFAULT_TYPE, raw_text, user_id):
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
@@ -3854,9 +4091,16 @@ async def _sub_manejar_plantilla_comida(update, context, raw_text, user_id):
         msg = await update.message.reply_text(txt_proc)
         await procesar_y_mostrar_confirmacion({"items": [item_gen], "tipo": "Comida"}, msg, context)
     else:
-        # 🟢 Mensaje de error controlado estrictamente por traducciones.get
-        txt_tpl = traducciones.get('bot_error_comida_no_enc', "❌ No se encontró la comida `*{nombre}` en tu planilla `Comidas_{user_id}`.")
-        txt_err_noenc = txt_tpl.format(nombre=nombre_plantilla, user_id=user_id)
+        # Buscamos la traducción y si no existe, usamos un texto por defecto seguro
+        mensaje_base = traducciones.get('bot_error_comida_no_enc')
+        if not mensaje_base or not str(mensaje_base).strip():
+            mensaje_base = "❌ No se encontró la comida `*{nombre}` en tu planilla `Comidas_{user_id}`."
+            
+        try:
+            txt_err_noenc = mensaje_base.format(nombre=nombre_plantilla, user_id=user_id)
+        except Exception:
+            txt_err_noenc = f"❌ No se encontró la comida `*{nombre_plantilla}` en tu planilla `Comidas_{user_id}`."
+            
         await update.message.reply_text(txt_err_noenc, parse_mode="Markdown")
         
 async def _sub_manejar_ingesta_libre_ia(update, context, raw_text):
@@ -4391,7 +4635,7 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
-    web_app_url = f"https://telegram-bot-nutricion.onrender.com/?user_id={user_id}#calculadora"
+    web_app_url = f"https://ianutribot.com/?user_id={user_id}#calculadora"
     
     btn_text = traducciones.get("bot_btn_crear_receta", "🍳 Abrir Creador de Recetas")
     keyboard = InlineKeyboardMarkup([
@@ -4581,10 +4825,18 @@ async def cmd_eliminar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop('del_fecha', None)
     context.user_data.pop('del_momento', None)
 
-    # 🟢 BOTONES UNIVERSALES (Sin texto, solo emojis/iconos fijos)
+    # 🟢 Etiquetas dinámicas de día y mes (Ej: 28/09 y 27/09)
+    hoy_label = obtener_ahora_arg().strftime("%d/%m")
+    ayer_label = (obtener_ahora_arg() - timedelta(days=1)).strftime("%d/%m")
+
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅", callback_data="del_d_hoy"), InlineKeyboardButton("📆", callback_data="del_d_ayer")],
-        [InlineKeyboardButton("🗓️", callback_data="del_d_otro")]
+        [
+            InlineKeyboardButton(f"📅 {hoy_label}", callback_data="del_d_hoy"), 
+            InlineKeyboardButton(f"📆 {ayer_label}", callback_data="del_d_ayer")
+        ],
+        [
+            InlineKeyboardButton("🗓️", callback_data="del_d_otro")
+        ]
     ])
     
     msg_txt = traducciones.get("bot_titulo_eliminar_ingestas", "🗑️ **Eliminación de Ingestas / Actividades:**\nSeleccioná el día que querés revisar:")
@@ -4727,9 +4979,9 @@ async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEF
 
     elif data == "del_salir_pantalla":
         try:
-            await query.message.delete()
-        except Exception:
             await query.edit_message_text("🗑️ Operación finalizada.")
+        except Exception:
+            pass
 
     elif data in ["del_cambiar_fecha", "del_volver_momentos"]:
         await mostrar_selector_momento_eliminar(query, context)
@@ -6068,7 +6320,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             prot=_fmt(m.get('prom_prot', 0)),
             p_min=m.get('prot_min', 0), p_max=m.get('prot_max', 0),
             gras=_fmt(m.get('prom_gras', 0)),
-            g_min=m.get('gras_min', 0), g_max=m.get('gras_min', 0),
+            g_min=m.get('gras_min', 0), g_max=m.get('gras_max', 0),
             carb=_fmt(m.get('prom_carb', 0)),
             cb_min=m.get('carb_min', 0), cb_max=m.get('carb_max', 0),
             fibr=_fmt(m.get('prom_fibr', 0)),
