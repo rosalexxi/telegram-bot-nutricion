@@ -2121,7 +2121,7 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
         logger.error(f"Error al grabar Presión en Supabase (Presion_{user_id}): {e}")
 
 def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
-    """Guarda y actualiza los datos del perfil y peso del usuario en Supabase con auto-calibración de factor."""
+    """Guarda el perfil, actualiza el peso y auto-calibra el factor de actividad para mantener la consistencia real."""
     ahora = obtener_ahora_arg()
     
     if not mes:
@@ -2134,7 +2134,6 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         tabla_nombre = f"Perfil_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
         
-        # 1. Recuperamos el perfil previo de este mes para comparar (si existe)
         cur.execute(f'SELECT "EDAD", "ALTURA", "GENERO", "ocupacion", "PESO" FROM "{tabla_nombre}" WHERE "MES" = %s', (str(mes),))
         fila_previa = cur.fetchone()
 
@@ -2142,12 +2141,12 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         altura_val = float(altura) if altura is not None else (float(fila_previa[1]) if fila_previa and fila_previa[1] else 170.0)
         genero_val = str(genero) if genero else (str(fila_previa[2]) if fila_previa and fila_previa[2] else "M")
         
-        # Factor inicial por defecto o el que ya venía guardado
         factor_previo = float(ocupacion) if ocupacion is not None else (float(fila_previa[3]) if fila_previa and fila_previa[3] else 1.375)
+        
         peso_inicio_mes = float(fila_previa[4]) if fila_previa and fila_previa[4] else peso_real
 
         # -------------------------------------------------------------
-        # 🟢 AUTO-CALIBRACIÓN DINÁMICA DEL FACTOR DE ACTIVIDAD
+        # 🟢 AUTO-CALIBRACIÓN DEL FACTOR
         # -------------------------------------------------------------
         nuevo_factor = factor_previo
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
@@ -2156,7 +2155,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
             df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes)].copy()
             dias_registrados = df_mes['Fecha'].nunique()
 
-            if dias_registrados >= 3:  # Con al menos 3 días de registros ya podemos calibrar
+            if dias_registrados >= 2:
                 tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
                 tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in df_mes.columns else 0.0
 
@@ -2169,14 +2168,11 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                 if tmb_pura <= 0:
                     tmb_pura = 1813.0
 
-                # Despejamos el gasto real en base al cambio de peso en la balanza
                 gasto_diario_total = ingesta_diaria - ((delta_peso * 7700.0) / dias_registrados)
                 factor_calculado = (gasto_diario_total - ejercicio_diario) / tmb_pura
 
-                # Aplicamos topes de seguridad (entre 1.20 y 1.85)
                 nuevo_factor = max(1.20, min(1.85, round(factor_calculado, 3)))
 
-        # 2. Guardado en la base de datos
         if fila_previa:
             cur.execute(f"""
                 UPDATE "{tabla_nombre}"
@@ -2201,12 +2197,11 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         cur.close()
         conn.close()
 
-        # Sincronizamos también el factor en la tabla general de Usuarios si corresponde
         guardar_ocupacion_db(user_id, nuevo_factor, mes)
 
     except Exception as e:
         logger.error(f"Error al guardar perfil y auto-calibrar en Supabase (Perfil_{user_id}): {e}")
-                
+                        
 def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=None):
     """Actualiza el factor de ocupación en la tabla Perfil_<user_id> y el control en Usuarios."""
     user_id_str = str(user_id).strip()
