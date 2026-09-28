@@ -124,7 +124,7 @@ HTML_CALCULADORA_RECETAS = """
             --primary-dark: #219150;
             --secondary: #2c3e50;
             --bg-light: #f4f6f9;
-            --text-color: #0f172a;
+            --text-color: #2c3e50;
         }
         
         html, body { 
@@ -145,7 +145,7 @@ HTML_CALCULADORA_RECETAS = """
         
         header { 
             background: rgba(255, 255, 255, 0.85); 
-            backdrop-filter: blur(5px);
+            backdrop-filter: blur(8px);
             box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
             position: sticky;
             top: 0;
@@ -154,148 +154,143 @@ HTML_CALCULADORA_RECETAS = """
         .nav-container { max-width: 1100px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; }
         .logo { font-size: 1.2rem; font-weight: bold; color: var(--primary); text-decoration: none; cursor: pointer; }
         .nav-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .nav-links a { text-decoration: none; color: var(--secondary); font-weight: bold; font-size: 0.88rem; transition: color 0.2s; cursor: pointer; }
+        .nav-links a { text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 0.85rem; transition: color 0.2s; cursor: pointer; }
         .nav-links a:hover, .nav-links a.active { color: var(--primary); }
         
-        /* Contenedor dinámico de banderas (solo muestra la bandera y el tooltip en PC) */
-        .lang-flags-container { display: flex; align-items: center; gap: 6px; margin-left: 10px; }
+        .lang-flags-container { display: flex; align-items: center; gap: 5px; margin-left: 10px; }
         .flag-btn { 
             background: rgba(255, 255, 255, 0.9); 
-            border: 1px solid #cbd5e1; 
+            border: 1px solid #ccc; 
             border-radius: 4px; 
-            padding: 4px 8px; 
-            font-size: 1.15rem; 
+            padding: 3px 6px; 
+            font-size: 1.1rem; 
             cursor: pointer; 
             text-decoration: none; 
             display: inline-flex; 
             align-items: center; 
             transition: all 0.2s; 
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
         .flag-btn:hover { border-color: var(--primary); background: #f0fdf4; }
 
-        /* Contenedor central TOTALMENTE TRASLÚCIDO */
+        /* Contenedor central totalmente traslúcido */
         .content-wrapper { 
             max-width: 950px; 
             margin: 20px auto; 
-            background: rgba(255, 255, 255, 0.75); 
+            background: rgba(255, 255, 255, 0.50); 
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
             padding: 25px; 
             border-radius: 12px; 
-            box-shadow: 0 8px 32px rgba(0,0,0,0.12); 
-            border: 1px solid rgba(255, 255, 255, 0.4);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1); 
+            border: 1px solid rgba(255, 255, 255, 0.6);
             width: 90%; 
             box-sizing: border-box; 
             flex: 1;
         }
 
         .content-box { 
-            background: rgba(255, 255, 255, 0.70); 
-            border: 1px solid rgba(203, 213, 225, 0.6); 
+            background: rgba(255, 255, 255, 0.65); 
+            border: 1px solid rgba(226, 232, 240, 0.8); 
             border-radius: 8px; 
             padding: 20px; 
             margin-top: 15px; 
-            box-shadow: 0 2px 6px rgba(0,0,0,0.02); 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02); 
         }
 
-        h1 { color: var(--secondary); margin-top: 0; font-size: 1.4rem; margin-bottom: 12px; font-weight: bold; }
-        p { margin-bottom: 0; color: #0f172a; font-size: 0.98rem; font-weight: bold; text-align: justify; line-height: 1.6; white-space: pre-line; }
+        h1 { color: var(--secondary); margin-top: 0; font-size: 1.4rem; margin-bottom: 12px; }
+        p { margin-bottom: 0; color: #333; font-size: 0.95rem; font-weight: normal; text-align: justify; line-height: 1.6; white-space: pre-line; }
 
         .article-content { overflow: hidden; }
-        
-        /* Imagen con marco delicado y efecto 3D */
         .newspaper-img {
             float: left; 
             width: 45%; 
             margin-right: 20px; 
             margin-bottom: 10px;
-            background-color: #ffffff;
-            border: 1px solid #94a3b8;
-            border-radius: 6px;
+            background-color: rgba(248, 250, 252, 0.8);
+            border: 2px dashed #cbd5e1;
+            border-radius: 8px;
             padding: 6px;
             box-sizing: border-box;
-            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18), inset 0 0 0 1px rgba(255, 255, 255, 0.8);
         }
         .newspaper-img img {
             width: 100%;
             aspect-ratio: 4 / 3; 
             object-fit: cover;
-            border-radius: 3px;
+            border-radius: 4px;
             display: block;
-            border: 1px solid #cbd5e1;
         }
         .img-caption {
             font-size: 0.75rem;
-            color: #334155;
+            color: #666;
             text-align: center;
-            margin-top: 6px;
+            margin-top: 5px;
             font-style: italic;
-            font-weight: bold;
         }
 
         .section-content { display: none; }
         .section-content.active { display: block; }
 
         .calculator-section { margin-top: 5px; }
-        label { font-weight: bold; display: block; margin-top: 10px; margin-bottom: 3px; font-size: 0.95rem; color: #0f172a; }
+        label { font-weight: bold; display: block; margin-top: 8px; margin-bottom: 2px; font-size: 0.85rem; color: #2c3e50; }
         
-        /* Cajas de texto y inputs en BOLD (Negrita) */
         input[type="text"], input[type="number"], select, textarea { 
             width: 100%; 
-            padding: 9px; 
-            border: 1.5px solid #64748b; 
-            border-radius: 6px; 
+            padding: 7px; 
+            border: 1px solid #cbd5e1; 
+            border-radius: 4px; 
             box-sizing: border-box; 
-            font-size: 1rem; 
-            font-weight: bold; 
-            color: #020617;
+            font-size: 0.85rem; 
+            font-weight: normal; 
+            color: #333;
             background: rgba(255, 255, 255, 0.9);
         }
-        textarea { height: 80px; resize: vertical; font-weight: bold; }
+        textarea { height: 70px; resize: vertical; }
         
         .row { display: flex; gap: 10px; }
         .col { flex: 1; }
         
-        button.calc-btn { background-color: var(--primary); color: white; padding: 11px; border: none; border-radius: 6px; width: 100%; font-size: 1rem; font-weight: bold; cursor: pointer; margin-top: 14px; box-shadow: 0 2px 5px rgba(39, 174, 96, 0.3); }
+        button.calc-btn { background-color: var(--primary); color: white; padding: 9px; border: none; border-radius: 4px; width: 100%; font-size: 0.9rem; font-weight: bold; cursor: pointer; margin-top: 12px; }
         button.calc-btn:hover { background-color: var(--primary-dark); }
         
-        #loading { display: none; text-align: center; margin-top: 8px; font-style: italic; color: #334155; font-size: 0.95rem; font-weight: bold; }
-        #resultado-section { display: none; margin-top: 15px; border-top: 2px solid #94a3b8; padding-top: 8px; }
+        #loading { display: none; text-align: center; margin-top: 8px; font-style: italic; color: #7f8c8d; font-size: 0.85rem; }
+        #resultado-section { display: none; margin-top: 15px; border-top: 2px solid rgba(0,0,0,0.1); padding-top: 8px; }
         
-        table.calc-tbl { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 0.88rem; }
-        table.calc-tbl th, table.calc-tbl td { border: 1px solid #64748b; padding: 6px; text-align: center; vertical-align: middle; }
-        table.calc-tbl th { background-color: rgba(226, 232, 240, 0.9); font-weight: bold; color: #020617; font-size: 0.9rem; }
-        table.calc-tbl tr.total-row { background-color: rgba(220, 252, 231, 0.9); font-weight: bold; font-size: 0.95rem; color: #166534; }
+        /* Estilos de la tabla de desglose */
+        table.calc-tbl { width: 100%; border-collapse: collapse; margin-top: 6px; }
+        table.calc-tbl th, table.calc-tbl td { border: 1px solid #cbd5e1; padding: 4px 6px; text-align: center; vertical-align: middle; background: rgba(255, 255, 255, 0.7); }
+        table.calc-tbl th { background-color: rgba(241, 245, 249, 0.9); font-weight: bold; font-size: 0.8rem; color: #1e293b; }
         
-        /* Cajas de texto editables de la tabla en BOLD (Negrita) */
+        /* Fila de totales con fuente más grande y destacada */
+        table.calc-tbl tr.total-row { background-color: rgba(230, 244, 234, 0.9); font-weight: bold; font-size: 1.05rem; color: #065f46; }
+        table.calc-tbl tr.total-row td { padding: 8px 6px; }
+        
+        /* Fuente achicada para los ingredientes individuales */
         .editable-cell {
             width: 100%;
-            padding: 6px;
+            padding: 3px 4px;
             border: 1px solid transparent;
-            background: rgba(255, 255, 255, 0.7);
+            background: transparent;
             text-align: center;
-            font-size: 0.9rem;
-            font-weight: bold;
-            color: #020617;
-            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: normal;
+            color: #1e293b;
+            border-radius: 3px;
         }
         .editable-cell:hover, .editable-cell:focus {
             border-color: var(--primary);
-            background: #ffffff;
+            background: rgba(255, 255, 255, 0.95);
             outline: none;
-            box-shadow: 0 0 4px rgba(39, 174, 96, 0.4);
         }
 
-        .btn-save { background-color: #8e44ad; margin-top: 12px; color: white; padding: 11px; border: none; border-radius: 6px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.95rem; box-shadow: 0 2px 5px rgba(142, 68, 173, 0.3); }
+        .btn-save { background-color: #8e44ad; margin-top: 10px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
         .btn-save:hover { background-color: #71368a; }
-        .btn-copy { background-color: #2980b9; margin-top: 8px; color: white; padding: 11px; border: none; border-radius: 6px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.95rem; box-shadow: 0 2px 5px rgba(41, 128, 185, 0.3); }
+        .btn-copy { background-color: #2980b9; margin-top: 6px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
         .btn-copy:hover { background-color: #1f6391; }
         
-        .user-badge { background: rgba(224, 242, 254, 0.9); color: #0369a1; padding: 6px 10px; border-radius: 6px; font-size: 0.9rem; font-weight: bold; display: inline-block; margin-bottom: 8px; border: 1px solid #bae6fd; }
+        .user-badge { background: rgba(224, 242, 254, 0.9); color: #0369a1; padding: 5px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; display: inline-block; margin-bottom: 8px; }
 
         footer { 
-            background: rgba(44, 62, 80, 0.92); 
+            background: rgba(44, 62, 80, 0.9); 
             backdrop-filter: blur(5px);
             color: white; 
             text-align: center; 
@@ -314,17 +309,17 @@ HTML_CALCULADORA_RECETAS = """
         .footer-link { 
             color: white; 
             text-decoration: none; 
-            font-weight: bold; 
+            font-weight: 600; 
             padding: 6px 14px; 
-            background: rgba(255,255,255,0.15); 
+            background: rgba(255,255,255,0.1); 
             border-radius: 4px; 
-            font-size: 0.8rem; 
+            font-size: 0.75rem; 
             transition: background 0.2s; 
             display: inline-block; 
             cursor: pointer; 
         }
-        .footer-link:hover { background: rgba(255,255,255,0.3); }
-        .footer-info { opacity: 0.9; font-size: 0.75rem; font-weight: bold; }
+        .footer-link:hover { background: rgba(255,255,255,0.2); }
+        .footer-info { opacity: 0.8; font-size: 0.7rem; }
     </style>
 </head>
 <body>
@@ -345,7 +340,6 @@ HTML_CALCULADORA_RECETAS = """
             {% if user_id %}
             <a id="nav-calculadora" onclick="showSection('calculadora')" data-var="01_menu_calculadora">Calculadora Web</a>
             {% endif %}
-            <!-- Contenedor dinámico de banderas (solo muestra la bandera y el tooltip en PC) -->
             <div id="langFlagsContainer" class="lang-flags-container"></div>
         </div>
     </div>
@@ -464,7 +458,6 @@ HTML_CALCULADORA_RECETAS = """
                         <thead>
                             <tr>
                                 <th data-var="01_th_nombre">Nombre</th>
-                                <th data-var="01_th_descripcion">Descripción</th>
                                 <th data-var="01_th_peso">Peso (g)</th>
                                 <th data-var="01_th_calorias">Calorías</th>
                                 <th data-var="01_th_proteinas">Proteínas</th>
@@ -474,11 +467,11 @@ HTML_CALCULADORA_RECETAS = """
                             </tr>
                         </thead>
                         <tbody>
-                            <!-- Filas dinámicas editables -->
+                            <!-- Filas dinámicas sin columna de descripción ni letras de columnas -->
                         </tbody>
                         <tfoot>
                             <tr class="total-row" id="filaTotales">
-                                <td colspan="2">TOTALES</td>
+                                <td>TOTALES</td>
                                 <td id="totPeso">0</td>
                                 <td id="totCal">0</td>
                                 <td id="totProt">0</td>
@@ -539,8 +532,8 @@ HTML_CALCULADORA_RECETAS = """
                 data.idiomas.forEach(langObj => {
                     const btn = document.createElement('a');
                     btn.className = 'flag-btn';
-                    btn.innerHTML = langObj.flag;     // Solo muestra la bandera a la vista
-                    btn.title = langObj.name;         // Tooltip nativo con el nombre largo al pasar el mouse (PC)
+                    btn.innerHTML = langObj.flag;
+                    btn.title = langObj.name;
                     btn.onclick = () => cambiarIdioma(langObj.code);
                     container.appendChild(btn);
                 });
@@ -710,7 +703,6 @@ HTML_CALCULADORA_RECETAS = """
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td><input type="text" class="editable-cell" value="${item.alimento || ''}" onchange="actualizarItem(${index}, 'alimento', this.value)"></td>
-                <td><input type="text" class="editable-cell" value="${document.getElementById('descripcion').value}" onchange="actualizarItem(${index}, 'descripcion', this.value)"></td>
                 <td><input type="number" step="any" class="editable-cell" value="${item.peso || 0}" onchange="actualizarItem(${index}, 'peso', this.value)"></td>
                 <td><input type="number" step="any" class="editable-cell" value="${item.calorias || 0}" onchange="actualizarItem(${index}, 'calorias', this.value)"></td>
                 <td><input type="number" step="any" class="editable-cell" value="${item.proteinas || 0}" onchange="actualizarItem(${index}, 'proteinas', this.value)"></td>
@@ -724,7 +716,7 @@ HTML_CALCULADORA_RECETAS = """
     }
 
     function actualizarItem(index, campo, valor) {
-        if (campo === 'alimento' || campo === 'descripcion') {
+        if (campo === 'alimento') {
             itemsDesglosadosGlobal[index][campo] = valor;
         } else {
             itemsDesglosadosGlobal[index][campo] = parseFloat(valor) || 0;
@@ -838,14 +830,13 @@ def servir_manual_pdf():
 
 @app.route('/api/config-idiomas', methods=['GET'])
 def api_config_idiomas():
-    """Endpoint que extrae dinámicamente los códigos en MAYÚSCULAS, nombres largos y banderas desde la tabla 'multi' de Supabase."""
     try:
         conn, cur = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
         cur.execute("""
             SELECT column_name FROM information_schema.columns 
             WHERE table_schema = 'public' AND LOWER(table_name) = 'multi' AND LOWER(column_name) NOT IN ('id', 'variables')
         """)
-        cols = [f[0].strip().upper() for f in cur.fetchall() if f[0]]
+        cols = [f[0].strip().lower() for f in cur.fetchall() if f[0]]
 
         cur.execute('SELECT * FROM "multi"')
         filas = cur.fetchall()
@@ -858,11 +849,10 @@ def api_config_idiomas():
 
         idiomas_info = []
         for col in cols:
-            col_lower = col.lower()
             idiomas_info.append({
-                'code': col_lower,
-                'name': str(row_lenguajes.get(col_lower, row_lenguajes.get(col, col))).strip(),
-                'flag': str(row_banderas.get(col_lower, row_banderas.get(col, '🌐'))).strip()
+                'code': col,
+                'name': str(row_lenguajes.get(col, col.upper())).strip(),
+                'flag': str(row_banderas.get(col, '🌐')).strip()
             })
         return jsonify({"idiomas": idiomas_info}), 200
     except Exception as e:
@@ -925,7 +915,7 @@ def api_calcular_receta():
             f"- Las calorías ('calorias')\n"
             f"- Las proteínas en gramos ('proteinas')\n"
             f"- Las grasas en gramos ('grasas')\n"
-            f"- Los carbohidratos en gramos ('carbohidratos')\n"
+            f"- Les carbohidratos en gramos ('carbohidratos')\n"
             f"- Las fibras en gramos ('fibras')\n\n"
             f"REGLA ESTRICTA: Responde ÚNICAMENTE con un objeto JSON válido, sin textos adicionales, saludos ni explicaciones. "
             f"El JSON debe tener exactamente esta estructura:\n"
@@ -4630,9 +4620,10 @@ def generar_pdf_comidas_bytes(plantillas, user_id=None):
     return buffer
 
 @requiere_registro
+@requiere_registro
 async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
     web_app_url = f"https://ianutribot.com/?user_id={user_id}#calculadora"
@@ -4642,11 +4633,12 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(btn_text, url=web_app_url)]
     ])
     
-    msg_tmpl = traducciones.get("bot_msg_cargar_receta", "👋 ¡Hola! Usá el siguiente botón para calcular los valores nutricionales de tu receta e ingresarla directamente en tu planilla personalizada (*Comidas_{user_id}*):")
+    msg_tmpl = traducciones.get("bot_msg_cargar_receta", "👋 ¡Hola! Usá el siguiente botón para calcular los valores nutricionales de tu receta e ingresarla directamente en tu planilla personalizada:")
     mensaje = msg_tmpl.format(user_id=user_id)
     
-    await update.message.reply_text(mensaje, reply_markup=keyboard, parse_mode="Markdown")
-        
+    # Se elimina parse_mode="Markdown" para evitar que caracteres sueltos rompan el envío del mensaje
+    await update.message.reply_text(mensaje, reply_markup=keyboard)
+            
 #                INICIO                             COMANDOS BARRA                                 INICIO DB OK
 # ========================================================================================================================================
 
