@@ -1337,7 +1337,7 @@ def obtener_perfil_usuario(user_id, mes_target=None):
         tabla_nombre = f"Perfil_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
 
-        # Garantizamos que exista la columna peso_actual por seguridad
+        # Garantizamos que exista la columna peso_actual
         cur.execute(f'ALTER TABLE "{tabla_nombre}" ADD COLUMN IF NOT EXISTS "peso_actual" DOUBLE PRECISION;')
         conn.commit()
         
@@ -1367,6 +1367,16 @@ def obtener_perfil_usuario(user_id, mes_target=None):
                 'peso_actual_col': fila[7]
             })
             
+        # Aprovechamos para leer el ritmo_preferido desde Usuarios
+        ritmo_usr = "moderado"
+        try:
+            cur.execute('SELECT "ritmo_preferido" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id).strip(),))
+            row_u = cur.fetchone()
+            if row_u and row_u[0]:
+                ritmo_usr = str(row_u[0]).strip()
+        except Exception:
+            pass
+
         cur.close()
         conn.close()
         
@@ -1382,7 +1392,10 @@ def obtener_perfil_usuario(user_id, mes_target=None):
         if not perfil_raw:
             perfil_raw = records[-1]
         
-        perfil = {}
+        perfil = {
+            'Ritmo': ritmo_usr,
+            'ritmo_preferido': ritmo_usr
+        }
         peso_hallado = None
 
         for k, v in perfil_raw.items():
@@ -1398,7 +1411,7 @@ def obtener_perfil_usuario(user_id, mes_target=None):
                 perfil['Peso'] = val
                 perfil['peso'] = val
                 perfil['PESO'] = val
-                perfil['peso_actual'] = val  # Se mantiene para que calcular_metricas_mensuales use el peso base
+                perfil['peso_actual'] = val
             elif k_upper == 'PESO_ACTUAL_COL':
                 val = float(v or 0)
                 if val > 1000: val /= 1000.0
@@ -1429,7 +1442,7 @@ def obtener_perfil_usuario(user_id, mes_target=None):
     except Exception as e:
         print(f"Error obteniendo perfil de Supabase para el usuario {user_id}: {e}")
         return None
-        
+                
 def obtener_datos_presion_db(user_id):
     try:
         tabla_nombre = f"Presion_{user_id}"
@@ -1818,7 +1831,6 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> bool:
     Garantiza que exista la fila del mes actual en Perfil_<user_id>.
     Si al crearla detecta que en el mes anterior se informó un peso después del día 24,
     toma automáticamente ese peso_actual, actualiza el factor y valida el mes sin pedir peso.
-    Devuelve True si el peso del mes quedó validado automáticamente.
     """
     mes_actual_str = ahora_dt.strftime("%Y-%m")
     fecha_hoy_str = ahora_dt.strftime("%Y-%m-%d")
@@ -1885,7 +1897,6 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> bool:
                 peso_actual_nuevo_mes = peso_candidato
                 fecha_act_nueva = fecha_hoy_str
 
-                # Cerramos cursor actual antes de llamar a _calcular_y_actualizar_factor_mes_anterior
                 cur.close()
                 conn.close()
 
@@ -1896,7 +1907,6 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> bool:
                     if factor_calibrado and factor_calibrado > 0:
                         ocupacion_val = factor_calibrado
 
-                # Reabrimos conexión para insertar la nueva fila del mes
                 conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
             else:
                 peso_nuevo_mes = peso_base_ant
@@ -2342,7 +2352,6 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
             peso_base_a_guardar = peso_ingresado
             peso_actual_a_guardar = peso_ingresado
 
-            # Si viene de un mes anterior, calibramos también el cierre del mes anterior
             mes_anterior_str = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
             if '_calcular_y_actualizar_factor_mes_anterior' in globals():
                 cur.close()
@@ -2403,7 +2412,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     except Exception as e:
         logger.error(f"Error al guardar perfil y auto-calibrar en Supabase (Perfil_{user_id}): {e}")
         return resultado_calibracion
-                            
+                                    
 def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=None):
     """Actualiza el factor de ocupación en la tabla Perfil_<user_id> y el control en Usuarios."""
     user_id_str = str(user_id).strip()
@@ -3009,39 +3018,164 @@ def calcular_contextura(sexo: str, altura_cm: float, muneca_cm: float):
         elif 10.1 <= r <= 11.0: return "Mediana"
         else: return "Grande"
 
-def calcular_peso_ideal(sexo: str, altura_cm: float) -> float:
-    if str(sexo).upper() in ['M', 'MASCULINO']:
-        return (altura_cm - 100) - ((altura_cm - 150) / 4.0)
-    else:
-        return (altura_cm - 100) - ((altura_cm - 150) / 2.5)
+def _obtener_biometria_encapsulada(sexo_arg=None, altura_arg=None, peso_arg=None, edad_arg=None):
+    """
+    Función auxiliar interna: detecta automáticamente el user_id en ejecución y recupera
+    cintura, cuello, edad, peso, altura y sexo desde Supabase sin alterar las firmas públicas.
+    """
+    datos = {
+        "sexo": str(sexo_arg or "M").strip(),
+        "altura": float(altura_arg or 170.0),
+        "peso": float(peso_arg or 0.0),
+        "edad": int(float(edad_arg or 40)),
+        "cintura": 0.0,
+        "cuello": 0.0
+    }
+    if datos["altura"] > 1000:
+        datos["altura"] /= 1000.0
+    if datos["peso"] > 1000:
+        datos["peso"] /= 1000.0
 
-def calcular_grasa_y_magra(sexo: str, altura_cm: float, cintura_cm: float, cuello_cm: float, peso_actual: float) -> tuple[float, float]:
+    # Buscamos el user_id automáticamente en la pila de llamadas
+    uid = None
+    try:
+        frame = inspect.currentframe()
+        while frame:
+            locs = frame.f_locals
+            for clave in ('user_id', 'uid', 'u_id', 'target_user_id'):
+                if clave in locs and locs[clave] is not None:
+                    val_id = str(locs[clave]).split('.')[0].strip()
+                    if val_id.isdigit():
+                        uid = val_id
+                        break
+            if uid:
+                break
+            frame = frame.f_back
+    except Exception:
+        uid = None
+    finally:
+        del frame
+
+    if not uid:
+        return datos
+
+    try:
+        conn = _obtener_conexion_db()
+        cur = conn.cursor()
+
+        # 1. Leer cintura, cuello, sexo y cumple desde Usuarios
+        cur.execute(
+            'SELECT "cintura_cm", "cuello_cm", "Sexo", "cumple" FROM "Usuarios" WHERE "User ID" = %s LIMIT 1',
+            (str(uid),)
+        )
+        fila_u = cur.fetchone()
+        if fila_u:
+            if fila_u[0] is not None:
+                datos["cintura"] = float(fila_u[0] or 0.0)
+            if fila_u[1] is not None:
+                datos["cuello"] = float(fila_u[1] or 0.0)
+            if not sexo_arg and fila_u[2]:
+                datos["sexo"] = str(fila_u[2]).strip()
+            if not edad_arg and fila_u[3] and 'calcular_edad_desde_cumple' in globals():
+                datos["edad"] = calcular_edad_desde_cumple(str(fila_u[3]).strip())
+
+        # 2. Si falta peso, altura o edad, leer el último registro de Perfil_<uid>
+        if datos["peso"] <= 0 or not altura_arg or not edad_arg:
+            tabla_perfil = f"Perfil_{uid}"
+            cur.execute("""
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_schema = 'public' AND LOWER(table_name) = LOWER(%s)
+            """, (tabla_perfil,))
+            t_row = cur.fetchone()
+            if t_row:
+                cur.execute(f'SELECT "EDAD", "PESO", "ALTURA", "GENERO" FROM "{t_row[0]}" ORDER BY id DESC LIMIT 1')
+                fila_p = cur.fetchone()
+                if fila_p:
+                    if not edad_arg and fila_p[0]:
+                        datos["edad"] = int(float(fila_p[0]))
+                    if datos["peso"] <= 0 and fila_p[1]:
+                        p_db = float(fila_p[1])
+                        datos["peso"] = p_db / 1000.0 if p_db > 1000 else p_db
+                    if not altura_arg and fila_p[2]:
+                        a_db = float(fila_p[2])
+                        datos["altura"] = a_db / 1000.0 if a_db > 1000 else a_db
+                    if not sexo_arg and fila_p[3]:
+                        datos["sexo"] = str(fila_p[3]).strip()
+
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error en _obtener_biometria_encapsulada para {uid}: {e}")
+
+    return datos
+
+def (sexo: str, altura_cm: float, cintura_cm: float, cuello_cm: float, peso_actual: float) -> tuple[float, float]:
     gen_clean = str(sexo).strip().lower()
     is_femenino = gen_clean in ["femenino", "f", "mujer", "female"]
     
     try:
+        diff = max(1.0, float(cintura_cm) - float(cuello_cm))
+        alt = max(100.0, float(altura_cm))
         if is_femenino:
-            gc = 495 / (1.29579 - 0.35004 * math.log10(max(1.0, cintura_cm - cuello_cm)) + 0.22100 * math.log10(max(1.0, altura_cm))) - 450
+            gc = 495.0 / (1.29579 - 0.35004 * math.log10(diff) + 0.22100 * math.log10(alt)) - 450.0
         else:
-            gc = 495 / (1.03324 - 0.19077 * math.log10(max(1.0, cintura_cm - cuello_cm)) + 0.15456 * math.log10(max(1.0, altura_cm))) - 450
+            gc = 495.0 / (1.03324 - 0.19077 * math.log10(diff) + 0.15456 * math.log10(alt)) - 450.0
             
         gc = max(5.0, min(60.0, gc))
     except Exception:
         gc = 25.0
 
-    masa_grasa = peso_actual * (gc / 100.0)
-    masa_magra = peso_actual - masa_grasa
+    masa_grasa = float(peso_actual) * (gc / 100.0)
+    masa_magra = float(peso_actual) - masa_grasa
     
     return round(gc, 1), round(masa_magra, 1)
+
+def calcular_peso_ideal(sexo: str, altura_cm: float) -> float:
+    """
+    Mantiene la firma original (sexo, altura_cm), pero obtiene internamente cintura, cuello,
+    edad y peso desde la base de datos para calcular el peso ideal real según composición corporal.
+    """
+    bio = _obtener_biometria_encapsulada(sexo_arg=sexo, altura_arg=altura_cm)
+    gen_clean = str(bio["sexo"]).strip().lower()
+    is_femenino = gen_clean in ["femenino", "f", "mujer", "female"]
+    alt = bio["altura"]
+
+    # 1. Base clásica de Lorentz (respaldo y referencia estructural)
+    if not is_femenino:
+        peso_lorentz = (alt - 100.0) - ((alt - 150.0) / 4.0)
+    else:
+        peso_lorentz = (alt - 100.0) - ((alt - 150.0) / 2.5)
+
+    # 2. Si el usuario tiene cintura, cuello y peso en la DB, integramos composición corporal y edad
+    cintura = bio["cintura"]
+    cuello = bio["cuello"]
+    peso_act = bio["peso"]
+    edad = bio["edad"]
+
+    if cintura > 0 and cuello > 0 and cintura > cuello and peso_act > 0:
+        _, masa_magra = calcular_grasa_y_magra(bio["sexo"], alt, cintura, cuello, peso_act)
+
+        # Porcentaje de grasa saludable objetivo ajustado por sexo y edad
+        tramo_edad = max(0.0, (edad - 30.0) * 0.12)
+        grasa_objetivo_pct = (24.0 + tramo_edad) if is_femenino else (16.0 + tramo_edad)
+        grasa_objetivo_pct = min(33.0 if is_femenino else 25.0, grasa_objetivo_pct)
+
+        peso_por_composicion = masa_magra / (1.0 - (grasa_objetivo_pct / 100.0))
+
+        # Promedio ponderado entre estructura (Lorentz) y composición muscular real
+        peso_final = (peso_por_composicion * 0.65) + (peso_lorentz * 0.35)
+        return round(max(40.0, peso_final), 1)
+
+    return round(max(40.0, peso_lorentz), 1)
 
 def calcular_peso_etapa(peso_actual: float, peso_ideal: float, ritmo_preferido: str = "moderado") -> float:
     if peso_actual <= peso_ideal:
         return round(peso_actual, 1)
     
     ritmo_clean = str(ritmo_preferido).strip().lower()
-    if "tranquilo" in ritmo_clean or "lento" in ritmo_clean:
+    if "tranquilo" in ritmo_clean or "lento" in ritmo_clean or ritmo_clean == "1":
         factor_actual = 0.90
-    elif "rapido" in ritmo_clean or "intenso" in ritmo_clean or "decidido" in ritmo_clean:
+    elif "rapido" in ritmo_clean or "intenso" in ritmo_clean or "decidido" in ritmo_clean or ritmo_clean == "3":
         factor_actual = 0.75
     else:
         factor_actual = 0.85
@@ -3051,25 +3185,50 @@ def calcular_peso_etapa(peso_actual: float, peso_ideal: float, ritmo_preferido: 
     return round(peso_etapa, 1)
 
 def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: str = "masculino", actividad: float = 1.375, masa_magra: float = None, peso_ideal: float = None) -> tuple[float, float]:
+    """
+    Mantiene su firma exacta. Si masa_magra no viene por argumento, busca cintura y cuello
+    de forma encapsulada y combina Mifflin-St Jeor con Katch-McArdle para mayor precisión clínica.
+    """
     try:
         peso = float(peso_actual)
+        if peso > 1000: peso /= 1000.0
         altura = float(altura_cm)
-        anios = int(edad)
+        if altura > 1000: altura /= 1000.0
+        anios = int(float(edad))
     except (TypeError, ValueError):
         peso, altura, anios = 90.0, 170.0, 40
 
-    if masa_magra is not None and masa_magra > 0:
-        tmb = 370 + (21.6 * masa_magra)
+    gen_clean = str(genero).strip().lower()
+    is_femenino = gen_clean in ["femenino", "f", "mujer", "female"]
+
+    # 1. TMB por Mifflin-St Jeor (peso, altura, edad, sexo)
+    if is_femenino:
+        tmb_mifflin = (10.0 * peso) + (6.25 * altura) - (5.0 * anios) - 161.0
     else:
-        gen_clean = str(genero).strip().lower()
-        if gen_clean in ["femenino", "f", "mujer", "female"]:
-            tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * anios) - 161.0
-        else:
-            tmb = (10.0 * peso) + (6.25 * altura) - (5.0 * anios) + 5.0
+        tmb_mifflin = (10.0 * peso) + (6.25 * altura) - (5.0 * anios) + 5.0
 
-    get = tmb * float(actividad)
+    # 2. Si no se pasó masa_magra explícitamente, la calculamos encapsulada con cintura y cuello de la DB
+    if masa_magra is None or masa_magra <= 0:
+        bio = _obtener_biometria_encapsulada(sexo_arg=genero, altura_arg=altura, peso_arg=peso, edad_arg=anios)
+        if bio["cintura"] > 0 and bio["cuello"] > 0 and bio["cintura"] > bio["cuello"]:
+            _, masa_magra = calcular_grasa_y_magra(genero, altura, bio["cintura"], bio["cuello"], peso)
+
+    # 3. Si tenemos masa magra válida, integramos Katch-McArdle (tejido metabólicamente activo)
+    if masa_magra is not None and masa_magra > 0:
+        tmb_katch = 370.0 + (21.6 * float(masa_magra))
+        tmb = (tmb_mifflin * 0.50) + (tmb_katch * 0.50)
+    else:
+        tmb = tmb_mifflin
+
+    try:
+        factor_act = float(actividad)
+        if factor_act > 10:
+            factor_act /= 1000.0
+    except (TypeError, ValueError):
+        factor_act = 1.375
+
+    get = tmb * factor_act
     return round(tmb, 2), round(get, 2)
-
 
 async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.DEFAULT_TYPE = None, user_id: int = None) -> bool:
     uid = user_id or (update.effective_user.id if update else None)
@@ -3217,7 +3376,7 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
         logger.error(f"No se pudo enviar aviso de peso mensual a {uid}: {e_msg}")
 
     return False
-    
+        
     
 #              INICIO                     FUNCIONES SOPORTE MULTILENGUAJE                   INICIO
 # =============================================================================================================================================
@@ -6213,7 +6372,7 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
 
     edad = int(get_perfil_num(['Edad', 'edad'], 64))
     altura = get_perfil_num(['Altura', 'altura', 'ALTURA'], 167.5)
-    peso_actual = get_perfil_num(['Peso', 'peso', 'peso_actual', 'PESO'], 104.6)
+    peso_actual = get_perfil_num(['PESO', 'Peso', 'peso', 'peso_actual'], 104.6)
     
     ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
     genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
@@ -6221,18 +6380,9 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     is_femenino = gen_clean in ["femenino", "f", "mujer", "female"]
     ritmo_usuario = str(perfil_dict.get('Ritmo') or perfil_dict.get('ritmo_preferido', 'moderado')).strip()
 
-    peso_ideal_secreto = get_perfil_num(['peso_ideal_secreto', 'peso_ideal', 'Peso_Ideal'], 81.0)
-
-    ritmo_clean = ritmo_usuario.lower()
-    if "tranquilo" in ritmo_clean or "lento" in ritmo_clean:
-        factor_actual = 0.90
-    elif "rapido" in ritmo_clean or "intenso" in ritmo_clean or "decidido" in ritmo_clean:
-        factor_actual = 0.75
-    else:
-        factor_actual = 0.85
-    factor_ideal = 1.0 - factor_actual
-
-    peso_etapa_calculado = (peso_actual * factor_actual) + (peso_ideal_secreto * factor_ideal)
+    # Cálculo dinámico del peso ideal y peso de etapa usando el peso fijo de inicio de mes
+    peso_ideal_secreto = calcular_peso_ideal(genero, altura)
+    peso_etapa_calculado = calcular_peso_etapa(peso_actual, peso_ideal_secreto, ritmo_usuario)
     
     peso_referencia = round(peso_etapa_calculado, 1)
     peso_ideal_dinamico = peso_referencia  
@@ -6312,7 +6462,7 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "tot_carb": tot_carb,
         "tot_fibr": tot_fibr
     }
-
+    
 async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
@@ -8233,8 +8383,8 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
 async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando directo /peso o /weight.
-    Si es el primer peso del mes, lo guarda como peso base.
-    Si ya existe un peso en el mes, lo toma como estadístico para calibrar el factor de actividad.
+    Si es el primer peso del mes, lo guarda en PESO y en peso_actual.
+    Si ya existe un peso en el mes, mantiene PESO intacto, actualiza peso_actual y calibra el factor.
     """
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
@@ -8255,13 +8405,16 @@ async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not raw_text:
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual) if 'obtener_perfil_usuario' in globals() else {}
-        peso_actual = parse_raw_val(perfil.get('PESO', perfil.get('Peso', 0))) if perfil else 0
+        peso_base = parse_raw_val(perfil.get('PESO', perfil.get('Peso', 0))) if perfil else 0
+        ultimo_informado = parse_raw_val(perfil.get('ultimo_peso_informado', 0)) if perfil else 0
         
-        if peso_actual > 0:
+        if peso_base > 0:
             txt_actual = traducciones.get('peso_consulta_actual', 
-                "⚖️ **Peso base registrado ({mes_actual}):** `{peso_actual:.1f} kg`\n\n"
-                "Para ingresar un control de peso y calibrar tu factor, escribí:\n`/peso [nuevo_peso]` (ejemplo: `/peso 96`)"
-            ).format(mes_actual=mes_actual, peso_actual=peso_actual)
+                "⚖️ **Peso base registrado ({mes_actual}):** `{peso_actual:.1f} kg`\n"
+            ).format(mes_actual=mes_actual, peso_actual=peso_base)
+            if ultimo_informado > 0 and ultimo_informado != peso_base:
+                txt_actual += f"📊 **Último peso informado en el mes:** `{ultimo_informado:.1f} kg`\n"
+            txt_actual += "\nPara ingresar un nuevo control de peso y calibrar tu factor, escribí:\n`/peso [nuevo_peso]` (ejemplo: `/peso 96`)"
         else:
             txt_actual = traducciones.get('peso_no_registrado', 
                 "⚠️ No tenés un peso registrado para este mes.\n\n"
@@ -8282,9 +8435,9 @@ async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if res_cal and res_cal.get("es_calibracion"):
             txt_ok = (
-                f"✅ **¡Factor de actividad calibrado con éxito!**\n\n"
+                f"✅ **¡Control de peso guardado y factor calibrado!**\n\n"
                 f"• Peso base de inicio de mes ({mes_actual}): `{res_cal['peso_base_mes']:.1f} kg` *(sin modificar)*\n"
-                f"• Peso estadístico informado hoy: `{res_cal['peso_estadistico']:.1f} kg`\n"
+                f"• Último peso informado (`peso_actual`): `{res_cal['peso_estadistico']:.1f} kg`\n"
                 f"• Variación ajustada en el resumen: `{res_cal['delta_peso']:+.1f} kg`\n"
                 f"• Nuevo factor de actividad: `{res_cal['nuevo_factor']:.4f}`"
             )
@@ -8304,7 +8457,7 @@ async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(txt_err.replace('\\n', '\n'), parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error en cmd_peso_rapido para {user_id}: {e}")
-        await update.message.reply_text(f"❌ Error al procesar el peso: {e}")
+        await update.message.reply_text(f"❌ Error al guardar el peso: {e}")
                                 
 #                       INICIO                  COMANDOS PRESION                    INICIO
 # ======================================================================================================================================
