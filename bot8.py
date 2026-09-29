@@ -967,8 +967,6 @@ def api_calcular_receta():
 #              FINAL                                  PAGINA WEB (CALCULADORA UNICA)                        FINAL
 # =====================================================================================================================================
 
-# =====================================================================================================================================
-
 # =============================================================================================================================================
 #              INICIO                                   FUNCIONES SUPABASE                           INICIO
 # =============================================================================================================================================
@@ -1981,8 +1979,7 @@ def obtener_datos_usuario_general(user_id):
         return {}
     except Exception as e:
         logger.error(f"Error al obtener datos generales de usuario para {user_id}: {e}")
-        return {}
-                
+        return {}                
 
 #              INICIO                                  8 FUNCIONES GUARDAR                        INICIO
 # =============================================================================================================================================
@@ -2106,183 +2103,98 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
             VALUES (%s, %s, %s, %s, %s, %s)
         """
         valores = (
-            ahora.strftime("%Y-%m-%d"),
-            ahora.strftime("%Y-%m-%d"),
-            float(alta),
-            float(baja),
-            float(pulsaciones) if pulsaciones is not None else 0.0,
-            str(nota).strip(),
+            ahora.strftime("%Y-%m-%d"), 
+            ahora.strftime("%Y-%m-%d"), 
+            float(alta), 
+            float(baja), 
+            float(pulsaciones) if pulsaciones is not None else 0.0, 
+            str(nota).strip()
         )
         cur.execute(query, valores)
         conn.commit()
         cur.close()
         conn.close()
     except Exception as e:
-        logger.error(
-            f"Error al grabar Presión en Supabase (Presion_{user_id}): {e}"
-        )
+        logger.error(f"Error al grabar Presión en Supabase (Presion_{user_id}): {e}")
 
-
-def guardar_perfil_db(
-    user_id,
-    peso,
-    mes=None,
-    edad=None,
-    altura=None,
-    genero=None,
-    ocupacion=None,
-    *args,
-    **kwargs,
-):
+def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     """Guarda el perfil, actualiza el peso y auto-calibra el factor de actividad para mantener la consistencia real."""
     ahora = obtener_ahora_arg()
-
+    
     if not mes:
         mes = ahora.strftime("%Y-%m")
 
     peso_real = float(peso)
-    if peso_real > 1000:
-        peso_real /= 1000.0
+    if peso_real > 1000: peso_real /= 1000.0
 
     try:
         tabla_nombre = f"Perfil_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
-
-        cur.execute(
-            f'SELECT "EDAD", "ALTURA", "GENERO", "ocupacion", "PESO" FROM "{tabla_nombre}" WHERE "MES" = %s',
-            (str(mes),),
-        )
+        
+        # Recuperamos los datos previos del mes para ver el peso inicial
+        cur.execute(f'SELECT "EDAD", "ALTURA", "GENERO", "ocupacion", "PESO" FROM "{tabla_nombre}" WHERE "MES" = %s', (str(mes),))
         fila_previa = cur.fetchone()
 
-        edad_val = (
-            int(edad)
-            if edad is not None
-            else (
-                int(fila_previa[0])
-                if fila_previa and fila_previa[0]
-                else 64
-            )
-        )
-        altura_val = (
-            float(altura)
-            if altura is not None
-            else (
-                float(fila_previa[1])
-                if fila_previa and fila_previa[1]
-                else 170.0
-            )
-        )
-        genero_val = (
-            str(genero)
-            if genero
-            else (
-                str(fila_previa[2])
-                if fila_previa and fila_previa[2]
-                else "M"
-            )
-        )
-
-        factor_previo = (
-            float(ocupacion)
-            if ocupacion is not None
-            else (
-                float(fila_previa[3])
-                if fila_previa and fila_previa[3]
-                else 1.375
-            )
-        )
-
-        peso_inicio_mes = (
-            float(fila_previa[4])
-            if fila_previa and fila_previa[4]
-            else peso_real
-        )
+        edad_val = int(edad) if edad is not None else (int(fila_previa[0]) if fila_previa and fila_previa[0] else 64)
+        altura_val = float(altura) if altura is not None else (float(fila_previa[1]) if fila_previa and fila_previa[1] else 170.0)
+        genero_val = str(genero) if genero else (str(fila_previa[2]) if fila_previa and fila_previa[2] else "M")
+        
+        factor_previo = float(ocupacion) if ocupacion is not None else (float(fila_previa[3]) if fila_previa and fila_previa[3] else 1.375)
+        
+        # Tomamos el peso del primer registro del mes como base para medir la variación real
+        peso_inicio_mes = float(fila_previa[4]) if fila_previa and fila_previa[4] else peso_real
 
         # -------------------------------------------------------------
-        # AUTO-CALIBRACIÓN DEL FACTOR
+        # 🟢 AUTO-CALIBRACIÓN DEL FACTOR: Hace que la física del bot coincida con la balanza
         # -------------------------------------------------------------
         nuevo_factor = factor_previo
-        df_datos = (
-            obtener_datos_usuario(user_id)
-            if "obtener_datos_usuario" in globals()
-            else pd.DataFrame()
-        )
+        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
 
-        if not df_datos.empty and "Fecha" in df_datos.columns:
-            df_mes = df_datos[
-                df_datos["Fecha"].astype(str).str.startswith(mes)
-            ].copy()
-            dias_registrados = df_mes["Fecha"].nunique()
+        if not df_datos.empty and 'Fecha' in df_datos.columns:
+            df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes)].copy()
+            dias_registrados = df_mes['Fecha'].nunique()
 
             if dias_registrados >= 2:
-                tot_cons_mes = (
-                    float(df_mes[df_mes["Calorias"] > 0]["Calorias"].sum())
-                    if "Calorias" in df_mes.columns
-                    else 0.0
-                )
-                tot_quem_mes = (
-                    float(
-                        abs(df_mes[df_mes["Calorias"] < 0]["Calorias"].sum())
-                    )
-                    if "Calorias" in df_mes.columns
-                    else 0.0
-                )
+                tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
+                tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in df_mes.columns else 0.0
 
                 ingesta_diaria = tot_cons_mes / dias_registrados
                 ejercicio_diario = tot_quem_mes / dias_registrados
 
-                delta_peso = peso_real - peso_inicio_mes
+                delta_peso = peso_real - peso_inicio_mes  # Diferencia real en la balanza
 
-                tmb_pura, _ = calcular_tmb_y_get(
-                    peso_actual=peso_real,
-                    altura_cm=altura_val,
-                    edad=edad_val,
-                    genero=genero_val,
-                    actividad=1.0,
-                )
+                tmb_pura, _ = calcular_tmb_y_get(peso_actual=peso_real, altura_cm=altura_val, edad=edad_val, genero=genero_val, actividad=1.0)
                 if tmb_pura <= 0:
                     tmb_pura = 1813.0
 
-                gasto_diario_total = ingesta_diaria - (
-                    (delta_peso * 7700.0) / dias_registrados
-                )
-                factor_calculado = (
-                    gasto_diario_total - ejercicio_diario
-                ) / tmb_pura
+                # Despejamos el gasto real necesario para que la ecuación dé exactamente la variación de la balanza
+                gasto_diario_total = ingesta_diaria - ((delta_peso * 7700.0) / dias_registrados)
+                factor_calculado = (gasto_diario_total - ejercicio_diario) / tmb_pura
 
+                # Aplicamos topes de seguridad razonables (entre 1.20 y 1.85)
                 nuevo_factor = max(1.20, min(1.85, round(factor_calculado, 3)))
 
+        # Guardamos en la base de datos el nuevo peso y el factor calibrado
         if fila_previa:
-            cur.execute(
-                f"""
+            cur.execute(f"""
                 UPDATE "{tabla_nombre}"
                 SET "PESO" = %s, "ocupacion" = %s, "Fecha_Actualizacion" = %s
                 WHERE "MES" = %s
-            """,
-                (
-                    peso_real,
-                    nuevo_factor,
-                    ahora.strftime("%Y-%m-%d"),
-                    str(mes),
-                ),
-            )
+            """, (peso_real, nuevo_factor, ahora.strftime("%Y-%m-%d"), str(mes)))
         else:
-            cur.execute(
-                f"""
+            cur.execute(f"""
                 INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Cumple")
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-                (
-                    str(edad_val),
-                    peso_real,
-                    altura_val,
-                    genero_val,
-                    nuevo_factor,
-                    str(mes),
-                    ahora.strftime("%Y-%m-%d"),
-                    "",
-                ),
-            )
+            """, (
+                str(edad_val),
+                peso_real,
+                altura_val,
+                genero_val,
+                nuevo_factor,
+                str(mes),
+                ahora.strftime("%Y-%m-%d"),
+                ""
+            ))
         conn.commit()
         cur.close()
         conn.close()
@@ -2290,22 +2202,15 @@ def guardar_perfil_db(
         guardar_ocupacion_db(user_id, nuevo_factor, mes)
 
     except Exception as e:
-        logger.error(
-            f"Error al guardar perfil y auto-calibrar en Supabase (Perfil_{user_id}): {e}"
-        )
-
-
-def guardar_ocupacion_db(
-    user_id, nuevo_factor, mes_actual, reloj_actualizado=None
-):
+        logger.error(f"Error al guardar perfil y auto-calibrar en Supabase (Perfil_{user_id}): {e}")
+                            
+def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=None):
     """Actualiza el factor de ocupación en la tabla Perfil_<user_id> y el control en Usuarios."""
     user_id_str = str(user_id).strip()
     mes_marca = str(reloj_actualizado) if reloj_actualizado else str(mes_actual)
 
     try:
-        conn, cur = _asegurar_tabla_y_conectar(
-            "Usuarios", tipo_tabla="usuarios"
-        )
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
         query_u = """
             UPDATE "Usuarios"
             SET "ocupacion" = %s, "reloj_actualizado_mes" = %s
@@ -2316,58 +2221,54 @@ def guardar_ocupacion_db(
         cur.close()
         conn.close()
     except Exception as e:
-        pass
+        pass # Ignoramos el error en caso de que Ocupacion no exista en Usuarios, ya se guarda en Perfil
 
     try:
         tabla_perfil = f"Perfil_{user_id}"
-        conn_p, cur_p = _asegurar_tabla_y_conectar(
-            tabla_perfil, tipo_tabla="perfil"
-        )
-
+        conn_p, cur_p = _asegurar_tabla_y_conectar(tabla_perfil, tipo_tabla="perfil")
+        
         query_p = f"""
             UPDATE "{tabla_perfil}"
             SET "ocupacion" = %s
             WHERE "MES" = %s
         """
         cur_p.execute(query_p, (float(nuevo_factor), str(mes_actual)))
-
+        
         if cur_p.rowcount == 0:
-            cur_p.execute(
-                f'SELECT id FROM "{tabla_perfil}" WHERE "MES" = %s',
-                (str(mes_actual),),
-            )
+            cur_p.execute(f'SELECT id FROM "{tabla_perfil}" WHERE "MES" = %s', (str(mes_actual),))
             if not cur_p.fetchone():
-                cur_p.execute(
-                    f"""
+                cur_p.execute(f"""
                     INSERT INTO "{tabla_perfil}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Cumple")
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                    (
-                        "64",
-                        0.0,
-                        167.0,
-                        "M",
-                        float(nuevo_factor),
-                        str(mes_actual),
-                        obtener_ahora_arg().strftime("%Y-%m-%d"),
-                        "",
-                    ),
-                )
+                """, ("64", 0.0, 167.0, "M", float(nuevo_factor), str(mes_actual), obtener_ahora_arg().strftime("%Y-%m-%d"), ""))
             else:
                 cur_p.execute(query_p, (float(nuevo_factor), str(mes_actual)))
-
+                
         conn_p.commit()
         cur_p.close()
         conn_p.close()
     except Exception as e:
-        logger.error(
-            f"Error al actualizar la tabla Perfil_{user_id} en Supabase: {e}"
-        )
-                
+        logger.error(f"Error al actualizar la tabla Perfil_{user_id} en Supabase: {e}")
+        
 #              INICIO                       9  FUNCIONES MIGRAR FUNCIONES DESCARGAR                           INICIO
 # =============================================================================================================================================
 
-        app_bot.add_handler(CommandHandler(["importar"], cmd_importar_tabla))
+def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
+    """Función auxiliar para migración que recrea la tabla limpia."""
+
+    conn = _obtener_conexion_db()
+    cur = conn.cursor()
+    cur.execute(f'DROP TABLE IF EXISTS "{tabla_nombre}" CASCADE;')
+    conn.commit()
+    
+    if df_muestra is not None and not df_muestra.empty:
+        cols_def = []
+        for col in df_muestra.columns:
+            cols_def.append(f'"{col}" TEXT')
+        cols_sql = ", ".join(cols_def)
+        cur.execute(f'CREATE TABLE "{tabla_nombre}" (id SERIAL PRIMARY KEY, {cols_sql});')
+        conn.commit()
+    return conn, cur
 
 async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -2486,30 +2387,14 @@ async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"Error en /traducir: {e}", exc_info=True)
         await mensaje_espera.edit_text(f"❌ Error al procesar: `{e}`", parse_mode="Markdown")
         
-def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
-    """Función auxiliar para migración que recrea la tabla limpia."""
-
-    conn = _obtener_conexion_db()
-    cur = conn.cursor()
-    cur.execute(f'DROP TABLE IF EXISTS "{tabla_nombre}" CASCADE;')
-    conn.commit()
-    
-    if df_muestra is not None and not df_muestra.empty:
-        cols_def = []
-        for col in df_muestra.columns:
-            cols_def.append(f'"{col}" TEXT')
-        cols_sql = ", ".join(cols_def)
-        cur.execute(f'CREATE TABLE "{tabla_nombre}" (id SERIAL PRIMARY KEY, {cols_sql});')
-        conn.commit()
-    return conn, cur
-
 async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando exclusivo para el administrador para importar/actualizar una tabla 
     específica directamente desde un archivo Excel adjunto en Telegram (en memoria RAM).
     Uso: /subir nombre_de_tabla (con el archivo .xlsx adjunto)
-    user_id = update.effective_user.id
+    user_id = update.effective_user.id """
     # 🔒 BLOQUE DE SEGURIDAD: Solo permitido para tu ID de usuario
+    
     ADMIN_USER_ID = 7363062724
     if user_id != ADMIN_USER_ID:
         await update.message.reply_text(
@@ -2517,7 +2402,7 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return
-    """
+    
     
     # 1. Verificar si se indicó el nombre de la tabla
     if not context.args or len(context.args) == 0:
@@ -5098,7 +4983,7 @@ async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEF
 #                INICIO                             MANEJADOR COMIDAS ACTIVIDAD PRESION                                INICIO DB OK
 # =====================================================================================================================================
 
-async def _sub_manejar_edicion_perfil_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE, raw_text, chat_id):
+async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id):
     user_id = update.effective_user.id
     mes_actual = obtener_ahora_arg().strftime("%Y-%m")
 
@@ -5165,7 +5050,7 @@ async def _sub_manejar_edicion_perfil_inputs(update: Update, context: ContextTyp
         except:
             await update.message.reply_text("❌ Valor inválido.")
         context.user_data['awaiting_edit_perfil_prof'] = False
-                
+                                
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, chat_id = update.effective_user.id, update.effective_chat.id
@@ -8096,6 +7981,7 @@ async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not (30 <= nuevo_peso <= 300):
             raise ValueError()
 
+                        
 #                       INICIO                  COMANDOS PRESION                    INICIO
 # ======================================================================================================================================
 
@@ -8787,7 +8673,7 @@ def main():
         app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
         # =================================ADMINISTRADOR============================================
         app_bot.add_handler(CommandHandler(["descargar","bajar"], cmd_descargar))
-        app_bot.add_handler(CommandHandler(["importar"], cmd_importar_tabla))
+        app_bot.add_handler(CommandHandler(["importar", "copiar"], cmd_importar_tabla))
         app_bot.add_handler(CommandHandler("traducir", cmd_traducir_excel))
         app_bot.add_handler(CommandHandler("subir", cmd_subir))
 
