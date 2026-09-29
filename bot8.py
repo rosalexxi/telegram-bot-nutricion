@@ -7981,6 +7981,35 @@ async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not (30 <= nuevo_peso <= 300):
             raise ValueError()
 
+        # Guardar en Perfil_<user_id> y autocalibrar
+        guardar_perfil_db(user_id, peso=nuevo_peso, mes=mes_actual)
+
+        # Actualizar la fecha del último peso en la tabla Usuarios
+        try:
+            conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+            cur.execute('UPDATE "Usuarios" SET "Ultimo Mes Peso" = %s WHERE "User ID" = %s', (fecha_hoy, str(user_id)))
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e_usr:
+            logger.error(f"Error actualizando Ultimo Mes Peso en Usuarios para {user_id}: {e_usr}")
+
+        txt_ok = traducciones.get(
+            'peso_actualizado_ok',
+            "✅ **¡Peso actualizado correctamente!**\n\n• Nuevo peso registrado ({mes_actual}): `{nuevo_peso:.1f} kg`"
+        ).format(mes_actual=mes_actual, nuevo_peso=nuevo_peso)
+        await update.message.reply_text(txt_ok.replace('\\n', '\n'), parse_mode="Markdown")
+
+    except ValueError:
+        txt_err = traducciones.get(
+            'peso_error_formato',
+            "⚠️ Por favor, ingresá un peso válido en kg entre 30 y 300 (ejemplo: `/peso 82.5`)."
+        )
+        await update.message.reply_text(txt_err.replace('\\n', '\n'), parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error en cmd_peso_rapido para {user_id}: {e}")
+        await update.message.reply_text(f"❌ Error al guardar el peso: {e}")
+        
                         
 #                       INICIO                  COMANDOS PRESION                    INICIO
 # ======================================================================================================================================
