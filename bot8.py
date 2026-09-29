@@ -3109,7 +3109,7 @@ def _obtener_biometria_encapsulada(sexo_arg=None, altura_arg=None, peso_arg=None
 
     return datos
 
-def (sexo: str, altura_cm: float, cintura_cm: float, cuello_cm: float, peso_actual: float) -> tuple[float, float]:
+def calcular_grasa_y_magra(sexo: str, altura_cm: float, cintura_cm: float, cuello_cm: float, peso_actual: float) -> tuple[float, float]:
     gen_clean = str(sexo).strip().lower()
     is_femenino = gen_clean in ["femenino", "f", "mujer", "female"]
     
