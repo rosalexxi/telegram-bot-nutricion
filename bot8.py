@@ -1336,9 +1336,13 @@ def obtener_perfil_usuario(user_id, mes_target=None):
     try:
         tabla_nombre = f"Perfil_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+
+        # Garantizamos que exista la columna peso_actual por seguridad
+        cur.execute(f'ALTER TABLE "{tabla_nombre}" ADD COLUMN IF NOT EXISTS "peso_actual" DOUBLE PRECISION;')
+        conn.commit()
         
         query = f"""
-            SELECT "EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion"
+            SELECT "EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "peso_actual"
             FROM "{tabla_nombre}"
             ORDER BY id ASC
         """
@@ -1359,7 +1363,8 @@ def obtener_perfil_usuario(user_id, mes_target=None):
                 'GENERO': fila[3], 
                 'ocupacion': fila[4], 
                 'MES': fila[5],
-                'Fecha_Actualizacion': fila[6]
+                'Fecha_Actualizacion': fila[6],
+                'peso_actual_col': fila[7]
             })
             
         cur.close()
@@ -1388,23 +1393,27 @@ def obtener_perfil_usuario(user_id, mes_target=None):
                 perfil['edad'] = val
             elif k_upper == 'PESO':
                 val = float(v or 0)
+                if val > 1000: val /= 1000.0
                 peso_hallado = val if val > 0 else None
                 perfil['Peso'] = val
                 perfil['peso'] = val
-                perfil['peso_actual'] = val
+                perfil['PESO'] = val
+                perfil['peso_actual'] = val  # Se mantiene para que calcular_metricas_mensuales use el peso base
+            elif k_upper == 'PESO_ACTUAL_COL':
+                val = float(v or 0)
+                if val > 1000: val /= 1000.0
+                perfil['ultimo_peso_informado'] = val if val > 0 else (peso_hallado or 0.0)
             elif k_upper == 'ALTURA':
                 val = float(v or 0)
+                if val > 1000: val /= 1000.0
                 perfil['Altura'] = val
                 perfil['altura'] = val
-            elif k_upper in ['PESO_IDEAL', 'PESO IDEAL']:
-                val = float(v or 0)
-                perfil['Peso_ideal'] = val
-                perfil['peso_ideal'] = val
             elif k_upper in ['GENERO', 'SEXO']:
                 perfil['Sexo'] = str(v).strip()
                 perfil['genero'] = str(v).strip()
             elif k_upper == 'OCUPACION':
                 val = float(v or 0)
+                if val > 10: val /= 1000.0
                 factor_final = val if val > 0 else 1.375
                 perfil['Ocupacion'] = factor_final
                 perfil['ocupacion'] = factor_final
@@ -1412,13 +1421,15 @@ def obtener_perfil_usuario(user_id, mes_target=None):
             elif k_upper == 'MES':
                 perfil['Mes'] = str(v).strip()
                 perfil['mes'] = str(v).strip()
+            elif k_upper == 'FECHA_ACTUALIZACION':
+                perfil['Fecha_Actualizacion'] = str(v or '').strip()
 
         perfil['peso_pendiente'] = (peso_hallado is None or peso_hallado <= 0)
         return perfil
     except Exception as e:
         print(f"Error obteniendo perfil de Supabase para el usuario {user_id}: {e}")
         return None
-
+        
 def obtener_datos_presion_db(user_id):
     try:
         tabla_nombre = f"Presion_{user_id}"
@@ -1802,12 +1813,21 @@ def obtener_pacientes_por_medico(prof_id):
 #              INICIO                                  7 FUNCIONES USUARIOS                        INICIO
 # =============================================================================================================================================
 
-def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
+def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> bool:
+    """
+    Garantiza que exista la fila del mes actual en Perfil_<user_id>.
+    Si al crearla detecta que en el mes anterior se informó un peso después del día 24,
+    toma automáticamente ese peso_actual, actualiza el factor y valida el mes sin pedir peso.
+    Devuelve True si el peso del mes quedó validado automáticamente.
+    """
     mes_actual_str = ahora_dt.strftime("%Y-%m")
+    fecha_hoy_str = ahora_dt.strftime("%Y-%m-%d")
     tabla_nombre = f"Perfil_{user_id}"
 
     try:
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+        cur.execute(f'ALTER TABLE "{tabla_nombre}" ADD COLUMN IF NOT EXISTS "peso_actual" DOUBLE PRECISION;')
+        conn.commit()
         
         cur.execute(f'SELECT id FROM "{tabla_nombre}" WHERE "MES" = %s', (str(mes_actual_str),))
         fila_existente = cur.fetchone()
@@ -1815,54 +1835,129 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> None:
         if fila_existente:
             cur.close()
             conn.close()
-            return
+            return False
 
         logger.info(f"Inicializando nueva fila mensual ({mes_actual_str}) para User {user_id} en Supabase...")
 
-        cur.execute(f'SELECT "EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "Cumple" FROM "{tabla_nombre}" ORDER BY id DESC LIMIT 1')
+        cur.execute(f"""
+            SELECT "EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "Cumple", "MES", "Fecha_Actualizacion", "peso_actual"
+            FROM "{tabla_nombre}"
+            ORDER BY id DESC LIMIT 1
+        """)
         ultima_fila = cur.fetchone()
         
+        peso_validado_post_24 = False
+
         if ultima_fila:
             edad_val = ultima_fila[0] or "64"
-            peso_val = ultima_fila[1] or 70.0
-            altura_val = ultima_fila[2] or 1.70
-            genero_val = ultima_fila[3] or "M"
-            ocupacion_val = ultima_fila[4] or 1.375
-            cumple_val = ultima_fila[5] or ""
+            peso_base_ant = float(ultima_fila[1] or 70.0)
+            if peso_base_ant > 1000: peso_base_ant /= 1000.0
+            altura_val = float(ultima_fila[2] or 170.0)
+            if altura_val > 1000: altura_val /= 1000.0
+            genero_val = str(ultima_fila[3] or "M")
+            ocupacion_val = float(ultima_fila[4] or 1.375)
+            if ocupacion_val > 10: ocupacion_val /= 1000.0
+            cumple_val = str(ultima_fila[5] or "")
+            mes_ant_str = str(ultima_fila[6] or "").strip()
+            fecha_act_ant = str(ultima_fila[7] or "").strip()
+            peso_actual_ant = float(ultima_fila[8] or 0.0)
+            if peso_actual_ant > 1000: peso_actual_ant /= 1000.0
+
+            if cumple_val and 'calcular_edad_desde_cumple' in globals():
+                edad_val = str(calcular_edad_desde_cumple(cumple_val))
+
+            # Verificamos si Fecha_Actualizacion del mes anterior fue después del día 24
+            dia_actualizacion = 0
+            if fecha_act_ant:
+                for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"):
+                    try:
+                        dt_act = datetime.strptime(fecha_act_ant, fmt)
+                        dia_actualizacion = dt_act.day
+                        break
+                    except ValueError:
+                        continue
+
+            peso_candidato = peso_actual_ant if peso_actual_ant > 0 else peso_base_ant
+
+            if dia_actualizacion > 24 and peso_candidato > 0:
+                peso_validado_post_24 = True
+                peso_nuevo_mes = peso_candidato
+                peso_actual_nuevo_mes = peso_candidato
+                fecha_act_nueva = fecha_hoy_str
+
+                # Cerramos cursor actual antes de llamar a _calcular_y_actualizar_factor_mes_anterior
+                cur.close()
+                conn.close()
+
+                if mes_ant_str and '_calcular_y_actualizar_factor_mes_anterior' in globals():
+                    factor_calibrado = _calcular_y_actualizar_factor_mes_anterior(
+                        user_id, mes_ant_str, peso_fin_mes_override=peso_nuevo_mes
+                    )
+                    if factor_calibrado and factor_calibrado > 0:
+                        ocupacion_val = factor_calibrado
+
+                # Reabrimos conexión para insertar la nueva fila del mes
+                conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+            else:
+                peso_nuevo_mes = peso_base_ant
+                peso_actual_nuevo_mes = 0.0
+                fecha_act_nueva = ""
         else:
             edad_val = "64"
-            peso_val = 70.0
-            altura_val = 1.70
+            peso_nuevo_mes = 70.0
+            peso_actual_nuevo_mes = 0.0
+            altura_val = 170.0
             genero_val = "M"
             ocupacion_val = 1.375
             cumple_val = ""
+            fecha_act_nueva = ""
 
         cur.execute(f"""
-            INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Cumple")
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "peso_actual", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Cumple")
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             str(edad_val),
-            float(peso_val),
+            float(peso_nuevo_mes),
+            float(peso_actual_nuevo_mes),
             float(altura_val),
             str(genero_val),
             float(ocupacion_val),
             str(mes_actual_str),
-            ahora_dt.strftime("%Y-%m-%d"),
+            str(fecha_act_nueva),
             str(cumple_val)
         ))
         
         conn.commit()
         cur.close()
         conn.close()
-        logger.info(f"Fila del mes {mes_actual_str} creada exitosamente en Supabase para User {user_id}")
+
+        if peso_validado_post_24:
+            try:
+                conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+                cur_u.execute(
+                    'UPDATE "Usuarios" SET "Ultimo Mes Peso" = %s WHERE "User ID" = %s',
+                    (fecha_hoy_str, str(user_id))
+                )
+                conn_u.commit()
+                cur_u.close()
+                conn_u.close()
+                guardar_ocupacion_db(user_id, ocupacion_val, mes_actual_str)
+                logger.info(f"Peso de User {user_id} autovalidado para {mes_actual_str} por registro posterior al día 24 ({peso_nuevo_mes} kg).")
+            except Exception as e_u:
+                logger.error(f"Error actualizando Usuarios en autovalidación post-24 para {user_id}: {e_u}")
+
+        return peso_validado_post_24
 
     except Exception as e:
         logger.error(f"Error al garantizar fila mensual en Supabase para User {user_id}: {e}")
         if 'cur' in locals() and cur:
-            cur.close()
+            try: cur.close()
+            except: pass
         if 'conn' in locals() and conn:
-            conn.close()
-            
+            try: conn.close()
+            except: pass
+        return False
+                    
 def obtener_todos_usuarios() -> list:
     try:
         conn = _obtener_conexion_db()
@@ -2118,76 +2213,169 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
         logger.error(f"Error al grabar Presión en Supabase (Presion_{user_id}): {e}")
 
 def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
-    """Guarda el perfil, actualiza el peso y auto-calibra el factor de actividad para mantener la consistencia real."""
+    """
+    Si es el primer peso del mes: guarda el valor en PESO y en peso_actual.
+    Si el mes ya tiene su PESO cargado: mantiene PESO intacto, guarda el nuevo peso en peso_actual,
+    actualiza Fecha_Actualizacion y recalibra el factor (ocupacion) para que el resumen coincida.
+    """
     ahora = obtener_ahora_arg()
-    
+    mes_actual_str = ahora.strftime("%Y-%m")
     if not mes:
-        mes = ahora.strftime("%Y-%m")
+        mes = mes_actual_str
 
-    peso_real = float(peso)
-    if peso_real > 1000: peso_real /= 1000.0
+    peso_ingresado = float(peso)
+    if peso_ingresado > 1000:
+        peso_ingresado /= 1000.0
+
+    resultado_calibracion = {
+        "es_calibracion": False,
+        "peso_base_mes": peso_ingresado,
+        "peso_estadistico": peso_ingresado,
+        "delta_peso": 0.0,
+        "nuevo_factor": 1.375
+    }
 
     try:
+        ult_peso_info = obtener_ultimo_peso(user_id) if 'obtener_ultimo_peso' in globals() else None
+        fecha_ult_peso = str(ult_peso_info.get("fecha", "")).strip() if ult_peso_info else ""
+        tiene_peso_mes_cargado = fecha_ult_peso.startswith(str(mes))
+
         tabla_nombre = f"Perfil_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
-        
-        # Recuperamos los datos previos del mes para ver el peso inicial
-        cur.execute(f'SELECT "EDAD", "ALTURA", "GENERO", "ocupacion", "PESO" FROM "{tabla_nombre}" WHERE "MES" = %s', (str(mes),))
+        cur.execute(f'ALTER TABLE "{tabla_nombre}" ADD COLUMN IF NOT EXISTS "peso_actual" DOUBLE PRECISION;')
+        conn.commit()
+
+        cur.execute(
+            f'SELECT "EDAD", "ALTURA", "GENERO", "ocupacion", "PESO", "peso_actual" FROM "{tabla_nombre}" WHERE "MES" = %s',
+            (str(mes),)
+        )
         fila_previa = cur.fetchone()
 
-        edad_val = int(edad) if edad is not None else (int(fila_previa[0]) if fila_previa and fila_previa[0] else 64)
+        edad_val = int(float(edad)) if edad is not None else (int(float(fila_previa[0])) if fila_previa and fila_previa[0] else 64)
         altura_val = float(altura) if altura is not None else (float(fila_previa[1]) if fila_previa and fila_previa[1] else 170.0)
+        if altura_val > 1000:
+            altura_val /= 1000.0
         genero_val = str(genero) if genero else (str(fila_previa[2]) if fila_previa and fila_previa[2] else "M")
-        
-        factor_previo = float(ocupacion) if ocupacion is not None else (float(fila_previa[3]) if fila_previa and fila_previa[3] else 1.375)
-        
-        # Tomamos el peso del primer registro del mes como base para medir la variación real
-        peso_inicio_mes = float(fila_previa[4]) if fila_previa and fila_previa[4] else peso_real
 
-        # -------------------------------------------------------------
-        # 🟢 AUTO-CALIBRACIÓN DEL FACTOR: Hace que la física del bot coincida con la balanza
-        # -------------------------------------------------------------
-        nuevo_factor = factor_previo
+        factor_previo = float(ocupacion) if ocupacion is not None else (float(fila_previa[3]) if fila_previa and fila_previa[3] else 1.375)
+        if factor_previo > 10:
+            factor_previo /= 1000.0
+
+        peso_fijo_mes = float(fila_previa[4]) if fila_previa and fila_previa[4] else 0.0
+        if peso_fijo_mes > 1000:
+            peso_fijo_mes /= 1000.0
+
+        # Filtramos los días válidos del mes igual que en mostrar_resumen_mes y calcular_metricas_mensuales
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        dias_registrados = 0
+        df_mes = pd.DataFrame()
 
         if not df_datos.empty and 'Fecha' in df_datos.columns:
-            df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes)].copy()
-            dias_registrados = df_mes['Fecha'].nunique()
+            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce')
+            hoy_comienzo = pd.Timestamp.now().floor('D')
 
-            if dias_registrados >= 2:
+            if str(mes) == mes_actual_str:
+                df_mes = df_datos[
+                    (df_datos['Fecha'].astype(str).str.startswith(str(mes))) &
+                    (df_datos['Fecha_dt'] < hoy_comienzo)
+                ].copy()
+            else:
+                df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(str(mes))].copy()
+
+            if not df_mes.empty:
+                todas_comidas = {"Desayuno", "Almuerzo", "Merienda", "Cena"}
+                comidas_principales = {"Almuerzo", "Cena"}
+                dias_validos_filtrados = []
+
+                for fecha_item, grupo in df_mes.groupby('Fecha'):
+                    comidas_del_dia = [
+                        str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize()
+                        for _, r in grupo.iterrows()
+                        if str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() in todas_comidas
+                    ]
+                    if len(comidas_del_dia) >= 2 and any(c in comidas_principales for c in comidas_del_dia):
+                        dias_validos_filtrados.append(fecha_item)
+
+                df_mes = df_mes[df_mes['Fecha'].isin(dias_validos_filtrados)]
+                dias_registrados = df_mes['Fecha'].nunique()
+
+        nuevo_factor = factor_previo
+
+        # Si ya tenía el peso del mes cargado, NO se toca PESO: solo actualizamos peso_actual y ocupacion
+        if tiene_peso_mes_cargado and peso_fijo_mes > 0 and ocupacion is None:
+            peso_base_a_guardar = peso_fijo_mes
+            peso_actual_a_guardar = peso_ingresado
+            delta_peso = peso_ingresado - peso_fijo_mes
+
+            if dias_registrados >= 1:
                 tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
                 tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in df_mes.columns else 0.0
 
-                ingesta_diaria = tot_cons_mes / dias_registrados
-                ejercicio_diario = tot_quem_mes / dias_registrados
+                prom_cons = tot_cons_mes / dias_registrados
+                prom_quem = tot_quem_mes / dias_registrados
 
-                delta_peso = peso_real - peso_inicio_mes  # Diferencia real en la balanza
-
-                tmb_pura, _ = calcular_tmb_y_get(peso_actual=peso_real, altura_cm=altura_val, edad=edad_val, genero=genero_val, actividad=1.0)
+                tmb_pura, _ = calcular_tmb_y_get(
+                    peso_actual=peso_fijo_mes,
+                    altura_cm=altura_val,
+                    edad=edad_val,
+                    genero=genero_val,
+                    actividad=1.0
+                )
                 if tmb_pura <= 0:
                     tmb_pura = 1813.0
 
-                # Despejamos el gasto real necesario para que la ecuación dé exactamente la variación de la balanza
-                gasto_diario_total = ingesta_diaria - ((delta_peso * 7700.0) / dias_registrados)
-                factor_calculado = (gasto_diario_total - ejercicio_diario) / tmb_pura
+                balance_diario_objetivo = (delta_peso * 7700.0) / dias_registrados
+                get_real_necesario = prom_cons - prom_quem - balance_diario_objetivo
+                factor_calculado = get_real_necesario / tmb_pura
 
-                # Aplicamos topes de seguridad razonables (entre 1.20 y 1.85)
-                nuevo_factor = max(1.20, min(1.85, round(factor_calculado, 3)))
+                nuevo_factor = max(0.50, min(5.00, round(factor_calculado, 6)))
 
-        # Guardamos en la base de datos el nuevo peso y el factor calibrado
+            resultado_calibracion.update({
+                "es_calibracion": True,
+                "peso_base_mes": peso_fijo_mes,
+                "peso_estadistico": peso_ingresado,
+                "delta_peso": delta_peso,
+                "nuevo_factor": nuevo_factor
+            })
+        else:
+            # Primer peso del mes: se graba tanto en PESO como en peso_actual
+            peso_base_a_guardar = peso_ingresado
+            peso_actual_a_guardar = peso_ingresado
+
+            # Si viene de un mes anterior, calibramos también el cierre del mes anterior
+            mes_anterior_str = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+            if '_calcular_y_actualizar_factor_mes_anterior' in globals():
+                cur.close()
+                conn.close()
+                factor_mes_ant = _calcular_y_actualizar_factor_mes_anterior(
+                    user_id, mes_anterior_str, peso_fin_mes_override=peso_ingresado
+                )
+                if factor_mes_ant and factor_mes_ant > 0 and ocupacion is None:
+                    nuevo_factor = factor_mes_ant
+                conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+
+            resultado_calibracion.update({
+                "es_calibracion": False,
+                "peso_base_mes": peso_base_a_guardar,
+                "peso_estadistico": peso_actual_a_guardar,
+                "delta_peso": 0.0,
+                "nuevo_factor": nuevo_factor
+            })
+
         if fila_previa:
             cur.execute(f"""
                 UPDATE "{tabla_nombre}"
-                SET "PESO" = %s, "ocupacion" = %s, "Fecha_Actualizacion" = %s
+                SET "PESO" = %s, "peso_actual" = %s, "ocupacion" = %s, "Fecha_Actualizacion" = %s
                 WHERE "MES" = %s
-            """, (peso_real, nuevo_factor, ahora.strftime("%Y-%m-%d"), str(mes)))
+            """, (peso_base_a_guardar, peso_actual_a_guardar, nuevo_factor, ahora.strftime("%Y-%m-%d"), str(mes)))
         else:
             cur.execute(f"""
-                INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Cumple")
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO "{tabla_nombre}" ("EDAD", "PESO", "peso_actual", "ALTURA", "GENERO", "ocupacion", "MES", "Fecha_Actualizacion", "Cumple")
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 str(edad_val),
-                peso_real,
+                peso_base_a_guardar,
+                peso_actual_a_guardar,
                 altura_val,
                 genero_val,
                 nuevo_factor,
@@ -2195,14 +2383,26 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                 ahora.strftime("%Y-%m-%d"),
                 ""
             ))
+
         conn.commit()
         cur.close()
         conn.close()
 
+        try:
+            conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+            cur_u.execute('UPDATE "Usuarios" SET "Ultimo Mes Peso" = %s WHERE "User ID" = %s', (ahora.strftime("%Y-%m-%d"), str(user_id)))
+            conn_u.commit()
+            cur_u.close()
+            conn_u.close()
+        except Exception as e_usr:
+            logger.error(f"Error actualizando Ultimo Mes Peso en Usuarios para {user_id}: {e_usr}")
+
         guardar_ocupacion_db(user_id, nuevo_factor, mes)
+        return resultado_calibracion
 
     except Exception as e:
         logger.error(f"Error al guardar perfil y auto-calibrar en Supabase (Perfil_{user_id}): {e}")
+        return resultado_calibracion
                             
 def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=None):
     """Actualiza el factor de ocupación en la tabla Perfil_<user_id> y el control en Usuarios."""
@@ -2876,6 +3076,18 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
     if not uid:
         return False
 
+    ahora = obtener_ahora_arg() if 'obtener_ahora_arg' in globals() else datetime.now()
+    mes_actual_str = ahora.strftime("%Y-%m")
+    mes_anterior_str = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+    fecha_hoy_str = ahora.strftime("%Y-%m-%d")
+
+    # 1. Garantizar fila del mes actual (si no existía y había peso post-día 24, ya lo migra y valida)
+    if '_garantizar_fila_mes_actual' in globals():
+        autovalidado = _garantizar_fila_mes_actual(uid, ahora)
+        if autovalidado:
+            return True
+
+    # 2. Verificar en Usuarios si ya figura actualizado en el mes actual
     try:
         ultimo_registro = obtener_ultimo_peso(uid) if 'obtener_ultimo_peso' in globals() else None
     except Exception as e:
@@ -2894,14 +3106,7 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
         fecha_str = str(fecha_val).strip()
 
         if fecha_str:
-            ahora = obtener_ahora_arg() if 'obtener_ahora_arg' in globals() else datetime.now()
-            
-            formatos = [
-                "%d/%m/%Y", "%Y-%m-%d", "%d/%m/%y",
-                "%Y-%m", "%m/%Y", "%Y-%m-%d",
-                "%d/%m/%Y", "%Y-%m-%d"
-            ]
-
+            formatos = ["%d/%m/%Y", "%Y-%m-%d", "%d/%m/%y", "%Y-%m", "%m/%Y"]
             fecha_dt = None
             for fmt in formatos:
                 try:
@@ -2914,13 +3119,105 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
                 if fecha_dt.year == ahora.year and fecha_dt.month == ahora.month:
                     peso_valido = True
             else:
-                mes_str_iso = ahora.strftime("%Y-%m")
-                mes_str_lat = ahora.strftime("%m/%Y")
-                if mes_str_iso in fecha_str or mes_str_lat in fecha_str:
+                if mes_actual_str in fecha_str or ahora.strftime("%m/%Y") in fecha_str:
                     peso_valido = True
-                    
-    return peso_valido
 
+    if peso_valido:
+        return True
+
+    # 3. Si aún no figura validado este mes, verificamos en Perfil_<uid> si en el mes anterior se cargó peso después del día 24
+    try:
+        tabla_nombre = f"Perfil_{uid}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+        cur.execute(f'ALTER TABLE "{tabla_nombre}" ADD COLUMN IF NOT EXISTS "peso_actual" DOUBLE PRECISION;')
+        conn.commit()
+
+        cur.execute(f"""
+            SELECT "PESO", "peso_actual", "Fecha_Actualizacion"
+            FROM "{tabla_nombre}"
+            WHERE "MES" = %s
+            ORDER BY id DESC LIMIT 1
+        """, (str(mes_anterior_str),))
+        fila_ant = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if fila_ant:
+            peso_base_ant = float(fila_ant[0] or 0.0)
+            if peso_base_ant > 1000: peso_base_ant /= 1000.0
+            peso_act_ant = float(fila_ant[1] or 0.0)
+            if peso_act_ant > 1000: peso_act_ant /= 1000.0
+            fecha_act_ant = str(fila_ant[2] or "").strip()
+
+            dia_act = 0
+            if fecha_act_ant:
+                for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"):
+                    try:
+                        dia_act = datetime.strptime(fecha_act_ant, fmt).day
+                        break
+                    except ValueError:
+                        continue
+
+            peso_heredado = peso_act_ant if peso_act_ant > 0 else peso_base_ant
+            if dia_act > 24 and peso_heredado > 0:
+                factor_nuevo = None
+                if '_calcular_y_actualizar_factor_mes_anterior' in globals():
+                    factor_nuevo = _calcular_y_actualizar_factor_mes_anterior(
+                        uid, mes_anterior_str, peso_fin_mes_override=peso_heredado
+                    )
+
+                conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+                if factor_nuevo and factor_nuevo > 0:
+                    cur.execute(f"""
+                        UPDATE "{tabla_nombre}"
+                        SET "PESO" = %s, "peso_actual" = %s, "ocupacion" = %s, "Fecha_Actualizacion" = %s
+                        WHERE "MES" = %s
+                    """, (peso_heredado, peso_heredado, float(factor_nuevo), fecha_hoy_str, str(mes_actual_str)))
+                else:
+                    cur.execute(f"""
+                        UPDATE "{tabla_nombre}"
+                        SET "PESO" = %s, "peso_actual" = %s, "Fecha_Actualizacion" = %s
+                        WHERE "MES" = %s
+                    """, (peso_heredado, peso_heredado, fecha_hoy_str, str(mes_actual_str)))
+                conn.commit()
+                cur.close()
+                conn.close()
+
+                conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+                cur_u.execute('UPDATE "Usuarios" SET "Ultimo Mes Peso" = %s WHERE "User ID" = %s', (fecha_hoy_str, str(uid)))
+                conn_u.commit()
+                cur_u.close()
+                conn_u.close()
+
+                if factor_nuevo and factor_nuevo > 0:
+                    guardar_ocupacion_db(uid, factor_nuevo, mes_actual_str)
+
+                return True
+    except Exception as e_post24:
+        logger.error(f"Error verificando peso post-día 24 para {uid}: {e_post24}")
+
+    # 4. Si no hay peso en el mes actual ni posterior al día 24 del mes pasado, solicitar el peso al usuario
+    lang = obtener_idioma_usuario(uid) if 'obtener_idioma_usuario' in globals() else 'es'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    msg_falta_peso = traducciones.get(
+        "bot_solic_peso_mensual",
+        "⚖️ **Actualización de Peso Mensual Requerida**\n\n"
+        "Para continuar con tus reportes de este nuevo mes, por favor ingresá tu peso actual ejecutando:\n"
+        "`/peso [tu_peso]` (ejemplo: `/peso 82.5`)"
+    ).replace('\\n', '\n')
+
+    try:
+        if update and update.message:
+            await update.message.reply_text(msg_falta_peso, parse_mode="Markdown")
+        elif update and update.callback_query:
+            await update.callback_query.message.reply_text(msg_falta_peso, parse_mode="Markdown")
+        elif context and hasattr(context, 'bot'):
+            await context.bot.send_message(chat_id=int(uid), text=msg_falta_peso, parse_mode="Markdown")
+    except Exception as e_msg:
+        logger.error(f"No se pudo enviar aviso de peso mensual a {uid}: {e_msg}")
+
+    return False
+    
     
 #              INICIO                     FUNCIONES SOPORTE MULTILENGUAJE                   INICIO
 # =============================================================================================================================================
@@ -7935,8 +8232,9 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
 @requiere_registro
 async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Comando directo /peso o /weight para actualizar el peso mensual rápidamente 
-    o consultar el peso actual si no se proveen argumentos.
+    Comando directo /peso o /weight.
+    Si es el primer peso del mes, lo guarda como peso base.
+    Si ya existe un peso en el mes, lo toma como estadístico para calibrar el factor de actividad.
     """
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
@@ -7951,7 +8249,6 @@ async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ahora = obtener_ahora_arg()
     mes_actual = ahora.strftime("%Y-%m")
-    fecha_hoy = ahora.strftime("%Y-%m-%d")
 
     if '_garantizar_fila_mes_actual' in globals():
         _garantizar_fila_mes_actual(user_id, ahora)
@@ -7962,13 +8259,13 @@ async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if peso_actual > 0:
             txt_actual = traducciones.get('peso_consulta_actual', 
-                "⚖️ **Peso actual registrado ({mes_actual}):** `{peso_actual:.1f} kg`\n\n"
-                "Para actualizarlo, escribí:\n`/peso [nuevo_peso]` (ejemplo: `/peso 82.5`)"
+                "⚖️ **Peso base registrado ({mes_actual}):** `{peso_actual:.1f} kg`\n\n"
+                "Para ingresar un control de peso y calibrar tu factor, escribí:\n`/peso [nuevo_peso]` (ejemplo: `/peso 96`)"
             ).format(mes_actual=mes_actual, peso_actual=peso_actual)
         else:
             txt_actual = traducciones.get('peso_no_registrado', 
                 "⚠️ No tenés un peso registrado para este mes.\n\n"
-                "Para registrarlo, escribí:\n`/peso [tu_peso]` (ejemplo: `/peso 82.5`)"
+                "Para registrarlo, escribí:\n`/peso [tu_peso]` (ejemplo: `/peso 100`)"
             )
         
         await update.message.reply_text(txt_actual.replace('\\n', '\n'), parse_mode="Markdown")
@@ -7981,23 +8278,22 @@ async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not (30 <= nuevo_peso <= 300):
             raise ValueError()
 
-        # Guardar en Perfil_<user_id> y autocalibrar
-        guardar_perfil_db(user_id, peso=nuevo_peso, mes=mes_actual)
+        res_cal = guardar_perfil_db(user_id, peso=nuevo_peso, mes=mes_actual)
 
-        # Actualizar la fecha del último peso en la tabla Usuarios
-        try:
-            conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-            cur.execute('UPDATE "Usuarios" SET "Ultimo Mes Peso" = %s WHERE "User ID" = %s', (fecha_hoy, str(user_id)))
-            conn.commit()
-            cur.close()
-            conn.close()
-        except Exception as e_usr:
-            logger.error(f"Error actualizando Ultimo Mes Peso en Usuarios para {user_id}: {e_usr}")
+        if res_cal and res_cal.get("es_calibracion"):
+            txt_ok = (
+                f"✅ **¡Factor de actividad calibrado con éxito!**\n\n"
+                f"• Peso base de inicio de mes ({mes_actual}): `{res_cal['peso_base_mes']:.1f} kg` *(sin modificar)*\n"
+                f"• Peso estadístico informado hoy: `{res_cal['peso_estadistico']:.1f} kg`\n"
+                f"• Variación ajustada en el resumen: `{res_cal['delta_peso']:+.1f} kg`\n"
+                f"• Nuevo factor de actividad: `{res_cal['nuevo_factor']:.4f}`"
+            )
+        else:
+            txt_ok = traducciones.get(
+                'peso_actualizado_ok',
+                "✅ **¡Peso base del mes registrado correctamente!**\n\n• Peso inicial ({mes_actual}): `{nuevo_peso:.1f} kg`"
+            ).format(mes_actual=mes_actual, nuevo_peso=nuevo_peso)
 
-        txt_ok = traducciones.get(
-            'peso_actualizado_ok',
-            "✅ **¡Peso actualizado correctamente!**\n\n• Nuevo peso registrado ({mes_actual}): `{nuevo_peso:.1f} kg`"
-        ).format(mes_actual=mes_actual, nuevo_peso=nuevo_peso)
         await update.message.reply_text(txt_ok.replace('\\n', '\n'), parse_mode="Markdown")
 
     except ValueError:
@@ -8008,9 +8304,8 @@ async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(txt_err.replace('\\n', '\n'), parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error en cmd_peso_rapido para {user_id}: {e}")
-        await update.message.reply_text(f"❌ Error al guardar el peso: {e}")
-        
-                        
+        await update.message.reply_text(f"❌ Error al procesar el peso: {e}")
+                                
 #                       INICIO                  COMANDOS PRESION                    INICIO
 # ======================================================================================================================================
 
