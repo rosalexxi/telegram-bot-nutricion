@@ -1829,8 +1829,8 @@ def obtener_pacientes_por_medico(prof_id):
 def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> bool:
     """
     Garantiza que exista la fila del mes actual en Perfil_<user_id>.
-    Si al crearla detecta que en el mes anterior se informó un peso después del día 24,
-    toma automáticamente ese peso_actual, actualiza el factor y valida el mes sin pedir peso.
+    Calcula el nuevo factor inicial basándose en el promedio de los factores
+    de los meses anteriores, aplicando un margen de seguridad del 10% (x 0.9).
     """
     mes_actual_str = ahora_dt.strftime("%Y-%m")
     fecha_hoy_str = ahora_dt.strftime("%Y-%m-%d")
@@ -1849,26 +1849,43 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> bool:
             conn.close()
             return False
 
-        logger.info(f"Inicializando nueva fila mensual ({mes_actual_str}) para User {user_id} en Supabase...")
+        logger.info(f"Inicializando nueva fila mensual ({mes_actual_str}) con promedio histórico y margen de seguridad para User {user_id} en Supabase...")
 
+        # 1. Consultamos todo el historial para calcular el promedio de los factores anteriores
         cur.execute(f"""
             SELECT "EDAD", "PESO", "ALTURA", "GENERO", "ocupacion", "Cumple", "MES", "Fecha_Actualizacion", "peso_actual"
             FROM "{tabla_nombre}"
-            ORDER BY id DESC LIMIT 1
+            ORDER BY id ASC
         """)
-        ultima_fila = cur.fetchone()
+        filas_historial = cur.fetchall()
         
         peso_validado_post_24 = False
+        ocupacion_val = 1.375 # Valor por defecto inicial
 
-        if ultima_fila:
+        if filas_historial:
+            # Calculamos el promedio de la columna ocupación (índice 4) de todos los meses anteriores
+            factores_previos = []
+            for f in filas_historial:
+                val_oc = f[4]
+                if val_oc is not None:
+                    v_num = float(val_oc)
+                    if v_num > 10: v_num /= 1000.0
+                    if v_num > 0:
+                        factores_previos.append(v_num)
+            
+            if factores_previos:
+                promedio_historico = sum(factores_previos) / len(factores_previos)
+                # 🛡️ Aplicamos el margen de seguridad multiplicando por 0.9
+                ocupacion_val = round(promedio_historico * 0.9, 4)
+
+            # Tomamos la última fila para heredar datos biométricos base
+            ultima_fila = filas_historial[-1]
             edad_val = ultima_fila[0] or "64"
             peso_base_ant = float(ultima_fila[1] or 70.0)
             if peso_base_ant > 1000: peso_base_ant /= 1000.0
             altura_val = float(ultima_fila[2] or 170.0)
             if altura_val > 1000: altura_val /= 1000.0
             genero_val = str(ultima_fila[3] or "M")
-            ocupacion_val = float(ultima_fila[4] or 1.375)
-            if ocupacion_val > 10: ocupacion_val /= 1000.0
             cumple_val = str(ultima_fila[5] or "")
             mes_ant_str = str(ultima_fila[6] or "").strip()
             fecha_act_ant = str(ultima_fila[7] or "").strip()
@@ -1905,7 +1922,9 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> bool:
                         user_id, mes_ant_str, peso_fin_mes_override=peso_nuevo_mes
                     )
                     if factor_calibrado and factor_calibrado > 0:
-                        ocupacion_val = factor_calibrado
+                        factores_previos.append(factor_calibrado)
+                        promedio_historico = sum(factores_previos) / len(factores_previos)
+                        ocupacion_val = round(promedio_historico * 0.9, 4)
 
                 conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
             else:
@@ -1967,7 +1986,7 @@ def _garantizar_fila_mes_actual(user_id: int, ahora_dt) -> bool:
             try: conn.close()
             except: pass
         return False
-                    
+                            
 def obtener_todos_usuarios() -> list:
     try:
         conn = _obtener_conexion_db()
@@ -2226,7 +2245,8 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     """
     Si es el primer peso del mes: guarda el valor en PESO y en peso_actual.
     Si el mes ya tiene su PESO cargado: mantiene PESO intacto, guarda el nuevo peso en peso_actual,
-    actualiza Fecha_Actualizacion y recalibra el factor (ocupacion) para que el resumen coincida.
+    actualiza Fecha_Actualizacion y recalibra el factor (ocupacion) mediante un promedio ponderado 
+    según el día del mes (Base 30 días).
     """
     ahora = obtener_ahora_arg()
     mes_actual_str = ahora.strftime("%Y-%m")
@@ -2275,7 +2295,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         if peso_fijo_mes > 1000:
             peso_fijo_mes /= 1000.0
 
-        # Filtramos los días válidos del mes igual que en mostrar_resumen_mes y calcular_metricas_mensuales
+        # Filtramos los días válidos del mes
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
         dias_registrados = 0
         df_mes = pd.DataFrame()
@@ -2311,7 +2331,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
 
         nuevo_factor = factor_previo
 
-        # Si ya tenía el peso del mes cargado, NO se toca PESO: solo actualizamos peso_actual y ocupacion
+        # Si ya tenía el peso del mes cargado, actualizamos peso_actual y aplicamos el promedio ponderado por día
         if tiene_peso_mes_cargado and peso_fijo_mes > 0 and ocupacion is None:
             peso_base_a_guardar = peso_fijo_mes
             peso_actual_a_guardar = peso_ingresado
@@ -2337,8 +2357,15 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                 balance_diario_objetivo = (delta_peso * 7700.0) / dias_registrados
                 get_real_necesario = prom_cons - prom_quem - balance_diario_objetivo
                 factor_calculado = get_real_necesario / tmb_pura
+                factor_calculado_acotado = max(0.50, min(5.00, factor_calculado))
 
-                nuevo_factor = max(0.50, min(5.00, round(factor_calculado, 6)))
+                # ⚖️ PROMEDIO PONDERADO SEGÚN EL DÍA DEL MES (Base 30 días)
+                d_trans = min(30, max(1, ahora.day))
+                peso_nuevo = d_trans
+                peso_previo = 30 - d_trans
+                
+                nuevo_factor = ((factor_calculado_acotado * peso_nuevo) + (factor_previo * peso_previo)) / 30.0
+                nuevo_factor = round(nuevo_factor, 6)
 
             resultado_calibracion.update({
                 "es_calibracion": True,
@@ -2412,7 +2439,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     except Exception as e:
         logger.error(f"Error al guardar perfil y auto-calibrar en Supabase (Perfil_{user_id}): {e}")
         return resultado_calibracion
-                                    
+                                            
 def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=None):
     """Actualiza el factor de ocupación en la tabla Perfil_<user_id> y el control en Usuarios."""
     user_id_str = str(user_id).strip()
