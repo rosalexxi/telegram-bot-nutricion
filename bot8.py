@@ -2243,10 +2243,9 @@ def guardar_presion_db(user_id, alta, baja, pulsaciones=None, nota=""):
 
 def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     """
-    Si es el primer peso del mes: guarda el valor en PESO y en peso_actual.
-    Si el mes ya tiene su PESO cargado: mantiene PESO intacto, guarda el nuevo peso en peso_actual,
-    actualiza Fecha_Actualizacion y recalibra el factor (ocupacion) mediante un promedio ponderado 
-    según el día del mes (Base 30 días).
+    Guarda el peso dentro del mes en curso, valida la restricción de 10 días entre registros,
+    recalibra el factor (ocupacion) mediante un promedio ponderado según el día del mes (Base 30 días)
+    y retorna un mensaje simplificado consultado de la tabla multi respetando el idioma del usuario.
     """
     ahora = obtener_ahora_arg()
     mes_actual_str = ahora.strftime("%Y-%m")
@@ -2257,23 +2256,61 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     if peso_ingresado > 1000:
         peso_ingresado /= 1000.0
 
+    # 🌐 Obtener idioma y traducciones de la tabla multi siguiendo la línea del bot
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    mensaje_simple = traducciones.get("bot_peso_guardado_simple", "✅ Control de peso guardado.")
+
     resultado_calibracion = {
         "es_calibracion": False,
         "peso_base_mes": peso_ingresado,
         "peso_estadistico": peso_ingresado,
         "delta_peso": 0.0,
-        "nuevo_factor": 1.375
+        "nuevo_factor": 1.375,
+        "mensaje": mensaje_simple
     }
 
     try:
-        ult_peso_info = obtener_ultimo_peso(user_id) if 'obtener_ultimo_peso' in globals() else None
-        fecha_ult_peso = str(ult_peso_info.get("fecha", "")).strip() if ult_peso_info else ""
-        tiene_peso_mes_cargado = fecha_ult_peso.startswith(str(mes))
-
         tabla_nombre = f"Perfil_{user_id}"
         conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
         cur.execute(f'ALTER TABLE "{tabla_nombre}" ADD COLUMN IF NOT EXISTS "peso_actual" DOUBLE PRECISION;')
         conn.commit()
+
+        # 🛑 Validación de restricción de 10 días entre registros de peso consultando la tabla multi
+        cur.execute(
+            f'SELECT "Fecha_Actualizacion" FROM "{tabla_nombre}" WHERE "MES" = %s ORDER BY id DESC LIMIT 1',
+            (str(mes),)
+        )
+        fila_fecha = cur.fetchone()
+        
+        if fila_fecha and fila_fecha[0]:
+            fecha_str = str(fila_fecha[0]).strip()
+            for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"):
+                try:
+                    dt_ultima = datetime.strptime(fecha_str, fmt)
+                    dias_transcurridos = (ahora.date() - dt_ultima.date()).days
+                    
+                    if dias_transcurridos < 10:
+                        dias_faltantes = 10 - dias_transcurridos
+                        mensaje_espera_tpl = traducciones.get(
+                            "bot_peso_espera_10_dias", 
+                            "⏳ Debés esperar {dias_faltantes} días más para volver a actualizar tu peso (último registro hace {dias_transcurridos} días)."
+                        )
+                        mensaje_espera_final = mensaje_espera_tpl.format(dias_faltantes=dias_faltantes, dias_transcurridos=dias_transcurridos)
+                        
+                        cur.close()
+                        conn.close()
+                        return {
+                            "error": True,
+                            "mensaje": mensaje_espera_final
+                        }
+                    break
+                except ValueError:
+                    continue
+
+        ult_peso_info = obtener_ultimo_peso(user_id) if 'obtener_ultimo_peso' in globals() else None
+        fecha_ult_peso = str(ult_peso_info.get("fecha", "")).strip() if ult_peso_info else ""
+        tiene_peso_mes_cargado = fecha_ult_peso.startswith(str(mes))
 
         cur.execute(
             f'SELECT "EDAD", "ALTURA", "GENERO", "ocupacion", "PESO", "peso_actual" FROM "{tabla_nombre}" WHERE "MES" = %s',
@@ -2331,7 +2368,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
 
         nuevo_factor = factor_previo
 
-        # Si ya tenía el peso del mes cargado, actualizamos peso_actual y aplicamos el promedio ponderado por día
+        # Si ya tenía el peso del mes cargado, actualizamos peso_actual y aplicamos promedio ponderado por día del mes
         if tiene_peso_mes_cargado and peso_fijo_mes > 0 and ocupacion is None:
             peso_base_a_guardar = peso_fijo_mes
             peso_actual_a_guardar = peso_ingresado
@@ -2372,7 +2409,8 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                 "peso_base_mes": peso_fijo_mes,
                 "peso_estadistico": peso_ingresado,
                 "delta_peso": delta_peso,
-                "nuevo_factor": nuevo_factor
+                "nuevo_factor": nuevo_factor,
+                "mensaje": mensaje_simple
             })
         else:
             # Primer peso del mes: se graba tanto en PESO como en peso_actual
@@ -2395,7 +2433,8 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                 "peso_base_mes": peso_base_a_guardar,
                 "peso_estadistico": peso_actual_a_guardar,
                 "delta_peso": 0.0,
-                "nuevo_factor": nuevo_factor
+                "nuevo_factor": nuevo_factor,
+                "mensaje": mensaje_simple
             })
 
         if fila_previa:
@@ -2439,7 +2478,8 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     except Exception as e:
         logger.error(f"Error al guardar perfil y auto-calibrar en Supabase (Perfil_{user_id}): {e}")
         return resultado_calibracion
-                                            
+
+                                             
 def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=None):
     """Actualiza el factor de ocupación en la tabla Perfil_<user_id> y el control en Usuarios."""
     user_id_str = str(user_id).strip()
