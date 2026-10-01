@@ -9111,7 +9111,6 @@ def main():
         app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
         # =================================ADMINISTRADOR============================================
         app_bot.add_handler(CommandHandler(["descargar","bajar"], cmd_descargar))
-        app_bot.add_handler(CommandHandler(["importar", "copiar"], cmd_importar_tabla))
         app_bot.add_handler(CommandHandler("traducir", cmd_traducir_excel))
         app_bot.add_handler(CommandHandler("subir", cmd_subir))
 
