@@ -215,6 +215,867 @@ def run_flask():
 #                FINAL                                   CABECERA                                       FINAL
 # =====================================================================================================================================
 
+# =====================================================================================================================================
+#              INICIO                                  PAGINA WEB (CALCULADORA UNICA)                        INICIO  DB OK
+# ======================================================================================================================================
+
+HTML_CALCULADORA_RECETAS = """
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title id="title-app">IA NutriBot</title>
+    <style>
+        :root {
+            --primary: #27ae60;
+            --primary-dark: #219150;
+            --secondary: #2c3e50;
+            --bg-light: #f4f6f9;
+            --text-color: #2c3e50;
+        }
+        
+        html, body { 
+            min-height: 100dvh; 
+            margin: 0; 
+            padding: 0; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            color: var(--text-color); 
+            display: flex;
+            flex-direction: column;
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            background-blend-mode: overlay;
+            background-color: rgba(244, 246, 249, 0.85);
+            transition: background-image 1.5s ease-in-out;
+        }
+        
+        header { 
+            background: rgba(255, 255, 255, 0.85); 
+            backdrop-filter: blur(8px);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
+            position: sticky;
+            top: 0;
+            z-index: 1000; 
+        }
+        .nav-container { max-width: 1100px; margin: auto; display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; }
+        .logo { font-size: 1.2rem; font-weight: bold; color: var(--primary); text-decoration: none; cursor: pointer; }
+        .nav-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .nav-links a { text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 0.85rem; transition: color 0.2s; cursor: pointer; }
+        .nav-links a:hover, .nav-links a.active { color: var(--primary); }
+        
+        .lang-flags-container { display: flex; align-items: center; gap: 5px; margin-left: 10px; }
+        .flag-btn { 
+            background: rgba(255, 255, 255, 0.9); 
+            border: 1px solid #ccc; 
+            border-radius: 4px; 
+            padding: 3px 6px; 
+            font-size: 1.1rem; 
+            cursor: pointer; 
+            text-decoration: none; 
+            display: inline-flex; 
+            align-items: center; 
+            transition: all 0.2s; 
+        }
+        .flag-btn:hover { border-color: var(--primary); background: #f0fdf4; }
+
+        .content-wrapper { 
+            max-width: 950px; 
+            margin: 20px auto; 
+            background: rgba(255, 255, 255, 0.30); 
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            padding: 25px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08); 
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            width: 90%; 
+            box-sizing: border-box; 
+            flex: 1;
+        }
+
+        .content-box { 
+            background: rgba(255, 255, 255, 0.40); 
+            border: 1px solid rgba(226, 232, 240, 0.6); 
+            border-radius: 8px; 
+            padding: 20px; 
+            margin-top: 15px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02); 
+        }
+
+        h1 { color: var(--secondary); margin-top: 0; font-size: 1.4rem; margin-bottom: 12px; }
+        p { margin-bottom: 0; color: #333; font-size: 0.95rem; font-weight: normal; text-align: justify; line-height: 1.6; white-space: pre-line; }
+
+        .article-content { overflow: hidden; }
+        .newspaper-img {
+            float: left; 
+            width: 45%; 
+            margin-right: 20px; 
+            margin-bottom: 10px;
+            background-color: rgba(248, 250, 252, 0.8);
+            border: 2px dashed #cbd5e1;
+            border-radius: 8px;
+            padding: 6px;
+            box-sizing: border-box;
+        }
+        .newspaper-img img {
+            width: 100%;
+            aspect-ratio: 4 / 3; 
+            object-fit: cover;
+            border-radius: 4px;
+            display: block;
+        }
+        .img-caption {
+            font-size: 0.75rem;
+            color: #666;
+            text-align: center;
+            margin-top: 5px;
+            font-style: italic;
+        }
+
+        .section-content { display: none; }
+        .section-content.active { display: block; }
+
+        .calculator-section { margin-top: 5px; }
+        label { font-weight: bold; display: block; margin-top: 8px; margin-bottom: 2px; font-size: 0.85rem; color: #2c3e50; }
+        
+        input[type="text"], input[type="number"], select, textarea { 
+            width: 100%; 
+            padding: 7px; 
+            border: 1px solid #cbd5e1; 
+            border-radius: 4px; 
+            box-sizing: border-box; 
+            font-size: 0.85rem; 
+            font-weight: normal; 
+            color: #333;
+            background: rgba(255, 255, 255, 0.75);
+        }
+        textarea { height: 70px; resize: vertical; }
+        
+        .row { display: flex; gap: 10px; }
+        .col { flex: 1; }
+        
+        button.calc-btn { background-color: var(--primary); color: white; padding: 9px; border: none; border-radius: 4px; width: 100%; font-size: 0.9rem; font-weight: bold; cursor: pointer; margin-top: 12px; }
+        button.calc-btn:hover { background-color: var(--primary-dark); }
+        
+        #loading { display: none; text-align: center; margin-top: 8px; font-style: italic; color: #7f8c8d; font-size: 0.85rem; }
+        #resultado-section { display: none; margin-top: 15px; border-top: 2px solid rgba(0,0,0,0.1); padding-top: 8px; }
+        
+        table.calc-tbl { width: 100%; border-collapse: collapse; margin-top: 6px; }
+        table.calc-tbl th, table.calc-tbl td { border: 1px solid #cbd5e1; padding: 5px; text-align: center; vertical-align: middle; background: rgba(255, 255, 255, 0.5); }
+        table.calc-tbl th { background-color: rgba(241, 245, 249, 0.8); font-weight: bold; font-size: 0.8rem; color: #1e293b; }
+        
+        table.calc-tbl tr.total-row { background-color: rgba(230, 244, 234, 0.85); font-weight: bold; font-size: 0.85rem; color: #065f46; }
+        table.calc-tbl tr.total-row td { padding: 6px; }
+        
+        .editable-cell {
+            width: 100%;
+            padding: 3px 4px;
+            border: 1px solid transparent;
+            background: transparent;
+            text-align: center;
+            font-size: 0.75rem;
+            font-weight: normal;
+            color: #1e293b;
+            border-radius: 3px;
+        }
+        .editable-cell:hover, .editable-cell:focus {
+            border-color: var(--primary);
+            background: rgba(255, 255, 255, 0.9);
+            outline: none;
+        }
+
+        .btn-save { background-color: #8e44ad; margin-top: 10px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
+        .btn-save:hover { background-color: #71368a; }
+        .btn-copy { background-color: #2980b9; margin-top: 6px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
+        .btn-copy:hover { background-color: #1f6391; }
+        
+        .user-badge { background: rgba(224, 242, 254, 0.8); color: #0369a1; padding: 5px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; display: inline-block; margin-bottom: 8px; }
+
+        footer { 
+            background: rgba(44, 62, 80, 0.85); 
+            backdrop-filter: blur(5px);
+            color: white; 
+            text-align: center; 
+            padding: 18px 15px 35px 15px; 
+            flex-shrink: 0;
+            font-size: 0.8rem; 
+            margin-top: auto;
+        }
+        .footer-links { 
+            margin-bottom: 8px; 
+            display: flex; 
+            flex-wrap: wrap; 
+            justify-content: center; 
+            gap: 8px; 
+        }
+        .footer-link { 
+            color: white; 
+            text-decoration: none; 
+            font-weight: 600; 
+            padding: 6px 14px; 
+            background: rgba(255,255,255,0.1); 
+            border-radius: 4px; 
+            font-size: 0.75rem; 
+            transition: background 0.2s; 
+            display: inline-block; 
+            cursor: pointer; 
+        }
+        .footer-link:hover { background: rgba(255,255,255,0.2); }
+        .footer-info { opacity: 0.8; font-size: 0.7rem; }
+    </style>
+</head>
+<body>
+
+<div id="loadingLang" style="display:none; position:fixed; top:20px; right:20px; background:#2c3e50; color:white; padding:10px 15px; border-radius:8px; z-index:9999; font-size:0.85rem; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+    ⏳ Cargando idioma...
+</div>
+
+<header>
+    <div class="nav-container">
+        <a class="logo" onclick="showSection('inicio')"><span data-var="_02_logo">🤖 IA NutriBot</span></a>
+        <div class="nav-links">
+            <a id="nav-inicio" onclick="showSection('inicio')" class="active" data-var="_02_menu_inicio">Inicio</a>
+            <a id="nav-ingreso" onclick="showSection('ingreso')" data-var="_02_menu_ingreso">Ingreso de Datos</a>
+            <a id="nav-alta" onclick="showSection('alta')" data-var="_02_menu_alta">El Alta</a>
+            <a id="nav-comandos" onclick="showSection('comandos')" data-var="_02_menu_comandos">Guía de Comandos</a>
+            <a id="nav-faq" onclick="showSection('faq')" data-var="_02_menu_faq">Preguntas Frecuentes</a>
+            {% if user_id %}
+            <a id="nav-calculadora" onclick="showSection('calculadora')" data-var="_02_menu_calculadora">Calculadora Web</a>
+            {% endif %}
+            <div id="langFlagsContainer" class="lang-flags-container"></div>
+        </div>
+    </div>
+</header>
+
+<div class="content-wrapper">
+
+    <div id="section-inicio" class="section-content active">
+        <h1 data-var="01_titulo_inicio"></h1>
+        <div class="content-box">
+            <div class="article-content">
+                <div class="newspaper-img">
+                    <img src="{{ url_for('static', filename='foto1.png') }}" alt="Inicio" onerror="this.style.display='none'">
+                    <div class="img-caption" data-var="_02_cap_inicio"></div>
+                </div>
+                <p data-var="01_texto_inicio"></p>
+            </div>
+        </div>
+    </div>
+
+    <div id="section-ingreso" class="section-content">
+        <h1 data-var="01_titulo_ingreso"></h1>
+        <div class="content-box">
+            <div class="article-content">
+                <div class="newspaper-img">
+                    <img src="{{ url_for('static', filename='foto3.png') }}" alt="Ingreso" onerror="this.style.display='none'">
+                    <div class="img-caption" data-var="_02_cap_ingreso"></div>
+                </div>
+                <p data-var="01_texto_ingreso"></p>
+            </div>
+        </div>
+    </div>
+
+    <div id="section-alta" class="section-content">
+        <h1 data-var="01_titulo_alta"></h1>
+        <div class="content-box">
+            <div class="article-content">
+                <div class="newspaper-img">
+                    <img src="{{ url_for('static', filename='foto2.png') }}" alt="Alta" onerror="this.style.display='none'">
+                    <div class="img-caption" data-var="_02_cap_alta"></div>
+                </div>
+                <p data-var="01_texto_alta"></p>
+            </div>
+        </div>
+    </div>
+
+    <div id="section-comandos" class="section-content">
+        <h1 data-var="01_titulo_comandos"></h1>
+        <div class="content-box">
+            <div class="article-content">
+                <div class="newspaper-img">
+                    <img src="{{ url_for('static', filename='foto4.png') }}" alt="Comandos" onerror="this.style.display='none'">
+                    <div class="img-caption" data-var="_02_cap_comandos"></div>
+                </div>
+                <p data-var="01_cap_comandos"></p>
+            </div>
+        </div>
+    </div>
+
+    <div id="section-faq" class="section-content">
+        <h1 data-var="01_titulo_faq"></h1>
+        <div class="content-box">
+            <p data-var="01_texto_faq"></p>
+        </div>
+    </div>
+
+    {% if user_id %}
+    <div id="section-calculadora" class="section-content">
+        <div class="calculator-section">
+            <h2 data-var="_02_titulo_calc">Calculadora Web</h2>
+            <p data-var="_02_desc_calc">Herramienta avanzada para registrar y calcular recetas.</p>
+
+            <div class="user-badge"><span data-var="_02_user_conectado">Usuario Conectado</span>: {{ user_id }}</div>
+            
+            <div class="row">
+                <div class="col" style="flex: 0.4;">
+                    <label for="codigo"><span data-var="_02_label_codigo">Código</span>:</label>
+                    <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()">
+                </div>
+                <div class="col">
+                    <label for="descripcion"><span data-var="_02_label_descripcion">Descripción</span>:</label>
+                    <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún">
+                </div>
+            </div>
+
+            <label for="recetaText"><span data-var="_02_label_ingredientes">Ingredientes y Cantidad</span>:</label>
+            <textarea id="recetaText" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca"></textarea>
+
+            <div class="row">
+                <div class="col">
+                    <label for="tipoCalculo"><span data-var="_02_label_criterio">Criterio de División</span>:</label>
+                    <select id="tipoCalculo" onchange="toggleCriterio()">
+                        <option value="porciones" data-var="_02_opt_porciones">Porciones</option>
+                        <option value="gramos" data-var="_02_opt_gramos">Gramos Totales</option>
+                    </select>
+                </div>
+                <div class="col" id="colPorciones">
+                    <label for="porciones"><span data-var="_02_label_porciones">Porciones</span>:</label>
+                    <input type="number" id="porciones" value="1" min="1">
+                </div>
+            </div>
+
+            <button class="calc-btn" onclick="calcularReceta()"><span data-var="_02_btn_calcular">✨ Calcular Fila con IA</span></button>
+
+            <div id="loading" data-var="_02_loading_ia">Calculando macronutrientes...</div>
+
+            <div id="resultado-section">
+                <div style="overflow-x: auto;">
+                    <table class="calc-tbl" id="tablaNutricional">
+                        <thead>
+                            <tr>
+                                <th data-var="_02_th_nombre">Nombre</th>
+                                <th data-var="_02_th_peso">⚖️ Peso (g)</th>
+                                <th data-var="_02_th_calorias">🔥 Calorías</th>
+                                <th data-var="_02_th_proteinas">🥩 Proteínas</th>
+                                <th data-var="_02_th_grasas">🥑 Grasas</th>
+                                <th data-var="_02_th_carbohidratos">🍞 Carbos</th>
+                                <th data-var="_02_th_fibras">🌾 Fibras</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Filas dinámicas -->
+                        </tbody>
+                        <tfoot>
+                            <tr class="total-row" id="filaTotales">
+                                <td><span data-var="_02_th_totales">Totales</span></td>
+                                <td id="totPeso">0</td>
+                                <td id="totCal">0</td>
+                                <td id="totProt">0</td>
+                                <td id="totGras">0</td>
+                                <td id="totCarb">0</td>
+                                <td id="totFibr">0</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <button class="btn-save" onclick="guardarEnGoogleSheets()"><span data-var="_02_btn_guardar">💾 Guardar Directamente en Planilla</span></button>
+                <button class="btn-copy" onclick="copiarFilaExcel()"><span data-var="_02_btn_copiar">📋 Copiar Fila para Excel</span></button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+
+<footer>
+    <div class="footer-links">
+        <a onclick="reproducirAudioguia()" class="footer-link" data-var="_02_btn_audioguia">🎧 Audioguía</a>
+        <a id="linkManual" href="#" target="_blank" class="footer-link" data-var="_02_btn_manual">📖 Manual (PDF)</a>
+        <a href="https://instagram.com/ianutribot" target="_blank" class="footer-link" data-var="_02_btn_instagram">📸 Instagram</a>
+        <a href="mailto:ianutribot@gmail.com" class="footer-link" data-var="_02_btn_mail">✉️ Mail</a>
+    </div>
+    <div class="footer-info" data-var="_02_footer_rights">© 2026 IA NutriBot - Todos los derechos reservados.</div>
+</footer>
+
+<script>
+    const fondosNutricion = [
+        "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1920&q=80",
+        "https://images.unsplash.com/photo-1498837167922-ddd27525d352?auto=format&fit=crop&w=1920&q=80",
+        "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=1920&q=80",
+        "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=1920&q=80",
+        "https://images.unsplash.com/photo-1490645935967-10de6ba17061?auto=format&fit=crop&w=1920&q=80",
+        "https://images.unsplash.com/photo-1505253716362-afaea1d3d1af?auto=format&fit=crop&w=1920&q=80"
+    ];
+
+    function aplicarFondoAleatorioRotativo() {
+        const randomIndex = Math.floor(Math.random() * fondosNutricion.length);
+        document.body.style.backgroundImage = `url('${fondosNutricion[randomIndex]}')`;
+    }
+
+    let idiomasDisponiblesGlobal = [];
+    let idiomaActual = 'es';
+    let nombreLargoActual = 'Español';
+    const currentUserId = "{{ user_id }}";
+    let itemsDesglosadosGlobal = [];
+
+    async function cargarBanderasIdiomas() {
+        try {
+            const res = await fetch('/api/config-idiomas');
+            const data = await res.json();
+            const container = document.getElementById('langFlagsContainer');
+            container.innerHTML = '';
+            
+            if (data.idiomas && Array.isArray(data.idiomas)) {
+                idiomasDisponiblesGlobal = data.idiomas;
+                data.idiomas.forEach(langObj => {
+                    const btn = document.createElement('a');
+                    btn.className = 'flag-btn';
+                    btn.innerHTML = langObj.flag;
+                    btn.title = langObj.name;
+                    btn.onclick = () => cambiarIdioma(langObj.code);
+                    container.appendChild(btn);
+                });
+            }
+        } catch (e) {
+            console.error("Error al cargar banderas de idiomas:", e);
+        }
+    }
+
+    async function cambiarIdioma(lang) {
+        try {
+            idiomaActual = lang;
+            
+            const objLang = idiomasDisponiblesGlobal.find(i => i.code === lang);
+            if (objLang && objLang.name) {
+                nombreLargoActual = objLang.name;
+            }
+
+            const response = await fetch(`/api/traducciones?lang=${lang}`);
+            if (!response.ok) throw new Error("No se pudieron cargar las traducciones.");
+            const traducciones = await response.json();
+            
+            document.querySelectorAll('[data-var]').forEach(el => {
+                const clave = el.getAttribute('data-var');
+                if (traducciones[clave] !== undefined) {
+                    el.innerText = traducciones[clave];
+                }
+            });
+
+            const linkManual = document.getElementById('linkManual');
+            if (linkManual) {
+                const nombrePdf = traducciones['manual_pdf'] || 'manual.pdf';
+                linkManual.href = nombrePdf;
+            }
+        } catch (err) {
+            console.error("Error al cambiar idioma:", err);
+        }
+    }
+
+    async function inicializarIdiomaWeb() {
+        aplicarFondoAleatorioRotativo();
+        setInterval(aplicarFondoAleatorioRotativo, 30000);
+
+        await cargarBanderasIdiomas();
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const userId = urlParams.get('user_id');
+
+        if (userId) {
+            try {
+                const resUser = await fetch(`/api/usuario-idioma?user_id=${userId}`);
+                const dataUser = await resUser.json();
+                if (dataUser.lang) {
+                    cambiarIdioma(dataUser.lang);
+                    return;
+                }
+            } catch (e) {
+                console.error("Error al obtener idioma de usuario:", e);
+            }
+        }
+
+        await cambiarIdioma('es');
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+        inicializarIdiomaWeb();
+        if (window.location.hash === '#calculadora') {
+            showSection('calculadora');
+        }
+    });
+
+    async function reproducirAudioguia() {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+            try {
+                const response = await fetch(`/api/audioguia?lang=${idiomaActual}`);
+                if (!response.ok) throw new Error("No se pudo cargar la audioguía para este idioma.");
+                const data = await response.json();
+                
+                const langSpeech = idiomaActual === 'es' ? 'es-AR' : 'en-US';
+                const utterance = new SpeechSynthesisUtterance(data.guia);
+                utterance.lang = langSpeech;
+                utterance.rate = 1.0;
+                window.speechSynthesis.speak(utterance);
+            } catch (error) {
+                alert("Error al reproducir la audioguía: " + error.message);
+            }
+        } else {
+            alert("Tu navegador no soporta la función de lectura de voz.");
+        }
+    }
+
+    function showSection(sectionId) {
+        document.querySelectorAll('.section-content').forEach(el => {
+            el.classList.remove('active');
+        });
+        document.querySelectorAll('.nav-links a').forEach(el => {
+            el.classList.remove('active');
+        });
+        
+        const targetSection = document.getElementById('section-' + sectionId);
+        const targetNav = document.getElementById('nav-' + sectionId);
+        
+        if (targetSection) targetSection.classList.add('active');
+        if (targetNav) targetNav.classList.add('active');
+        
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function toggleCriterio() {
+        const tipo = document.getElementById('tipoCalculo').value;
+        const colPorciones = document.getElementById('colPorciones');
+        if (colPorciones) {
+            colPorciones.style.display = (tipo === 'gramos') ? 'none' : 'block';
+        }
+    }
+
+    async function calcularReceta() {
+        if (!currentUserId) {
+            alert("Acción no permitida para usuarios no registrados.");
+            return;
+        }
+
+        const codigo = document.getElementById('codigo').value.trim();
+        const descripcion = document.getElementById('descripcion').value.trim();
+        const receta = document.getElementById('recetaText').value.trim();
+        const tipoCalculo = document.getElementById('tipoCalculo').value;
+        const porciones = document.getElementById('porciones').value;
+
+        if (!codigo || !descripcion || !receta) {
+            alert("Por favor completa el código, la descripción y los ingredientes.");
+            return;
+        }
+
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('resultado-section').style.display = 'none';
+
+        try {
+            const response = await fetch('/api/calcular-receta', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    user_id: currentUserId,
+                    codigo, 
+                    descripcion, 
+                    receta, 
+                    tipoCalculo, 
+                    porciones: parseInt(porciones || 1) 
+                })
+            });
+
+            const responseText = await response.text();
+            if (responseText.trim().startsWith('<')) {
+                alert("❌ El servidor falló (Código HTTP: " + response.status + ").");
+                return;
+            }
+
+            const data = JSON.parse(responseText);
+            
+            if (response.ok && data.items && Array.isArray(data.items)) {
+                itemsDesglosadosGlobal = data.items;
+                renderizarTablaEditable();
+                document.getElementById('resultado-section').style.display = 'block';
+            } else {
+                alert("❌ Error al calcular: " + (data.error || "Intente nuevamente."));
+            }
+        } catch (err) {
+            alert("❌ Error de procesamiento: " + err.message);
+        } finally {
+            document.getElementById('loading').style.display = 'none';
+        }
+    }
+
+    function renderizarTablaEditable() {
+        const tbody = document.querySelector('#tablaNutricional tbody');
+        tbody.innerHTML = '';
+
+        itemsDesglosadosGlobal.forEach((item, index) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="text" class="editable-cell" value="${item.alimento || ''}" onchange="actualizarItem(${index}, 'alimento', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.peso || 0}" onchange="actualizarItem(${index}, 'peso', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.calorias || 0}" onchange="actualizarItem(${index}, 'calorias', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.proteinas || 0}" onchange="actualizarItem(${index}, 'proteinas', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.grasas || 0}" onchange="actualizarItem(${index}, 'grasas', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.carbohidratos || 0}" onchange="actualizarItem(${index}, 'carbohidratos', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.fibras || 0}" onchange="actualizarItem(${index}, 'fibras', this.value)"></td>
+            `;
+            tbody.appendChild(tr);
+        });
+        recalcularTotales();
+    }
+
+    function actualizarItem(index, campo, valor) {
+        if (campo === 'alimento') {
+            itemsDesglosadosGlobal[index][campo] = valor;
+        } else {
+            itemsDesglosadosGlobal[index][campo] = parseFloat(valor) || 0;
+        }
+        recalcularTotales();
+    }
+
+    function recalcularTotales() {
+        let tPeso = 0, tCal = 0, tProt = 0, tGras = 0, tCarb = 0, tFibr = 0;
+
+        itemsDesglosadosGlobal.forEach(item => {
+            tPeso += parseFloat(item.peso) || 0;
+            tCal += parseFloat(item.calorias) || 0;
+            tProt += parseFloat(item.proteinas) || 0;
+            tGras += parseFloat(item.grasas) || 0;
+            tCarb += parseFloat(item.carbohidratos) || 0;
+            tFibr += parseFloat(item.fibras) || 0;
+        });
+
+        document.getElementById('totPeso').innerText = Math.round(tPeso);
+        document.getElementById('totCal').innerText = Math.round(tCal);
+        document.getElementById('totProt').innerText = Math.round(tProt);
+        document.getElementById('totGras').innerText = Math.round(tGras);
+        document.getElementById('totCarb').innerText = Math.round(tCarb);
+        document.getElementById('totFibr').innerText = Math.round(tFibr);
+    }
+
+    async function guardarEnGoogleSheets() {
+        if (!currentUserId || itemsDesglosadosGlobal.length === 0) {
+            alert("No hay datos calculados para guardar.");
+            return;
+        }
+
+        const filaTotalConsolidada = {
+            nombre: document.getElementById('codigo').value.trim(),
+            descripcion: document.getElementById('descripcion').value.trim(),
+            peso: parseFloat(document.getElementById('totPeso').innerText),
+            calorias: parseFloat(document.getElementById('totCal').innerText),
+            proteinas: parseFloat(document.getElementById('totProt').innerText),
+            grasas: parseFloat(document.getElementById('totGras').innerText),
+            carbohidratos: parseFloat(document.getElementById('totCarb').innerText),
+            fibras: parseFloat(document.getElementById('totFibr').innerText)
+        };
+
+        try {
+            const response = await fetch('/api/guardar-comida', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: currentUserId,
+                    fila: filaTotalConsolidada
+                })
+            });
+
+            const res = await response.json();
+            if (response.ok) {
+                if (res.codigo_guardado) {
+                    filaTotalConsolidada.nombre = res.codigo_guardado;
+                    document.getElementById('codigo').value = res.codigo_guardado;
+                }
+                alert("✅ ¡Éxito! " + res.message);
+            } else {
+                alert("❌ Error al guardar: " + (res.error || "Error desconocido."));
+            }
+        } catch (e) {
+            alert("Error de conexión al intentar guardar.");
+        }
+    }
+
+    function copiarFilaExcel() {
+        const codigo = document.getElementById('codigo').value.trim();
+        const descripcion = document.getElementById('descripcion').value.trim();
+        const celdas = [
+            codigo,
+            descripcion,
+            document.getElementById('totPeso').innerText,
+            document.getElementById('totCal').innerText,
+            document.getElementById('totProt').innerText,
+            document.getElementById('totGras').innerText,
+            document.getElementById('totCarb').innerText,
+            document.getElementById('totFibr').innerText
+        ];
+        const textoCopiable = celdas.join('\\t');
+
+        navigator.clipboard.writeText(textoCopiable).then(() => {
+            alert("¡Fila total copiada! Podés pegarla en tu Excel con Ctrl + V.");
+        }).catch(err => {
+            alert("Error al copiar al portapapeles.");
+        });
+    }
+</script>
+
+</body>
+</html>
+
+"""
+
+@app.route('/', methods=['GET'])
+def vista_calculadora():
+    user_id = request.args.get('user_id', '')
+    return render_template_string(HTML_CALCULADORA_RECETAS, user_id=user_id)
+
+
+@app.route('/manual.pdf', methods=['GET'])
+def servir_manual_pdf():
+    try:
+        return send_from_directory(directory=os.path.join(os.getcwd(), 'static'), path='manual.pdf', as_attachment=True)
+    except Exception as e:
+        return jsonify({"error": "No se encontró el archivo manual.pdf en la carpeta static."}), 404
+
+
+@app.route('/api/config-idiomas', methods=['GET'])
+def api_config_idiomas():
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_schema = 'public' AND LOWER(table_name) = 'multi' AND LOWER(column_name) NOT IN ('id', 'variables')
+        """)
+        cols = [f[0].strip().lower() for f in cur.fetchall() if f[0]]
+
+        cur.execute('SELECT * FROM "multi"')
+        filas = cur.fetchall()
+        colnames = [desc[0].strip().lower() for desc in cur.description]
+        cur.close(); conn.close()
+
+        dict_filas = {str(dict(zip(colnames, fila)).get('variables', '')).strip().lower(): dict(zip(colnames, fila)) for fila in filas}
+        row_lenguajes = dict_filas.get('lenguajes', {})
+        row_banderas = dict_filas.get('banderas', {})
+
+        idiomas_info = []
+        for col in cols:
+            idiomas_info.append({
+                'code': col,
+                'name': str(row_lenguajes.get(col, col.upper())).strip(),
+                'flag': str(row_banderas.get(col, '🌐')).strip()
+            })
+        return jsonify({"idiomas": idiomas_info}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/audioguia', methods=['GET'])
+def api_audioguia():
+    lang = request.args.get('lang', 'es')
+    try:
+        traducciones = obtener_traducciones_db(lang)
+        texto_guia = traducciones.get("guia", "Bienvenido a la audioguía del asistente nutricional.")
+        return jsonify({"guia": texto_guia}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/traducciones', methods=['GET'])
+def api_traducciones():
+    lang = request.args.get('lang', 'en')
+    try:
+        traducciones = obtener_traducciones_db(lang)
+        return jsonify(traducciones), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/usuario-idioma', methods=['GET'])
+def api_usuario_idioma():
+    user_id = request.args.get('user_id')
+    lang = 'es'
+    if user_id:
+        try:
+            lang = obtener_idioma_usuario(user_id)
+        except Exception:
+            pass
+    return jsonify({"lang": lang}), 200
+
+
+@app.route('/api/calcular-receta', methods=['POST'])
+def api_calcular_receta():
+    try:
+        data = request.json
+        codigo = data.get('codigo')
+        descripcion = data.get('descripcion')
+        receta = data.get('receta')
+        tipo_calculo = data.get('tipoCalculo')
+        porciones = int(data.get('porciones', 1))
+
+        client_ai = globals().get('client_ai')
+        if not client_ai:
+            return jsonify({"error": "El cliente de IA no está configurado."}), 500
+
+        prompt_ia = (
+            f"Analiza la siguiente receta o listado de ingredientes: '{receta}'. "
+            f"Desglósalo estrictamente **ítem por ítem** (ingrediente por ingrediente o componente por componente). "
+            f"Para cada ítem, calcula de forma independiente y precisa:\n"
+            f"- El nombre del alimento o ingrediente ('alimento')\n"
+            f"- El peso estimado en gramos ('peso')\n"
+            f"- Las calorías ('calorias')\n"
+            f"- Las proteínas en gramos ('proteinas')\n"
+            f"- Las grasas en gramos ('grasas')\n"
+            f"- Los carbohidratos en gramos ('carbohidratos')\n"
+            f"- Las fibras en gramos ('fibras')\n\n"
+            f"REGLA ESTRICTA: Responde ÚNICAMENTE con un objeto JSON válido, sin textos adicionales, saludos ni explicaciones. "
+            f"El JSON debe tener exactamente esta estructura:\n"
+            "{\n"
+            '  "items": [\n'
+            '    {"alimento": "nombre del ingrediente", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
+            "  ]\n"
+            "}"
+        )
+
+        response = client_ai.chat.completions.create(
+            model=globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile"),
+            messages=[
+                {"role": "system", "content": "Eres un nutricionista clínico experto en análisis de recetas y desglose de macronutrientes."},
+                {"role": "user", "content": prompt_ia}
+            ],
+            temperature=0.1,
+            response_format={"type": "json_object"}
+        )
+
+        resultado_json = json.loads(response.choices[0].message.content)
+        items = resultado_json.get("items", [])
+
+        if tipo_calculo == 'porciones' and porciones > 1:
+            for item in items:
+                item['peso'] = round(float(item.get('peso', 0)) / porciones, 2)
+                item['calorias'] = round(float(item.get('calorias', 0)) / porciones, 2)
+                item['proteinas'] = round(float(item.get('proteinas', 0)) / porciones, 2)
+                item['grasas'] = round(float(item.get('grasas', 0)) / porciones, 2)
+                item['carbohidratos'] = round(float(item.get('carbohidratos', 0)) / porciones, 2)
+                item['fibras'] = round(float(item.get('fibras', 0)) / porciones, 2)
+
+        return jsonify({
+            "nombre": codigo,
+            "descripcion": descripcion,
+            "items": items
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en api_calcular_receta: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+# =====================================================================================================================================
+#              FINAL                                  PAGINA WEB (CALCULADORA UNICA)                        FINAL
+# =====================================================================================================================================
+
 # =============================================================================================================================================
 #              INICIO                                   FUNCIONES SUPABASE                           INICIO
 # =============================================================================================================================================
@@ -1838,9 +2699,7 @@ def traducir_texto_seguro(texto_es: str, lang_code: str) -> str:
 async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando para traducir o completar celdas vacías de un Excel en Supabase o adjunto.
-    Uso: 
-      - /traducir multi IT (traduce o completa el italiano)
-      - /traducir multi (completa todas las celdas vacías de todos los idiomas)
+    Soporta el comando tanto por texto plano como por epígrafe (caption) al adjuntar el archivo.
     """
     user_id = update.effective_user.id
     
@@ -1850,24 +2709,32 @@ async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("⛔ No tenés permisos para ejecutar este comando.", parse_mode="Markdown")
         return
 
-    if not context.args or len(context.args) == 0:
-        await update.message.reply_text(
+    # 📥 CAPTURA INTELIGENTE: Lee tanto el texto del mensaje como el epígrafe del archivo adjunto
+    mensaje_obj = update.message
+    texto_mensaje = mensaje_obj.text or mensaje_obj.caption or ""
+    
+    partes = texto_mensaje.split()
+    args = partes[1:] if len(partes) > 1 else []
+
+    if not args or len(args) == 0:
+        await mensaje_obj.reply_text(
             "⚠️ Indica el nombre de la tabla y opcionalmente el idioma.\n"
             "Ejemplo: `/traducir multi IT` o simplemente `/traducir multi`",
             parse_mode="Markdown"
         )
         return
 
-    nombre_tabla = context.args[0].strip()
-    # Si pasaron un segundo argumento, es el idioma específico (ej. 'IT', 'FR', 'PT')
-    idioma_especifico = context.args[1].strip().lower() if len(context.args) > 1 else None
+    nombre_tabla = args[0].strip()
+    # Si pasaron un segundo argumento, es el idioma específico (ej. 'IT', 'FR', 'PT', 'EN')
+    idioma_especifico = args[1].strip().lower() if len(args) > 1 else None
 
-    documento = update.message.document
+    # Verificamos que el documento esté adjunto (ya sea en el mensaje actual)
+    documento = mensaje_obj.document
     if not documento or not documento.file_name.endswith('.xlsx'):
-        await update.message.reply_text(f"⚠️ Adjuntá el archivo Excel (`.xlsx`) junto con el comando.", parse_mode="Markdown")
+        await mensaje_obj.reply_text(f"⚠️ Adjuntá el archivo Excel (`.xlsx`) junto con el comando.", parse_mode="Markdown")
         return
 
-    mensaje_espera = await update.message.reply_text(
+    mensaje_espera = await mensaje_obj.reply_text(
         f"🔄 Procesando traducción para la tabla `{nombre_tabla}`...", 
         parse_mode="Markdown"
     )
@@ -1894,7 +2761,6 @@ async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
             # Si no especifica idioma, procesa todas las columnas que no sean 'variables', 'ES', 'EN'
             cols_a_procesar = [c for c in df.columns if c.upper() not in ['VARIABLES', 'ES', 'EN']]
 
-        total_celdas = len(df)
         for col in cols_a_procesar:
             lang_code = col.lower()
             await mensaje_espera.edit_text(f"🔄 Traduciendo columna `{col}`...", parse_mode="Markdown")
@@ -1904,7 +2770,7 @@ async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 texto_es = str(row['ES']) if pd.notna(row['ES']) else ""
                 valor_actual = str(row[col]) if col in df.columns and pd.notna(row[col]) else ""
                 
-                # LÓGICA INTELIGENTE: Si hay idioma específico, traduce todo. Si es general, solo traduce si está vacío o NaN
+                # LÓGICA: Si hay idioma específico, traduce todo. Si es general, solo traduce si está vacío o NaN
                 if idioma_especifico or not valor_actual.strip() or valor_actual.strip().lower() == 'nan':
                     traducido = traducir_texto_seguro(texto_es, lang_code)
                     nueva_columna.append(traducido)
@@ -1940,7 +2806,7 @@ async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
             df.to_excel(writer, index=False, sheet_name=nombre_tabla[:31])
         buffer_out.seek(0)
 
-        await update.message.reply_document(
+        await mensaje_obj.reply_document(
             document=buffer_out,
             filename=f"actualizado_{documento.file_name}",
             caption=f"✅ **¡Traducción y actualización completada con éxito!**\nTabla `{nombre_tabla}` sincronizada en Supabase.",
@@ -1951,15 +2817,16 @@ async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logger.error(f"Error en /traducir: {e}", exc_info=True)
         await mensaje_espera.edit_text(f"❌ Error al procesar: `{e}`", parse_mode="Markdown")
-        
+                
 async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando exclusivo para el administrador para importar/actualizar una tabla 
     específica directamente desde un archivo Excel adjunto en Telegram (en memoria RAM).
-    Uso: /subir nombre_de_tabla (con el archivo .xlsx adjunto)
-    user_id = update.effective_user.id """
-    # 🔒 BLOQUE DE SEGURIDAD: Solo permitido para tu ID de usuario
+    Soporta el comando tanto por texto plano como por epígrafe (caption) al adjuntar el archivo.
+    """
+    user_id = update.effective_user.id
     
+    # 🔒 BLOQUE DE SEGURIDAD: Solo permitido para tu ID de usuario
     ADMIN_USER_ID = 7363062724
     if user_id != ADMIN_USER_ID:
         await update.message.reply_text(
@@ -1968,29 +2835,35 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
+    # 📥 CAPTURA INTELIGENTE: Lee tanto el texto del mensaje como el epígrafe del archivo adjunto
+    mensaje_obj = update.message
+    texto_mensaje = mensaje_obj.text or mensaje_obj.caption or ""
     
+    partes = texto_mensaje.split()
+    args = partes[1:] if len(partes) > 1 else []
+
     # 1. Verificar si se indicó el nombre de la tabla
-    if not context.args or len(context.args) == 0:
-        await update.message.reply_text(
+    if not args or len(args) == 0:
+        await mensaje_obj.reply_text(
             "⚠️ Por favor, indica el nombre de la tabla a importar junto con el archivo adjunto.\n"
-            "Ejemplo: `/importar multi`",
+            "Ejemplo: `/subir multi`",
             parse_mode="Markdown"
         )
         return
 
-    nombre_tabla = context.args[0].strip()
+    nombre_tabla = args[0].strip()
     nombre_archivo_esperado = f"{nombre_tabla}.xlsx"
 
     # 2. Verificar si el usuario adjuntó un documento Excel (.xlsx)
-    documento = update.message.document
+    documento = mensaje_obj.document
     if not documento or not documento.file_name.endswith('.xlsx'):
-        await update.message.reply_text(
-            f"⚠️ Por favor, adjuntá un archivo Excel (`{nombre_archivo_esperado}`) junto con el comando `/importar {nombre_tabla}`.",
+        await mensaje_obj.reply_text(
+            f"⚠️ Por favor, adjuntá un archivo Excel (`{nombre_archivo_esperado}`) junto con el comando `/subir {nombre_tabla}`.",
             parse_mode="Markdown"
         )
         return
 
-    mensaje_espera = await update.message.reply_text(
+    mensaje_espera = await mensaje_obj.reply_text(
         f"🔄 Descargando `{documento.file_name}` y reescribiendo la tabla `{nombre_tabla}` en Supabase...", 
         parse_mode="Markdown"
     )
@@ -2053,7 +2926,7 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error al importar la tabla {nombre_tabla}: {e}", exc_info=True)
         await mensaje_espera.edit_text(f"❌ Error al importar la tabla: `{e}`", parse_mode="Markdown")
-        
+                
 async def cmd_importar_tabla(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando para importar/actualizar una tabla específica desde un archivo Excel en el servidor.
@@ -8284,12 +9157,24 @@ def main():
         app_bot.add_handler(CommandHandler(["mes", "m", "month"], cmd_resumen))
         app_bot.add_handler(CommandHandler(["semana", "s", "w", "week"], cmd_mensaje))
         app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
+        
 #=================================ADMINISTRADOR============================================
         app_bot.add_handler(CommandHandler(["descargar","bajar"], cmd_descargar))
         app_bot.add_handler(CommandHandler(["importar", "subir"], cmd_importar_tabla))
         app_bot.add_handler(CommandHandler(["traducir"], cmd_traducir_excel))
 
-
+       # 📥 NUEVO: Handler para capturar los comandos de administración cuando vienen escritos en el epígrafe (caption) de un archivo Excel adjunto
+        app_bot.add_handler(MessageHandler(
+            filters.Document.ALL & (
+                filters.CaptionRegex(r'^/(subir|importar)\b') | 
+                filters.CaptionRegex(r'^/traducir\b')
+            ), 
+            lambda update, context: (
+                cmd_subir(update, context) if update.message.caption and any(cmd in update.message.caption for cmd in ['/subir', '/importar']) 
+                else cmd_traducir_excel(update, context)
+            )
+        ))
+        
         app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
@@ -8322,15 +9207,5 @@ if __name__ == "__main__":
 # =============================================================================================================================================
 #                                               FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
-
-
-
-        
-        
-        
-        
-        
-        
-        
 
 
