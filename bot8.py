@@ -9018,7 +9018,7 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 # ==========================================================================================================================================
 
 # ==========================================================================================================================================
-#                                   INICIO                                       MAIN                                       INICIO  
+#                                   INICIO                                       MAIN                                   INICIO  
 # ==========================================================================================================================================
 
 async def job_recordatorio_manana(context):
@@ -9034,6 +9034,29 @@ async def job_recordatorio_tarde(context):
         await ejecutar_recordatorio_comidas(context, momento='tarde')
     except Exception as e:
         logger.error(f"❌ Error in job_recordatorio_tarde: {e}")
+
+
+# 🟢 1. Definimos el ConversationHandler AQUÍ ARRIBA (antes de main y después de todas sus funciones)
+conv_handler_ingreso = ConversationHandler(
+    entry_points=[CommandHandler(["alta", "register"], cmd_ingreso_start), CommandHandler("nuevo_usuario", cmd_nuevo_usuario)],
+    states={
+        ING_TERMINOS: [CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$")],
+        ING_PROFESIONAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_profesional)],
+        ING_NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_nombre)],
+        #ING_EDAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_edad)],
+        ING_SEXO: [CallbackQueryHandler(ing_recibir_sexo, pattern="^sexo_")],
+        ING_ALTURA: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_altura)],
+        ING_PESO: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_peso)],
+        ING_MUNECA: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_muneca)],
+        ING_CUELLO: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cuello)],
+        ING_OCUPACION: [CallbackQueryHandler(ing_recibir_ocupacion, pattern="^ocup_")],
+        ING_CUMPLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_cumple)],
+        ING_RITMO: [CallbackQueryHandler(ing_recibir_ritmo, pattern="^ritmo_")],
+        ING_IDIOMA: [CallbackQueryHandler(ing_recibir_idioma, pattern="^set_lang_")]
+    },
+    fallbacks=[CommandHandler("cancelar", cmd_cancelar_conversacion)]
+)
+
 
 def main():
     threading.Thread(target=run_flask, daemon=True).start()
@@ -9066,13 +9089,13 @@ def main():
         else:
             print("⚠️ Warning: job_queue is not available.")
        
+        # 🟢 2. Aquí adentro ya se puede usar sin problemas porque ya fue definido arriba
         app_bot.add_handler(conv_handler_ingreso)
 
-#==================================PROFESIONALES===============================================
+        # ==================================PROFESIONALES===============================================
         app_bot.add_handler(CommandHandler(["pacientes", "patients"], cmd_pacientes))
         app_bot.add_handler(CommandHandler(["informe", "report"], cmd_enviar_informe_actual))
-#=================================INGRESOS Y CONSULTAS MANUALES============================================
-        app_bot.add_handler(CommandHandler(["alta", "register"], cmd_ingreso_start))
+        # =================================INGRESOS Y CONSULTAS MANUALES============================================
         app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
         app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
         app_bot.add_handler(CommandHandler(["perfil", "profile"], cmd_perfil))
@@ -9080,44 +9103,39 @@ def main():
         app_bot.add_handler(CommandHandler(["get", "GET"], cmd_factor_handler))
         app_bot.add_handler(CommandHandler(["eliminar", "delete"], cmd_eliminar))
         app_bot.add_handler(CommandHandler(["borracomida", "delmeal"], cmd_borrar_comida))
-        app_bot.add_handler(CommandHandler(["peso", "weight"], cmd_peso_rapido))       
+        app_bot.add_handler(CommandHandler(["peso", "weight"], cmd_peso_rapido))        
         app_bot.add_handler(CommandHandler(["presion", "presi", "p", "pressure"], cmd_presion_handler))  
         app_bot.add_handler(CommandHandler(["dia", "d", "day"], cmd_diario))
         app_bot.add_handler(CommandHandler(["mes", "m", "month"], cmd_resumen))
         app_bot.add_handler(CommandHandler(["semana", "s", "w", "week"], cmd_mensaje))
         app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
-        
-#=================================ADMINISTRADOR============================================
+        # =================================ADMINISTRADOR============================================
         app_bot.add_handler(CommandHandler(["descargar","bajar"], cmd_descargar))
-        app_bot.add_handler(CommandHandler(["importar", "subir"], cmd_importar_tabla))
-        app_bot.add_handler(CommandHandler(["traducir"], cmd_traducir_excel))
+        app_bot.add_handler(CommandHandler(["importar", "copiar"], cmd_importar_tabla))
+        app_bot.add_handler(CommandHandler("traducir", cmd_traducir_excel))
+        app_bot.add_handler(CommandHandler("subir", cmd_subir))
 
-       # 📥 NUEVO: Handler para capturar los comandos de administración cuando vienen escritos en el epígrafe (caption) de un archivo Excel adjunto
-        app_bot.add_handler(MessageHandler(
-            filters.Document.ALL & (
-                filters.CaptionRegex(r'^/(subir|importar)\b') | 
-                filters.CaptionRegex(r'^/traducir\b')
-            ), 
-            lambda update, context: (
-                cmd_subir(update, context) if update.message.caption and any(cmd in update.message.caption for cmd in ['/subir', '/importar']) 
-                else cmd_traducir_excel(update, context)
-            )
-        ))
-        
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^presion_"))
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^cancelar_presion_foto$"))
         app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_reportes_pdf, pattern="^(resumen_|descargar_pdf_|enviar_inf_)"))        
 
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_actividades, pattern="^act_"))
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_momentos, pattern="^set_m_"))
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_fechas_diario, pattern="^(set_d_|diario_)"))
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_anular, pattern="^(edit_item_|del_item_)"))
-        app_bot.add_handler(CallbackQueryHandler(callback_handler_guardar_cancelar, pattern="^(cancel_entry$|confirm_save$)"))
-        
+        # Manejadores de la pantalla de confirmación (Modulares con traducción)
+        app_bot.add_handler(CallbackQueryHandler(callback_btn_momento, pattern="^set_m_"))
+        app_bot.add_handler(CallbackQueryHandler(callback_btn_fechas_diario, pattern="^(set_d_|diario_)"))
+        app_bot.add_handler(CallbackQueryHandler(callback_btn_editar_item, pattern="^edit_item_"))
+        app_bot.add_handler(CallbackQueryHandler(callback_btn_anular_item, pattern="^del_item_"))
+        app_bot.add_handler(CallbackQueryHandler(callback_btn_cancelar_registro, pattern="^cancel_entry$"))
+        app_bot.add_handler(CallbackQueryHandler(callback_btn_guardar_registro, pattern="^confirm_save$"))        
+       
         # Patrón delimitado para que 'manejar_callback_eliminacion' no capture a 'del_item_'
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_(d_|mom_|reg_|borrar)"))
+
+        # 🟢 3. NUEVO MANEJADOR: Interacciones del menú /perfil (Esto revive los botones)
+        app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_perfil, pattern="^(edit_perfil_|set_ritmo_|set_ocup_|set_lang_)"))
 
         app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
         app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
@@ -9136,5 +9154,3 @@ if __name__ == "__main__":
 # =============================================================================================================================================
 #                                               FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
-
-
