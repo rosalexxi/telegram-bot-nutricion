@@ -2551,8 +2551,8 @@ def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
 
 def traducir_texto_seguro(texto_es: str, lang_code: str) -> str:
     """
-    Traduce un texto protegiendo corchetes. Si hay error, 
-    devuelve un string detallando el error exacto para diagnosticar en el Excel.
+    Traduce un texto protegiendo corchetes con pausa extendida 
+    para evitar el bloqueo por exceso de peticiones (Rate Limit) de Google.
     """
     if not texto_es or not str(texto_es).strip():
         return ""
@@ -2566,27 +2566,34 @@ def traducir_texto_seguro(texto_es: str, lang_code: str) -> str:
     for i, placeholder in enumerate(placeholders):
         texto_para_traducir = texto_para_traducir.replace(placeholder, f"__VAR_{i}__")
     
-    try:
-        translator = GoogleTranslator(source='es', target=lang_code)
-        texto_traducido = translator.translate(texto_para_traducir)
-        
-        if not texto_traducido:
-            return f"[ERROR: Traductor devolvió vacío]"
+    intentos = 3
+    for intento in range(intentos):
+        try:
+            # ⏳ Pausa generosa para que Google no nos tire el rate limit (5 req/seg max)
+            sleep(1.5)
             
-        for i, placeholder in enumerate(placeholders):
-            texto_traducido = texto_traducido.replace(f"__VAR_{i}__", placeholder)
-            texto_traducido = texto_traducido.replace(f"__VAR_ {i} __", placeholder)
-            texto_traducido = texto_traducido.replace(f"__VAR_{i} __", placeholder)
-            texto_traducido = texto_traducido.replace(f"__VAR_ {i}__", placeholder)
+            translator = GoogleTranslator(source='es', target=lang_code)
+            texto_traducido = translator.translate(texto_para_traducir)
             
-        return texto_traducido
-        
-    except Exception as e:
-        # 🔍 Registramos el error exacto dentro de la celda para auditarlo
-        error_msg = f"[ERROR EXCEPCIÓN: {str(e)}]"
-        print(f"❌ ERROR TRADUCCIÓN a '{lang_code}': {e}")
-        return error_msg
-
+            if not texto_traducido:
+                return f"[ERROR: Traductor devolvió vacío]"
+                
+            for i, placeholder in enumerate(placeholders):
+                texto_traducido = texto_traducido.replace(f"__VAR_{i}__", placeholder)
+                texto_traducido = texto_traducido.replace(f"__VAR_ {i} __", placeholder)
+                texto_traducido = texto_traducido.replace(f"__VAR_{i} __", placeholder)
+                texto_traducido = texto_traducido.replace(f"__VAR_ {i}__", placeholder)
+                
+            return texto_traducido
+            
+        except Exception as e:
+            if intento < intentos - 1:
+                sleep(3) # Esperar más tiempo antes de reintentar
+                continue
+            error_msg = f"[ERROR EXCEPCIÓN: {str(e)}]"
+            print(f"❌ ERROR TRADUCCIÓN a '{lang_code}': {e}")
+            return error_msg
+            
 async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando de prueba: /traducir multi en (o solo /traducir multi)
