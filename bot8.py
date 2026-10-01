@@ -7,6 +7,9 @@
 #                                  https://dashboard.uptimerobot.com/monitors
 # ==============================================================================================================================================
 
+
+from deep_translator import GoogleTranslator
+
 import os
 import re
 import io
@@ -2545,9 +2548,6 @@ def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
         cur.execute(f'CREATE TABLE "{tabla_nombre}" (id SERIAL PRIMARY KEY, {cols_sql});')
         conn.commit()
     return conn, cur
-
-import time
-from deep_translator import GoogleTranslator
 
 def traducir_texto_seguro(texto_es: str, lang_code: str) -> str:
     """
@@ -9188,6 +9188,8 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
 # ==========================================================================================================================================
 #                    FINAL                      COMANDOS PROFESIONALES                               FINAL  
 # ==========================================================================================================================================
+
+
 # ==========================================================================================================================================
 #                                   INICIO                                       MAIN                                   INICIO  
 # ==========================================================================================================================================
@@ -9282,7 +9284,6 @@ def main():
         app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
         # =================================ADMINISTRADOR============================================
         app_bot.add_handler(CommandHandler(["descargar","bajar"], cmd_descargar))
-        app_bot.add_handler(CommandHandler(["importar", "copiar"], cmd_importar_tabla))
         app_bot.add_handler(CommandHandler("traducir", cmd_traducir_excel))
         app_bot.add_handler(CommandHandler("subir", cmd_subir))
 
@@ -9325,3 +9326,4 @@ if __name__ == "__main__":
 # =============================================================================================================================================
 #                                               FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
+
