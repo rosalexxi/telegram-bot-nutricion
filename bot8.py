@@ -2551,8 +2551,8 @@ def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
 
 def traducir_texto_seguro(texto_es: str, lang_code: str) -> str:
     """
-    Traduce un texto del español al idioma indicado protegiendo 
-    los corchetes [...] (nombres de variables) para que no sean traducidos.
+    Traduce un texto protegiendo corchetes. Si hay error, 
+    devuelve un string detallando el error exacto para diagnosticar en el Excel.
     """
     if not texto_es or not str(texto_es).strip():
         return ""
@@ -2560,26 +2560,21 @@ def traducir_texto_seguro(texto_es: str, lang_code: str) -> str:
     texto_str = str(texto_es)
     lang_code = lang_code.strip().lower()
     
-    # 1. Encontrar todas las variables entre corchetes (ej: [nombre], [usuario_id])
     placeholders = re.findall(r'\[.*?\]', texto_str)
     
-    # 2. Reemplazar temporalmente cada corchete por un token seguro (ej: __VAR_0__, __VAR_1__)
     texto_para_traducir = texto_str
     for i, placeholder in enumerate(placeholders):
         texto_para_traducir = texto_para_traducir.replace(placeholder, f"__VAR_{i}__")
     
     try:
-        # 3. Traducir el texto limpio de variables usando deep-translator
         translator = GoogleTranslator(source='es', target=lang_code)
         texto_traducido = translator.translate(texto_para_traducir)
         
         if not texto_traducido:
-            return texto_es
+            return f"[ERROR: Traductor devolvió vacío]"
             
-        # 4. Restaurar las variables originales en sus tokens correspondientes
         for i, placeholder in enumerate(placeholders):
             texto_traducido = texto_traducido.replace(f"__VAR_{i}__", placeholder)
-            # Por si el traductor le agrega espacios por error alrededor del token:
             texto_traducido = texto_traducido.replace(f"__VAR_ {i} __", placeholder)
             texto_traducido = texto_traducido.replace(f"__VAR_{i} __", placeholder)
             texto_traducido = texto_traducido.replace(f"__VAR_ {i}__", placeholder)
@@ -2587,14 +2582,15 @@ def traducir_texto_seguro(texto_es: str, lang_code: str) -> str:
         return texto_traducido
         
     except Exception as e:
-        logger.error(f"Error al traducir el texto '{texto_es}' al idioma '{lang_code}': {e}")
-        # Ante un fallo de red, devuelve el original para no romper nada
-        return texto_es
-                
+        # 🔍 Registramos el error exacto dentro de la celda para auditarlo
+        error_msg = f"[ERROR EXCEPCIÓN: {str(e)}]"
+        print(f"❌ ERROR TRADUCCIÓN a '{lang_code}': {e}")
+        return error_msg
+
 async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Comando estricto con argumentos: /traducir multi en
-    Crea un archivo nuevo exclusivo con Columna A (variables) y Columna B (Idioma destino).
+    Comando de prueba: /traducir multi en (o solo /traducir multi)
+    Traduce las líneas y registra cualquier excepción celda por celda en el archivo resultante.
     """
     user_id = update.effective_user.id
     ADMIN_USER_ID = 7363062724
@@ -2602,80 +2598,82 @@ async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("⛔ No tenés permisos.", parse_mode="Markdown")
         return
 
-    # Validamos que obligatoriamente ponga los argumentos (ej: /traducir multi en)
-    if not context.args or len(context.args) < 2:
+    if not context.args or len(context.args) == 0:
         await update.message.reply_text(
-            "⚠️ Debes indicar la tabla y el idioma de destino.\n"
-            "Ejemplo: `/traducir multi en` o `/traducir multi it`",
+            "⚠️ Indica el nombre de la tabla.\nEjemplo: `/traducir multi en` o `/traducir multi`",
             parse_mode="Markdown"
         )
         return
 
     nombre_tabla = context.args[0].strip().lower()
-    idioma_destino = context.args[1].strip().upper() # Ej: 'EN', 'IT'
-    lang_code = idioma_destino.lower()
+    idioma_especifico = context.args[1].strip().lower() if len(context.args) > 1 else None
+
+    ruta_archivo = f"{nombre_tabla}.xlsx"
+    if not os.path.exists(ruta_archivo):
+        await update.message.reply_text(f"❌ No encontré el archivo `{nombre_tabla}.xlsx` en el servidor.", parse_mode="Markdown")
+        return
 
     mensaje_espera = await update.message.reply_text(
-        f"🔄 Creando archivo exclusivo en `{idioma_destino}`...", 
+        f"🧪 Ejecutando prueba de diagnóstico en `{ruta_archivo}`...", 
         parse_mode="Markdown"
     )
 
     try:
-        ruta_archivo_origen = f"{nombre_tabla}.xlsx"
-        if not os.path.exists(ruta_archivo_origen):
-            await mensaje_espera.edit_text(f"❌ No encuentro el archivo `{nombre_tabla}.xlsx` base en el servidor.", parse_mode="Markdown")
+        df = pd.read_excel(ruta_archivo)
+        df.columns = [str(c).strip() for c in df.columns]
+
+        if 'ES' not in df.columns:
+            await mensaje_espera.edit_text("❌ El archivo debe tener una columna `ES`.", parse_mode="Markdown")
             return
 
-        # Leemos el archivo base para sacar las variables y el texto en español a traducir
-        df_origen = pd.read_excel(ruta_archivo_origen)
-        df_origen.columns = [str(c).strip() for c in df_origen.columns]
+        # Determinar qué columnas procesar
+        if idioma_especifico:
+            cols_a_procesar = [idioma_especifico.upper()]
+            if cols_a_procesar[0] not in df.columns:
+                df[cols_a_procesar[0]] = ""
+        else:
+            cols_a_procesar = [c for c in df.columns if c.upper() not in ['VARIABLES', 'ES', 'ID']]
 
-        if 'variables' not in df_origen.columns or 'ES' not in df_origen.columns:
-            await mensaje_espera.edit_text("❌ El archivo base debe tener columnas 'variables' y 'ES'.", parse_mode="Markdown")
+        if not cols_a_procesar:
+            await mensaje_espera.edit_text("❌ No hay columnas de destino detectadas para traducir en el archivo.", parse_mode="Markdown")
             return
 
-        # Creamos un DataFrame NUEVO desde cero (absolutamente limpio)
-        df_nuevo = pd.DataFrame()
-        df_nuevo['variables'] = df_origen['variables']
-        
-        columna_traducida = []
-        total_filas = len(df_origen)
-
-        for idx, row in df_origen.iterrows():
-            texto_es = str(row['ES']) if pd.notna(row['ES']) else ""
+        # Recorremos y traducimos línea por línea
+        for col in cols_a_procesar:
+            lang_code = col.lower()
+            await mensaje_espera.edit_text(f"🔄 Diagnosticando filas para el idioma `{col}`...", parse_mode="Markdown")
             
-            if not texto_es.strip() or texto_es.strip().lower() == 'nan':
-                columna_traducida.append("")
-                continue
+            nueva_columna = []
+            for idx, row in df.iterrows():
+                texto_es = str(row['ES']) if pd.notna(row['ES']) else ""
+                
+                if not texto_es.strip() or texto_es.strip().lower() == 'nan':
+                    nueva_columna.append("")
+                    continue
+                
+                # Traducir (si hay error, traerá el texto con [ERROR...])
+                resultado = traducir_texto_seguro(texto_es, lang_code)
+                nueva_columna.append(resultado)
             
-            # Traducimos usando nuestra función segura
-            traduccion = traducir_texto_seguro(texto_es, lang_code)
-            columna_traducida.append(traduccion)
+            df[col] = nueva_columna
 
-        # Asignamos la traducción a la columna con el nombre del idioma (ej: 'EN')
-        df_nuevo[idioma_destino] = columna_traducida
-
-        # Nombre del archivo nuevo exclusivo (ej: multi_EN.xlsx)
-        nuevo_nombre_archivo = f"{nombre_tabla}_{idioma_destino}.xlsx"
-        df_nuevo.to_excel(nuevo_nombre_archivo, index=False)
-
-        # Preparamos el archivo para enviar por Telegram
+        # Generar archivo de diagnóstico para Telegram
         buffer_out = io.BytesIO()
         with pd.ExcelWriter(buffer_out, engine='openpyxl') as writer:
-            df_nuevo.to_excel(writer, index=False, sheet_name=nombre_tabla[:31])
+            df.to_excel(writer, index=False, sheet_name=nombre_tabla[:31])
         buffer_out.seek(0)
 
         await update.message.reply_document(
             document=buffer_out,
-            filename=nuevo_nombre_archivo,
-            caption=f"✅ **¡Archivo exclusivo generado!**\nContiene únicamente las variables y la columna `{idioma_destino}` traducida.",
+            filename=f"diagnostico_{nombre_tabla}.xlsx",
+            caption=f"🧪 **¡Prueba de diagnóstico finalizada!**\nRevisá el archivo adjunto: si hubo fallos, aparecerán escritos en las celdas correspondientes.",
             parse_mode="Markdown"
         )
         await mensaje_espera.delete()
 
     except Exception as e:
-        logger.error(f"Error generando archivo exclusivo de traducción: {e}", exc_info=True)
-        await mensaje_espera.edit_text(f"❌ Error al procesar: `{e}`", parse_mode="Markdown")
+        logger.error(f"Error general en prueba de diagnóstico: {e}", exc_info=True)
+        await mensaje_espera.edit_text(f"❌ Error crítico: `{e}`", parse_mode="Markdown")
         
 async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
