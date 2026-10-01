@@ -2546,12 +2546,66 @@ def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
         conn.commit()
     return conn, cur
 
+import time
+from deep_translator import GoogleTranslator
+
+def traducir_texto_seguro(texto_es: str, lang_code: str) -> str:
+    """
+    Traduce un texto del español al idioma indicado protegiendo 
+    los corchetes [...] (nombres de variables) para que no sean traducidos,
+    con reintentos y pausas para evitar bloqueos.
+    """
+    if not texto_es or not str(texto_es).strip():
+        return ""
+    
+    texto_str = str(texto_es)
+    lang_code = lang_code.strip().lower()
+    
+    # 1. Encontrar todas las variables entre corchetes
+    placeholders = re.findall(r'\[.*?\]', texto_str)
+    
+    # 2. Reemplazar temporalmente cada corchete por un token seguro
+    texto_para_traducir = texto_str
+    for i, placeholder in enumerate(placeholders):
+        texto_para_traducir = texto_para_traducir.replace(placeholder, f"__VAR_{i}__")
+    
+    # Excepción si es solo un emoji o un token técnico puro
+    if texto_para_traducir.strip().startswith("🤖") or not any(c.isalpha() for c in texto_para_traducir):
+        return texto_str
+
+    intentos = 3
+    for intento in range(intentos):
+        try:
+            # 3. Traducir usando deep-translator con una pequeña pausa preventiva
+            time.sleep(0.3) 
+            translator = GoogleTranslator(source='es', target=lang_code)
+            texto_traducido = translator.translate(texto_para_traducir)
+            
+            if texto_traducido and texto_traducido.strip():
+                # 4. Restaurar las variables originales
+                for i, placeholder in enumerate(placeholders):
+                    texto_traducido = texto_traducido.replace(f"__VAR_{i}__", placeholder)
+                    texto_traducido = texto_traducido.replace(f"__VAR_ {i} __", placeholder)
+                    texto_traducido = texto_traducido.replace(f"__VAR_{i} __", placeholder)
+                    texto_traducido = texto_traducido.replace(f"__VAR_ {i}__", placeholder)
+                
+                return texto_traducido
+                
+        except Exception as e:
+            logger.warning(f"Intento {intento+1} fallido traduciendo '{texto_es}' a {lang_code}: {e}")
+            time.sleep(1) # Esperar un segundo antes del reintento
+
+    # Si fallaron todos los intentos, devuelve el original pero al menos loguea el error
+    logger.error(f"No se pudo traducir al idioma '{lang_code}' tras {intentos} intentos. Se devuelve original.")
+    return texto_es
+    
 async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Comando para traducir o completar celdas vacías de un Excel en Supabase o adjunto.
+    Comando para traducir o completar celdas vacías leyendo el Excel directamente 
+    desde el servidor (Render), actualizando Supabase y guardando los cambios locales.
     Uso: 
-      - /traducir multi IT (traduce o completa el italiano)
-      - /traducir multi (completa todas las celdas vacías de todos los idiomas)
+      - /traducir multi en (traduce al inglés)
+      - /traducir multi (completa celdas vacías de todos los idiomas que encuentre)
     """
     user_id = update.effective_user.id
     
@@ -2564,71 +2618,86 @@ async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not context.args or len(context.args) == 0:
         await update.message.reply_text(
             "⚠️ Indica el nombre de la tabla y opcionalmente el idioma.\n"
-            "Ejemplo: `/traducir multi IT` o simplemente `/traducir multi`",
+            "Ejemplo: `/traducir multi en` o simplemente `/traducir multi`",
             parse_mode="Markdown"
         )
         return
 
-    nombre_tabla = context.args[0].strip()
-    # Si pasaron un segundo argumento, es el idioma específico (ej. 'IT', 'FR', 'PT')
+    nombre_tabla = context.args[0].strip().lower()
     idioma_especifico = context.args[1].strip().lower() if len(context.args) > 1 else None
 
-    documento = update.message.document
-    if not documento or not documento.file_name.endswith('.xlsx'):
-        await update.message.reply_text(f"⚠️ Adjuntá el archivo Excel (`.xlsx`) junto con el comando.", parse_mode="Markdown")
-        return
+    # 📂 Ruta del archivo directamente en el servidor local (Render)
+    ruta_archivo = f"{nombre_tabla}.xlsx"
+
+    if not os.path.exists(ruta_archivo):
+        # Búsqueda flexible por si las mayúsculas/minúsculas varían
+        archivos_en_directorio = os.listdir('.')
+        archivo_encontrado = next((f for f in archivos_en_directorio if f.lower() == ruta_archivo), None)
+        if archivo_encontrado:
+            ruta_archivo = archivo_encontrado
+        else:
+            await update.message.reply_text(
+                f"❌ No encontré el archivo `{nombre_tabla}.xlsx` en el servidor.",
+                parse_mode="Markdown"
+            )
+            return
 
     mensaje_espera = await update.message.reply_text(
-        f"🔄 Procesando traducción para la tabla `{nombre_tabla}`...", 
+        f"🔄 Leyendo `{ruta_archivo}` del servidor y procesando traducción...", 
         parse_mode="Markdown"
     )
 
     try:
-        file_obj = await context.bot.get_file(documento.file_id)
-        file_bytes = await file_obj.download_as_bytearray()
-        
-        buffer_in = io.BytesIO(file_bytes)
-        df = pd.read_excel(buffer_in)
+        df = pd.read_excel(ruta_archivo)
 
         if df.empty or 'ES' not in df.columns:
-            await mensaje_espera.edit_text("❌ El archivo debe tener una columna `ES` (Español).", parse_mode="Markdown")
+            await mensaje_espera.edit_text("❌ El archivo en el servidor debe tener una columna `ES` (Español).", parse_mode="Markdown")
             return
 
         df.columns = [str(c).strip() for c in df.columns]
 
         # Determinar qué columnas procesar
         if idioma_especifico:
-            cols_a_procesar = [idioma_especifico.upper()]
-            if cols_a_procesar[0] not in df.columns:
-                df[cols_a_procesar[0]] = "" # Si la columna no existe, la crea
+            col_target = idioma_especifico.upper()
+            cols_a_procesar = [col_target]
+            if col_target not in df.columns:
+                df[col_target] = "" # Si la columna no existe, la crea vacía
         else:
-            # Si no especifica idioma, procesa todas las columnas que no sean 'variables', 'ES', 'EN'
-            cols_a_procesar = [c for c in df.columns if c.upper() not in ['VARIABLES', 'ES', 'EN']]
+            # Si no especifica idioma, procesa todas las columnas que no sean 'variables' ni 'ES'
+            cols_a_procesar = [c for c in df.columns if c.upper() not in ['VARIABLES', 'ES', 'ID']]
 
-        total_celdas = len(df)
         for col in cols_a_procesar:
             lang_code = col.lower()
-            await mensaje_espera.edit_text(f"🔄 Traduciendo columna `{col}`...", parse_mode="Markdown")
+            await mensaje_espera.edit_text(f"🔄 Traduciendo al idioma `{col}`...", parse_mode="Markdown")
             
             nueva_columna = []
             for idx, row in df.iterrows():
                 texto_es = str(row['ES']) if pd.notna(row['ES']) else ""
-                valor_actual = str(row[col]) if col in df.columns and pd.notna(row[col]) else ""
                 
-                # LÓGICA INTELIGENTE: Si hay idioma específico, traduce todo. Si es general, solo traduce si está vacío o NaN
-                if idioma_especifico or not valor_actual.strip() or valor_actual.strip().lower() == 'nan':
+                if not texto_es.strip() or texto_es.strip().lower() == 'nan':
+                    nueva_columna.append("")
+                    continue
+                
+                # Forzamos la traducción real desde el español
+                try:
                     traducido = traducir_texto_seguro(texto_es, lang_code)
+                    if not traducido or not str(traducido).strip():
+                        traducido = texto_es
                     nueva_columna.append(traducido)
-                else:
-                    nueva_columna.append(row[col]) # Mantiene lo que ya estaba escrito
+                except Exception as ex:
+                    logger.error(f"Error traduciendo '{texto_es}' a {lang_code}: {ex}")
+                    nueva_columna.append(texto_es)
             
             df[col] = nueva_columna
 
-        # Limpiar duplicados por si acaso en la primera columna
+        # Limpiar duplicados basándose en la primera columna (variables o la clave)
         columna_clave = df.columns[0]
         df = df.drop_duplicates(subset=[columna_clave], keep='last')
 
-        # Guardar automáticamente los cambios en Supabase con borrón y cuenta nueva
+        # 💾 Sobrescribir el archivo localmente en Render para que guarde la nueva columna traducida
+        df.to_excel(ruta_archivo, index=False)
+
+        # Sincronizar automáticamente en Supabase
         conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df)
 
         columnas = list(df.columns)
@@ -2645,7 +2714,7 @@ async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         cur.close()
         conn.close()
 
-        # Generar también el archivo Excel de salida para enviártelo por Telegram de regalo
+        # Enviar archivo actualizado por Telegram
         buffer_out = io.BytesIO()
         with pd.ExcelWriter(buffer_out, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name=nombre_tabla[:31])
@@ -2653,15 +2722,15 @@ async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         await update.message.reply_document(
             document=buffer_out,
-            filename=f"actualizado_{documento.file_name}",
-            caption=f"✅ **¡Traducción y actualización completada con éxito!**\nTabla `{nombre_tabla}` sincronizada en Supabase.",
+            filename=f"actualizado_{nombre_tabla}.xlsx",
+            caption=f"✅ **¡Traducción completada con éxito!**\nTabla `{nombre_tabla}` sincronizada en Supabase con la columna `{cols_a_procesar[0]}`.",
             parse_mode="Markdown"
         )
         await mensaje_espera.delete()
 
     except Exception as e:
-        logger.error(f"Error en /traducir: {e}", exc_info=True)
-        await mensaje_espera.edit_text(f"❌ Error al procesar: `{e}`", parse_mode="Markdown")
+        logger.error(f"Error en /traducir desde servidor: {e}", exc_info=True)
+        await mensaje_espera.edit_text(f"❌ Error al procesar: `{e}`", parse_mode="Markdown")                                
         
 async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
