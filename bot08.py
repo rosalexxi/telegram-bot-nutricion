@@ -6,6 +6,9 @@
 #                                  https://dashboard.uptimerobot.com/monitors
 # ==============================================================================================================================================
 
+
+from deep_translator import GoogleTranslator
+
 import os
 import re
 import io
@@ -1790,6 +1793,48 @@ def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
         conn.commit()
     return conn, cur
 
+def traducir_texto_seguro(texto_es: str, lang_code: str) -> str:
+    """
+    Traduce un texto del español al idioma indicado protegiendo 
+    los corchetes [...] (nombres de variables) para que no sean traducidos.
+    """
+    if not texto_es or not str(texto_es).strip():
+        return ""
+    
+    texto_str = str(texto_es)
+    lang_code = lang_code.strip().lower()
+    
+    # 1. Encontrar todas las variables entre corchetes (ej: [nombre], [usuario_id])
+    placeholders = re.findall(r'\[.*?\]', texto_str)
+    
+    # 2. Reemplazar temporalmente cada corchete por un token seguro (ej: __VAR_0__, __VAR_1__)
+    texto_para_traducir = texto_str
+    for i, placeholder in enumerate(placeholders):
+        texto_para_traducir = texto_para_traducir.replace(placeholder, f"__VAR_{i}__")
+    
+    try:
+        # 3. Traducir el texto limpio de variables usando deep-translator
+        translator = GoogleTranslator(source='es', target=lang_code)
+        texto_traducido = translator.translate(texto_para_traducir)
+        
+        if not texto_traducido:
+            return texto_es
+            
+        # 4. Restaurar las variables originales en sus tokens correspondientes
+        for i, placeholder in enumerate(placeholders):
+            texto_traducido = texto_traducido.replace(f"__VAR_{i}__", placeholder)
+            # Por si el traductor le agrega espacios por error alrededor del token:
+            texto_traducido = texto_traducido.replace(f"__VAR_ {i} __", placeholder)
+            texto_traducido = texto_traducido.replace(f"__VAR_{i} __", placeholder)
+            texto_traducido = texto_traducido.replace(f"__VAR_ {i}__", placeholder)
+            
+        return texto_traducido
+        
+    except Exception as e:
+        logger.error(f"Error al traducir el texto '{texto_es}' al idioma '{lang_code}': {e}")
+        # Ante un fallo de red, devuelve el original para no romper nada
+        return texto_es
+                
 async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando para traducir o completar celdas vacías de un Excel en Supabase o adjunto.
@@ -8242,6 +8287,8 @@ def main():
 #=================================ADMINISTRADOR============================================
         app_bot.add_handler(CommandHandler(["descargar","bajar"], cmd_descargar))
         app_bot.add_handler(CommandHandler(["importar", "subir"], cmd_importar_tabla))
+        app_bot.add_handler(CommandHandler(["traducir"], cmd_traducir_excel))
+
 
         app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
