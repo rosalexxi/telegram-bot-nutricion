@@ -4176,10 +4176,10 @@ async def render_confirmation_screen(msg_or_query, context):
     
     if momento != 'Actividad':
         momentos_config = [
-            ("Desayuno", "🌅 08-11"),
-            ("Almuerzo", "☀️ 11-16"),
-            ("Merienda", "☕ 16-20"),
-            ("Cena", "🌙 20-00")
+            ("Desayuno", "🌅 08-11 ⏰"),
+            ("Almuerzo", "☀️ 11-16 ⏰"),
+            ("Merienda", "☕ 16-20 ⏰"),
+            ("Cena", "🌙 20-00 ⏰")
         ]
         
         m_buttons = []
@@ -4210,9 +4210,9 @@ async def render_confirmation_screen(msg_or_query, context):
     mark_otro = "✅ " if fecha not in [hoy_str, ayer_str] else ""
 
     keyboard.append([
-        InlineKeyboardButton(f"{mark_hoy}{hoy_label}", callback_data="set_d_hoy"),
-        InlineKeyboardButton(f"{mark_ayer}{ayer_label}", callback_data="set_d_ayer"),
-        InlineKeyboardButton(f"{mark_otro}🗓️", callback_data="set_d_otro")
+        InlineKeyboardButton(f"{mark_hoy}🗓️ {hoy_label}", callback_data="set_d_hoy"),
+        InlineKeyboardButton(f"{mark_ayer}🗓️ {ayer_label}", callback_data="set_d_ayer"),
+        InlineKeyboardButton(f"{mark_otro}🔄🗓️", callback_data="set_d_otro")
     ])
 
     keyboard.append([
@@ -4259,10 +4259,7 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     if tipo == "Actividad":
         momento = "Actividad"
         for item in items:
-            # 🟢 Forzar estrictamente el peso en 0 para que no guarde nada en la columna de Peso
             item["peso"] = 0
-            
-            # Asegurar que las calorías de la actividad sean negativas
             if item.get("calorias", 0) > 0:
                 item["calorias"] = -abs(item["calorias"])
     else:
@@ -5341,17 +5338,17 @@ async def cmd_eliminar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop('del_fecha', None)
     context.user_data.pop('del_momento', None)
 
-    # 🟢 Etiquetas dinámicas de día y mes (Ej: 28/09 y 27/09)
     hoy_label = obtener_ahora_arg().strftime("%d/%m")
     ayer_label = (obtener_ahora_arg() - timedelta(days=1)).strftime("%d/%m")
 
+    # 🟢 Actualizado con el icono 🔄🗓️ para selección de otra fecha
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(f"📅 {hoy_label}", callback_data="del_d_hoy"), 
             InlineKeyboardButton(f"📆 {ayer_label}", callback_data="del_d_ayer")
         ],
         [
-            InlineKeyboardButton("🗓️", callback_data="del_d_otro")
+            InlineKeyboardButton("🔄🗓️", callback_data="del_d_otro")
         ]
     ])
     
@@ -5372,12 +5369,12 @@ async def mostrar_selector_momento_eliminar(query_or_msg, context):
         
     fecha = context.user_data.get('del_fecha')
     
-    # 🟢 BOTONES UNIVERSALES CON FRANJAS HORARIAS E ICONOS (Igual que en los registros)
+    # 🟢 Actualizado el botón de cambiar fecha con 🔄🗓️
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🌅 08-11", callback_data="del_mom_Desayuno"), InlineKeyboardButton("☀️ 11-16", callback_data="del_mom_Almuerzo")],
         [InlineKeyboardButton("☕ 16-20", callback_data="del_mom_Merienda"), InlineKeyboardButton("🌙 20-00", callback_data="del_mom_Cena")],
         [InlineKeyboardButton("🏃 ⚡", callback_data="del_mom_Actividad")],
-        [InlineKeyboardButton("🔙 📅", callback_data="del_cambiar_fecha")]
+        [InlineKeyboardButton("🔄🗓️", callback_data="del_cambiar_fecha")]
     ])
     
     txt_tmpl = traducciones.get("bot_txt_sel_momento_del", "📅 Fecha seleccionada: `{fecha}`\n\nSeleccioná el momento o actividad que querés revisar para eliminar:")
@@ -5410,7 +5407,7 @@ async def render_pantalla_items_eliminar(query, user_id, context):
 
     if not items_momento:
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔙", callback_data="del_volver_momentos")]
+            [InlineKeyboardButton("❌", callback_data="del_salir_pantalla")]
         ])
         try:
             await query.edit_message_text(
@@ -5443,13 +5440,12 @@ async def render_pantalla_items_eliminar(query, user_id, context):
         item_id = item.get('id_registro')
         nombre_corto = str(item.get('Alimento', ''))[:18]
         if item_id is not None:
+            # 🟢 Actualizado con el tacho de basura (🗑️) para el borrado individual
             keyboard.append([
-                InlineKeyboardButton(f"❌ {nombre_corto}", callback_data=f"del_reg_{item_id}")
+                InlineKeyboardButton(f"🗑️ {nombre_corto}", callback_data=f"del_reg_{item_id}")
             ])
 
-    # 🟢 Oñemboguema upe botón "del_borrar_todo_momento". Añemoĩnte upe botón de volver / salir ojehecha haguã.
-    keyboard.append([InlineKeyboardButton("🔙", callback_data="del_volver_momentos")])
-    keyboard.append([InlineKeyboardButton("❌ Salir", callback_data="del_salir_pantalla")])
+    keyboard.append([InlineKeyboardButton("❌", callback_data="del_salir_pantalla")])
 
     markup = InlineKeyboardMarkup(keyboard)
     try:
