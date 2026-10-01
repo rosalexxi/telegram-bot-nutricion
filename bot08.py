@@ -2820,8 +2820,9 @@ async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando exclusivo para el administrador para importar/actualizar una tabla 
-    específica directamente desde un archivo Excel adjunto en Telegram (en memoria RAM).
-    Soporta el comando tanto por texto plano como por epígrafe (caption) al adjuntar el archivo.
+    específica directamente desde un archivo Excel ubicado en el servidor (Render).
+    Lee el archivo local, recrea la tabla en Supabase sin eliminar duplicados e inserta todo.
+    Uso: /subir nombre_tabla
     """
     user_id = update.effective_user.id
     
@@ -2834,58 +2835,43 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # 📥 CAPTURA INTELIGENTE: Lee tanto el texto del mensaje como el epígrafe del archivo adjunto
-    mensaje_obj = update.message
-    texto_mensaje = mensaje_obj.text or mensaje_obj.caption or ""
-    
-    partes = texto_mensaje.split()
-    args = partes[1:] if len(partes) > 1 else []
-
-    # 1. Verificar si se indicó el nombre de la tabla
-    if not args or len(args) == 0:
-        await mensaje_obj.reply_text(
-            "⚠️ Por favor, indica el nombre de la tabla a importar junto con el archivo adjunto.\n"
+    # 1. Verificar si se indicó el nombre de la tabla en los argumentos del comando
+    if not context.args or len(context.args) == 0:
+        await update.message.reply_text(
+            "⚠️ Por favor, indica el nombre de la tabla a importar.\n"
             "Ejemplo: `/subir multi`",
             parse_mode="Markdown"
         )
         return
 
-    nombre_tabla = args[0].strip()
-    nombre_archivo_esperado = f"{nombre_tabla}.xlsx"
+    nombre_tabla = context.args[0].strip()
+    ruta_archivo = f"{nombre_tabla}.xlsx"
 
-    # 2. Verificar si el usuario adjuntó un documento Excel (.xlsx)
-    documento = mensaje_obj.document
-    if not documento or not documento.file_name.endswith('.xlsx'):
-        await mensaje_obj.reply_text(
-            f"⚠️ Por favor, adjuntá un archivo Excel (`{nombre_archivo_esperado}`) junto con el comando `/subir {nombre_tabla}`.",
+    # 2. Verificar si el archivo Excel existe en el servidor local (Render)
+    if not os.path.exists(ruta_archivo):
+        await update.message.reply_text(
+            f"❌ No encontré el archivo `{ruta_archivo}` en el servidor. Asegurate de haberlo subido al repositorio de GitHub.",
             parse_mode="Markdown"
         )
         return
 
-    mensaje_espera = await mensaje_obj.reply_text(
-        f"🔄 Descargando `{documento.file_name}` y reescribiendo la tabla `{nombre_tabla}` en Supabase...", 
+    mensaje_espera = await update.message.reply_text(
+        f"🔄 Leyendo `{ruta_archivo}` del servidor y reescribiendo la tabla `{nombre_tabla}` en Supabase...", 
         parse_mode="Markdown"
     )
 
     try:
-        # 3. Descargar el archivo directamente a la memoria RAM (BytesIO) sin tocar el disco
-        file_obj = await context.bot.get_file(documento.file_id)
-        file_bytes = await file_obj.download_as_bytearray()
-        
-        buffer_in = io.BytesIO(file_bytes)
-        df = pd.read_excel(buffer_in)
+        # 3. Leer el Excel directamente desde el disco del servidor
+        df = pd.read_excel(ruta_archivo)
 
         if df.empty:
-            await mensaje_espera.edit_text(f"⚠️ El archivo adjunto está vacío.", parse_mode="Markdown")
+            await mensaje_espera.edit_text(f"⚠️ El archivo `{ruta_archivo}` está vacío.", parse_mode="Markdown")
             return
 
         # Limpiar nombres de columnas
         df.columns = [str(c).strip() for c in df.columns]
 
-        # 🔹 LIMPIEZA AUTOMÁTICA DE DUPLICADOS:
-        # Toma la primera columna como clave única y se queda con la última aparición (la de más abajo)
-        columna_clave = df.columns[0]
-        df = df.drop_duplicates(subset=[columna_clave], keep='last')
+        # Nota: Se eliminó la limpieza de duplicados para que suba tal cual está en el Excel.
 
         # Conectar, limpiar y recrear la tabla completa en Supabase
         conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df)
@@ -2918,131 +2904,14 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
 
         await mensaje_espera.edit_text(
-            f"✅ ¡Éxito! La tabla `{nombre_tabla}` fue reescrita y actualizada en Supabase con {filas_insertadas} registros únicos.", 
+            f"✅ ¡Éxito! La tabla `{nombre_tabla}` fue leída del servidor y sincronizada en Supabase con {filas_insertadas} registros.", 
             parse_mode="Markdown"
         )
 
     except Exception as e:
-        logger.error(f"Error al importar la tabla {nombre_tabla}: {e}", exc_info=True)
+        logger.error(f"Error al importar la tabla {nombre_tabla} desde el servidor: {e}", exc_info=True)
         await mensaje_espera.edit_text(f"❌ Error al importar la tabla: `{e}`", parse_mode="Markdown")
-                
-async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Comando exclusivo para el administrador para importar/actualizar una tabla 
-    específica directamente desde un archivo Excel adjunto en Telegram (en memoria RAM).
-    Soporta el comando por texto, epígrafe o respondiendo a un mensaje con archivo.
-    """
-    user_id = update.effective_user.id
-    
-    # 🔒 BLOQUE DE SEGURIDAD: Solo permitido para tu ID de usuario
-    ADMIN_USER_ID = 7363062724
-    if user_id != ADMIN_USER_ID:
-        await update.message.reply_text(
-            "⛔ **Acceso denegado:** No tenés permisos para ejecutar este comando.",
-            parse_mode="Markdown"
-        )
-        return
-    
-    # 📥 CAPTURA INTELIGENTE: Lee texto, epígrafe o texto del mensaje respondido
-    mensaje_obj = update.message
-    texto_mensaje = mensaje_obj.text or mensaje_obj.caption or ""
-    
-    if mensaje_obj.reply_to_message:
-        if not texto_mensaje.strip():
-            texto_mensaje = mensaje_obj.reply_to_message.text or mensaje_obj.reply_to_message.caption or ""
-
-    partes = texto_mensaje.split()
-    args = partes[1:] if len(partes) > 1 else []
-
-    # 1. Verificar si se indicó el nombre de la tabla
-    if not args or len(args) == 0:
-        await mensaje_obj.reply_text(
-            "⚠️ Por favor, indica el nombre de la tabla a importar junto con el archivo adjunto.\n"
-            "Ejemplo: `/subir multi`",
-            parse_mode="Markdown"
-        )
-        return
-
-    nombre_tabla = args[0].strip()
-    nombre_archivo_esperado = f"{nombre_tabla}.xlsx"
-
-    # 🔍 BÚSQUEDA INTELIGENTE DEL ARCHIVO: Lo busca en el mensaje actual o en el mensaje respondido
-    documento = mensaje_obj.document
-    if not documento and mensaje_obj.reply_to_message:
-        documento = mensaje_obj.reply_to_message.document
-
-    # 2. Verificar si el usuario adjuntó o respondió con un documento Excel (.xlsx)
-    if not documento or not documento.file_name.endswith('.xlsx'):
-        await mensaje_obj.reply_text(
-            f"⚠️ Por favor, adjuntá un archivo Excel (`{nombre_archivo_esperado}`) junto con el comando o respondé a uno.",
-            parse_mode="Markdown"
-        )
-        return
-
-    mensaje_espera = await mensaje_obj.reply_text(
-        f"🔄 Descargando `{documento.file_name}` y reescribiendo la tabla `{nombre_tabla}` en Supabase...", 
-        parse_mode="Markdown"
-    )
-
-    try:
-        # 3. Descargar el archivo directamente a la memoria RAM (BytesIO) sin tocar el disco
-        file_obj = await context.bot.get_file(documento.file_id)
-        file_bytes = await file_obj.download_as_bytearray()
-        
-        buffer_in = io.BytesIO(file_bytes)
-        df = pd.read_excel(buffer_in)
-
-        if df.empty:
-            await mensaje_espera.edit_text(f"⚠️ El archivo adjunto está vacío.", parse_mode="Markdown")
-            return
-
-        # Limpiar nombres de columnas
-        df.columns = [str(c).strip() for c in df.columns]
-
-        # 🔹 LIMPIEZA AUTOMÁTICA DE DUPLICADOS:
-        # Toma la primera columna como clave única y se queda con la última aparición (la de más abajo)
-        columna_clave = df.columns[0]
-        df = df.drop_duplicates(subset=[columna_clave], keep='last')
-
-        # Conectar, limpiar y recrear la tabla completa en Supabase
-        conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df)
-
-        columnas = list(df.columns)
-        cols_sql = ', '.join([f'"{c}"' for c in columnas])
-        placeholders = ', '.join(['%s'] * len(columnas))
-        
-        query_insert = f"""
-            INSERT INTO "{nombre_tabla}" ({cols_sql})
-            VALUES ({placeholders})
-        """
-
-        filas_insertadas = 0
-        for _, row in df.iterrows():
-            valores = []
-            for col in columnas:
-                val = row[col]
-                if pd.isna(val):
-                    val = None
-                else:
-                    val = str(val).strip()
-                valores.append(val)
-
-            cur.execute(query_insert, tuple(valores))
-            filas_insertadas += 1
-
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        await mensaje_espera.edit_text(
-            f"✅ ¡Éxito! La tabla `{nombre_tabla}` fue reescrita y actualizada en Supabase con {filas_insertadas} registros únicos.", 
-            parse_mode="Markdown"
-        )
-
-    except Exception as e:
-        logger.error(f"Error al importar la tabla {nombre_tabla}: {e}", exc_info=True)
-        await mensaje_espera.edit_text(f"❌ Error al importar la tabla: `{e}`", parse_mode="Markdown")
-                
+                                
 async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando temporal para migrar el archivo Excel local (Registro_Nutricional_Bot.xlsx) 
