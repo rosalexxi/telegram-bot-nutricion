@@ -36,7 +36,7 @@ import urllib.parse
 # Patrón para detectar variables entre llaves
 PATTERN_VARS = re.compile(r'\{[^}]+\}')
 
-
+from time import sleep
 from typing import Dict, Tuple, List, Optional, Any            
 from urllib.parse import urlparse 
 from datetime import datetime, date, timedelta, time
