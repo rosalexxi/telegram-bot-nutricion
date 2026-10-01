@@ -2552,8 +2552,7 @@ def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
 def traducir_texto_seguro(texto_es: str, lang_code: str) -> str:
     """
     Traduce un texto del español al idioma indicado protegiendo 
-    los corchetes [...] (nombres de variables) para que no sean traducidos,
-    con reintentos y pausas para evitar bloqueos.
+    los corchetes [...] (nombres de variables) para que no sean traducidos.
     """
     if not texto_es or not str(texto_es).strip():
         return ""
@@ -2561,44 +2560,37 @@ def traducir_texto_seguro(texto_es: str, lang_code: str) -> str:
     texto_str = str(texto_es)
     lang_code = lang_code.strip().lower()
     
-    # 1. Encontrar todas las variables entre corchetes
+    # 1. Encontrar todas las variables entre corchetes (ej: [nombre], [usuario_id])
     placeholders = re.findall(r'\[.*?\]', texto_str)
     
-    # 2. Reemplazar temporalmente cada corchete por un token seguro
+    # 2. Reemplazar temporalmente cada corchete por un token seguro (ej: __VAR_0__, __VAR_1__)
     texto_para_traducir = texto_str
     for i, placeholder in enumerate(placeholders):
         texto_para_traducir = texto_para_traducir.replace(placeholder, f"__VAR_{i}__")
     
-    # Excepción si es solo un emoji o un token técnico puro
-    if texto_para_traducir.strip().startswith("🤖") or not any(c.isalpha() for c in texto_para_traducir):
-        return texto_str
-
-    intentos = 3
-    for intento in range(intentos):
-        try:
-            # 3. Traducir usando deep-translator con una pequeña pausa preventiva
-            time.sleep(0.3) 
-            translator = GoogleTranslator(source='es', target=lang_code)
-            texto_traducido = translator.translate(texto_para_traducir)
+    try:
+        # 3. Traducir el texto limpio de variables usando deep-translator
+        translator = GoogleTranslator(source='es', target=lang_code)
+        texto_traducido = translator.translate(texto_para_traducir)
+        
+        if not texto_traducido:
+            return texto_es
             
-            if texto_traducido and texto_traducido.strip():
-                # 4. Restaurar las variables originales
-                for i, placeholder in enumerate(placeholders):
-                    texto_traducido = texto_traducido.replace(f"__VAR_{i}__", placeholder)
-                    texto_traducido = texto_traducido.replace(f"__VAR_ {i} __", placeholder)
-                    texto_traducido = texto_traducido.replace(f"__VAR_{i} __", placeholder)
-                    texto_traducido = texto_traducido.replace(f"__VAR_ {i}__", placeholder)
+        # 4. Restaurar las variables originales en sus tokens correspondientes
+        for i, placeholder in enumerate(placeholders):
+            texto_traducido = texto_traducido.replace(f"__VAR_{i}__", placeholder)
+            # Por si el traductor le agrega espacios por error alrededor del token:
+            texto_traducido = texto_traducido.replace(f"__VAR_ {i} __", placeholder)
+            texto_traducido = texto_traducido.replace(f"__VAR_{i} __", placeholder)
+            texto_traducido = texto_traducido.replace(f"__VAR_ {i}__", placeholder)
+            
+        return texto_traducido
+        
+    except Exception as e:
+        logger.error(f"Error al traducir el texto '{texto_es}' al idioma '{lang_code}': {e}")
+        # Ante un fallo de red, devuelve el original para no romper nada
+        return texto_es
                 
-                return texto_traducido
-                
-        except Exception as e:
-            logger.warning(f"Intento {intento+1} fallido traduciendo '{texto_es}' a {lang_code}: {e}")
-            time.sleep(1) # Esperar un segundo antes del reintento
-
-    # Si fallaron todos los intentos, devuelve el original pero al menos loguea el error
-    logger.error(f"No se pudo traducir al idioma '{lang_code}' tras {intentos} intentos. Se devuelve original.")
-    return texto_es
-    
 async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando para traducir o completar celdas vacías leyendo el Excel directamente 
