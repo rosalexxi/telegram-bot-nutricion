@@ -2870,9 +2870,9 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
 async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Comando: /armar (adjuntando el Excel traducido con las solapas)
-    Toma el archivo multilingüe, lee el diccionario, 
-    restaura las variables originales en todas las columnas y sincroniza Supabase.
+    Comando: /armar
+    Lee el archivo 'multi.xlsx' que subiste a Render, procesa las traducciones,
+    restaura las variables y sincroniza Supabase de forma totalmente automática.
     """
     user_id = update.effective_user.id
     ADMIN_USER_ID = 7363062724
@@ -2880,29 +2880,25 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ No tenés permisos.", parse_mode="Markdown")
         return
 
-    documento = update.message.document
-    if not documento or not documento.file_name.endswith('.xlsx'):
-        await update.message.reply_text("⚠️ Adjuntá el archivo Excel (`.xlsx`) ya traducido junto con el comando `/armar`.", parse_mode="Markdown")
-        return
-
     nombre_tabla = "multi"
-
-    mensaje_espera = await update.message.reply_text("🔄 Ensamblando traducciones y sincronizando Supabase...", parse_mode="Markdown")
+    mensaje_espera = await update.message.reply_text("🔄 Leyendo el archivo del servidor, ensamblando traducciones y sincronizando Supabase...", parse_mode="Markdown")
 
     try:
-        file_obj = await context.bot.get_file(documento.file_id)
-        file_bytes = await file_obj.download_as_bytearray()
-        buffer_in = io.BytesIO(file_bytes)
+        ruta_archivo = f"{nombre_tabla}.xlsx"
+        if not os.path.exists(ruta_archivo):
+            await mensaje_espera.edit_text(f"❌ No encuentro el archivo `{ruta_archivo}` en el servidor.", parse_mode="Markdown")
+            return
 
-        xls = pd.ExcelFile(buffer_in)
+        # Leemos el archivo directamente desde el disco de Render
+        xls = pd.ExcelFile(ruta_archivo)
         sheets = xls.sheet_names
 
         if 'traduccion' not in sheets or 'diccionario_vars' not in sheets:
-            await mensaje_espera.edit_text("❌ El archivo adjunto no tiene las solapas requeridas ('traduccion' y 'diccionario_vars').", parse_mode="Markdown")
+            await mensaje_espera.edit_text("❌ El archivo en el servidor no tiene las solapas requeridas ('traduccion' y 'diccionario_vars').", parse_mode="Markdown")
             return
 
-        df_trad = pd.read_excel(buffer_in, sheet_name='traduccion')
-        df_dict = pd.read_excel(buffer_in, sheet_name='diccionario_vars')
+        df_trad = pd.read_excel(ruta_archivo, sheet_name='traduccion')
+        df_dict = pd.read_excel(ruta_archivo, sheet_name='diccionario_vars')
 
         df_trad.columns = [str(c).strip() for c in df_trad.columns]
         df_dict.columns = [str(c).strip() for c in df_dict.columns]
@@ -2931,9 +2927,10 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         columna_clave = df_trad.columns[0]
         df_trad = df_trad.drop_duplicates(subset=[columna_clave], keep='last')
 
-        ruta_archivo_local = f"{nombre_tabla}.xlsx"
-        df_trad.to_excel(ruta_archivo_local, index=False)
+        # Guardamos localmente el resultado final consolidado
+        df_trad.to_excel(ruta_archivo, index=False)
 
+        # Sincronizamos en Supabase
         conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df_trad)
 
         columnas = list(df_trad.columns)
@@ -2958,15 +2955,15 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(
             document=buffer_out,
             filename=f"final_{nombre_tabla}.xlsx",
-            caption=f"🏆 **¡Gemini terminó ganando el partido!**\nTabla `{nombre_tabla}` armada con éxito, guardada en el servidor y sincronizada en Supabase con todos sus idiomas.",
+            caption=f"🏆 **¡Gol de media cancha!**\nTabla `{nombre_tabla}` leída desde el servidor, armada con éxito y sincronizada en Supabase con todos sus idiomas.",
             parse_mode="Markdown"
         )
         await mensaje_espera.delete()
 
     except Exception as e:
-        logger.error(f"Error armando Excel: {e}", exc_info=True)
+        logger.error(f"Error armando Excel desde el servidor: {e}", exc_info=True)
         await mensaje_espera.edit_text(f"❌ Error al ensamblar: `{e}`", parse_mode="Markdown")
-                
+        
 async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando exclusivo para el administrador para importar/actualizar una tabla 
