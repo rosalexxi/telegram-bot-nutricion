@@ -8,8 +8,6 @@
 # ==============================================================================================================================================
 
 
-from deep_translator import GoogleTranslator
-
 import os
 import re
 import io
@@ -36,7 +34,8 @@ import urllib.parse
 # Patrón para detectar variables entre llaves
 PATTERN_VARS = re.compile(r'\{[^}]+\}')
 
-from time import sleep
+from deep_translator import GoogleTranslator
+from openai import OpenAI
 from typing import Dict, Tuple, List, Optional, Any            
 from urllib.parse import urlparse 
 from datetime import datetime, date, timedelta, time
@@ -59,6 +58,8 @@ from telegram.ext import (
     filters,
     ConversationHandler
 )
+
+client = OpenAI()
 
 logger = logging.getLogger(__name__)
 
@@ -2529,7 +2530,7 @@ def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=No
     except Exception as e:
         logger.error(f"Error al actualizar la tabla Perfil_{user_id} en Supabase: {e}")
         
-#              INICIO                       9  FUNCIONES MIGRAR FUNCIONES DESCARGAR                           INICIO
+#              INICIO                       9  FUNCIONES ADMINISTRADOR                           INICIO
 # =============================================================================================================================================
 
 def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
@@ -2681,6 +2682,53 @@ async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logger.error(f"Error general en prueba de diagnóstico: {e}", exc_info=True)
         await mensaje_espera.edit_text(f"❌ Error crítico: `{e}`", parse_mode="Markdown")
+
+async def cmd_hablar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args or len(context.args) < 2:
+        await update.message.reply_text(
+            "⚠ Formato incorrecto. Usa:\n"
+            "/hablar M [tu texto para voz de mujer]\n"
+            "/hablar H [tu texto para voz de hombre]"
+        )
+        return
+
+    genero = context.args[0].upper()
+    texto_usuario = " ".join(context.args[1:])
+
+    # Leemos las voces predeterminadas desde las variables de entorno de Render
+    # Si no encuentra ninguna configurada por fuera, usa 'nova' y 'alloy' por defecto.
+    voz_mujer_defecto = os.getenv("VOZ_MUJER", "nova")
+    voz_hombre_defecto = os.getenv("VOZ_HOMBRE", "alloy")
+
+    if genero == "M":
+        voz_elegida = voz_mujer_defecto
+    elif genero == "H":
+        voz_elegida = voz_hombre_defecto
+    else:
+        await update.message.reply_text(
+            "⚠️ Especifica 'M' para mujer o 'H' para hombre."
+        )
+        return
+
+    output_path = "voz_temporal.mp3"
+
+    try:
+        response = client.audio.speech.create(
+            model="tts-1",
+            voice=voz_elegida,
+            input=texto_usuario
+        )
+        response.stream_to_file(output_path)
+
+        with open(output_path, "rb") as audio_file:
+            await update.message.reply_voice(voice=audio_file)
+
+    except Exception as e:
+        await update.message.reply_text(f"Hubo un error al generar la voz: {str(e)}")
+
+    finally:
+        if os.path.exists(output_path):
+            os.remove(output_path)
 
 async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -2868,101 +2916,6 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error armando Excel: {e}", exc_info=True)
         await mensaje_espera.edit_text(f"❌ Error al ensamblar: `{e}`", parse_mode="Markdown")
         
-async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Comando: /armar
-    Lee el archivo 'multi.xlsx' que subiste a Render, procesa las traducciones,
-    restaura las variables y sincroniza Supabase de forma totalmente automática.
-    """
-    user_id = update.effective_user.id
-    ADMIN_USER_ID = 7363062724
-    if user_id != ADMIN_USER_ID:
-        await update.message.reply_text("⛔ No tenés permisos.", parse_mode="Markdown")
-        return
-
-    nombre_tabla = "multi"
-    mensaje_espera = await update.message.reply_text("🔄 Leyendo el archivo del servidor, ensamblando traducciones y sincronizando Supabase...", parse_mode="Markdown")
-
-    try:
-        ruta_archivo = f"{nombre_tabla}.xlsx"
-        if not os.path.exists(ruta_archivo):
-            await mensaje_espera.edit_text(f"❌ No encuentro el archivo `{ruta_archivo}` en el servidor.", parse_mode="Markdown")
-            return
-
-        # Leemos el archivo directamente desde el disco de Render
-        xls = pd.ExcelFile(ruta_archivo)
-        sheets = xls.sheet_names
-
-        if 'traduccion' not in sheets or 'diccionario_vars' not in sheets:
-            await mensaje_espera.edit_text("❌ El archivo en el servidor no tiene las solapas requeridas ('traduccion' y 'diccionario_vars').", parse_mode="Markdown")
-            return
-
-        df_trad = pd.read_excel(ruta_archivo, sheet_name='traduccion')
-        df_dict = pd.read_excel(ruta_archivo, sheet_name='diccionario_vars')
-
-        df_trad.columns = [str(c).strip() for c in df_trad.columns]
-        df_dict.columns = [str(c).strip() for c in df_dict.columns]
-
-        mapa_variables = dict(zip(df_dict['codigo'], df_dict['variable_original']))
-
-        columnas_idiomas = [c for c in df_trad.columns if c.upper() != 'VARIABLES']
-
-        for col in columnas_idiomas:
-            nueva_columna = []
-            for idx, val in df_trad[col].items():
-                texto = str(val) if pd.notna(val) else ""
-                if not texto.strip() or texto.strip().lower() == 'nan':
-                    nueva_columna.append("")
-                    continue
-
-                for codigo, original in mapa_variables.items():
-                    texto = texto.replace(codigo, original)
-                    texto = texto.replace(codigo.replace('__', '__ '), original)
-                    texto = texto.replace(codigo.replace('__', ' __'), original)
-
-                nueva_columna.append(texto)
-            
-            df_trad[col] = nueva_columna
-
-        columna_clave = df_trad.columns[0]
-        df_trad = df_trad.drop_duplicates(subset=[columna_clave], keep='last')
-
-        # Guardamos localmente el resultado final consolidado
-        df_trad.to_excel(ruta_archivo, index=False)
-
-        # Sincronizamos en Supabase
-        conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df_trad)
-
-        columnas = list(df_trad.columns)
-        cols_sql = ', '.join([f'"{c}"' for c in columnas])
-        placeholders = ', '.join(['%s'] * len(columnas))
-        
-        query_insert = f'INSERT INTO "{nombre_tabla}" ({cols_sql}) VALUES ({placeholders})'
-
-        for _, row in df_trad.iterrows():
-            valores = [None if pd.isna(row[col]) else str(row[col]).strip() for col in columnas]
-            cur.execute(query_insert, tuple(valores))
-
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        buffer_out = io.BytesIO()
-        with pd.ExcelWriter(buffer_out, engine='openpyxl') as writer:
-            df_trad.to_excel(writer, index=False, sheet_name=nombre_tabla[:31])
-        buffer_out.seek(0)
-
-        await update.message.reply_document(
-            document=buffer_out,
-            filename=f"final_{nombre_tabla}.xlsx",
-            caption=f"🏆 **¡Gol de media cancha!**\nTabla `{nombre_tabla}` leída desde el servidor, armada con éxito y sincronizada en Supabase con todos sus idiomas.",
-            parse_mode="Markdown"
-        )
-        await mensaje_espera.delete()
-
-    except Exception as e:
-        logger.error(f"Error armando Excel desde el servidor: {e}", exc_info=True)
-        await mensaje_espera.edit_text(f"❌ Error al ensamblar: `{e}`", parse_mode="Markdown")
         
 async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -9520,6 +9473,7 @@ def main():
         app_bot.add_handler(CommandHandler("subir", cmd_subir))
         app_bot.add_handler(CommandHandler("desarmar", cmd_desarmar_excel))
         app_bot.add_handler(CommandHandler("armar", cmd_armar_excel))
+        app_bot.add_handler(CommandHandler("hablar", cmd_hablar))
         
         app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^presion_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^cancelar_presion_foto$"))
