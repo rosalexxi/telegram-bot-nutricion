@@ -4305,6 +4305,7 @@ def detectar_codigo_con_groq(contenido_entrada):
 #                  INICIO               INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO
 # ======================================================================================================================================
 
+
 async def render_confirmation_screen(msg_or_query, context):
     user_id = msg_or_query.from_user.id if hasattr(msg_or_query, 'from_user') and msg_or_query.from_user else (msg_or_query.message.from_user.id if hasattr(msg_or_query, 'message') and msg_or_query.message and hasattr(msg_or_query.message, 'from_user') and msg_or_query.message.from_user else None)
     lang = obtener_idioma_usuario(user_id) if user_id and 'obtener_idioma_usuario' in globals() else 'en'
@@ -4364,16 +4365,14 @@ async def render_confirmation_screen(msg_or_query, context):
             m_buttons.append(InlineKeyboardButton(f"{mark}{etiqueta_visual}", callback_data=f"set_m_{nombre_momento}"))
         keyboard.append(m_buttons)
 
-    es_plantilla = any('§' in item.get('alimento', item.get('nombre', '')) for item in items)
-
-    if not es_plantilla:
-        for idx, item in enumerate(items, start=1):
-            nombre_corto = item.get('alimento', item.get('nombre', ''))[:10]
-            keyboard.append([
-                InlineKeyboardButton(f"#{idx} {nombre_corto}", callback_data=f"noop_{idx}"),
-                InlineKeyboardButton("✏️", callback_data=f"edit_item_{idx}"),
-                InlineKeyboardButton("❌", callback_data=f"del_item_{idx}")
-            ])
+    # Se eliminó la validación 'es_plantilla' para que siempre muestre los botones de edición
+    for idx, item in enumerate(items, start=1):
+        nombre_corto = item.get('alimento', item.get('nombre', ''))[:10]
+        keyboard.append([
+            InlineKeyboardButton(f"#{idx} {nombre_corto}", callback_data=f"noop_{idx}"),
+            InlineKeyboardButton("✏️", callback_data=f"edit_item_{idx}"),
+            InlineKeyboardButton("❌", callback_data=f"del_item_{idx}")
+        ])
 
     hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
     ayer_str = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -4419,7 +4418,7 @@ async def render_confirmation_screen(msg_or_query, context):
         if not editado and hasattr(msg_or_query, 'message') and msg_or_query.message:
             nuevo_msg = await msg_or_query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
             context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
-
+            
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 
     items = data_json.get("items", [])
@@ -4754,11 +4753,32 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
         item_previo = items[idx]
         txt_act = traducciones.get('06_bot_actualizando', "⏳ Actualizando valores...")
         msg_espera = await update.message.reply_text(txt_act)
+        
         try:
             if momento_actual == 'Actividad':
                 nuevo_kcal = float(re.sub(r'[^\d.]', '', raw_text.replace(',', '.')))
                 item_previo['calorias'] = -abs(nuevo_kcal)
+                
+            elif item_previo.get('es_plantilla'):
+                # Es una comida precargada: solo multiplicamos unidades
+                nuevo_mult = float(raw_text.replace(',', '.'))
+                desc_base = item_previo['desc_base']
+                mult_str = f"{int(nuevo_mult)}" if nuevo_mult.is_integer() else f"{nuevo_mult}"
+                nueva_desc = f"{desc_base} x {mult_str}"
+                
+                item_previo.update({
+                    "alimento": nueva_desc,
+                    "alimento_display": nueva_desc,
+                    "peso": item_previo['peso_base'] * nuevo_mult,
+                    "calorias": item_previo['cal_base'] * nuevo_mult,
+                    "proteinas": item_previo['prot_base'] * nuevo_mult,
+                    "grasas": item_previo['gras_base'] * nuevo_mult,
+                    "carbohidratos": item_previo['carb_base'] * nuevo_mult,
+                    "fibras": item_previo['fibr_base'] * nuevo_mult
+                })
+                
             else:
+                # Lógica normal para comidas ingresadas por IA
                 peso_prev = float(item_previo.get('peso', 0))
                 nuevo_p, nueva_d = peso_prev, item_previo.get('alimento', '')
                 if ',' in raw_text:
@@ -4776,11 +4796,13 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
                     "grasas": float(item_previo.get('grasas', 0)) * factor, "carbohidratos": float(item_previo.get('carbohidratos', 0)) * factor,
                     "fibras": float(item_previo.get('fibras', 0)) * factor
                 })
+                
             items[idx] = item_previo
             context.user_data['pending_items'] = items
             await msg_espera.delete()
             try: await update.message.delete()
             except Exception: pass
+            
         except Exception as e:
             txt_err_ed = traducciones.get('06_bot_error_editar', "❌ Error al editar: {e}").format(e=e)
             await msg_espera.edit_text(txt_err_ed)
@@ -4795,8 +4817,9 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
             await render_confirmation_screen(target, context)
             return
         except Exception: pass
+        
     await render_confirmation_screen(update, context)
-
+    
 async def _sub_manejar_plantilla_comida(update: Update, context: ContextTypes.DEFAULT_TYPE, raw_text, user_id):
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
@@ -4825,8 +4848,18 @@ async def _sub_manejar_plantilla_comida(update: Update, context: ContextTypes.DE
             "proteinas": pr_b * mult,
             "grasas": g_b * mult, 
             "carbohidratos": cb_b * mult, 
-            "fibras": f_b * mult
+            "fibras": f_b * mult,
+            # Etiquetas internas ocultas para edición:
+            "es_plantilla": True,
+            "desc_base": desc_limpia,
+            "peso_base": p_b,
+            "cal_base": c_b,
+            "prot_base": pr_b,
+            "gras_base": g_b,
+            "carb_base": cb_b,
+            "fibr_base": f_b
         }
+        
         txt_proc = traducciones.get('bot_proc_comida', "⏳ Procesando comida predeterminada...")
         msg = await update.message.reply_text(txt_proc)
         await procesar_y_mostrar_confirmacion({"items": [item_gen], "tipo": "Comida"}, msg, context)
@@ -5000,7 +5033,9 @@ async def callback_btn_editar_item(update: Update, context: ContextTypes.DEFAULT
     
     momento_actual = context.user_data.get('pending_momento', 'Comida')
     items = context.user_data.get('pending_items', [])
+    
     es_codigo_barras = (0 <= idx < len(items) and items[idx].get('fuente') == "Open Food Facts")
+    es_plantilla = (0 <= idx < len(items) and items[idx].get('es_plantilla') == True)
 
     if momento_actual == 'Actividad':
         txt_ed_kcal = traducciones.get('06_bot_edit_calorias', "✏️ Ingresá el nuevo valor de calorías para la actividad (ej: `220`):")
@@ -5008,10 +5043,13 @@ async def callback_btn_editar_item(update: Update, context: ContextTypes.DEFAULT
     elif es_codigo_barras:
         txt_ed_peso = traducciones.get('06_bot_edit_peso_gr', "⚖️ Ingresá el **nuevo peso en gramos** para este producto (ej: `150`):")
         await query.message.reply_text(txt_ed_peso, parse_mode="Markdown")
+    elif es_plantilla:
+        txt_ed_plantilla = traducciones.get('06_bot_edit_unidades', "✏️ Ingresá la **nueva cantidad de unidades** (ej: `2` o `1.5`):")
+        await query.message.reply_text(txt_ed_plantilla, parse_mode="Markdown")
     else:
         txt_ed_gen = traducciones.get('06_bot_edit_desc_peso', "✏️ Ingresá la nueva descripción y/o peso para este alimento:")
         await query.message.reply_text(txt_ed_gen)
-
+        
 @requiere_registro
 async def callback_btn_anular_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -8050,9 +8088,9 @@ async def ing_recibir_idioma(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data['ing_idioma'] = query.data.replace("set_lang_", "")
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🪑 Nivel 1 (Ligero)", callback_data="ocup_1375")],
-        [InlineKeyboardButton("🚶 Nivel 2 (Moderado)", callback_data="ocup_1550")],
-        [InlineKeyboardButton("🏃 Nivel 3 (Intenso)", callback_data="ocup_1725")]
+        [InlineKeyboardButton("🪑 Nivel 1 (Ligero)", callback_data="ocup_1.375")],
+        [InlineKeyboardButton("🚶 Nivel 2 (Moderado)", callback_data="ocup_1.550")],
+        [InlineKeyboardButton("🏃 Nivel 3 (Intenso)", callback_data="ocup_1.725")]
     ])
     
     texto_ocupacion = (
@@ -8064,11 +8102,17 @@ async def ing_recibir_idioma(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     await query.edit_message_text(texto_ocupacion, reply_markup=keyboard, parse_mode="Markdown")
     return ING_OCUPACION
+
 async def ing_recibir_ocupacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    try: context.user_data['ing_ocupacion'] = int(query.data.replace("ocup_", ""))
-    except ValueError: context.user_data['ing_ocupacion'] = 1375
+    try: 
+        context.user_data['ing_ocupacion'] = float(query.data.replace("ocup_", ""))
+    except ValueError: 
+        context.user_data['ing_ocupacion'] = 1.375
+        
+    await query.edit_message_text("Ingresá tu **peso actual en kg** (ejemplo: `82.5`):", parse_mode="Markdown")
+    return ING_PESO
         
     await query.edit_message_text("Ingresá tu **peso actual en kg** (ejemplo: `82.5`):", parse_mode="Markdown")
     return ING_PESO
@@ -8412,7 +8456,7 @@ def cmd_nuevo_usuario(datos_usuario):
     cuello = float(datos_usuario.get("cuello", 0))
     cadera = float(datos_usuario.get("cadera", 0))
     ritmo = datos_usuario.get("ritmo", "moderado")
-    idioma = datos_usuario.get("idioma", "es")
+    idioma = str(datos_usuario.get("idioma", "ES")).upper()
     ocupacion = float(datos_usuario.get("ocupacion", 1.375))
     peso = float(datos_usuario.get("peso", 0))
     altura = float(datos_usuario.get("altura", 0))
