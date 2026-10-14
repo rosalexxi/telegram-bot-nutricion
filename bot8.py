@@ -8287,6 +8287,19 @@ async def ing_recibir_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_text("Ahora ingresá tu **fecha de nacimiento** en formato `AAAA-MM-DD` (ejemplo: `1985-04-12`):", parse_mode="Markdown")
     return ING_CUMPLE
+    
+async def ing_recibir_peso(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    txt = update.message.text.strip().replace(',', '.')
+    try:
+        peso = float(txt)
+        if not (30 <= peso <= 300): raise ValueError()
+    except ValueError:
+        await update.message.reply_text("⚠️ Ingresá un peso válido en kg (ejemplo: `75.4`).", parse_mode="Markdown")
+        return ING_PESO
+
+    context.user_data['ing_peso'] = peso
+    await update.message.reply_text("Ingresá tu **altura en centímetros** (ejemplo: `175` para 1,75 m):", parse_mode="Markdown")
+    return ING_ALTURA
 
 
 async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE):
