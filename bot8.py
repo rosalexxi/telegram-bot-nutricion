@@ -6597,6 +6597,21 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prom_prot = df_sem['Proteinas'].sum() / dias_validos if 'Proteinas' in df_sem.columns else 0
         prom_gras = df_sem['Grasas'].sum() / dias_validos if 'Grasas' in df_sem.columns else 0
         prom_carb = df_sem['Carbohidratos'].sum() / dias_validos if 'Carbohidratos' in df_sem.columns else 0
+        prom_fibr = df_sem['Fibras'].sum() / dias_validos if 'Fibras' in df_sem.columns else 0
+
+        # Cálculo de minutos de actividad
+        minutos_totales_actividad = 0
+        if 'Momento' in df_sem.columns and 'Alimento' in df_sem.columns:
+            for _, row in df_sem.iterrows():
+                momento_str = str(row.get('Momento', '')).strip().lower()
+                alimento_str = str(row.get('Alimento', '')).strip()
+                cal_val = float(row.get('Calorias', 0) or 0)
+                if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
+                    match = re.match(r'^(\d+)', alimento_str)
+                    if match:
+                        minutos_totales_actividad += int(match.group(1))
+
+        prom_minutos_act = int(round(minutos_totales_actividad / dias_validos))
 
         txt_informe = (
             f"📊 **Resumen Semanal** ({inicio_str} al {fin_str})\n"
@@ -6606,7 +6621,9 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⚖️ Balance Neto Promedio: `{balance:.0f} kcal/día`\n\n"
             f"🥩 Proteínas: `{prom_prot:.1f} g/día`\n"
             f"🥑 Grasas: `{prom_gras:.1f} g/día`\n"
-            f"🍞 Carbohidratos: `{prom_carb:.1f} g/día`\n\n"
+            f"🍞 Carbohidratos: `{prom_carb:.1f} g/día`\n"
+            f"🌾 Fibras: `{prom_fibr:.1f} g/día`\n"
+            f"🏃 Actividad Física: `{prom_minutos_act} min/día`\n\n"
             f"💡 _Recordá mantener tus registros al día para mayor precisión._"
         )
         
@@ -6615,10 +6632,26 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error en resumen semanal para {user_id}: {e}")
         await msg_espera.edit_text("❌ Error al procesar tu resumen semanal.")
-
-                     
+                             
 #               INICIO                                COMANDO RESUMEN COMANDO MES                       INICIO DB OK
 # ==========================================================================================================================================
+
+def obtener_mensaje_variacion_peso(cambio_kg: float) -> str:
+    """Devuelve un mensaje cualitativo según la variación de peso mensual estimada."""
+    if abs(cambio_kg) <= 0.8:
+        return "Prácticamente estable"
+    elif 0.8 < cambio_kg <= 1.8:
+        return "Pequeña variación hacia arriba"
+    elif 1.8 < cambio_kg <= 3.0:
+        return "Variación moderada hacia arriba"
+    elif cambio_kg > 3.0:
+        return "Variación importante hacia arriba"
+    elif -1.8 <= cambio_kg < -0.8:
+        return "Pequeña variación hacia abajo"
+    elif -3.0 <= cambio_kg < -1.8:
+        return "Variación moderada hacia abajo"
+    else:
+        return "Variación importante hacia abajo"
 
 def calcular_metricas_mensuales(df_mes, perfil_dict):
     if df_mes is not None and not df_mes.empty and 'Fecha' in df_mes.columns:
@@ -6826,29 +6859,6 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
 
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
         m = calcular_metricas_mensuales(df_filtrado, perfil) if 'calcular_metricas_mensuales' in globals() else {}
-        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_target) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
-
-        peso_actual_eval = float(m.get('peso_actual', 0))
-        peso_referencia_eval = float(m.get('peso_referencia', 0))
-        prompt_condicional = obtener_prompt_segun_objetivo_peso(peso_actual_eval, peso_referencia_eval) if 'obtener_prompt_segun_objetivo_peso' in globals() else None
-
-        informe_ia = await generar_informe_mensual_auditado(
-            context=context, 
-            user_id=user_id, 
-            mes_str=mes_target, 
-            m=m, 
-            frecuencias=conteo_frecuencias,
-            prompt_condicional=prompt_condicional
-        )
-
-        if not informe_ia:
-            informe_ia = traducciones.get("08_sup_inf_error_ia", "<b>⚠️ Could not generate the AI audited report after retries.</b>")
-
-        recomendacion_pdf = (
-            informe_ia
-            .replace("<br>", "<br/>")
-            .replace("<BR>", "<br/>")
-        )
 
         df_presion = pd.DataFrame()
         tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
@@ -6859,14 +6869,13 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
             df_presion,
             perfil,
             tmb_val,
-            recomendacion_pdf,
             user_id
         )
         return True
     except Exception as e:
         logger.error(f"Error in procesar_y_enviar_informe_mensual for {user_id}: {e}")
         return False
-
+                        
 @requiere_registro
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -7040,7 +7049,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
                 return "0"
 
         cambio_peso_val = float(m.get('cambio_peso_kg', 0))
-        texto_variacion_peso = f"`{cambio_peso_val:+.1f} kg`"
+        texto_variacion_peso = f"`{obtener_mensaje_variacion_peso(cambio_peso_val)}`"
 
         template_enc = traducciones.get(
             "08_inf_mes_reporte_enc",
@@ -7082,7 +7091,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         pie_txt = traducciones.get("08_inf_mes_pie_pdf", "\n\n📄 Podés descargar el informe completo en PDF abajo:")
         
-        # Reemplazamos los '\n' literales por saltos de línea reales de Python
         txt_final = f"{encabezado_txt}{pie_txt}".replace('\\n', '\n')
 
         btn_pdf_text = traducciones.get("08_inf_mes_btn_descargar", "📄 Descargar PDF Resumen Mensual")
@@ -7102,8 +7110,8 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.callback_query.edit_message_text(msg_err)
         else:
             await update.message.reply_text(msg_err)
-            
-def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, recomendacion, user_id):
+                        
+def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, user_id):
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
@@ -7253,45 +7261,33 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, reco
 
     p_perfil_tmpl = traducciones.get("08_PDF_resumen_perfil_reg", "• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {peso_act_pdf} kg | Peso Objetivo de esta etapa : {peso_ref_pdf} kg |")
     p_def_tmpl = traducciones.get("08_PDF_resumen_deficit_diario", "• <b>DÉFICIT CALÓRICO DIARIO PROMEDIO:</b> {deficit} kcal / día")
-    p_cambio_tmpl = traducciones.get("08_PDF_resumen_cambio_peso", "• <b>CAMBIO ESTIMADO DE PESO EN EL MES:</b> {cambio:+.1f} kg")
+    
+    p_cambio_tmpl = traducciones.get("08_PDF_resumen_cambio_peso", "• <b>TENDENCIA ESTIMADA DE PESO:</b> {cambio_txt}")
     p_act_tmpl = traducciones.get("08_PDF_resumen_act_fisica", "• <b>ACTIVIDAD FÍSICA PROMEDIO:</b> {act_minutos} min/día (Rango recomendado: {act_min} - {act_max} min/día)")
     p_nota_act = traducciones.get("08_PDF_resumen_nota_act", "<i>(Nota: Los rangos de actividad consideran impacto corporal; actividades de bajo impacto como aquagym, natación o yoga no aplican restricciones de sobrepeso).</i>")
 
     story.append(Paragraph(p_perfil_tmpl.format(mes_str=mes_str, peso_act_pdf=peso_act_pdf, peso_ref_pdf=peso_ref_pdf), body_style))
     story.append(Paragraph(p_def_tmpl.format(deficit=m.get('deficit_diario_real', 0)), body_style))
-    story.append(Paragraph(p_cambio_tmpl.format(cambio=m.get('cambio_peso_kg', 0)), body_style))
+    
+    cambio_val = float(m.get('cambio_peso_kg', 0))
+    mensaje_variacion = obtener_mensaje_variacion_peso(cambio_val)
+    story.append(Paragraph(p_cambio_tmpl.format(cambio_txt=mensaje_variacion), body_style))
+    
     story.append(Paragraph(p_act_tmpl.format(act_minutos=m.get('prom_minutos_act', 0), act_min=m.get('act_min', 30), act_max=m.get('act_max', 60)), body_style))
     story.append(Spacer(1, 2))
     story.append(Paragraph(p_nota_act, body_style))
 
-    story.append(Spacer(1, 4))
-    inf_nutr_lbl = traducciones.get("08_PDF_resumen_informe_nutr", "Informe Nutricional:")
-    story.append(Paragraph(f"<b>{inf_nutr_lbl}</b>", sub_style))
-
-    if isinstance(recomendacion, str) and recomendacion.strip():
-        rec_limpia = recomendacion.strip().replace('""', '"')
-        for bloque in rec_limpia.split('\n\n'):
-            bloque_txt = bloque.strip()
-            if bloque_txt:
-                lineas_filtradas = [
-                    linea for linea in bloque_txt.split('\n') 
-                    if not linea.strip().startswith('|') and '|' not in linea
-                ]
-                bloque_sin_tablas = '<br/>'.join(lineas_filtradas).strip()
-                
-                if bloque_sin_tablas:
-                    try:
-                        story.append(Paragraph(bloque_sin_tablas, rec_style))
-                        story.append(Spacer(1, 2))
-                    except Exception:
-                        texto_plano = re.sub('<[^<]+?>', '', bloque_sin_tablas)
-                        story.append(Paragraph(texto_plano, rec_style))
-                        story.append(Spacer(1, 2))
+    story.append(Spacer(1, 6))
+    disclaimer_texto = traducciones.get(
+        "08_PDF_resumen_disclaimer", 
+        "<i>* Aclaración: La tendencia de peso indicada es una proyección matemática aproximada, calculada exclusivamente en base a los registros ingresados por el usuario en la plataforma. No posee exactitud ni validez clínica, ya que el resultado real depende de la precisión de dichas cargas y del metabolismo individual de cada paciente.</i>"
+    )
+    story.append(Paragraph(disclaimer_texto, body_style))
 
     doc.build(story)
     buffer.seek(0)
     return buffer
-    
+        
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -7356,8 +7352,6 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
 
         m = calcular_metricas_mensuales(df_mes, perfil)
 
-        recomendacion_pdf = traducciones.get("08_PDF_envio_nota_def", "Reporte mensual generado mediante métricas analíticas directas y cálculos puros del sistema.")
-
         pdf_buffer = await asyncio.to_thread(
             generar_pdf_resumen_bytes,
             mes_str,
@@ -7365,7 +7359,6 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
             df_presion,
             perfil,
             tmb_val,
-            recomendacion_pdf,
             user_id
         )
 
@@ -7387,7 +7380,7 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
         logger.error(f"Error al enviar PDF: {e}", exc_info=True)
         err_tmpl = traducciones.get("08_PDF_envio_error_gen", "⚠️ Error al procesar la descarga del PDF: {e}")
         await mensaje_espera.edit_text(err_tmpl.format(e=e))
-        
+                
 #               INICIO                               MENSAJES PROGRAMADOS                          INICIO  
 # ======================================================================================================================================
 
