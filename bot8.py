@@ -3657,7 +3657,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
             await asyncio.sleep(2)
 
             texto_p2 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_2, max_tokens=400, temperature=0.3)
-            await asyncio.sleep(2
+            await asyncio.sleep(2)
 
 # ======================================================================================================================================
 #                  INICIO               COMANDOS CONFIRMACION FUNCIONES BOTONES                    INICIO
