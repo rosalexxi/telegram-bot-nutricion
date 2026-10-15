@@ -5134,7 +5134,6 @@ async def callback_btn_guardar_registro(update: Update, context: ContextTypes.DE
 #              INICIO                     FUNCIONES COMIDAS                   INICIO
 # =============================================================================================================================================
 
-
 def consultar_codigo_barras(barcode: str) -> dict | bool:
     url = f"https://world.openfoodfacts.org/api/v2/product/{barcode.strip()}.json"
     headers = {"User-Agent": "BotNutricionTelegram/1.0 (contacto@tudominio.com)"}
@@ -5150,6 +5149,19 @@ def consultar_codigo_barras(barcode: str) -> dict | bool:
         product = data.get("product", {})
         nutriments = product.get("nutriments", {})
         
+        # 1. Extraemos los valores principales primero
+        calorias = float(nutriments.get("energy-kcal_100g", nutriments.get("energy-kcal", 0.0) or 0.0))
+        proteinas = float(nutriments.get("proteins_100g", 0.0) or 0.0)
+        
+        # 2. FILTRO ANTI-TABLAS VACÍAS: Si calorías y proteínas son cero, lo descartamos
+        if calorias == 0.0 and proteinas == 0.0:
+            return False
+            
+        # Si pasa el filtro, seguimos extrayendo el resto
+        grasas = float(nutriments.get("fat_100g", 0.0) or 0.0)
+        carbohidratos = float(nutriments.get("carbohydrates_100g", 0.0) or 0.0)
+        fibras = float(nutriments.get("fiber_100g", 0.0) or 0.0)
+        
         nombre_alimento = product.get("product_name_es") or product.get("product_name") or "Producto desconocido"
         marca = product.get("brands", "")
         if marca:
@@ -5158,11 +5170,11 @@ def consultar_codigo_barras(barcode: str) -> dict | bool:
         return {
             "alimento": nombre_alimento,
             "peso": 100.0,
-            "calorias": float(nutriments.get("energy-kcal_100g", nutriments.get("energy-kcal", 0.0) or 0.0)),
-            "proteinas": float(nutriments.get("proteins_100g", 0.0) or 0.0),
-            "grasas": float(nutriments.get("fat_100g", 0.0) or 0.0),
-            "carbohidratos": float(nutriments.get("carbohydrates_100g", 0.0) or 0.0),
-            "fibras": float(nutriments.get("fiber_100g", 0.0) or 0.0),
+            "calorias": calorias,
+            "proteinas": proteinas,
+            "grasas": grasas,
+            "carbohidratos": carbohidratos,
+            "fibras": fibras,
             "fuente": "Open Food Facts"
         }
     except Exception as e:
@@ -5648,7 +5660,8 @@ async def render_pantalla_items_eliminar(query, user_id, context):
                 InlineKeyboardButton(f"🗑️ {nombre_corto}", callback_data=f"del_reg_{item_id}")
             ])
 
-    keyboard.append([InlineKeyboardButton("❌", callback_data="del_borrar")])
+    # 🟢 Botón de la cruz ahora envía "del_salir_pantalla" en lugar de "del_borrar"
+    keyboard.append([InlineKeyboardButton("❌", callback_data="del_salir_pantalla")])
 
     markup = InlineKeyboardMarkup(keyboard)
     try:
@@ -5716,6 +5729,8 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
 
     cambio_biometrico = False
     mensaje_exito = ""
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
     if context.user_data.get('awaiting_edit_perfil_peso'):
         try:
@@ -5725,10 +5740,12 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
             if isinstance(res_cal, dict) and res_cal.get("error"):
                 await update.message.reply_text(res_cal["mensaje"], parse_mode="Markdown")
             else:
-                mensaje_exito = res_cal["mensaje"] if isinstance(res_cal, dict) and "mensaje" in res_cal else f"✅ Peso actualizado a `{nuevo_val} kg`."
+                msg_ok = traducciones.get("07_bot_peso_actualizado", "✅ Peso actualizado a `{nuevo_val} kg`.").format(nuevo_val=nuevo_val)
+                mensaje_exito = res_cal["mensaje"] if isinstance(res_cal, dict) and "mensaje" in res_cal else msg_ok
                 cambio_biometrico = True
-        except:
-            await update.message.reply_text("❌ Valor inválido. Ingresá números.")
+        except Exception as e:
+            msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido. Ingresá números.")
+            await update.message.reply_text(msg_err)
         context.user_data['awaiting_edit_perfil_peso'] = False
 
     elif context.user_data.get('awaiting_edit_perfil_altura'):
@@ -5736,58 +5753,70 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
             nuevo_val = float(raw_text.replace(',', '.'))
             # Usamos la función central segura envuelta en hilo
             await asyncio.to_thread(_core_guardar_perfil_db, user_id, mes_actual, {"ALTURA": nuevo_val})
-            mensaje_exito = f"✅ Altura actualizada a `{nuevo_val} cm`."
+            msg_ok = traducciones.get("07_bot_altura_actualizada", "✅ Altura actualizada a `{nuevo_val} cm`.").format(nuevo_val=nuevo_val)
+            mensaje_exito = msg_ok
             cambio_biometrico = True
-        except:
-            await update.message.reply_text("❌ Valor inválido. Ingresá números.")
+        except Exception as e:
+            msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido. Ingresá números.")
+            await update.message.reply_text(msg_err)
         context.user_data['awaiting_edit_perfil_altura'] = False
 
     elif context.user_data.get('awaiting_edit_perfil_cintura'):
         try:
             nuevo_val = float(raw_text.replace(',', '.'))
             await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"cintura_cm": nuevo_val})
-            mensaje_exito = f"✅ Cintura actualizada a `{nuevo_val} cm`."
+            msg_ok = traducciones.get("07_bot_cintura_actualizada", "✅ Cintura actualizada a `{nuevo_val} cm`.").format(nuevo_val=nuevo_val)
+            mensaje_exito = msg_ok
             cambio_biometrico = True
-        except:
-            await update.message.reply_text("❌ Valor inválido.")
+        except Exception as e:
+            msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido.")
+            await update.message.reply_text(msg_err)
         context.user_data['awaiting_edit_perfil_cintura'] = False
 
     elif context.user_data.get('awaiting_edit_perfil_cuello'):
         try:
             nuevo_val = float(raw_text.replace(',', '.'))
             await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"cuello_cm": nuevo_val})
-            mensaje_exito = f"✅ Cuello actualizado a `{nuevo_val} cm`."
+            msg_ok = traducciones.get("07_bot_cuello_actualizado", "✅ Cuello actualizado a `{nuevo_val} cm`.").format(nuevo_val=nuevo_val)
+            mensaje_exito = msg_ok
             cambio_biometrico = True
-        except:
-            await update.message.reply_text("❌ Valor inválido.")
+        except Exception as e:
+            msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido.")
+            await update.message.reply_text(msg_err)
         context.user_data['awaiting_edit_perfil_cuello'] = False
 
     elif context.user_data.get('awaiting_edit_perfil_cadera'):
         try:
             nuevo_val = float(raw_text.replace(',', '.'))
             await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"cadera_cm": nuevo_val})
-            mensaje_exito = f"✅ Cadera actualizada a `{nuevo_val} cm`."
+            msg_ok = traducciones.get("07_bot_cadera_actualizada", "✅ Cadera actualizada a `{nuevo_val} cm`.").format(nuevo_val=nuevo_val)
+            mensaje_exito = msg_ok
             cambio_biometrico = True
-        except:
-            await update.message.reply_text("❌ Valor inválido.")
+        except Exception as e:
+            msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido.")
+            await update.message.reply_text(msg_err)
         context.user_data['awaiting_edit_perfil_cadera'] = False
 
     elif context.user_data.get('awaiting_edit_perfil_nombre'):
         try:
             nuevo_val = str(raw_text).strip()
             await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"Nombre": nuevo_val})
-            await update.message.reply_text(f"✅ Nombre actualizado a `{nuevo_val}`.", parse_mode="Markdown")
-        except:
-            await update.message.reply_text("❌ Valor inválido.")
+            msg_ok = traducciones.get("07_bot_nombre_actualizado", "✅ Nombre actualizado a `{nuevo_val}`.").format(nuevo_val=nuevo_val)
+            await update.message.reply_text(msg_ok, parse_mode="Markdown")
+        except Exception as e:
+            msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido.")
+            await update.message.reply_text(msg_err)
         context.user_data['awaiting_edit_perfil_nombre'] = False
 
     elif context.user_data.get('awaiting_edit_perfil_prof'):
         try:
             nuevo_val = str(raw_text).strip()
             await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"profesional": nuevo_val})
-            await update.message.reply_text(f"✅ Profesional actualizado a `{nuevo_val}`.", parse_mode="Markdown")
-        except:
-            await update.message.reply_text("❌ Valor inválido.")
+            msg_ok = traducciones.get("07_bot_profesional_actualizado", "✅ Profesional actualizado a `{nuevo_val}`.").format(nuevo_val=nuevo_val)
+            await update.message.reply_text(msg_ok, parse_mode="Markdown")
+        except Exception as e:
+            msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido.")
+            await update.message.reply_text(msg_err)
         context.user_data['awaiting_edit_perfil_prof'] = False
 
     # --- RECÁLCULO DINÁMICO INMEDIATO ---
@@ -5814,14 +5843,12 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
                 peso_ideal = calcular_peso_ideal(genero, altura, edad=int(edad))
                 peso_etapa = calcular_peso_etapa(peso, peso_ideal, ritmo)
 
-                # Devolver la confirmación con el impacto inmediato del cambio
-                txt_recalculo = (
-                    f"{mensaje_exito}\n\n"
-                    f"🔄 **Nuevas métricas calculadas:**\n"
-                    f"• TMB (Metabolismo Basal): `{tmb:.0f} kcal/día`\n"
-                    f"• GET (Gasto Energético): `{get_val:.0f} kcal/día`\n"
-                    f"• Meta / Peso Etapa: `{peso_etapa:.1f} kg`"
+                msg_recalculo = traducciones.get(
+                    "07_bot_metricas_recalculadas",
+                    "{mensaje_exito}\n\n🔄 **Nuevas métricas calculadas:**\n• TMB (Metabolismo Basal): `{tmb:.0f} kcal/día`\n• GET (Gasto Energético): `{get_val:.0f} kcal/día`\n• Meta / Peso Etapa: `{peso_etapa:.1f} kg`"
                 )
+                txt_recalculo = msg_recalculo.format(mensaje_exito=mensaje_exito, tmb=tmb, get_val=get_val, peso_etapa=peso_etapa)
+
                 await update.message.reply_text(txt_recalculo, parse_mode="Markdown")
             else:
                 await update.message.reply_text(mensaje_exito, parse_mode="Markdown")
@@ -5839,7 +5866,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not raw_text: 
         return
 
-    # Corrección de TabError: se utilizaron espacios en lugar de tabulaciones
     estados_perfil = [
         'awaiting_edit_perfil_peso', 'awaiting_edit_perfil_altura', 
         'awaiting_edit_perfil_cintura', 'awaiting_edit_perfil_cuello', 
@@ -5866,15 +5892,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pulsaciones = datos_presion.get("pulsaciones")
             nota = raw_text
 
-            # Corrección de Bloqueo: se ejecuta la DB en un hilo separado
             await asyncio.to_thread(guardar_presion_db, user_id, alta, baja, pulsaciones, nota=nota)
 
             pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
+            msg_presion_ok = traducciones.get(
+                "07_bot_presion_registrada_ok",
+                "✅ *¡Presión arterial registrada con éxito!*\n\n• Presión Alta: `{alta:.0f} mmHg`\n• Presión Baja: `{baja:.0f} mmHg`{pul_txt}\n📝 Nota: `{nota}`"
+            )
             await update.message.reply_text(
-                f"✅ *¡Presión arterial registrada con éxito!*\n\n"
-                f"• Presión Alta: `{alta:.0f} mmHg`\n"
-                f"• Presión Baja: `{baja:.0f} mmHg`{pul_txt}\n"
-                f"📝 Nota: `{nota}`",
+                msg_presion_ok.format(alta=alta, baja=baja, pul_txt=pul_txt, nota=nota),
                 parse_mode="Markdown"
             )
         else:
@@ -5904,7 +5930,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg_analizando_ia = traducciones.get("07_bot_analizando_texto_ia", "🤖 Analizando texto con Inteligencia Artificial...")
     msg = await update.message.reply_text(msg_analizando_ia)
     try:
-        # Corrección de Bloqueo y Firma: Se ejecuta la consulta a Groq (síncrona) en un hilo para no freezar el bot y se pasa user_id
         data = await asyncio.to_thread(analizar_con_groq, raw_text, user_id)
         tipo = str(data.get("tipo", "")).strip().upper()
 
@@ -6144,6 +6169,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
+
 
 # ======================================================================================================================================
 #                   INICIO                                    COMANDOS INFORMES                                   INICIO  DB OK
