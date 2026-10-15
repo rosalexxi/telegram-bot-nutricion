@@ -6758,15 +6758,25 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         factor_proteina_max = 1.5
         fibr_min = 30
 
-    cal_max = int(round(get_meta))
-    cal_min = max(1500, int(round(cal_max - 600)))
+    # 1. Calorías: Rango entre el gasto de la etapa (meta) y el actual
+    val_get_real = int(round(get_real))
+    val_get_meta = int(round(get_meta))
+    
+    cal_min = min(val_get_real, val_get_meta)
+    cal_max = max(val_get_real, val_get_meta)
 
-    prot_min = int(round(peso_referencia * factor_proteina_min))
-    prot_max = int(round(peso_referencia * factor_proteina_max))
+    # 2. Peso: Rango entre el peso de etapa (meta) y el actual para proteínas
+    peso_min = min(float(peso_actual), float(peso_referencia))
+    peso_max = max(float(peso_actual), float(peso_referencia))
 
+    prot_min = int(round(peso_min * factor_proteina_min))
+    prot_max = int(round(peso_max * factor_proteina_max))
+
+    # 3. Grasas (20% al 30% de las calorías)
     gras_min = int(round((cal_min * 0.20) / 9.0))
     gras_max = int(round((cal_max * 0.30) / 9.0))
 
+    # 4. Carbohidratos (40% al 55% de las calorías)
     carb_min = int(round((cal_min * 0.40) / 4.0))
     carb_max = int(round((cal_max * 0.55) / 4.0))
 
@@ -6810,7 +6820,7 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "tot_carb": tot_carb,
         "tot_fibr": tot_fibr
     }
-    
+        
 async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
