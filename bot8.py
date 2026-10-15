@@ -3126,7 +3126,7 @@ async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def es_administrador(user_id) -> bool:
     """Verifica si el ID de usuario corresponde al administrador."""
-    if not ADMIN_USER_ID or ADMIN_USER_ID == "7363062724":
+    if not ADMIN_USER_ID:
         return False
     return str(user_id).strip() == str(ADMIN_USER_ID).strip()
 
