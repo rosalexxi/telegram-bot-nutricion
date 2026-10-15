@@ -3293,6 +3293,387 @@ def calcular_peso_ideal(sexo: str, altura_cm: float, edad: int = None) -> float:
         else:
             masa_magra = None
 
+        if masa_magra is not None and masa_magra > 1.0:
+            tramo_edad = max(0.0, (anios - 30.0) * 0.12)
+            grasa_objetivo_pct = (24.0 + tramo_edad) if is_femenino else (16.0 + tramo_edad)
+            grasa_objetivo_pct = min(33.0 if is_femenino else 25.0, grasa_objetivo_pct)
+
+            peso_por_composicion = masa_magra / (1.0 - (grasa_objetivo_pct / 100.0))
+            peso_final = (peso_por_composicion * 0.65) + (peso_lorentz * 0.35)
+            return round(max(40.0, peso_final), 1)
+
+    return round(max(40.0, peso_lorentz), 1)
+
+def calcular_peso_etapa(peso_actual: float, peso_ideal: float, ritmo_preferido: str = "moderado") -> float:
+    if peso_actual <= peso_ideal:
+        return round(peso_actual, 1)
+    
+    ritmo_clean = str(ritmo_preferido).strip().lower()
+    if "tranquilo" in ritmo_clean or "lento" in ritmo_clean or ritmo_clean == "1":
+        factor_actual = 0.90
+    elif "rapido" in ritmo_clean or "intenso" in ritmo_clean or "decidido" in ritmo_clean or ritmo_clean == "3":
+        factor_actual = 0.75
+    else:
+        factor_actual = 0.85
+        
+    factor_ideal = 1.0 - factor_actual
+    peso_etapa = (peso_actual * factor_actual) + (peso_ideal * factor_ideal)
+    return round(peso_etapa, 1)
+
+# 8. CÁLCULO DE TMB Y GET (SCHOFIELD OMS EN NIÑOS, KATCH/MIFFLIN EN ADULTOS)
+def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: str = "masculino", actividad: float = 1.375, masa_magra: float = None, peso_ideal: float = None, cadera_cm: float = None) -> tuple[float, float]:
+    try:
+        peso = float(peso_actual)
+        if peso > 1000: 
+            peso /= 1000.0
+            
+        altura = float(altura_cm)
+        if altura < 3.0:
+            altura *= 100.0  # Corrige metros a centímetros
+        elif altura > 500.0:
+            altura /= 10.0   # Corrige milímetros a centímetros
+
+        anios = int(float(edad))
+    except (TypeError, ValueError):
+        peso, altura, anios = 1.0, 1.0, 1
+
+    gen_clean = str(genero).strip().lower()
+    is_femenino = gen_clean in ["femenino", "f", "mujer", "female", "chica", "niña"]
+
+    # --- PEDIATRÍA (< 18 AÑOS): SCHOFIELD / OMS CON DEPÓSITO DE CRECIMIENTO ---
+    if anios < 18:
+        if is_femenino:
+            if anios < 10:
+                tmb = (22.500 * peso) + 499.0
+            else:
+                tmb = (13.384 * peso) + 692.6
+        else:
+            if anios < 10:
+                tmb = (22.706 * peso) + 504.3
+            else:
+                tmb = (17.686 * peso) + 658.2
+
+        try:
+            factor_act = float(actividad)
+            if factor_act > 10: factor_act /= 1000.0
+        except (TypeError, ValueError):
+            factor_act = 1.375
+
+        calorias_crecimiento = 25.0
+        get = (tmb * factor_act) + calorias_crecimiento
+        return round(tmb, 2), round(get, 2)
+
+    # --- ADULTOS (>= 18 AÑOS): KATCH-MCARDLE O MIFFLIN-ST JEOR ---
+    if is_femenino:
+        tmb_mifflin = (10.0 * peso) + (6.25 * altura) - (5.0 * anios) - 161.0
+    else:
+        tmb_mifflin = (10.0 * peso) + (6.25 * altura) - (5.0 * anios) + 5.0
+
+    if masa_magra is None or masa_magra <= 1.0:
+        bio = _obtener_biometria_encapsulada(sexo_arg=genero, altura_arg=altura, peso_arg=peso, edad_arg=anios)
+        cint_eval = bio.get("cintura", 1.0)
+        cuell_eval = bio.get("cuello", 1.0)
+        cad_eval = cadera_cm if (cadera_cm is not None and float(cadera_cm) > 0) else bio.get("cadera", 0.0)
+
+        if is_femenino:
+            if cint_eval > 1.0 and cuell_eval > 1.0 and cad_eval > 1.0:
+                _, masa_magra = calcular_grasa_y_magra(genero, altura, cint_eval, cuell_eval, peso, cadera_cm=cad_eval, edad=anios)
+        else:
+            if cint_eval > 1.0 and cuell_eval > 1.0 and cint_eval > cuell_eval:
+                _, masa_magra = calcular_grasa_y_magra(genero, altura, cint_eval, cuell_eval, peso, edad=anios)
+
+    if masa_magra is not None and masa_magra > 1.0:
+        tmb = 370.0 + (21.6 * float(masa_magra))
+    else:
+        tmb = tmb_mifflin
+
+    try:
+        factor_act = float(actividad)
+        if factor_act > 10:
+            factor_act /= 1000.0
+    except (TypeError, ValueError):
+        factor_act = 1.375
+
+    get = tmb * factor_act
+    return round(tmb, 2), round(get, 2)
+
+async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.DEFAULT_TYPE = None, user_id: int = None) -> bool:
+    uid = user_id or (update.effective_user.id if update else None)
+    if not uid:
+        return False
+
+    ahora = obtener_ahora_arg() if 'obtener_ahora_arg' in globals() else datetime.now()
+    mes_actual_str = ahora.strftime("%Y-%m")
+    mes_anterior_str = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+    fecha_hoy_str = ahora.strftime("%Y-%m-%d")
+
+    # 1. Garantizar fila del mes actual (si no existía y había peso post-día 24, ya lo migra y valida)
+    if '_garantizar_fila_mes_actual' in globals():
+        autovalidado = _garantizar_fila_mes_actual(uid, ahora)
+        if autovalidado:
+            return True
+
+    # 2. Verificar en Usuarios si ya figura actualizado en el mes actual
+    try:
+        ultimo_registro = obtener_ultimo_peso(uid) if 'obtener_ultimo_peso' in globals() else None
+    except Exception as e:
+        logger.error(f"Error en validar_peso_mes_actual para User {uid}: {e}")
+        ultimo_registro = None
+
+    peso_valido = False
+
+    if ultimo_registro:
+        fecha_val = (
+            ultimo_registro.get("fecha") or  
+            ultimo_registro.get("Ultimo Mes Peso") or  
+            ultimo_registro.get("MES") or  
+            ""
+        )
+        fecha_str = str(fecha_val).strip()
+
+        if fecha_str:
+            formatos = ["%d/%m/%Y", "%Y-%m-%d", "%d/%m/%y", "%Y-%m", "%m/%Y"]
+            fecha_dt = None
+            for fmt in formatos:
+                try:
+                    fecha_dt = datetime.strptime(fecha_str, fmt)
+                    break
+                except ValueError:
+                    continue
+
+            if fecha_dt:
+                if fecha_dt.year == ahora.year and fecha_dt.month == ahora.month:
+                    peso_valido = True
+            else:
+                if mes_actual_str in fecha_str or ahora.strftime("%m/%Y") in fecha_str:
+                    peso_valido = True
+
+    if peso_valido:
+        return True
+
+    # 3. Si aún no figura validado este mes, verificamos en Perfil_<uid> si en el mes anterior se cargó peso después del día 24
+    try:
+        tabla_nombre = f"Perfil_{uid}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+        cur.execute(f'ALTER TABLE "{tabla_nombre}" ADD COLUMN IF NOT EXISTS "peso_actual" DOUBLE PRECISION;')
+        conn.commit()
+
+        cur.execute(f"""
+            SELECT "PESO", "peso_actual", "Fecha_Actualizacion"
+            FROM "{tabla_nombre}"
+            WHERE "MES" = %s
+            ORDER BY id DESC LIMIT 1
+        """, (str(mes_anterior_str),))
+        fila_ant = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if fila_ant:
+            peso_base_ant = float(fila_ant[0] or 0.0)
+            if peso_base_ant > 1000: peso_base_ant /= 1000.0
+            peso_act_ant = float(fila_ant[1] or 0.0)
+            if peso_act_ant > 1000: peso_act_ant /= 1000.0
+            fecha_act_ant = str(fila_ant[2] or "").strip()
+
+            dia_act = 0
+            if fecha_act_ant:
+                for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"):
+                    try:
+                        dia_act = datetime.strptime(fecha_act_ant, fmt).day
+                        break
+                    except ValueError:
+                        continue
+
+            peso_heredado = peso_act_ant if peso_act_ant > 0 else peso_base_ant
+            if dia_act > 24 and peso_heredado > 0:
+                factor_nuevo = None
+                if '_calcular_y_actualizar_factor_mes_anterior' in globals():
+                    factor_nuevo = _calcular_y_actualizar_factor_mes_anterior(
+                        uid, mes_anterior_str, peso_fin_mes_override=peso_heredado
+                    )
+
+                conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+                if factor_nuevo and factor_nuevo > 0:
+                    cur.execute(f"""
+                        UPDATE "{tabla_nombre}"
+                        SET "PESO" = %s, "peso_actual" = %s, "ocupacion" = %s, "Fecha_Actualizacion" = %s
+                        WHERE "MES" = %s
+                    """, (peso_heredado, peso_heredado, float(factor_nuevo), fecha_hoy_str, str(mes_actual_str)))
+                else:
+                    cur.execute(f"""
+                        UPDATE "{tabla_nombre}"
+                        SET "PESO" = %s, "peso_actual" = %s, "Fecha_Actualizacion" = %s
+                        WHERE "MES" = %s
+                    """, (peso_heredado, peso_heredado, fecha_hoy_str, str(mes_actual_str)))
+                conn.commit()
+                cur.close()
+                conn.close()
+
+                conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+                cur_u.execute('UPDATE "Usuarios" SET "Ultimo Mes Peso" = %s WHERE "User ID" = %s', (fecha_hoy_str, str(uid)))
+                conn_u.commit()
+                cur_u.close()
+                conn_u.close()
+
+                if factor_nuevo and factor_nuevo > 0:
+                    guardar_ocupacion_db(uid, factor_nuevo, mes_actual_str)
+
+                return True
+    except Exception as e_post24:
+        logger.error(f"Error verificando peso post-día 24 para {uid}: {e_post24}")
+
+    # 4. Si no hay peso en el mes actual ni posterior al día 24 del mes pasado, solicitar el peso al usuario
+    lang = obtener_idioma_usuario(uid) if 'obtener_idioma_usuario' in globals() else 'es'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    msg_falta_peso = traducciones.get(
+        "04_bot_solic_peso_mensual",
+        "⚖️ **Actualización de Peso Mensual Requerida**\n\n"
+        "Para continuar con tus reportes de este nuevo mes, por favor ingresá tu peso actual ejecutando:\n"
+        "`/peso [tu_peso]` (ejemplo: `/peso 82.5`)"
+    ).replace('\\n', '\n')
+
+    try:
+        if update and update.message:
+            await update.message.reply_text(msg_falta_peso, parse_mode="Markdown")
+        elif update and update.callback_query:
+            await update.callback_query.message.reply_text(msg_falta_peso, parse_mode="Markdown")
+        elif context and hasattr(context, 'bot'):
+            await context.bot.send_message(chat_id=int(uid), text=msg_falta_peso, parse_mode="Markdown")
+    except Exception as e_msg:
+        logger.error(f"No se pudo enviar aviso de peso mensual a {uid}: {e_msg}")
+
+    return False
+        
+    
+#              INICIO                     FUNCIONES SOPORTE MULTILENGUAJE                   INICIO
+# =============================================================================================================================================
+
+def obtener_idioma_usuario(user_id):
+    """Obtiene el idioma configurado para un usuario de Telegram desde Supabase."""
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur.execute('SELECT "Idioma" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if row and row[0]:
+            return str(row[0]).strip().lower()
+    except Exception as e:
+        logger.error(f"Error obteniendo idioma para {user_id}: {e}")
+    return 'en'
+
+def obtener_traducciones_db(lang):
+    """Consulta la tabla 'multi' en Supabase y devuelve un diccionario con las traducciones."""
+    traducciones = {}
+    col_lang = "ES" if str(lang).strip().lower() == "es" else "EN"
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
+        query = f'SELECT "variables", "{col_lang}" FROM "multi"'
+        cur.execute(query)
+        filas = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        for fila in filas:
+            var_name = str(fila[0]).strip()
+            var_text = str(fila[1] or "").strip()
+            if var_name:
+                traducciones[var_name] = var_text
+    except Exception as e:
+        logger.error(f"Error al obtener traducciones de Supabase para el idioma {lang}: {e}")
+    return traducciones
+
+def requiere_registro(func):
+    """Decorador que verifica registro y bloquea usuarios en Estado 3 ofreciendo reactivación prorrateada."""
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        user_id = str(update.effective_user.id).strip()
+        encontrado = False
+        esta_activo = True
+        estado_val = "0"
+        
+        # Obtener traducciones para el usuario
+        lang = obtener_idioma_usuario(user_id)
+        traducciones = obtener_traducciones_db(lang)
+
+        mensaje_no_registrado = traducciones.get(
+            "04_bot_no_registrado", 
+            "⚠️ **¡Aún no estás registrado!**\n\n"
+            "Para usar este comando y acceder a tu plan nutricional, primero debés registrarte.\n\n"
+            "👉 Usá el comando `/alta` para crear tu perfil en un par de pasos."
+        )
+        
+        mensaje_deshabilitado = traducciones.get(
+            "04_bot_deshabilitado", 
+            "❌ **Tu cuenta ha sido deshabilitada por inactividad o eliminación del sistema. Por favor, contactá al administrador.**"
+        )
+
+        try:
+            conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+            cur.execute('SELECT "User ID", "Estado" FROM "Usuarios"')
+            filas = cur.fetchall()
+            cur.close()
+            conn.close()
+
+            for fila in filas:
+                raw_id = fila[0]
+                if raw_id and str(raw_id).split('.')[0].strip() == user_id:
+                    encontrado = True
+                    estado_val = str(fila[1] if fila[1] is not None else "0").strip().lower()
+                    
+                    if estado_val in ['baja', 'suspendido']:
+                        esta_activo = False
+                    break
+        except Exception as e:
+            logger.error(f"Error al verificar registro y pagos en decorador: {e}")
+
+        if not encontrado:
+            txt_alert_reg = traducciones.get("04_bot_alert_reg", "⚠️ Registro requerido")
+            if update.message:
+                await update.message.reply_text(mensaje_no_registrado, parse_mode="Markdown")
+            elif update.callback_query:
+                await update.callback_query.answer(txt_alert_reg, show_alert=True)
+                await update.callback_query.message.reply_text(mensaje_no_registrado, parse_mode="Markdown")
+            return
+
+        if not esta_activo:
+            txt_alert_disabled = traducciones.get("04_bot_alert_disabled", "⚠️ Cuenta deshabilitada")
+            if update.message:
+                await update.message.reply_text(mensaje_deshabilitado, parse_mode="Markdown")
+            elif update.callback_query:
+                await update.callback_query.answer(txt_alert_disabled, show_alert=True)
+                await update.callback_query.message.reply_text(mensaje_deshabilitado, parse_mode="Markdown")
+            return
+
+        if estado_val == '3':
+            mensaje_bloqueo = traducciones.get(
+                "04_bot_prueba_fin",
+                "⚠️ **Tu período de prueba gratuito ha finalizado.**\n\n"
+                "Para seguir usando todas las funciones del asistente, podés activar tu cuenta abonando los días que restan hasta fin de mes.\n\n"
+                "Una vez abonado, volverás a tener acceso total y tu ciclo de facturación se alineará al día 1 del mes próximo."
+            )
+            
+            txt_btn_activar = traducciones.get("04_bot_btn_activar_mes", "⭐ Activar mes en curso")
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton(txt_btn_activar, callback_data="rescate_mensual")]
+            ])
+            
+            txt_alert_susp = traducciones.get("04_bot_alert_susp", "⚠️ Cuenta suspendida")
+            
+            if update.message:
+                await update.message.reply_text(mensaje_bloqueo, reply_markup=keyboard, parse_mode="Markdown")
+            elif update.callback_query:
+                await update.callback_query.answer(txt_alert_susp, show_alert=True)
+                await update.callback_query.message.reply_text(mensaje_bloqueo, reply_markup=keyboard, parse_mode="Markdown")
+            return
+
+        return await func(update, context, *args, **kwargs)
+    return wrapper
+
+# =============================================================================================================================================
+#              FINAL                          FUNCIONES AUXILIARES INTERNAS                  FINAL
+# =============================================================================================================================================
+
 # ======================================================================================================================================       
 #                INICIO                       14 FUNCIONES IA GROQ                                      INICIO
 # ======================================================================================================================================
@@ -3658,6 +4039,271 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
 
             texto_p2 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_2, max_tokens=400, temperature=0.3)
             await asyncio.sleep(2)
+
+            texto_p3 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_3, max_tokens=700, temperature=0.3)
+            await asyncio.sleep(2)
+
+            informe_candidato = (
+                f"<b>1. DIAGNÓSTICO NUTRICIONAL GLOBAL</b><br/>{texto_p1}<br/><br/>"
+                f"<b>2. ALIMENTOS A INCORPORAR</b><br/>{texto_p2}<br/><br/>"
+                f"<b>3. ALIMENTOS A REDUCIR Y HÁBITOS</b><br/>{texto_p3}"
+            )
+
+            prompt_auditor_final = prompt_auditor_base.format(informe_completo=informe_candidato)
+            modelo_rev = globals().get('GROQ_REVISOR', 'qwen/qwen3.8-27b')
+            
+            veredicto = await asyncio.to_thread(
+                ejecutar_consulta_ia, 
+                prompt=prompt_auditor_final, 
+                max_tokens=100, 
+                temperature=0.1, 
+                modelo_override=modelo_rev
+            )
+
+            if not veredicto or veredicto.strip() == "":
+                modelo_rev_2 = globals().get('GROQ_REVISION_2', 'openai/gpt-oss-20b')
+                veredicto = await asyncio.to_thread(
+                    ejecutar_consulta_ia, 
+                    prompt=prompt_auditor_final, 
+                    max_tokens=100, 
+                    temperature=0.1, 
+                    modelo_override=modelo_rev_2
+                )
+
+            veredicto_limpio = veredicto.strip().upper() if veredicto else ""
+
+            if "OK" in veredicto_limpio and "RECHAZ" not in veredicto_limpio:
+                return informe_candidato
+
+        except Exception as e:
+            logger.error(f"Error en intento {intento_actual} para usuario {user_id}: {e}")
+
+        if intento_actual < max_intentos:
+            await asyncio.sleep(5)
+
+    return informe_candidato if informe_candidato else None
+
+async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.BytesIO]:
+    user_id = datos_usuario.get('user_id')
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    nombre = datos_usuario.get('nombre', 'Paciente')
+    edad = datos_usuario.get('edad', 0)
+    sexo = datos_usuario.get('sexo', 'M')
+    altura = datos_usuario.get('altura', 0)
+    peso = datos_usuario.get('peso', 0)
+    peso_ideal = datos_usuario.get('peso_ideal', 0)
+    peso_etapa = datos_usuario.get('peso_etapa', peso)
+    get_calorias = datos_usuario.get('get', 2000)
+    profesional = str(datos_usuario.get('profesional', '')).strip()
+    
+    ritmo_elegido = str(datos_usuario.get('ritmo', 'moderado')).lower()
+
+    if "tranquilo" in ritmo_elegido or "lento" in ritmo_elegido or "1" in ritmo_elegido:
+        texto_orientacion = traducciones.get("05_bot_inf_gradual", "Has seleccionado un enfoque gradual. En esta etapa, el objetivo principal es que te familiarices con el registro de tus comidas sin estrés. No busques la perfección inmediata; concéntrate en observar tus porciones actuales, mantenerte hidratado y sumar un poco más de movimiento a tu rutina diaria. La constancia a largo plazo es más importante que la velocidad.")
+    elif "intenso" in ritmo_elegido or "rapido" in ritmo_elegido or "rápido" in ritmo_elegido or "3" in ritmo_elegido:
+        texto_orientacion = traducciones.get("05_bot_inf_exigente", "Has seleccionado un enfoque más exigente. Esta etapa requiere mayor disciplina en el control de las porciones y constancia en tu actividad física. Es fundamental que registres tus ingestas con precisión para asegurar que el déficit energético se mantenga dentro de los parámetros calculados. Escucha a tu cuerpo y prioriza el descanso.")
+    else:
+        texto_orientacion = traducciones.get("05_bot_inf_equilibrado", "Has seleccionado un enfoque equilibrado. Esta etapa busca un balance entre resultados y flexibilidad. El objetivo es que comiences a estructurar tus comidas principales, reduzcas los picoteos innecesarios y mantengas una actividad física regular. Es el ritmo ideal para construir hábitos sólidos.")
+
+    get_val = float(get_calorias) if get_calorias > 0 else 2000.0
+    factor_prot = 1.5 if str(sexo).upper() in ['M', 'MASCULINO'] else 1.2
+    meta_cal = int(round(get_val * 0.85))
+    meta_prot = int(round(peso_etapa * factor_prot))
+    meta_gras = int(round((meta_cal * 0.25) / 9.0))
+    meta_carb = int(round((meta_cal * 0.50) / 4.0))
+
+    pdf_buffer = io.BytesIO()
+    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    story = []
+    
+    styles = getSampleStyleSheet()
+    titulo_style = ParagraphStyle('TituloInforme', parent=styles['Heading1'], fontSize=14, leading=16, alignment=1, textColor=colors.HexColor('#1b4f72'))
+    sub_style = ParagraphStyle('SubInforme', parent=styles['Normal'], fontSize=9, leading=13, textColor=colors.HexColor('#566573'))
+    body_style = ParagraphStyle('CuerpoInforme', parent=styles['Normal'], fontSize=10, leading=15, textColor=colors.HexColor('#2c3e50'))
+    indicaciones_style = ParagraphStyle('Indicaciones', parent=styles['Normal'], fontSize=10, leading=15, textColor=colors.HexColor('#0b5345'), spaceBefore=10)
+
+    t_titulo = traducciones.get("05_bot_pdf_titulo_inicial", "INFORME NUTRICIONAL INICIAL - CONFIGURACIÓN DE PERFIL")
+    story.append(Paragraph(f"<b>{t_titulo}</b>", titulo_style))
+    story.append(Spacer(1, 8))
+    
+    t_pac = traducciones.get("05_bot_pdf_paciente", "Paciente")
+    t_edad = traducciones.get("05_bot_pdf_edad", "Edad")
+    t_anios = traducciones.get("05_bot_pdf_anios", "años")
+    t_sexo_lbl = traducciones.get("05_bot_pdf_sexo", "Sexo")
+    t_altura = traducciones.get("05_bot_pdf_altura", "Altura")
+    t_peso_act = traducciones.get("05_bot_pdf_peso_act", "Peso Actual")
+    t_peso_ideal_lbl = traducciones.get("05_bot_pdf_peso_ideal", "Peso Teórico Ideal")
+    t_meta = traducciones.get("05_bot_pdf_meta", "Meta Etapa 1")
+    t_ritmo = traducciones.get("05_bot_pdf_ritmo", "Ritmo")
+    t_obj = traducciones.get("05_bot_pdf_obj_diarios", "Objetivos Diarios")
+    t_prot = traducciones.get("05_bot_pdf_prot", "Proteínas")
+    t_grasas = traducciones.get("05_bot_pdf_grasas", "Grasas")
+    t_carbos = traducciones.get("05_bot_pdf_carbos", "Carbos")
+
+    resumen_datos = (
+        f"<b>{t_pac}:</b> {nombre} | <b>ID:</b> `{datos_usuario.get('user_id')}`<br/>"
+        f"<b>{t_edad}:</b> {edad} {t_anios} | <b>{t_sexo_lbl}:</b> {sexo} | <b>{t_altura}:</b> {altura} cm<br/>"
+        f"<b>{t_peso_act}:</b> {peso} kg | <b>{t_peso_ideal_lbl}:</b> {peso_ideal} kg<br/>"
+        f"<b>{t_meta}:</b> {peso_etapa} kg | <b>{t_ritmo}:</b> {ritmo_elegido.capitalize()}<br/>"
+        f"<b>{t_obj}:</b> ~{meta_cal} kcal | {t_prot}: ~{meta_prot}g | {t_grasas}: ~{meta_gras}g | {t_carbos}: ~{meta_carb}g"
+    )
+    story.append(Paragraph(resumen_datos, sub_style))
+    story.append(Spacer(1, 15))
+    
+    if profesional and profesional != "123456789":
+        t_espacio_prof = traducciones.get("05_bot_pdf_espacio_prof", "👨‍⚕️ Espacio Reservado para tu Profesional:")
+        t_ind_prof = traducciones.get("05_bot_pdf_indicaciones", "<i>(Aquí se incluirán las indicaciones específicas redactadas por tu especialista de cabecera en el próximo reporte clínico).</i>")
+        story.append(Paragraph(f"<b>{t_espacio_prof}</b>", styles['Heading2']))
+        story.append(Spacer(1, 6))
+        story.append(Paragraph(t_ind_prof, indicaciones_style))
+    else:
+        t_orientacion = traducciones.get("05_bot_pdf_orientacion", "ℹ️ Orientación General del Sistema:")
+        story.append(Paragraph(f"<b>{t_orientacion}</b>", styles['Heading2']))
+        story.append(Spacer(1, 6))
+        story.append(Paragraph(texto_orientacion, body_style))
+    
+    doc.build(story)
+    pdf_buffer.seek(0)
+    
+    return texto_orientacion, pdf_buffer
+           
+async def obtener_recomendacion_ia(prompt: str, es_semanal: bool = False, user_id=None):
+    """Función auxiliar para obtener recomendaciones de IA utilizando las variables globales de modelos."""
+    try:
+        # Seleccionamos el modelo global correspondiente de forma dinámica
+        modelo = globals().get('GROQ_TEXTO', "openai/gpt-oss-120b")
+        
+        # Si quisieras diferenciar un modelo secundario o específico para semanales, 
+        # puedes usar otra global (ej: GROQ_REVISION_2), pero lo ideal es mantener 
+        # la consistencia con la constante global principal o la que prefieras.
+        
+        system_msg = "Eres un nutricionista clínico experto, empático y constructivo."
+        
+        # Llamamos a nuestra función central robusta que ya maneja clientes y reintentos
+        respuesta = await asyncio.to_thread(
+            ejecutar_consulta_ia,
+            prompt=prompt,
+            max_tokens=500,
+            temperature=0.4,
+            system_prompt=system_msg,
+            modelo_override=modelo
+        )
+        
+        return respuesta if respuesta else ""
+        
+    except Exception as e:
+        logger.error(f"Error en obtener_recomendacion_ia: {e}")
+        return ""
+
+async def analizar_imagen_con_groq(base64_image: str, user_id=None):
+    """Analiza una imagen general usando el modelo multimodal global con filtro de rechazo."""
+    client = globals().get('client_ai') or globals().get('groq_client')
+    if not client:
+        api_key = globals().get('GROQ_API_KEY') or os.getenv("GROQ_API_KEY")
+        if not api_key:
+            logger.error("⚠️ GROQ_API_KEY no configurada para análisis de imagen.")
+            return {"items": [], "tipo": "Rechazo"}
+        from groq import Groq
+        client = Groq(api_key=api_key)
+
+    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
+    modelo_foto = globals().get('GROQ_FOTO', "qwen/qwen3.8-27b")
+
+    system_prompt = (
+        f"Sos un asistente inteligente de nutrición y salud. El usuario se comunica en su idioma ({nombre_lenguaje}). "
+        f"Analizá la imagen provista. Tu tarea es determinar si la imagen corresponde claramente a un plato de comida, bebida, menú o producto alimenticio individual para registrar una ingesta.\n\n"
+        f"REGLAS DE CLASIFICACIÓN:\n"
+        f"1. Si es comida, bebida o producto comestible, desglósalo ítem por ítem en el JSON con sus macronutrientes estimados y poné 'tipo': 'Comida'.\n"
+        f"2. Si la imagen muestra paisajes, objetos inanimados, personas, animales, ropa, facturas de servicios o escenarios generales (como una parrilla gigante de restaurante, buffets masivos donde no se distingue un plato, o fotos borrosas/irrelevantes), debés clasificarla obligatoriamente como 'Rechazo' y dejar la lista de 'items' vacía ([]).\n\n"
+        f"Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
+        "{\n"
+        '  "items": [\n'
+        '    {"alimento": "nombre del alimento en ' + nombre_lenguaje + '", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
+        "  ],\n"
+        '  "tipo": "Comida" o "Rechazo"\n'
+        "}"
+    )
+
+    try:
+        response = await asyncio.to_thread(
+            client.chat.completions.create,
+            model=modelo_foto,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": system_prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            temperature=0.1,
+            response_format={"type": "json_object"}
+        )
+
+        if response and response.choices:
+            content = response.choices[0].message.content
+            if content:
+                return json.loads(content.strip())
+
+    except Exception as e:
+        logger.error(f"⚠️ Error analizando imagen con Groq: {e}")
+
+    return {"items": [], "tipo": "Rechazo"}
+            
+def detectar_codigo_con_groq(contenido_entrada):
+    """Detecta y extrae códigos de barras, QR o referencias numéricas usando la IA global."""
+    try:
+        client = globals().get('client_ai') or globals().get('groq_client')
+        if not client:
+            api_key = globals().get('GROQ_API_KEY') or os.getenv("GROQ_API_KEY")
+            if not api_key:
+                logger.error("⚠️ GROQ_API_KEY no configurada para detección de códigos.")
+                return None
+            from groq import Groq
+            client = Groq(api_key=api_key)
+
+        # Usamos el modelo global de texto principal o secundario para procesar la extracción
+        modelo = globals().get('GROQ_REVISION_2', globals().get('GROQ_TEXTO', "openai/gpt-oss-120b"))
+
+        system_prompt = (
+            "Eres un asistente especializado en extracción de códigos numéricos, códigos de barras o referencias de productos. "
+            "Analiza la entrada provista por el usuario y extrae únicamente el número de código de barras o identificación del producto. "
+            "Devuelve exclusivamente un JSON con este formato exacto:\n"
+            '{\n  "codigo": "numero_detectado_o_vacio"\n}'
+        )
+
+        response = client.chat.completions.create(
+            model=modelo,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": str(contenido_entrada)}
+            ],
+            temperature=0.0,
+            response_format={"type": "json_object"}
+        )
+
+        if response and response.choices:
+            content = response.choices[0].message.content
+            if content:
+                resultado = json.loads(content.strip())
+                return resultado.get("codigo")
+
+    except Exception as e:
+        logger.error(f"⚠️ Error detectando código con IA: {e}")
+
+    return None
+
+# =====================================================================================================================================
+#                FINAL                          FUNCIONES IA GROQ                                     FINAL
+# =====================================================================================================================================
 
 # ======================================================================================================================================
 #                  INICIO               COMANDOS CONFIRMACION FUNCIONES BOTONES                    INICIO
