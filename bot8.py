@@ -1,4 +1,4 @@
-# =============================================================================================================================================
+
 #                                 INICIO                                   CABECERA 2026 09 05                                    INICIO
 #                                  https://github.com/rosalexxi/telegram-bot-nutricion
 #                                  https://dashboard.render.com/web/srv-d9lcifijnfac73a8q1eg/events
@@ -38,7 +38,7 @@ from datetime import datetime, date, timedelta, time
 from google.oauth2.service_account import Credentials
 from groq import Groq
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, render_template_string, send_from_directory
+from flask import Flask, request, jsonify, render_template_string, send_from_directory, url_for
 from functools import wraps
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -56,9 +56,12 @@ from telegram.ext import (
     ConversationHandler
 )
 
-client = OpenAI()
+load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+# Inicialización segura de OpenAI luego de cargar las variables de entorno
+client = OpenAI() if os.getenv("OPENAI_API_KEY") else None
 
 # Definición de franjas horarias (sin tildes)
 FRANJAS_COMIDAS = {
@@ -68,8 +71,6 @@ FRANJAS_COMIDAS = {
     "Cena": (20, 24)
 }
 
-load_dotenv()
-
 # Estados de conversación para Perfil y Fecha personalizada
 AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT_ITEM = range(4)
 
@@ -77,8 +78,8 @@ GROQ_TEXTO      = "openai/gpt-oss-120b"   # Generación principal
 GROQ_FOTO       = "qwen/qwen3.8-27b"
 GROQ_AUDIO      = "whisper-large-v3"
 
-GROQ_REVISION_2   = "openai/gpt-oss-20b"    # Revisión principal
-GROQ_REVISOR  = "qwen/qwen3.8-27b"      # Respaldo
+GROQ_REVISION_2 = "openai/gpt-oss-20b"    # Revisión principal
+GROQ_REVISOR    = "qwen/qwen3.8-27b"      # Respaldo
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -91,7 +92,7 @@ PATTERN_VARS = re.compile(r'\{[^}]+\}')
 
 ADMIN_USER_ID = "7363062724"  # Reemplazá esto por tu número de ID de Telegram real
 
- #1. ESTADOS DE CONVERSACIÓN ACTUALIZADOS
+# 1. ESTADOS DE CONVERSACIÓN ACTUALIZADOS
 ING_TERMINOS, ING_IDIOMA, ING_PROFESIONAL, ING_NOMBRE, ING_EDAD, ING_SEXO, ING_ALTURA, ING_PESO, ING_MUNECA, ING_CUELLO, ING_CADERA, ING_OCUPACION, ING_CUMPLE, ING_RITMO = range(10, 24)
 
 if GROQ_API_KEY:
@@ -117,13 +118,12 @@ def run_flask():
 # ======================================================================================================================================
 
 HTML_CALCULADORA_RECETAS = """
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title id="title-app">IA NutriBot</title>
+    <title id="title-app" data-var="_02_titulo_web">IA NutriBot</title>
     <style>
         :root {
             --primary: #27ae60;
@@ -168,21 +168,32 @@ HTML_CALCULADORA_RECETAS = """
         .nav-links a { text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 0.8rem; transition: color 0.2s; cursor: pointer; padding: 4px 8px; border-radius: 4px; }
         .nav-links a:hover, .nav-links a.active { color: white; background-color: var(--primary); }
 
-        /* Segundo renglón: Banderas alineadas a la derecha, solo símbolo */
-        .nav-bottom-row { display: flex; justify-content: flex-end; align-items: center; gap: 6px; border-top: 1px solid rgba(0,0,0,0.06); padding-top: 6px; }
+        /* Segundo renglón: Banderas 3D alineadas a la derecha */
+        .nav-bottom-row { display: flex; justify-content: flex-end; align-items: center; gap: 8px; border-top: 1px solid rgba(0,0,0,0.06); padding-top: 6px; }
         .flag-btn { 
-            background: rgba(255, 255, 255, 0.95); 
-            border: 1px solid #cbd5e1; 
-            border-radius: 4px; 
-            padding: 2px 5px; 
-            font-size: 1.1rem; 
+            background: transparent; 
+            border: 2px solid transparent; 
+            border-radius: 6px; 
+            padding: 2px; 
             cursor: pointer; 
             text-decoration: none; 
             display: inline-flex; 
             align-items: center; 
-            transition: all 0.2s; 
+            justify-content: center;
+            transition: all 0.2s ease; 
         }
-        .flag-btn:hover { border-color: var(--primary); background: #f0fdf4; transform: translateY(-1px); }
+        .flag-btn:hover, .flag-btn.active-flag { 
+            border-color: var(--primary); 
+            background: rgba(39, 174, 96, 0.1); 
+            transform: scale(1.12); 
+        }
+        .flag-icon-img {
+            width: 34px;
+            height: 24px;
+            object-fit: contain;
+            display: block;
+            filter: drop-shadow(0 2px 3px rgba(0,0,0,0.2));
+        }
 
         .content-wrapper { 
             max-width: 950px; 
@@ -300,38 +311,48 @@ HTML_CALCULADORA_RECETAS = """
             backdrop-filter: blur(5px);
             color: white; 
             text-align: center; 
-            padding: 15px 15px 30px 15px; 
+            padding: 15px 20px 30px 20px; 
             flex-shrink: 0;
             font-size: 0.8rem; 
             margin-top: auto;
         }
         .footer-links { 
-            margin-bottom: 8px; 
+            margin-bottom: 10px; 
             display: flex; 
             flex-wrap: wrap; 
             justify-content: flex-start; 
             align-items: center;
-            gap: 8px; 
+            gap: 12px; 
         }
         .footer-link { 
             color: white; 
             text-decoration: none; 
-            font-weight: 600; 
-            padding: 6px 10px; 
-            background: rgba(255,255,255,0.12); 
-            border-radius: 4px; 
-            font-size: 0.85rem; 
-            transition: background 0.2s; 
-            display: inline-block; 
+            padding: 6px; 
+            background: rgba(255,255,255,0.10); 
+            border-radius: 8px; 
+            transition: all 0.2s ease; 
+            display: inline-flex; 
+            align-items: center;
+            justify-content: center;
             cursor: pointer; 
         }
-        .footer-link:hover { background: rgba(255,255,255,0.25); }
+        .footer-link:hover { 
+            background: rgba(255,255,255,0.25); 
+            transform: translateY(-2px) scale(1.08);
+        }
+        .footer-icon-img {
+            width: 38px;
+            height: 38px;
+            object-fit: contain;
+            display: block;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+        }
         .footer-info { opacity: 0.85; font-size: 0.75rem; text-align: left; margin-top: 5px; }
     </style>
 </head>
 <body>
 
-<div id="loadingLang" style="display:none; position:fixed; top:20px; right:20px; background:#2c3e50; color:white; padding:10px 15px; border-radius:8px; z-index:9999; font-size:0.85rem; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+<div id="loadingLang" data-var="_02_loading_lang" style="display:none; position:fixed; top:20px; right:20px; background:#2c3e50; color:white; padding:10px 15px; border-radius:8px; z-index:9999; font-size:0.85rem; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
     ⏳ Cargando idioma...
 </div>
 
@@ -339,21 +360,21 @@ HTML_CALCULADORA_RECETAS = """
     <div class="nav-container">
         <!-- Primer Renglón: Logo y Títulos de Secciones Centrados -->
         <div class="nav-top-row">
-            <a class="logo" onclick="showSection('inicio')"><span data-var="01_logo">🤖 Bot</span></a>
+            <a class="logo" onclick="showSection('inicio')"><span data-var="_02_logo">🤖 IA NutriBot</span></a>
             <div class="nav-links">
-                <a id="nav-inicio" onclick="showSection('inicio')" class="active" data-var="01_menu_inicio">Inicio</a>
-                <a id="nav-ingreso" onclick="showSection('ingreso')" data-var="01_menu_ingreso">Ingreso</a>
-                <a id="nav-alta" onclick="showSection('alta')" data-var="01_menu_alta">Alta</a>
-                <a id="nav-comandos" onclick="showSection('comandos')" data-var="01_menu_comandos">Comandos</a>
-                <a id="nav-faq" onclick="showSection('faq')" data-var="01_menu_faq">FAQ</a>
+                <a id="nav-inicio" onclick="showSection('inicio')" class="active" data-var="_02_menu_inicio">Inicio</a>
+                <a id="nav-ingreso" onclick="showSection('ingreso')" data-var="_02_menu_ingreso">Ingreso</a>
+                <a id="nav-alta" onclick="showSection('alta')" data-var="_02_menu_alta">Alta</a>
+                <a id="nav-comandos" onclick="showSection('comandos')" data-var="_02_menu_comandos">Comandos</a>
+                <a id="nav-faq" onclick="showSection('faq')" data-var="_02_menu_faq">FAQ</a>
                 {% if user_id %}
-                <a id="nav-calculadora" onclick="showSection('calculadora')" data-var="01_menu_calculadora">Calculadora</a>
+                <a id="nav-calculadora" onclick="showSection('calculadora')" data-var="_02_menu_calculadora">Calculadora</a>
                 {% endif %}
             </div>
         </div>
-        <!-- Segundo Renglón: Banderas alineadas a la derecha -->
+        <!-- Segundo Renglón: Banderas 3D alineadas a la derecha -->
         <div class="nav-bottom-row">
-            <div id="langFlagsContainer" class="lang-flags-container" style="display: flex; gap: 5px;"></div>
+            <div id="langFlagsContainer" class="lang-flags-container" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
         </div>
     </div>
 </header>
@@ -362,65 +383,65 @@ HTML_CALCULADORA_RECETAS = """
 
     <!-- Sección 1: Inicio -->
     <div id="section-inicio" class="section-content active">
-        <h1 data-var="01_titulo_inicio"></h1>
+        <h1 data-var="_02_titulo_inicio"></h1>
         <div class="content-box">
             <div class="article-content">
                 <div class="newspaper-img">
                     <img src="{{ url_for('static', filename='foto1.png') }}" alt="Inicio" onerror="this.style.display='none'">
-                    <div class="img-caption" data-var="01_cap_inicio"></div>
+                    <div class="img-caption" data-var="_02_cap_inicio"></div>
                 </div>
-                <div data-var="01_texto_inicio"></div>
+                <div data-var="_02_texto_inicio"></div>
             </div>
         </div>
     </div>
 
     <!-- Sección 2: Ingreso -->
     <div id="section-ingreso" class="section-content">
-        <h1 data-var="01_titulo_ingreso"></h1>
+        <h1 data-var="_02_titulo_ingreso"></h1>
         <div class="content-box">
             <div class="article-content">
                 <div class="newspaper-img">
                     <img src="{{ url_for('static', filename='foto3.png') }}" alt="Ingreso" onerror="this.style.display='none'">
-                    <div class="img-caption" data-var="01_cap_ingreso"></div>
+                    <div class="img-caption" data-var="_02_cap_ingreso"></div>
                 </div>
-                <div data-var="01_texto_ingreso"></div>
+                <div data-var="_02_texto_ingreso"></div>
             </div>
         </div>
     </div>
 
     <!-- Sección 3: Alta -->
     <div id="section-alta" class="section-content">
-        <h1 data-var="01_titulo_alta"></h1>
+        <h1 data-var="_02_titulo_alta"></h1>
         <div class="content-box">
             <div class="article-content">
                 <div class="newspaper-img">
                     <img src="{{ url_for('static', filename='foto2.png') }}" alt="Alta" onerror="this.style.display='none'">
-                    <div class="img-caption" data-var="01_cap_alta"></div>
+                    <div class="img-caption" data-var="_02_cap_alta"></div>
                 </div>
-                <div data-var="01_texto_alta"></div>
+                <div data-var="_02_texto_alta"></div>
             </div>
         </div>
     </div>
 
     <!-- Sección 4: Comandos -->
     <div id="section-comandos" class="section-content">
-        <h1 data-var="01_titulo_comandos"></h1>
+        <h1 data-var="_02_titulo_comandos"></h1>
         <div class="content-box">
             <div class="article-content">
                 <div class="newspaper-img">
                     <img src="{{ url_for('static', filename='foto4.png') }}" alt="Comandos" onerror="this.style.display='none'">
-                    <div class="img-caption" data-var="01_cap_comandos"></div>
+                    <div class="img-caption" data-var="_02_cap_comandos"></div>
                 </div>
-                <div data-var="01_texto_comandos"></div>
+                <div data-var="_02_texto_comandos"></div>
             </div>
         </div>
     </div>
 
     <!-- Sección 5: FAQ -->
     <div id="section-faq" class="section-content">
-        <h1 data-var="01_titulo_faq"></h1>
+        <h1 data-var="_02_titulo_faq"></h1>
         <div class="content-box">
-            <div data-var="01_texto_faq"></div>
+            <div data-var="_02_texto_faq"></div>
         </div>
     </div>
 
@@ -436,16 +457,16 @@ HTML_CALCULADORA_RECETAS = """
             <div class="row">
                 <div class="col" style="flex: 0.4;">
                     <label for="codigo"><span data-var="_02_label_codigo">Código</span>:</label>
-                    <input type="text" id="codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()">
+                    <input type="text" id="codigo" data-placeholder="_02_ph_codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()">
                 </div>
                 <div class="col">
                     <label for="descripcion"><span data-var="_02_label_descripcion">Descripción</span>:</label>
-                    <input type="text" id="descripcion" placeholder="Ej: Porción de pascualina de atún">
+                    <input type="text" id="descripcion" data-placeholder="_02_ph_descripcion" placeholder="Ej: Porción de pascualina de atún">
                 </div>
             </div>
 
             <label for="recetaText"><span data-var="_02_label_ingredientes">Ingredientes y Cantidad</span>:</label>
-            <textarea id="recetaText" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca"></textarea>
+            <textarea id="recetaText" data-placeholder="_02_ph_ingredientes" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca"></textarea>
 
             <div class="row">
                 <div class="col">
@@ -504,18 +525,34 @@ HTML_CALCULADORA_RECETAS = """
 </div>
 
 <footer>
-    <!-- Footer con símbolos alineados a la izquierda -->
+    <!-- Footer con imágenes PNG grandes alineadas a la izquierda -->
     <div class="footer-links">
-        <a onclick="reproducirAudioguia()" class="footer-link" title="Audioguía">🎧</a>
-        <a id="linkManual" href="#" target="_blank" class="footer-link" title="Manual (PDF)">📖</a>
-        <a href="https://instagram.com/ianutribot" target="_blank" class="footer-link" title="Instagram">📸</a>
-        <a href="https://twitter.com/ianutribot" target="_blank" class="footer-link" title="X (Twitter)">❌</a>
-        <a href="https://tiktok.com/@ianutribot" target="_blank" class="footer-link" title="TikTok">🎵</a>
-        <a href="https://facebook.com/ianutribot" target="_blank" class="footer-link" title="Facebook">📘</a>
-        <a href="https://youtube.com/@ianutribot" target="_blank" class="footer-link" title="YouTube">▶️</a>
-        <a href="mailto:ianutribot@gmail.com" class="footer-link" title="Mail">✉️</a>
+        <a onclick="reproducirAudioguia()" class="footer-link" data-title="_02_title_audioguia" title="Audioguía">
+            <img src="{{ url_for('static', filename='audioguia.png') }}" alt="Audioguía" class="footer-icon-img">
+        </a>
+        <a id="linkManual" href="#" target="_blank" class="footer-link" data-title="_02_title_manual" title="Manual (PDF)">
+            <img src="{{ url_for('static', filename='manual.png') }}" alt="Manual" class="footer-icon-img">
+        </a>
+        <a href="https://instagram.com/ianutribot" target="_blank" class="footer-link" title="Instagram">
+            <img src="{{ url_for('static', filename='instagram.png') }}" alt="Instagram" class="footer-icon-img">
+        </a>
+        <a href="https://twitter.com/ianutribot" target="_blank" class="footer-link" title="X (Twitter)">
+            <img src="{{ url_for('static', filename='x.png') }}" alt="X" class="footer-icon-img">
+        </a>
+        <a href="https://tiktok.com/@ianutribot" target="_blank" class="footer-link" title="TikTok">
+            <img src="{{ url_for('static', filename='tiktok.png') }}" alt="TikTok" class="footer-icon-img">
+        </a>
+        <a href="https://facebook.com/ianutribot" target="_blank" class="footer-link" title="Facebook">
+            <img src="{{ url_for('static', filename='facebook.png') }}" alt="Facebook" class="footer-icon-img">
+        </a>
+        <a href="https://youtube.com/@ianutribot" target="_blank" class="footer-link" title="YouTube">
+            <img src="{{ url_for('static', filename='youtube.png') }}" alt="YouTube" class="footer-icon-img">
+        </a>
+        <a href="mailto:ianutribot@gmail.com" class="footer-link" title="Mail">
+            <img src="{{ url_for('static', filename='mail.png') }}" alt="Mail" class="footer-icon-img">
+        </a>
     </div>
-    <div class="footer-info" data-var="01_footer_rights">© 2026 IA NutriBot - Todos los derechos reservados.</div>
+    <div class="footer-info" data-var="_02_footer_rights">© 2026 IA NutriBot - Todos los derechos reservados.</div>
 </footer>
 
 <script>
@@ -534,10 +571,16 @@ HTML_CALCULADORA_RECETAS = """
     }
 
     let idiomasDisponiblesGlobal = [];
+    let traduccionesGlobal = {};
     let idiomaActual = 'es';
     let nombreLargoActual = 'Español';
     const currentUserId = "{{ user_id }}";
     let itemsDesglosadosGlobal = [];
+
+    // Función auxiliar para traducir alertas y mensajes en JS con respaldo (fallback)
+    function t(clave, fallback) {
+        return (traduccionesGlobal && traduccionesGlobal[clave] !== undefined) ? traduccionesGlobal[clave] : fallback;
+    }
 
     async function cargarBanderasIdiomas() {
         try {
@@ -549,11 +592,25 @@ HTML_CALCULADORA_RECETAS = """
             if (data.idiomas && Array.isArray(data.idiomas)) {
                 idiomasDisponiblesGlobal = data.idiomas;
                 data.idiomas.forEach(langObj => {
+                    const code = langObj.code.toLowerCase();
                     const btn = document.createElement('a');
                     btn.className = 'flag-btn';
-                    btn.innerHTML = langObj.flag;
+                    btn.id = `flag-btn-${code}`;
                     btn.title = langObj.name;
-                    btn.onclick = () => cambiarIdioma(langObj.code);
+                    btn.onclick = () => cambiarIdioma(code);
+
+                    // Imagen PNG con las 2 letras del idioma (ej: /static/es.png)
+                    const img = document.createElement('img');
+                    img.src = `/static/${code}.png`;
+                    img.alt = code.toUpperCase();
+                    img.className = 'flag-icon-img';
+                    // Si la imagen aún no está subida, muestra el emoji o las siglas como respaldo
+                    img.onerror = function() {
+                        this.style.display = 'none';
+                        btn.innerText = langObj.flag || code.toUpperCase();
+                    };
+
+                    btn.appendChild(img);
                     container.appendChild(btn);
                 });
             }
@@ -563,22 +620,49 @@ HTML_CALCULADORA_RECETAS = """
     }
 
     async function cambiarIdioma(lang) {
+        const loadingBox = document.getElementById('loadingLang');
+        if (loadingBox) loadingBox.style.display = 'block';
+
         try {
-            idiomaActual = lang;
+            idiomaActual = lang.toLowerCase();
+            document.documentElement.lang = idiomaActual;
+
+            // Resaltar bandera activa
+            document.querySelectorAll('.flag-btn').forEach(b => b.classList.remove('active-flag'));
+            const activeFlag = document.getElementById(`flag-btn-${idiomaActual}`);
+            if (activeFlag) activeFlag.classList.add('active-flag');
             
-            const objLang = idiomasDisponiblesGlobal.find(i => i.code === lang);
+            const objLang = idiomasDisponiblesGlobal.find(i => i.code.toLowerCase() === idiomaActual);
             if (objLang && objLang.name) {
                 nombreLargoActual = objLang.name;
             }
 
-            const response = await fetch(`/api/traducciones?lang=${lang}`);
+            const response = await fetch(`/api/traducciones?lang=${idiomaActual}`);
             if (!response.ok) throw new Error("No se pudieron cargar las traducciones.");
             const traducciones = await response.json();
+            traduccionesGlobal = traducciones;
             
+            // 1. Traducir contenido HTML (data-var)
             document.querySelectorAll('[data-var]').forEach(el => {
                 const clave = el.getAttribute('data-var');
                 if (traducciones[clave] !== undefined) {
                     el.innerHTML = traducciones[clave];
+                }
+            });
+
+            // 2. Traducir placeholders de inputs/textareas (data-placeholder)
+            document.querySelectorAll('[data-placeholder]').forEach(el => {
+                const clave = el.getAttribute('data-placeholder');
+                if (traducciones[clave] !== undefined) {
+                    el.placeholder = traducciones[clave];
+                }
+            });
+
+            // 3. Traducir tooltips/titles (data-title)
+            document.querySelectorAll('[data-title]').forEach(el => {
+                const clave = el.getAttribute('data-title');
+                if (traducciones[clave] !== undefined) {
+                    el.title = traducciones[clave];
                 }
             });
 
@@ -588,6 +672,8 @@ HTML_CALCULADORA_RECETAS = """
             }
         } catch (err) {
             console.error("Error al cambiar idioma:", err);
+        } finally {
+            if (loadingBox) loadingBox.style.display = 'none';
         }
     }
 
@@ -605,7 +691,7 @@ HTML_CALCULADORA_RECETAS = """
                 const resUser = await fetch(`/api/usuario-idioma?user_id=${userId}`);
                 const dataUser = await resUser.json();
                 if (dataUser.lang) {
-                    cambiarIdioma(dataUser.lang);
+                    await cambiarIdioma(dataUser.lang);
                     return;
                 }
             } catch (e) {
@@ -628,19 +714,18 @@ HTML_CALCULADORA_RECETAS = """
             window.speechSynthesis.cancel();
             try {
                 const response = await fetch(`/api/audioguia?lang=${idiomaActual}`);
-                if (!response.ok) throw new Error("No se pudo cargar la audioguía para este idioma.");
+                if (!response.ok) throw new Error(t('_02_err_audioguia', "No se pudo cargar la audioguía."));
                 const data = await response.json();
                 
-                const langSpeech = idiomaActual === 'es' ? 'es-AR' : 'en-US';
                 const utterance = new SpeechSynthesisUtterance(data.guia);
-                utterance.lang = langSpeech;
+                utterance.lang = idiomaActual;
                 utterance.rate = 1.0;
                 window.speechSynthesis.speak(utterance);
             } catch (error) {
-                alert("Error al reproducir la audioguía: " + error.message);
+                alert(t('_02_err_audioguia', "Error al reproducir la audioguía:") + " " + error.message);
             }
         } else {
-            alert("Tu navegador no soporta la función de lectura de voz.");
+            alert(t('_02_err_no_speech', "Tu navegador no soporta la función de lectura de voz."));
         }
     }
 
@@ -671,7 +756,7 @@ HTML_CALCULADORA_RECETAS = """
 
     async function calcularReceta() {
         if (!currentUserId) {
-            alert("Acción no permitida para usuarios no registrados.");
+            alert(t('_02_err_no_registrado', "Acción no permitida para usuarios no registrados."));
             return;
         }
 
@@ -682,7 +767,7 @@ HTML_CALCULADORA_RECETAS = """
         const porciones = document.getElementById('porciones').value;
 
         if (!codigo || !descripcion || !receta) {
-            alert("Por favor completa el código, la descripción y los ingredientes.");
+            alert(t('_02_err_campos_vacios', "Por favor completa el código, la descripción y los ingredientes."));
             return;
         }
 
@@ -695,6 +780,7 @@ HTML_CALCULADORA_RECETAS = """
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     user_id: currentUserId,
+                    lang: idiomaActual,
                     codigo, 
                     descripcion, 
                     receta, 
@@ -705,7 +791,7 @@ HTML_CALCULADORA_RECETAS = """
 
             const responseText = await response.text();
             if (responseText.trim().startsWith('<')) {
-                alert("❌ El servidor falló (Código HTTP: " + response.status + ").");
+                alert(t('_02_err_servidor', "❌ El servidor falló") + " (HTTP " + response.status + ").");
                 return;
             }
 
@@ -716,10 +802,10 @@ HTML_CALCULADORA_RECETAS = """
                 renderizarTablaEditable();
                 document.getElementById('resultado-section').style.display = 'block';
             } else {
-                alert("❌ Error al calcular: " + (data.error || "Intente nuevamente."));
+                alert(t('_02_err_calcular', "❌ Error al calcular:") + " " + (data.error || ""));
             }
         } catch (err) {
-            alert("❌ Error de procesamiento: " + err.message);
+            alert(t('_02_err_procesamiento', "❌ Error de procesamiento:") + " " + err.message);
         } finally {
             document.getElementById('loading').style.display = 'none';
         }
@@ -776,7 +862,7 @@ HTML_CALCULADORA_RECETAS = """
 
     async function guardarEnGoogleSheets() {
         if (!currentUserId || itemsDesglosadosGlobal.length === 0) {
-            alert("No hay datos calculados para guardar.");
+            alert(t('_02_err_sin_datos', "No hay datos calculados para guardar."));
             return;
         }
 
@@ -807,12 +893,12 @@ HTML_CALCULADORA_RECETAS = """
                     filaTotalConsolidada.nombre = res.codigo_guardado;
                     document.getElementById('codigo').value = res.codigo_guardado;
                 }
-                alert("✅ ¡Éxito! " + res.message);
+                alert(t('_02_msg_exito_guardar', "✅ ¡Éxito!") + " " + (res.message || ""));
             } else {
-                alert("❌ Error al guardar: " + (res.error || "Error desconocido."));
+                alert(t('_02_err_guardar', "❌ Error al guardar:") + " " + (res.error || ""));
             }
         } catch (e) {
-            alert("Error de conexión al intentar guardar.");
+            alert(t('_02_err_conexion_guardar', "Error de conexión al intentar guardar."));
         }
     }
 
@@ -832,16 +918,15 @@ HTML_CALCULADORA_RECETAS = """
         const textoCopiable = celdas.join('\\t');
 
         navigator.clipboard.writeText(textoCopiable).then(() => {
-            alert("¡Fila total copiada! Podés pegarla en tu Excel con Ctrl + V.");
+            alert(t('_02_msg_copiado', "¡Fila total copiada! Podés pegarla en tu Excel con Ctrl + V."));
         }).catch(err => {
-            alert("Error al copiar al portapapeles.");
+            alert(t('_02_err_copiar', "Error al copiar al portapapeles."));
         });
     }
 </script>
 
 </body>
 </html>
-
 """
 
 @app.route('/', methods=['GET'])
@@ -931,6 +1016,7 @@ def api_calcular_receta():
         receta = data.get('receta')
         tipo_calculo = data.get('tipoCalculo')
         porciones = int(data.get('porciones', 1))
+        lang = data.get('lang', 'es')
 
         client_ai = globals().get('client_ai')
         if not client_ai:
@@ -940,7 +1026,7 @@ def api_calcular_receta():
             f"Analiza la siguiente receta o listado de ingredientes: '{receta}'. "
             f"Desglósalo estrictamente **ítem por ítem** (ingrediente por ingrediente o componente por componente). "
             f"Para cada ítem, calcula de forma independiente y precisa:\n"
-            f"- El nombre del alimento o ingrediente ('alimento')\n"
+            f"- El nombre del alimento o ingrediente ('alimento'), escrito en el idioma correspondiente al código '{lang}'\n"
             f"- El peso estimado en gramos ('peso')\n"
             f"- Las calorías ('calorias')\n"
             f"- Las proteínas en gramos ('proteinas')\n"
@@ -2352,6 +2438,34 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     if peso_ingresado > 1000:
         peso_ingresado /= 1000.0
 
+    # --- Obtener idioma del usuario para las respuestas multilenguaje ---
+    lang_usuario = 'es'
+    try:
+        conn_l, cur_l = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur_l.execute('SELECT "Idioma" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id).strip(),))
+        row_l = cur_l.fetchone()
+        if row_l and row_l[0]:
+            lang_usuario = str(row_l[0]).strip().lower()
+        cur_l.close()
+        conn_l.close()
+    except Exception:
+        pass
+
+    # Obtener traducciones de la tabla 'multi' de forma segura
+    traducciones_msj = {}
+    try:
+        conn_m, cur_m = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
+        cur_m.execute('SELECT variables, "{0}" FROM "multi"'.format(lang_usuario))
+        filas_m = cur_m.fetchall()
+        traducciones_msj = {row[0].strip().lower(): row[1] for row in filas_m if row[0] and row[1]}
+        cur_m.close()
+        conn_m.close()
+    except Exception:
+        pass
+
+    def msg_t(clave, fallback):
+        return traducciones_msj.get(clave, fallback)
+
     conn = None
     cur = None
     try:
@@ -2439,7 +2553,8 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     # --- REGLA DE LAS 3 VENTANAS ---
     if dia_actual <= 14:
         if peso_base_mes > 0:
-            return {"error": True, "mensaje": "⚖️ Ya tenemos registrado tu peso base del mes. Para que la tendencia sea real y no refleje retención de líquidos, podrás ingresar tu próximo control a partir del día 15."}
+            msg_default = "⚖️ Ya tenemos registrado tu peso base del mes. Para que la tendencia sea real y no refleje retención de líquidos, podrás ingresar tu próximo control a partir del día 15."
+            return {"error": True, "mensaje": msg_t("_03_peso_ya_registrado", msg_default)}
         
         _core_guardar_perfil_db(user_id, str(mes), {
             "EDAD": str(edad_val), "PESO": peso_ingresado, "peso_actual": peso_ingresado, 
@@ -2447,11 +2562,15 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
             "Fecha_Actualizacion": ahora.strftime("%Y-%m-%d")
         })
         _core_guardar_usuario_db(user_id, {"Ultimo Mes Peso": ahora.strftime("%Y-%m-%d")})
-        return {"error": False, "mensaje": f"✅ **¡Peso base del mes registrado correctamente!**\n\n• Peso inicial ({mes}): `{peso_ingresado:.1f} kg`"}
+        
+        msg_default = f"✅ **¡Peso base del mes registrado correctamente!**\n\n• Peso inicial ({mes}): `{peso_ingresado:.1f} kg`"
+        template = msg_t("_03_peso_base_ok", msg_default)
+        return {"error": False, "mensaje": template.format(mes=mes, peso=f"{peso_ingresado:.1f}")}
 
     elif 15 <= dia_actual <= 25:
         if dia_ultima_act >= 15:
-            return {"error": True, "mensaje": "⚖️ Control quincenal ya registrado correctamente. Tu próximo ingreso estará habilitado a partir del día 26 para el cierre del mes."}
+            msg_default = "⚖️ Control quincenal ya registrado correctamente. Tu próximo ingreso estará habilitado a partir del día 26 para el cierre del mes."
+            return {"error": True, "mensaje": msg_t("_03_control_quincenal_hecho", msg_default)}
         
         nuevo_factor = recalcular_factor_diluido(peso_base_mes, peso_ingresado)
         delta_peso = peso_ingresado - peso_base_mes
@@ -2460,11 +2579,15 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
             "peso_actual": peso_ingresado, "ocupacion": nuevo_factor, "Fecha_Actualizacion": ahora.strftime("%Y-%m-%d")
         })
         guardar_ocupacion_db(user_id, nuevo_factor, str(mes))
-        return {"error": False, "mensaje": f"✅ **¡Control quincenal guardado y factor calibrado!**\n\n• Variación detectada: `{delta_peso:+.1f} kg`\n• Nuevo factor de actividad: `{nuevo_factor:.4f}`"}
+        
+        msg_default = f"✅ **¡Control quincenal guardado y factor calibrado!**\n\n• Variación detectada: `{delta_peso:+.1f} kg`\n• Nuevo factor de actividad: `{nuevo_factor:.4f}`"
+        template = msg_t("_03_control_quincenal_ok", msg_default)
+        return {"error": False, "mensaje": template.format(variacion=f"{delta_peso:+.1f}", factor=f"{nuevo_factor:.4f}")}
 
     else: # dia_actual >= 26
         if dia_ultima_act >= 26:
-            return {"error": True, "mensaje": "⚖️ Ya registraste tu peso de cierre de mes. El sistema ya preparó tu ficha para el mes que viene. Tu próximo pesaje se habilitará el día 15."}
+            msg_default = "⚖️ Ya registraste tu peso de cierre de mes. El sistema ya preparó tu ficha para el mes que viene. Tu próximo pesaje se habilitará el día 15."
+            return {"error": True, "mensaje": msg_t("_03_cierre_mes_hecho", msg_default)}
         
         nuevo_factor = recalcular_factor_diluido(peso_base_mes, peso_ingresado)
         
@@ -2485,8 +2608,10 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         
         _core_guardar_usuario_db(user_id, {"Ultimo Mes Peso": ahora.strftime("%Y-%m-%d")})
         
-        return {"error": False, "mensaje": f"✅ **¡Cierre de mes registrado impecable!**\n\nEl balance del período se ha consolidado y ya configuramos automáticamente tu perfil base para el inicio del próximo mes con `{peso_ingresado:.1f} kg`."}
-                                                     
+        msg_default = f"✅ **¡Cierre de mes registrado impecable!**\n\nEl balance del período se ha consolidado y ya configuramos automáticamente tu perfil base para el inicio del próximo mes con `{peso_ingresado:.1f} kg`."
+        template = msg_t("_03_cierre_mes_ok", msg_default)
+        return {"error": False, "mensaje": template.format(peso=f"{peso_ingresado:.1f}")}
+                                                         
 def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=None):
     """Actualiza el factor de ocupación en la tabla Perfil_<user_id> y el control en Usuarios."""
     user_id_str = str(user_id).strip()
@@ -2500,10 +2625,18 @@ def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=No
     _core_guardar_perfil_db(user_id, str(mes_actual), {
         "ocupacion": float(nuevo_factor or 1.375)
     })
-        
+
+# =============================================================================================================================================
+# =============================================================================================================================================        
 #              INICIO                              FUNCIONES ADMINISTRADOR                           INICIO
 # =============================================================================================================================================
 
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+# FUNCIÓN INTERNA 1: _asegurar_tabla_y_conectar_migrar
+# ¿QUÉ HACE?: Se conecta a Supabase, BORRA (DROP) la tabla indicada si ya existía y la vuelve a crear (CREATE) desde cero
+#             usando exactamente los nombres de columnas que tenga el archivo Excel (DataFrame) que se le pase.
+# ¿CUÁNDO SE USA?: La llaman automáticamente por detrás los comandos /traducir, /armar, /subir y /migrar.
+# ---------------------------------------------------------------------------------------------------------------------------------------------
 def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
     conn = _obtener_conexion_db()
     cur = conn.cursor()
@@ -2519,152 +2652,14 @@ def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
         conn.commit()
     return conn, cur
 
-def traducir_texto_seguro(texto_es: str, lang_code: str) -> str:
-    if not texto_es or not str(texto_es).strip():
-        return ""
-    
-    texto_str = str(texto_es)
-    lang_code = lang_code.strip().lower()
-    
-    placeholders = re.findall(r'\[.*?\]', texto_str)
-    
-    texto_para_traducir = texto_str
-    for i, placeholder in enumerate(placeholders):
-        texto_para_traducir = texto_para_traducir.replace(placeholder, f"__VAR_{i}__")
-    
-    try:
-        translator = GoogleTranslator(source='es', target=lang_code)
-        texto_traducido = translator.translate(texto_para_traducir)
-        
-        if not texto_traducido:
-            return texto_es
-            
-        for i, placeholder in enumerate(placeholders):
-            texto_traducido = texto_traducido.replace(f"__VAR_{i}__", placeholder)
-            texto_traducido = texto_traducido.replace(f"__VAR_ {i} __", placeholder)
-            texto_traducido = texto_traducido.replace(f"__VAR_{i} __", placeholder)
-            texto_traducido = texto_traducido.replace(f"__VAR_ {i}__", placeholder)
-            
-        return texto_traducido
-        
-    except Exception as e:
-        logger.error(f"Error al traducir el texto '{texto_es}' al idioma '{lang_code}': {e}")
-        return texto_es
-                
-async def cmd_traducir_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    user_id = update.effective_user.id
-    if not es_administrador(user_id):
-        msg_no_perm = "❌ No tenés permisos para ejecutar este comando."
-        await update.message.reply_text(msg_no_perm)
-        return
-
-    if not context.args or len(context.args) == 0:
-        await update.message.reply_text(
-            "⚠️ Indica el nombre de la tabla y opcionalmente el idioma.\n"
-            "Ejemplo: `/traducir multi en` o simplemente `/traducir multi`",
-            parse_mode="Markdown"
-        )
-        return
-
-    nombre_tabla = context.args[0].strip().lower()
-    idioma_especifico = context.args[1].strip().lower() if len(context.args) > 1 else None
-    ruta_archivo = f"{nombre_tabla}.xlsx"
-
-    if not os.path.exists(ruta_archivo):
-        archivos_en_directorio = os.listdir('.')
-        archivo_encontrado = next((f for f in archivos_en_directorio if f.lower() == ruta_archivo), None)
-        if archivo_encontrado:
-            ruta_archivo = archivo_encontrado
-        else:
-            await update.message.reply_text(
-                f"❌ No encontré el archivo `{nombre_tabla}.xlsx` en el servidor.",
-                parse_mode="Markdown"
-            )
-            return
-
-    mensaje_espera = await update.message.reply_text(
-        f"🔄 Leyendo `{ruta_archivo}` del servidor y procesando traducción...", 
-        parse_mode="Markdown"
-    )
-
-    try:
-        df = pd.read_excel(ruta_archivo)
-
-        if df.empty or 'ES' not in df.columns:
-            await mensaje_espera.edit_text("❌ El archivo en el servidor debe tener una columna `ES` (Español).", parse_mode="Markdown")
-            return
-
-        df.columns = [str(c).strip() for c in df.columns]
-
-        if idioma_especifico:
-            col_target = idioma_especifico.upper()
-            cols_a_procesar = [col_target]
-            if col_target not in df.columns:
-                df[col_target] = ""
-        else:
-            cols_a_procesar = [c for c in df.columns if c.upper() not in ['VARIABLES', 'ES', 'ID']]
-
-        for col in cols_a_procesar:
-            lang_code = col.lower()
-            await mensaje_espera.edit_text(f"🔄 Traduciendo al idioma `{col}`...", parse_mode="Markdown")
-            
-            nueva_columna = []
-            for idx, row in df.iterrows():
-                texto_es = str(row['ES']) if pd.notna(row['ES']) else ""
-                
-                if not texto_es.strip() or texto_es.strip().lower() == 'nan':
-                    nueva_columna.append("")
-                    continue
-                
-                try:
-                    traducido = traducir_texto_seguro(texto_es, lang_code)
-                    if not traducido or not str(traducido).strip():
-                        traducido = texto_es
-                    nueva_columna.append(traducido)
-                except Exception as ex:
-                    logger.error(f"Error traduciendo '{texto_es}' a {lang_code}: {ex}")
-                    nueva_columna.append(texto_es)
-            
-            df[col] = nueva_columna
-
-        columna_clave = df.columns[0]
-        df = df.drop_duplicates(subset=[columna_clave], keep='last')
-        df.to_excel(ruta_archivo, index=False)
-
-        conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df)
-
-        columnas = list(df.columns)
-        cols_sql = ', '.join([f'"{c}"' for c in columnas])
-        placeholders = ', '.join(['%s'] * len(columnas))
-        
-        query_insert = f'INSERT INTO "{nombre_tabla}" ({cols_sql}) VALUES ({placeholders})'
-
-        for _, row in df.iterrows():
-            valores = [None if pd.isna(row[col]) else str(row[col]).strip() for col in columnas]
-            cur.execute(query_insert, tuple(valores))
-
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        buffer_out = io.BytesIO()
-        with pd.ExcelWriter(buffer_out, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name=nombre_tabla[:31])
-        buffer_out.seek(0)
-
-        await update.message.reply_document(
-            document=buffer_out,
-            filename=f"actualizado_{nombre_tabla}.xlsx",
-            caption=f"✅ **¡Traducción completada con éxito!**\nTabla `{nombre_tabla}` sincronizada en Supabase con la columna `{cols_a_procesar[0]}`.",
-            parse_mode="Markdown"
-        )
-        await mensaje_espera.delete()
-
-    except Exception as e:
-        logger.error(f"Error en /traducir desde servidor: {e}", exc_info=True)
-        await mensaje_espera.edit_text(f"❌ Error al procesar: `{e}`", parse_mode="Markdown")                                
-
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+# COMANDO DE TELEGRAM: /hablar (Generador de audios de voz con OpenAI)
+# CÓMO SE USA EN TELEGRAM: 
+#   /hablar M Hola, bienvenidos a IA NutriBot   (Para voz de Mujer - "nova")
+#   /hablar H Hola, bienvenidos a IA NutriBot   (Para voz de Hombre - "alloy")
+# ¿QUÉ HACE?: Convierte el texto que le escribas en un archivo de audio MP3 hablado con inteligencia artificial
+#             y te lo envía al chat de Telegram como una nota de voz.
+# ---------------------------------------------------------------------------------------------------------------------------------------------
 async def cmd_hablar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
@@ -2714,7 +2709,17 @@ async def cmd_hablar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     finally:
         if os.path.exists(output_path):
             os.remove(output_path)
-            
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+# COMANDO DE TELEGRAM: /desarmar (PASO 1 para traducir el Excel afuera sin romper variables)
+# CÓMO SE USA EN TELEGRAM: /desarmar
+# ¿QUÉ HACE?:
+#   1. Lee el archivo 'multi.xlsx' que está en el servidor (debe tener columnas 'variables' y 'ES').
+#   2. Busca todo lo que esté entre llaves {variable} o corchetes [variable] y lo reemplaza por códigos (__VAR_0001__, etc.).
+#   3. Te envía por Telegram un Excel llamado 'multi_desarmado.xlsx' con 2 pestañas:
+#      - Pestaña 'traduccion': Lista para que la subas a Google Drive/Sheets y traduzcas con fórmulas GOOGLETRANSLATE.
+#      - Pestaña 'diccionario_vars': Guarda qué significaba cada código __VAR_XXXX__ para poder rearmarlo después.
+# ---------------------------------------------------------------------------------------------------------------------------------------------
 async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
@@ -2797,7 +2802,16 @@ async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logger.error(f"Error en desarmar Excel: {e}", exc_info=True)
         await update.message.reply_text(f"❌ Error: `{e}`", parse_mode="Markdown")
-        
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+# COMANDO DE TELEGRAM: /armar (Lee el Excel desarmado directamente del servidor, restaura variables y sube a Supabase)
+# CÓMO SE USA EN TELEGRAM: /armar
+# ¿QUÉ HACE?:
+#   1. Busca el archivo 'multi_desarmado.xlsx' (o el que corresponda) directamente en la carpeta del servidor.
+#   2. Lee las solapas 'traduccion' y 'diccionario_vars'.
+#   3. Reemplaza todos los códigos __VAR_XXXX__ por sus llaves {variable} o corchetes [variable] originales.
+#   4. Borra y vuelve a crear la tabla 'multi' en Supabase con la información limpia y traducida.
+# ---------------------------------------------------------------------------------------------------------------------------------------------
 async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
@@ -2806,28 +2820,29 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg_no_perm)
         return
 
-    documento = update.message.document
-    if not documento or not documento.file_name.endswith('.xlsx'):
-        await update.message.reply_text("⚠️ Adjuntá el archivo Excel (`.xlsx`) ya traducido junto con el comando `/armar`.", parse_mode="Markdown")
+    nombre_tabla = "multi"
+    ruta_archivo = f"{nombre_tabla}_desarmado.xlsx"
+
+    if not os.path.exists(ruta_archivo):
+        await update.message.reply_text(
+            f"❌ No encuentro el archivo `{ruta_archivo}` en el servidor. Asegurate de haber subido el archivo traducido al repositorio o carpeta del bot.",
+            parse_mode="Markdown"
+        )
         return
 
-    nombre_tabla = "multi"
-    mensaje_espera = await update.message.reply_text("🔄 Ensamblando traducciones y sincronizando Supabase...", parse_mode="Markdown")
+    mensaje_espera = await update.message.reply_text("🔄 Leyendo del servidor, ensamblando traducciones y sincronizando Supabase...", parse_mode="Markdown")
 
     try:
-        file_obj = await context.bot.get_file(documento.file_id)
-        file_bytes = await file_obj.download_as_bytearray()
-        buffer_in = io.BytesIO(file_bytes)
-
-        xls = pd.ExcelFile(buffer_in)
+        # Leer el archivo Excel directamente desde el disco del servidor
+        xls = pd.ExcelFile(ruta_archivo)
         sheets = xls.sheet_names
 
         if 'traduccion' not in sheets or 'diccionario_vars' not in sheets:
-            await mensaje_espera.edit_text("❌ El archivo adjunto no tiene las solapas requeridas ('traduccion' y 'diccionario_vars').", parse_mode="Markdown")
+            await mensaje_espera.edit_text("❌ El archivo en el servidor no tiene las solapas requeridas ('traduccion' y 'diccionario_vars').", parse_mode="Markdown")
             return
 
-        df_trad = pd.read_excel(buffer_in, sheet_name='traduccion')
-        df_dict = pd.read_excel(buffer_in, sheet_name='diccionario_vars')
+        df_trad = pd.read_excel(ruta_archivo, sheet_name='traduccion')
+        df_dict = pd.read_excel(ruta_archivo, sheet_name='diccionario_vars')
 
         df_trad.columns = [str(c).strip() for c in df_trad.columns]
         df_dict.columns = [str(c).strip() for c in df_dict.columns]
@@ -2855,9 +2870,11 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         columna_clave = df_trad.columns[0]
         df_trad = df_trad.drop_duplicates(subset=[columna_clave], keep='last')
 
+        # Guardar una copia limpia localmente como 'multi.xlsx'
         ruta_archivo_local = f"{nombre_tabla}.xlsx"
         df_trad.to_excel(ruta_archivo_local, index=False)
 
+        # Conectar a Supabase, borrar la tabla vieja y crearla de cero con el nuevo DataFrame
         conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df_trad)
 
         columnas = list(df_trad.columns)
@@ -2866,31 +2883,32 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         query_insert = f'INSERT INTO "{nombre_tabla}" ({cols_sql}) VALUES ({placeholders})'
 
+        filas_insertadas = 0
         for _, row in df_trad.iterrows():
             valores = [None if pd.isna(row[col]) else str(row[col]).strip() for col in columnas]
             cur.execute(query_insert, tuple(valores))
+            filas_insertadas += 1
 
         conn.commit()
         cur.close()
         conn.close()
 
-        buffer_out = io.BytesIO()
-        with pd.ExcelWriter(buffer_out, engine='openpyxl') as writer:
-            df_trad.to_excel(writer, index=False, sheet_name=nombre_tabla[:31])
-        buffer_out.seek(0)
-
-        await update.message.reply_document(
-            document=buffer_out,
-            filename=f"final_{nombre_tabla}.xlsx",
-            caption=f"🏆 **¡Gol de media cancha!**\nTabla `{nombre_tabla}` armada detectando correctamente todas las variables con llaves y corchetes, sincronizada en Supabase.",
+        await mensaje_espera.edit_text(
+            f"🏆 **¡Traducción aplicada con éxito!**\n"
+            f"La tabla `{nombre_tabla}` fue completamente reemplazada en Supabase con {filas_insertadas} registros procesados desde el servidor.",
             parse_mode="Markdown"
         )
-        await mensaje_espera.delete()
 
     except Exception as e:
-        logger.error(f"Error armando Excel: {e}", exc_info=True)
+        logger.error(f"Error armando Excel desde el servidor: {e}", exc_info=True)
         await mensaje_espera.edit_text(f"❌ Error al ensamblar: `{e}`", parse_mode="Markdown")
-        
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+# COMANDO DE TELEGRAM: /subir (Pasa un archivo .xlsx que ya esté en GitHub/Servidor directo a Supabase)
+# CÓMO SE USA EN TELEGRAM: /subir multi   (o el nombre de cualquier archivo .xlsx que hayas subido a GitHub)
+# ¿QUÉ HACE?: Busca el archivo '<nombre>.xlsx' en la carpeta del servidor, borra la tabla en Supabase
+#             y la vuelve a crear cargando todas las filas tal cual están en ese Excel (sin traducir ni modificar nada).
+# ---------------------------------------------------------------------------------------------------------------------------------------------
 async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
@@ -2964,100 +2982,13 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error al importar la tabla {nombre_tabla} desde el servidor: {e}", exc_info=True)
         await mensaje_espera.edit_text(f"❌ Error al importar la tabla: `{e}`", parse_mode="Markdown")
-                                
-async def cmd_migrar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    user_id = update.effective_user.id
-    if not es_administrador(user_id):
-        msg_no_perm = "❌ No tenés permisos para ejecutar este comando."
-        await update.message.reply_text(msg_no_perm)
-        return
-
-    try:
-        await update.message.reply_text("🔄 Reiniciando tablas, limpiando fechas y migrando el Excel a Supabase...", parse_mode="Markdown")
-        
-        excel_path = 'Registro_Nutricional_Bot.xlsx'
-        if not os.path.exists(excel_path):
-            await update.message.reply_text(f"❌ No se encontró el archivo `{excel_path}` en el directorio del bot.", parse_mode="Markdown")
-            return
-
-        xls = pd.ExcelFile(excel_path)
-        reporte = []
-
-        columnas_a_escalar = {
-            "Peso (g)", "Peso", "PESO", "Peso_ideal",
-            "Calorías (kcal)", "Calorias",
-            "Proteínas (g)", "Proteinas",
-            "Grasas (g)", "Grasas",
-            "Hidratos (g)", "Carbohidratos",
-            "Fibras (g)", "Fibras",
-            "EDAD", "ALTURA", "ocupacion", "muneca",
-            "Alta", "Baja", "Pulsaciones"
-        }
-
-        for nombre_hoja in xls.sheet_names:
-            nombre_tabla = nombre_hoja.strip()
-            df = pd.read_excel(xls, sheet_name=nombre_hoja)
-            
-            if df.empty:
-                reporte.append(f"⚠️ Hoja *{nombre_hoja}*: Omitida (vacía).")
-                continue
-
-            df.columns = [str(c).strip() for c in df.columns]
-
-            try:
-                conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df)
-            except Exception as e:
-                reporte.append(f"❌ Tabla *{nombre_tabla}*: Error al recrear tabla ({e}).")
-                continue
-
-            filas_insertadas = 0
-            try:
-                columnas = list(df.columns)
-                cols_sql = ', '.join([f'"{c}"' for c in columnas])
-                placeholders = ', '.join(['%s'] * len(columnas))
-                
-                query_insert = f'INSERT INTO "{nombre_tabla}" ({cols_sql}) VALUES ({placeholders})'
-
-                for _, row in df.iterrows():
-                    valores = []
-                    for col in columnas:
-                        val = row[col]
-                        if pd.isna(val):
-                            val = None
-                        elif isinstance(val, (pd.Timestamp, datetime, date)):
-                            val = pd.to_datetime(val).strftime("%Y-%m-%d")
-                        elif isinstance(val, str) and ("/" in val or "-" in val) and len(val) >= 10:
-                            try:
-                                dt_parsed = pd.to_datetime(val)
-                                if not pd.isna(dt_parsed):
-                                    val = dt_parsed.strftime("%Y-%m-%d")
-                            except Exception:
-                                pass
-                        elif isinstance(val, (int, float)) and col in columnas_a_escalar:
-                            val = val / 1000.0
-                        valores.append(val)
-
-                    cur.execute(query_insert, tuple(valores))
-                    filas_insertadas += 1
-
-                conn.commit()
-                reporte.append(f"✅ Tabla *{nombre_tabla}*:\n{filas_insertadas} registros migrados con fechas limpias.")
-
-            except Exception as inner_e:
-                conn.rollback()
-                reporte.append(f"❌ Tabla *{nombre_tabla}*: Error en inserción ({inner_e}).")
-            finally:
-                cur.close()
-                conn.close()
-
-        mensaje_final = "📊 **Resultado de la Migración:**\n\n" + "\n".join(reporte)
-        await update.message.reply_text(mensaje_final, parse_mode="Markdown")
-
-    except Exception as e:
-        logger.error(f"Error crítico en migración local: {e}", exc_info=True)
-        await update.message.reply_text(f"⚠️ Error general en la migración: {e}")
-        
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+# COMANDO DE TELEGRAM: /descargar (Descarga cualquier tabla de Supabase a un archivo Excel)
+# CÓMO SE USA EN TELEGRAM: /descargar multi   o   /descargar Usuarios
+# ¿QUÉ HACE?: Consulta la tabla en vivo en Supabase, arma un archivo .xlsx en memoria y te lo envía por Telegram
+#             para que lo tengas de backup o lo puedas revisar en tu PC.
+# ---------------------------------------------------------------------------------------------------------------------------------------------
 async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
@@ -10124,8 +10055,7 @@ def main():
         # =================================ADMINISTRADOR============================================
         app_bot.add_handler(CommandHandler("cobrar", cmd_forzar_cobro))
         app_bot.add_handler(CommandHandler(["descargar","bajar"], cmd_descargar))
-        app_bot.add_handler(CommandHandler("traducir", cmd_traducir_excel))
-        app_bot.add_handler(CommandHandler("subir", cmd_subir))
+        app_bot.add_handler(CommandHandler(["cargar","subir"], cmd_subir))
         app_bot.add_handler(CommandHandler("desarmar", cmd_desarmar_excel))
         app_bot.add_handler(CommandHandler("armar", cmd_armar_excel))
         app_bot.add_handler(CommandHandler("hablar", cmd_hablar))
