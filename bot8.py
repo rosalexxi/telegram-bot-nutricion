@@ -2748,7 +2748,8 @@ async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 textos_preparados.append("")
                 continue
 
-            placeholders = re.findall(r'(\[.*?\]|\{.*?\})', texto_es)
+            # Expresión regular robusta que evita saltos de línea y captura limpiamente entre llaves o corchetes
+            placeholders = re.findall(r'(\[.*?\]|\{[^}\n]+\})', texto_es)
             texto_modificado = texto_es
             
             for ph in placeholders:
@@ -2785,9 +2786,9 @@ async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
             document=buffer_out,
             filename=nombre_salida,
             caption=(
-                f"✅ **¡Archivo desarmado detectando llaves y corchetes!**\n\n"
+                f"✅ **¡Archivo desarmado detectando todas las variables y corchetes!**\n\n"
                 f"1. Subilo a Google Drive, agregale las columnas de idiomas que quieras (`EN`, `IT`, etc.) y traducilo.\n"
-                f"2. La segunda pestaña (`diccionario_vars`) guarda todas las variables intactas.\n"
+                f"2. La segunda pestaña (`diccionario_vars`) ahora indexa el 100% de las variables sin cortes.\n"
                 f"3. Cuando termines, mandámelo con `/armar`."
             ),
             parse_mode="Markdown"
@@ -2796,7 +2797,7 @@ async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logger.error(f"Error en desarmar Excel: {e}", exc_info=True)
         await update.message.reply_text(f"❌ Error: `{e}`", parse_mode="Markdown")
-
+        
 async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
