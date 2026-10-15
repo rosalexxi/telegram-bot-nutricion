@@ -37,7 +37,7 @@ from urllib.parse import urlparse
 from datetime import datetime, date, timedelta, time
 from google.oauth2.service_account import Credentials
 from groq import Groq
-from dotenv import load_dotenv
+
 from flask import Flask, request, jsonify, render_template_string, send_from_directory, url_for
 from functools import wraps
 from reportlab.lib.pagesizes import letter
@@ -56,6 +56,7 @@ from telegram.ext import (
     ConversationHandler
 )
 
+from dotenv import load_dotenv
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -1075,16 +1076,20 @@ def api_calcular_receta():
         return jsonify({"error": str(e)}), 500
 
 # =====================================================================================================================================
-#              FINAL                                  PAGINA WEB (CALCULADORA UNICA)                        FINAL
+#              FINAL                                  PAGINA WEB (CALCULADORA UNICA)                  FINAL
 # =====================================================================================================================================
 
-# =============================================================================================================================================
+# ======================================================================================================================================
 #              INICIO                                   FUNCIONES SUPABASE                           INICIO
-# =============================================================================================================================================
+# ======================================================================================================================================
 
 #                 INICIO                                     1  GOOGLE SHEETS                       INICIO
-# =============================================================================================================================================
+# ======================================================================================================================================
                 
+def to_sheet_int(val):
+    num = parse_raw_val(val)
+    return int(round(num * 1000))
+
 def get_gspread_client():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     if os.path.exists(GOOGLE_SHEETS_KEY_PATH):
@@ -2626,8 +2631,6 @@ def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=No
         "ocupacion": float(nuevo_factor or 1.375)
     })
 
-# =============================================================================================================================================
-# =============================================================================================================================================        
 #              INICIO                              FUNCIONES ADMINISTRADOR                           INICIO
 # =============================================================================================================================================
 
@@ -3073,10 +3076,6 @@ def parse_raw_val(val):
     except ValueError:
         return 0.0
 
-def to_sheet_int(val):
-    num = parse_raw_val(val)
-    return int(round(num * 1000))
-
 def parse_float_from_sheets(val):
     num = parse_raw_val(val)
     return num / 1000.0
@@ -3294,407 +3293,82 @@ def calcular_peso_ideal(sexo: str, altura_cm: float, edad: int = None) -> float:
         else:
             masa_magra = None
 
-        if masa_magra is not None and masa_magra > 1.0:
-            tramo_edad = max(0.0, (anios - 30.0) * 0.12)
-            grasa_objetivo_pct = (24.0 + tramo_edad) if is_femenino else (16.0 + tramo_edad)
-            grasa_objetivo_pct = min(33.0 if is_femenino else 25.0, grasa_objetivo_pct)
-
-            peso_por_composicion = masa_magra / (1.0 - (grasa_objetivo_pct / 100.0))
-            peso_final = (peso_por_composicion * 0.65) + (peso_lorentz * 0.35)
-            return round(max(40.0, peso_final), 1)
-
-    return round(max(40.0, peso_lorentz), 1)
-
-def calcular_peso_etapa(peso_actual: float, peso_ideal: float, ritmo_preferido: str = "moderado") -> float:
-    if peso_actual <= peso_ideal:
-        return round(peso_actual, 1)
-    
-    ritmo_clean = str(ritmo_preferido).strip().lower()
-    if "tranquilo" in ritmo_clean or "lento" in ritmo_clean or ritmo_clean == "1":
-        factor_actual = 0.90
-    elif "rapido" in ritmo_clean or "intenso" in ritmo_clean or "decidido" in ritmo_clean or ritmo_clean == "3":
-        factor_actual = 0.75
-    else:
-        factor_actual = 0.85
-        
-    factor_ideal = 1.0 - factor_actual
-    peso_etapa = (peso_actual * factor_actual) + (peso_ideal * factor_ideal)
-    return round(peso_etapa, 1)
-
-# 8. CÁLCULO DE TMB Y GET (SCHOFIELD OMS EN NIÑOS, KATCH/MIFFLIN EN ADULTOS)
-def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: str = "masculino", actividad: float = 1.375, masa_magra: float = None, peso_ideal: float = None, cadera_cm: float = None) -> tuple[float, float]:
-    try:
-        peso = float(peso_actual)
-        if peso > 1000: 
-            peso /= 1000.0
-            
-        altura = float(altura_cm)
-        if altura < 3.0:
-            altura *= 100.0  # Corrige metros a centímetros
-        elif altura > 500.0:
-            altura /= 10.0   # Corrige milímetros a centímetros
-
-        anios = int(float(edad))
-    except (TypeError, ValueError):
-        peso, altura, anios = 1.0, 1.0, 1
-
-    gen_clean = str(genero).strip().lower()
-    is_femenino = gen_clean in ["femenino", "f", "mujer", "female", "chica", "niña"]
-
-    # --- PEDIATRÍA (< 18 AÑOS): SCHOFIELD / OMS CON DEPÓSITO DE CRECIMIENTO ---
-    if anios < 18:
-        if is_femenino:
-            if anios < 10:
-                tmb = (22.500 * peso) + 499.0
-            else:
-                tmb = (13.384 * peso) + 692.6
-        else:
-            if anios < 10:
-                tmb = (22.706 * peso) + 504.3
-            else:
-                tmb = (17.686 * peso) + 658.2
-
-        try:
-            factor_act = float(actividad)
-            if factor_act > 10: factor_act /= 1000.0
-        except (TypeError, ValueError):
-            factor_act = 1.375
-
-        calorias_crecimiento = 25.0
-        get = (tmb * factor_act) + calorias_crecimiento
-        return round(tmb, 2), round(get, 2)
-
-    # --- ADULTOS (>= 18 AÑOS): KATCH-MCARDLE O MIFFLIN-ST JEOR ---
-    if is_femenino:
-        tmb_mifflin = (10.0 * peso) + (6.25 * altura) - (5.0 * anios) - 161.0
-    else:
-        tmb_mifflin = (10.0 * peso) + (6.25 * altura) - (5.0 * anios) + 5.0
-
-    if masa_magra is None or masa_magra <= 1.0:
-        bio = _obtener_biometria_encapsulada(sexo_arg=genero, altura_arg=altura, peso_arg=peso, edad_arg=anios)
-        cint_eval = bio.get("cintura", 1.0)
-        cuell_eval = bio.get("cuello", 1.0)
-        cad_eval = cadera_cm if (cadera_cm is not None and float(cadera_cm) > 0) else bio.get("cadera", 0.0)
-
-        if is_femenino:
-            if cint_eval > 1.0 and cuell_eval > 1.0 and cad_eval > 1.0:
-                _, masa_magra = calcular_grasa_y_magra(genero, altura, cint_eval, cuell_eval, peso, cadera_cm=cad_eval, edad=anios)
-        else:
-            if cint_eval > 1.0 and cuell_eval > 1.0 and cint_eval > cuell_eval:
-                _, masa_magra = calcular_grasa_y_magra(genero, altura, cint_eval, cuell_eval, peso, edad=anios)
-
-    if masa_magra is not None and masa_magra > 1.0:
-        tmb = 370.0 + (21.6 * float(masa_magra))
-    else:
-        tmb = tmb_mifflin
-
-    try:
-        factor_act = float(actividad)
-        if factor_act > 10:
-            factor_act /= 1000.0
-    except (TypeError, ValueError):
-        factor_act = 1.375
-
-    get = tmb * factor_act
-    return round(tmb, 2), round(get, 2)
-
-async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.DEFAULT_TYPE = None, user_id: int = None) -> bool:
-    uid = user_id or (update.effective_user.id if update else None)
-    if not uid:
-        return False
-
-    ahora = obtener_ahora_arg() if 'obtener_ahora_arg' in globals() else datetime.now()
-    mes_actual_str = ahora.strftime("%Y-%m")
-    mes_anterior_str = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
-    fecha_hoy_str = ahora.strftime("%Y-%m-%d")
-
-    # 1. Garantizar fila del mes actual (si no existía y había peso post-día 24, ya lo migra y valida)
-    if '_garantizar_fila_mes_actual' in globals():
-        autovalidado = _garantizar_fila_mes_actual(uid, ahora)
-        if autovalidado:
-            return True
-
-    # 2. Verificar en Usuarios si ya figura actualizado en el mes actual
-    try:
-        ultimo_registro = obtener_ultimo_peso(uid) if 'obtener_ultimo_peso' in globals() else None
-    except Exception as e:
-        logger.error(f"Error en validar_peso_mes_actual para User {uid}: {e}")
-        ultimo_registro = None
-
-    peso_valido = False
-
-    if ultimo_registro:
-        fecha_val = (
-            ultimo_registro.get("fecha") or  
-            ultimo_registro.get("Ultimo Mes Peso") or  
-            ultimo_registro.get("MES") or  
-            ""
-        )
-        fecha_str = str(fecha_val).strip()
-
-        if fecha_str:
-            formatos = ["%d/%m/%Y", "%Y-%m-%d", "%d/%m/%y", "%Y-%m", "%m/%Y"]
-            fecha_dt = None
-            for fmt in formatos:
-                try:
-                    fecha_dt = datetime.strptime(fecha_str, fmt)
-                    break
-                except ValueError:
-                    continue
-
-            if fecha_dt:
-                if fecha_dt.year == ahora.year and fecha_dt.month == ahora.month:
-                    peso_valido = True
-            else:
-                if mes_actual_str in fecha_str or ahora.strftime("%m/%Y") in fecha_str:
-                    peso_valido = True
-
-    if peso_valido:
-        return True
-
-    # 3. Si aún no figura validado este mes, verificamos en Perfil_<uid> si en el mes anterior se cargó peso después del día 24
-    try:
-        tabla_nombre = f"Perfil_{uid}"
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
-        cur.execute(f'ALTER TABLE "{tabla_nombre}" ADD COLUMN IF NOT EXISTS "peso_actual" DOUBLE PRECISION;')
-        conn.commit()
-
-        cur.execute(f"""
-            SELECT "PESO", "peso_actual", "Fecha_Actualizacion"
-            FROM "{tabla_nombre}"
-            WHERE "MES" = %s
-            ORDER BY id DESC LIMIT 1
-        """, (str(mes_anterior_str),))
-        fila_ant = cur.fetchone()
-        cur.close()
-        conn.close()
-
-        if fila_ant:
-            peso_base_ant = float(fila_ant[0] or 0.0)
-            if peso_base_ant > 1000: peso_base_ant /= 1000.0
-            peso_act_ant = float(fila_ant[1] or 0.0)
-            if peso_act_ant > 1000: peso_act_ant /= 1000.0
-            fecha_act_ant = str(fila_ant[2] or "").strip()
-
-            dia_act = 0
-            if fecha_act_ant:
-                for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"):
-                    try:
-                        dia_act = datetime.strptime(fecha_act_ant, fmt).day
-                        break
-                    except ValueError:
-                        continue
-
-            peso_heredado = peso_act_ant if peso_act_ant > 0 else peso_base_ant
-            if dia_act > 24 and peso_heredado > 0:
-                factor_nuevo = None
-                if '_calcular_y_actualizar_factor_mes_anterior' in globals():
-                    factor_nuevo = _calcular_y_actualizar_factor_mes_anterior(
-                        uid, mes_anterior_str, peso_fin_mes_override=peso_heredado
-                    )
-
-                conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
-                if factor_nuevo and factor_nuevo > 0:
-                    cur.execute(f"""
-                        UPDATE "{tabla_nombre}"
-                        SET "PESO" = %s, "peso_actual" = %s, "ocupacion" = %s, "Fecha_Actualizacion" = %s
-                        WHERE "MES" = %s
-                    """, (peso_heredado, peso_heredado, float(factor_nuevo), fecha_hoy_str, str(mes_actual_str)))
-                else:
-                    cur.execute(f"""
-                        UPDATE "{tabla_nombre}"
-                        SET "PESO" = %s, "peso_actual" = %s, "Fecha_Actualizacion" = %s
-                        WHERE "MES" = %s
-                    """, (peso_heredado, peso_heredado, fecha_hoy_str, str(mes_actual_str)))
-                conn.commit()
-                cur.close()
-                conn.close()
-
-                conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-                cur_u.execute('UPDATE "Usuarios" SET "Ultimo Mes Peso" = %s WHERE "User ID" = %s', (fecha_hoy_str, str(uid)))
-                conn_u.commit()
-                cur_u.close()
-                conn_u.close()
-
-                if factor_nuevo and factor_nuevo > 0:
-                    guardar_ocupacion_db(uid, factor_nuevo, mes_actual_str)
-
-                return True
-    except Exception as e_post24:
-        logger.error(f"Error verificando peso post-día 24 para {uid}: {e_post24}")
-
-    # 4. Si no hay peso en el mes actual ni posterior al día 24 del mes pasado, solicitar el peso al usuario
-    lang = obtener_idioma_usuario(uid) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-    msg_falta_peso = traducciones.get(
-        "04_bot_solic_peso_mensual",
-        "⚖️ **Actualización de Peso Mensual Requerida**\n\n"
-        "Para continuar con tus reportes de este nuevo mes, por favor ingresá tu peso actual ejecutando:\n"
-        "`/peso [tu_peso]` (ejemplo: `/peso 82.5`)"
-    ).replace('\\n', '\n')
-
-    try:
-        if update and update.message:
-            await update.message.reply_text(msg_falta_peso, parse_mode="Markdown")
-        elif update and update.callback_query:
-            await update.callback_query.message.reply_text(msg_falta_peso, parse_mode="Markdown")
-        elif context and hasattr(context, 'bot'):
-            await context.bot.send_message(chat_id=int(uid), text=msg_falta_peso, parse_mode="Markdown")
-    except Exception as e_msg:
-        logger.error(f"No se pudo enviar aviso de peso mensual a {uid}: {e_msg}")
-
-    return False
-        
-    
-#              INICIO                     FUNCIONES SOPORTE MULTILENGUAJE                   INICIO
-# =============================================================================================================================================
-
-def obtener_idioma_usuario(user_id):
-    """Obtiene el idioma configurado para un usuario de Telegram desde Supabase[cite: 2]."""
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        cur.execute('SELECT "Idioma" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
-        if row and row[0]:
-            return str(row[0]).strip().lower()
-    except Exception as e:
-        logger.error(f"Error obteniendo idioma para {user_id}: {e}")
-    return 'en'
-
-def obtener_traducciones_db(lang):
-    """Consulta la tabla 'multi' en Supabase y devuelve un diccionario con las traducciones[cite: 2]."""
-    traducciones = {}
-    col_lang = "ES" if str(lang).strip().lower() == "es" else "EN"
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
-        query = f'SELECT "variables", "{col_lang}" FROM "multi"'
-        cur.execute(query)
-        filas = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        for fila in filas:
-            var_name = str(fila[0]).strip()
-            var_text = str(fila[1] or "").strip()
-            if var_name:
-                traducciones[var_name] = var_text
-    except Exception as e:
-        logger.error(f"Error al obtener traducciones de Supabase para el idioma {lang}: {e}")
-    return traducciones
-
-def requiere_registro(func):
-    """Decorador que verifica registro y bloquea usuarios en Estado 3 ofreciendo reactivación prorrateada."""
-    @wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        user_id = str(update.effective_user.id).strip()
-        encontrado = False
-        esta_activo = True
-        estado_val = "0"
-
-        # --- CLÁUSULA DE PAGO Y GRACIA (LISTA, PERO COMENTADA HASTA EL LANZAMIENTO) ---
-        # hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
-        # suscripcion_vencida = False
-        # acceso_restringido_sin_reportes = False
-        # -------------------------------------------------------------------
-
-        # Mensajes futuros de bloqueo o gracia flexible:
-        # mensaje_pago_vencido = (
-        #     "⭐ **Tu período de suscripción ha finalizado.**\n"
-        #     "Tenés un plazo de 15 días donde podés seguir cargando tus ingestas, "
-        #     "pero los reportes y resúmenes automáticos permanecerán suspendidos hasta regularizar el aporte con Estrellas de Telegram."
-        # )
-        # mensaje_bloqueo_total = "❌ **Tu plazo de gracia ha expirado.** El acceso ha sido suspendido por falta de pago. Por favor, aboná la suscripción para continuar."
-        
-        mensaje_no_registrado = (
-            "⚠️ **You are not registered yet!**\n\n"
-            "To use this command and access your nutrition plan, you need to sign up first.\n\n"
-            "👉 Use the `/alta` or `/signup` command to create your profile in a couple of steps."
-        )
-        mensaje_deshabilitado = "❌ **Your account has been disabled due to inactivity or system removal. Please contact the bot administrator.**"
-
-        try:
-            conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-            # Leemos el Estado para verificar si está activo, suspendido o en gracia
-            cur.execute('SELECT "User ID", "Estado" FROM "Usuarios"')
-            filas = cur.fetchall()
-            cur.close()
-            conn.close()
-
-            for fila in filas:
-                raw_id = fila[0]
-                if raw_id and str(raw_id).split('.')[0].strip() == user_id:
-                    encontrado = True
-                    estado_val = str(fila[1] if fila[1] is not None else "0").strip().lower()
-                    
-                    if estado_val in ['baja', 'suspendido']:
-                        esta_activo = False
-                    break
-        except Exception as e:
-            logger.error(f"Error al verificar registro y pagos en decorador: {e}")
-
-        if not encontrado:
-            if update.message:
-                await update.message.reply_text(mensaje_no_registrado, parse_mode="Markdown")
-            elif update.callback_query:
-                await update.callback_query.answer("⚠️ Registration required", show_alert=True)
-                await update.callback_query.message.reply_text(mensaje_no_registrado, parse_mode="Markdown")
-            return
-
-        if not esta_activo:
-            if update.message:
-                await update.message.reply_text(mensaje_deshabilitado, parse_mode="Markdown")
-            elif update.callback_query:
-                await update.callback_query.answer("⚠️ Account disabled", show_alert=True)
-                await update.callback_query.message.reply_text(mensaje_deshabilitado, parse_mode="Markdown")
-            return
-
-                    # --- LÓGICA COMENTADA DE VENCIMIENTO Y GRACIA DE 15 DÍAS ---
-                    # vencimiento_db = str(fila[2] or "").strip()
-                    # if vencimiento_db and vencimiento_db < hoy_str:
-                    #     # Calcular días de diferencia o gracia (ejemplo conceptual)
-                    #     # Si pasaron más de 15 días del vencimiento: bloqueo total
-                    #     # Si están dentro de los 15 días: acceso intermedio (sin reportes)
-                    #     suscripcion_vencida = True
-                    # ---------------------------------------------------
-
-        # NUEVA LÓGICA: Bloqueo de Estado 3 con botón de prorrateo
-        if estado_val == '3':
-            mensaje_bloqueo = (
-                "⚠️ **Tu período de prueba gratuito ha finalizado.**\n\n"
-                "Para seguir usando todas las funciones del asistente, podés activar tu cuenta abonando los días que restan hasta fin de mes.\n\n"
-                "Una vez abonado, volverás a tener acceso total y tu ciclo de facturación se alineará al día 1 del mes próximo."
-            )
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("⭐ Activar mes en curso", callback_data="rescate_mensual")]
-            ])
-            
-            if update.message:
-                await update.message.reply_text(mensaje_bloqueo, reply_markup=keyboard, parse_mode="Markdown")
-            elif update.callback_query:
-                await update.callback_query.answer("⚠️ Cuenta suspendida", show_alert=True)
-                await update.callback_query.message.reply_text(mensaje_bloqueo, reply_markup=keyboard, parse_mode="Markdown")
-            return
-
-        # --- VALIDACIÓN FUTURA DE SUSCRIPCIÓN VENCIDA EN DECORADOR ---
-        # if suscripcion_vencida:
-        #     # Aquí manejas si se le bloquea o si se le permite cargar datos sin reportes
-        #     # await update.message.reply_text(mensaje_pago_vencido, parse_mode="Markdown")
-        #     pass
-        # ------------------------------------------------
-
-        return await func(update, context, *args, **kwargs)
-    return wrapper
-
-# =============================================================================================================================================
-#              FINAL                          FUNCIONES AUXILIARES INTERNAS                  FINAL
-# =============================================================================================================================================
-
-
 # ======================================================================================================================================       
 #                INICIO                       14 FUNCIONES IA GROQ                                      INICIO
 # ======================================================================================================================================
+
+
+def analizar_frecuencia_alimentos_mes(df_o_user_id, cat_dict_o_mes=None, col_integrales=None, col_refinadas=None, otras_categorias=None):
+    try:
+        if isinstance(df_o_user_id, (int, str)) and isinstance(cat_dict_o_mes, str) and not isinstance(df_o_user_id, pd.DataFrame):
+            user_id = int(df_o_user_id)
+            mes_str = cat_dict_o_mes
+            
+            df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+            if df_datos.empty or 'Fecha' not in df_datos.columns:
+                return {}
+                
+            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
+            inicio_periodo = pd.Timestamp(f"{mes_str}-01").normalize()
+            fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
+            
+            df_mes = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
+            if df_mes.empty:
+                return {}
+                
+            cat_dict = {'harinas_integrales': ['integral', 'salvado'], 'harinas_refinadas': ['blanca', 'refinada']}
+        else:
+            df_mes = df_o_user_id
+            cat_dict = cat_dict_o_mes if isinstance(cat_dict_o_mes, dict) else {}
+
+        if otras_categorias is None:
+            otras_categorias = {}
+            
+        frecuencias = {cat: 0 for cat in cat_dict.keys()} if cat_dict else {}
+
+        for _, row in df_mes.iterrows():
+            texto_celda = str(row.get('Alimento', '')).strip().lower()
+            if not texto_celda:
+                continue
+
+            es_integral = any(p in texto_celda for p in (col_integrales or ['integral', 'salvado', 'centeno', 'avena']))
+            
+            if es_integral:
+                for cat_key in frecuencias.keys():
+                    if 'integral' in cat_key:
+                        frecuencias[cat_key] += 1
+            else:
+                if col_refinadas and any(p in texto_celda for p in col_refinadas):
+                    for cat_key in frecuencias.keys():
+                        if 'refinada' in cat_key or 'blanca' in cat_key:
+                            frecuencias[cat_key] += 1
+
+            for cat_nombre, palabras in otras_categorias.items():
+                if any(p in texto_celda for p in palabras):
+                    if cat_nombre not in frecuencias:
+                        frecuencias[cat_nombre] = 0
+                    frecuencias[cat_nombre] += 1
+
+        return frecuencias
+    except Exception as e:
+        print(f"Error analizando frecuencias de alimentos: {e}")
+        return {}
+
+def calcular_porcentajes_harinas(frecuencias):
+    key_int = next((k for k in frecuencias.keys() if 'integral' in k), None)
+    key_ref = next((k for k in frecuencias.keys() if 'refinada' in k or 'blanca' in k), None)
+
+    total_integrales = frecuencias.get(key_int, 0) if key_int else 0
+    total_refinadas = frecuencias.get(key_ref, 0) if key_ref else 0
+    total_harinas = total_integrales + total_refinadas
+    
+    if total_harinas > 0:
+        porc_int = round((total_integrales / total_harinas) * 100)
+        porc_ref = round((total_refinadas / total_harinas) * 100)
+    else:
+        porc_int, porc_ref = 0, 0
+        
+    return porc_int, porc_ref
 
 def analizar_foto_presion_con_groq(base64_image: str) -> dict:
     client_ai = globals().get('client_ai')
@@ -3874,16 +3548,16 @@ async def generar_recomendacion_semanal_ia(m: dict, etiqueta_periodo: str, user_
     except Exception as e:
         logger.error(f"Error al generar recomendación semanal con IA: {e}")
         
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-    return traducciones.get("error_analisis_nutricional", "El análisis nutricional no está disponible temporalmente.")
+    return traducciones.get("05_bot_err_analisis_nutricional", "El análisis nutricional no está disponible temporalmente.")
     
 async def generar_recomendacion_mensual_para_pdf(user_id: int, mes_str: str, df_mes, perfil: dict, m: dict, context=None) -> str:
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
-    msg_error_inf = "Could not generate the audited AI report."
-    msg_error_comp = "Error compiling the AI recommendation for the report."
+    msg_error_inf = traducciones.get("05_bot_err_generar_inf", "No se pudo generar el reporte auditado por la IA.")
+    msg_error_comp = traducciones.get("05_bot_err_compilar_inf", "Error al compilar la recomendación de la IA para el reporte.")
 
     try:
         conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
@@ -3983,252 +3657,7 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
             await asyncio.sleep(2)
 
             texto_p2 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_2, max_tokens=400, temperature=0.3)
-            await asyncio.sleep(2)
-
-            texto_p3 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_3, max_tokens=700, temperature=0.3)
-            await asyncio.sleep(2)
-
-            informe_candidato = (
-                f"<b>1. DIAGNÓSTICO NUTRICIONAL GLOBAL</b><br/>{texto_p1}<br/><br/>"
-                f"<b>2. ALIMENTOS A INCORPORAR</b><br/>{texto_p2}<br/><br/>"
-                f"<b>3. ALIMENTOS A REDUCIR Y HÁBITOS</b><br/>{texto_p3}"
-            )
-
-            prompt_auditor_final = prompt_auditor_base.format(informe_completo=informe_candidato)
-            modelo_rev = globals().get('GROQ_REVISOR', 'qwen/qwen3.8-27b')
-            
-            veredicto = await asyncio.to_thread(
-                ejecutar_consulta_ia, 
-                prompt=prompt_auditor_final, 
-                max_tokens=100, 
-                temperature=0.1, 
-                modelo_override=modelo_rev
-            )
-
-            if not veredicto or veredicto.strip() == "":
-                modelo_rev_2 = globals().get('GROQ_REVISION_2', 'openai/gpt-oss-20b')
-                veredicto = await asyncio.to_thread(
-                    ejecutar_consulta_ia, 
-                    prompt=prompt_auditor_final, 
-                    max_tokens=100, 
-                    temperature=0.1, 
-                    modelo_override=modelo_rev_2
-                )
-
-            veredicto_limpio = veredicto.strip().upper() if veredicto else ""
-
-            if "OK" in veredicto_limpio and "RECHAZ" not in veredicto_limpio:
-                return informe_candidato
-
-        except Exception as e:
-            logger.error(f"Error en intento {intento_actual} para usuario {user_id}: {e}")
-
-        if intento_actual < max_intentos:
-            await asyncio.sleep(5)
-
-    return informe_candidato if informe_candidato else None
-
-async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.BytesIO]:
-    nombre = datos_usuario.get('nombre', 'Paciente')
-    edad = datos_usuario.get('edad', 0)
-    sexo = datos_usuario.get('sexo', 'M')
-    altura = datos_usuario.get('altura', 0)
-    peso = datos_usuario.get('peso', 0)
-    peso_ideal = datos_usuario.get('peso_ideal', 0)
-    peso_etapa = datos_usuario.get('peso_etapa', peso)
-    get_calorias = datos_usuario.get('get', 2000)
-    profesional = str(datos_usuario.get('profesional', '')).strip()
-    
-    ritmo_elegido = str(datos_usuario.get('ritmo', 'moderado')).lower()
-
-    # Textos fijos según la intensidad elegida
-    if "tranquilo" in ritmo_elegido or "lento" in ritmo_elegido or "1" in ritmo_elegido:
-        texto_orientacion = "Has seleccionado un enfoque gradual. En esta etapa, el objetivo principal es que te familiarices con el registro de tus comidas sin estrés. No busques la perfección inmediata; concéntrate en observar tus porciones actuales, mantenerte hidratado y sumar un poco más de movimiento a tu rutina diaria. La constancia a largo plazo es más importante que la velocidad."
-    elif "intenso" in ritmo_elegido or "rapido" in ritmo_elegido or "rápido" in ritmo_elegido or "3" in ritmo_elegido:
-        texto_orientacion = "Has seleccionado un enfoque más exigente. Esta etapa requiere mayor disciplina en el control de las porciones y constancia en tu actividad física. Es fundamental que registres tus ingestas con precisión para asegurar que el déficit energético se mantenga dentro de los parámetros calculados. Escucha a tu cuerpo y prioriza el descanso."
-    else:
-        texto_orientacion = "Has seleccionado un enfoque equilibrado. Esta etapa busca un balance entre resultados y flexibilidad. El objetivo es que comiences a estructurar tus comidas principales, reduzcas los picoteos innecesarios y mantengas una actividad física regular. Es el ritmo ideal para construir hábitos sólidos."
-
-    get_val = float(get_calorias) if get_calorias > 0 else 2000.0
-    factor_prot = 1.5 if str(sexo).upper() in ['M', 'MASCULINO'] else 1.2
-    meta_cal = int(round(get_val * 0.85))
-    meta_prot = int(round(peso_etapa * factor_prot))
-    meta_gras = int(round((meta_cal * 0.25) / 9.0))
-    meta_carb = int(round((meta_cal * 0.50) / 4.0))
-
-    pdf_buffer = io.BytesIO()
-    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
-    story = []
-    
-    styles = getSampleStyleSheet()
-    titulo_style = ParagraphStyle('TituloInforme', parent=styles['Heading1'], fontSize=14, leading=16, alignment=1, textColor=colors.HexColor('#1b4f72'))
-    sub_style = ParagraphStyle('SubInforme', parent=styles['Normal'], fontSize=9, leading=13, textColor=colors.HexColor('#566573'))
-    body_style = ParagraphStyle('CuerpoInforme', parent=styles['Normal'], fontSize=10, leading=15, textColor=colors.HexColor('#2c3e50'))
-    indicaciones_style = ParagraphStyle('Indicaciones', parent=styles['Normal'], fontSize=10, leading=15, textColor=colors.HexColor('#0b5345'), spaceBefore=10)
-
-    story.append(Paragraph("<b>INFORME NUTRICIONAL INICIAL - CONFIGURACIÓN DE PERFIL</b>", titulo_style))
-    story.append(Spacer(1, 8))
-    
-    resumen_datos = (
-        f"<b>Paciente:</b> {nombre} | <b>ID:</b> `{datos_usuario.get('user_id')}`<br/>"
-        f"<b>Edad:</b> {edad} años | <b>Sexo:</b> {sexo} | <b>Altura:</b> {altura} cm<br/>"
-        f"<b>Peso Actual:</b> {peso} kg | <b>Peso Teórico Ideal:</b> {peso_ideal} kg<br/>"
-        f"<b>Meta Etapa 1:</b> {peso_etapa} kg | <b>Ritmo:</b> {ritmo_elegido.capitalize()}<br/>"
-        f"<b>Objetivos Diarios:</b> ~{meta_cal} kcal | Proteínas: ~{meta_prot}g | Grasas: ~{meta_gras}g | Carbos: ~{meta_carb}g"
-    )
-    story.append(Paragraph(resumen_datos, sub_style))
-    story.append(Spacer(1, 15))
-    
-    # Condicional de texto profesional vs genérico
-    if profesional and profesional != "123456789":
-        story.append(Paragraph("<b>👨‍⚕️ Espacio Reservado para tu Profesional:</b>", styles['Heading2']))
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("<i>(Aquí se incluirán las indicaciones específicas redactadas por tu especialista de cabecera en el próximo reporte clínico).</i>", indicaciones_style))
-    else:
-        story.append(Paragraph("<b>ℹ️ Orientación General del Sistema:</b>", styles['Heading2']))
-        story.append(Spacer(1, 6))
-        story.append(Paragraph(texto_orientacion, body_style))
-    
-    doc.build(story)
-    pdf_buffer.seek(0)
-    
-    return texto_orientacion, pdf_buffer
-           
-async def obtener_recomendacion_ia(prompt: str, es_semanal: bool = False, user_id=None):
-    """Función auxiliar para obtener recomendaciones de IA utilizando las variables globales de modelos."""
-    try:
-        # Seleccionamos el modelo global correspondiente de forma dinámica
-        modelo = globals().get('GROQ_TEXTO', "openai/gpt-oss-120b")
-        
-        # Si quisieras diferenciar un modelo secundario o específico para semanales, 
-        # puedes usar otra global (ej: GROQ_REVISION_2), pero lo ideal es mantener 
-        # la consistencia con la constante global principal o la que prefieras.
-        
-        system_msg = "Eres un nutricionista clínico experto, empático y constructivo."
-        
-        # Llamamos a nuestra función central robusta que ya maneja clientes y reintentos
-        respuesta = await asyncio.to_thread(
-            ejecutar_consulta_ia,
-            prompt=prompt,
-            max_tokens=500,
-            temperature=0.4,
-            system_prompt=system_msg,
-            modelo_override=modelo
-        )
-        
-        return respuesta if respuesta else ""
-        
-    except Exception as e:
-        logger.error(f"Error en obtener_recomendacion_ia: {e}")
-        return ""
-
-async def analizar_imagen_con_groq(base64_image: str, user_id=None):
-    """Analiza una imagen general usando el modelo multimodal global con filtro de rechazo."""
-    client = globals().get('client_ai') or globals().get('groq_client')
-    if not client:
-        api_key = globals().get('GROQ_API_KEY') or os.getenv("GROQ_API_KEY")
-        if not api_key:
-            logger.error("⚠️ GROQ_API_KEY no configurada para análisis de imagen.")
-            return {"items": [], "tipo": "Rechazo"}
-        from groq import Groq
-        client = Groq(api_key=api_key)
-
-    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
-    modelo_foto = globals().get('GROQ_FOTO', "qwen/qwen3.8-27b")
-
-    system_prompt = (
-        f"Sos un asistente inteligente de nutrición y salud. El usuario se comunica en su idioma ({nombre_lenguaje}). "
-        f"Analizá la imagen provista. Tu tarea es determinar si la imagen corresponde claramente a un plato de comida, bebida, menú o producto alimenticio individual para registrar una ingesta.\n\n"
-        f"REGLAS DE CLASIFICACIÓN:\n"
-        f"1. Si es comida, bebida o producto comestible, desglósalo ítem por ítem en el JSON con sus macronutrientes estimados y poné 'tipo': 'Comida'.\n"
-        f"2. Si la imagen muestra paisajes, objetos inanimados, personas, animales, ropa, facturas de servicios o escenarios generales (como una parrilla gigante de restaurante, buffets masivos donde no se distingue un plato, o fotos borrosas/irrelevantes), debés clasificarla obligatoriamente como 'Rechazo' y dejar la lista de 'items' vacía ([]).\n\n"
-        f"Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
-        "{\n"
-        '  "items": [\n'
-        '    {"alimento": "nombre del alimento en ' + nombre_lenguaje + '", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
-        "  ],\n"
-        '  "tipo": "Comida" o "Rechazo"\n'
-        "}"
-    )
-
-    try:
-        response = await asyncio.to_thread(
-            client.chat.completions.create,
-            model=modelo_foto,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": system_prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
-                        }
-                    ]
-                }
-            ],
-            temperature=0.1,
-            response_format={"type": "json_object"}
-        )
-
-        if response and response.choices:
-            content = response.choices[0].message.content
-            if content:
-                return json.loads(content.strip())
-
-    except Exception as e:
-        logger.error(f"⚠️ Error analizando imagen con Groq: {e}")
-
-    return {"items": [], "tipo": "Rechazo"}
-            
-def detectar_codigo_con_groq(contenido_entrada):
-    """Detecta y extrae códigos de barras, QR o referencias numéricas usando la IA global."""
-    try:
-        client = globals().get('client_ai') or globals().get('groq_client')
-        if not client:
-            api_key = globals().get('GROQ_API_KEY') or os.getenv("GROQ_API_KEY")
-            if not api_key:
-                logger.error("⚠️ GROQ_API_KEY no configurada para detección de códigos.")
-                return None
-            from groq import Groq
-            client = Groq(api_key=api_key)
-
-        # Usamos el modelo global de texto principal o secundario para procesar la extracción
-        modelo = globals().get('GROQ_REVISION_2', globals().get('GROQ_TEXTO', "openai/gpt-oss-120b"))
-
-        system_prompt = (
-            "Eres un asistente especializado en extracción de códigos numéricos, códigos de barras o referencias de productos. "
-            "Analiza la entrada provista por el usuario y extrae únicamente el número de código de barras o identificación del producto. "
-            "Devuelve exclusivamente un JSON con este formato exacto:\n"
-            '{\n  "codigo": "numero_detectado_o_vacio"\n}'
-        )
-
-        response = client.chat.completions.create(
-            model=modelo,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": str(contenido_entrada)}
-            ],
-            temperature=0.0,
-            response_format={"type": "json_object"}
-        )
-
-        if response and response.choices:
-            content = response.choices[0].message.content
-            if content:
-                resultado = json.loads(content.strip())
-                return resultado.get("codigo")
-
-    except Exception as e:
-        logger.error(f"⚠️ Error detectando código con IA: {e}")
-
-    return None
-
-# =====================================================================================================================================
-#                FINAL                          FUNCIONES IA GROQ                                     FINAL
-# =====================================================================================================================================
+            await asyncio.sleep(2
 
 # ======================================================================================================================================
 #                  INICIO               COMANDOS CONFIRMACION FUNCIONES BOTONES                    INICIO
@@ -4248,13 +3677,13 @@ async def render_confirmation_screen(msg_or_query, context):
     momento = context.user_data.get('pending_momento', 'Comida')
 
     if momento == 'Actividad':
-        t_reg_act = traducciones.get('bot_reg_actividad', "📝 <b>Registro de Actividad:</b>")
-        t_fecha = traducciones.get('bot_label_fecha', "📅 Fecha")
+        t_reg_act = traducciones.get('06_bot_reg_actividad', "📝 <b>Registro de Actividad:</b>")
+        t_fecha = traducciones.get('06_bot_label_fecha', "📅 Fecha")
         txt = f"{t_reg_act}\n{t_fecha}: `{fecha}`\n\n"
     else:
-        t_conf_ing = traducciones.get('bot_conf_ingesta', "📝 <b>Confirmación de Ingesta:</b>")
-        t_fecha = traducciones.get('bot_label_fecha', "📅 Fecha")
-        t_momento = traducciones.get('bot_label_momento', "Momento")
+        t_conf_ing = traducciones.get('06_bot_conf_ingesta', "📝 <b>Confirmación de Ingesta:</b>")
+        t_fecha = traducciones.get('06_bot_label_fecha', "📅 Fecha")
+        t_momento = traducciones.get('06_bot_label_momento', "Momento")
         txt = f"{t_conf_ing}\n{t_fecha}: `{fecha}` | {t_momento}: `{momento}`\n\n"
 
     for idx, item in enumerate(items, start=1):
@@ -4270,10 +3699,10 @@ async def render_confirmation_screen(msg_or_query, context):
         if momento == 'Actividad':
             txt += f"<b>{idx}. {alimento_limpio}</b>: `{cal_total:.1f} kcal`\n"
         else:
-            t_calorias = traducciones.get('bot_macro_calorias', "Calorías")
-            t_proteinas = traducciones.get('bot_macro_proteinas', "Proteínas")
-            t_grasas = traducciones.get('bot_macro_grasas', "Grasas tot.")
-            t_fibras = traducciones.get('bot_macro_fibras', "Fibras")
+            t_calorias = traducciones.get('06_bot_macro_calorias', "Calorías")
+            t_proteinas = traducciones.get('06_bot_macro_proteinas', "Proteínas")
+            t_grasas = traducciones.get('06_bot_macro_grasas', "Grasas tot.")
+            t_fibras = traducciones.get('06_bot_macro_fibras', "Fibras")
 
             txt += f"<b>{idx}. {alimento_limpio}</b> ({peso_total:.1f}g):\n"
             txt += f"   • {t_calorias}: `{cal_total:.1f} kcal`\n"
@@ -4285,24 +3714,24 @@ async def render_confirmation_screen(msg_or_query, context):
     
     if momento != 'Actividad':
         momentos_config = [
-            ("Desayuno", "🌅 08-11 ⏰"),
-            ("Almuerzo", "☀️ 11-16 ⏰"),
-            ("Merienda", "☕ 16-20 ⏰"),
-            ("Cena", "🌙 20-00 ⏰")
+            ("Desayuno", "🌅 08-11"),
+            ("Almuerzo", "☀️ 11-16"),
+            ("Merienda", "☕ 16-20"),
+            ("Cena", "🌙 20-00")
         ]
         
         m_buttons = []
         for nombre_momento, etiqueta_visual in momentos_config:
-            mark = "✅ " if nombre_momento.lower() == momento.lower() else ""
-            m_buttons.append(InlineKeyboardButton(f"{mark}{etiqueta_visual}", callback_data=f"set_m_{nombre_momento}"))
+            # Estado al final para no romper el ancho de la botonera
+            estado = "✅" if nombre_momento.lower() == momento.lower() else "⏰"
+            m_buttons.append(InlineKeyboardButton(f"{etiqueta_visual} {estado}", callback_data=f"set_m_{nombre_momento}"))
         keyboard.append(m_buttons)
 
-    # Se eliminó la validación 'es_plantilla' para que siempre muestre los botones de edición
     for idx, item in enumerate(items, start=1):
         nombre_corto = item.get('alimento', item.get('nombre', ''))[:10]
         keyboard.append([
             InlineKeyboardButton(f"#{idx} {nombre_corto}", callback_data=f"noop_{idx}"),
-            InlineKeyboardButton("✏️", callback_data=f"edit_item_{idx}"),
+            InlineKeyboardButton("📝", callback_data=f"edit_item_{idx}"),  # Cambiado a anotador
             InlineKeyboardButton("❌", callback_data=f"del_item_{idx}")
         ])
 
@@ -4319,7 +3748,7 @@ async def render_confirmation_screen(msg_or_query, context):
     keyboard.append([
         InlineKeyboardButton(f"{mark_hoy}🗓️ {hoy_label}", callback_data="set_d_hoy"),
         InlineKeyboardButton(f"{mark_ayer}🗓️ {ayer_label}", callback_data="set_d_ayer"),
-        InlineKeyboardButton(f"{mark_otro}🔄  🗓️", callback_data="set_d_otro")
+        InlineKeyboardButton(f"{mark_otro}📅✏️", callback_data="set_d_otro")  # Cambiado a calendario con lápiz
     ])
 
     keyboard.append([
@@ -4349,8 +3778,8 @@ async def render_confirmation_screen(msg_or_query, context):
 
         if not editado and hasattr(msg_or_query, 'message') and msg_or_query.message:
             nuevo_msg = await msg_or_query.message.reply_text(txt, reply_markup=markup, parse_mode="Markdown")
-            context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
-            
+            context.user_data['last_menu_msg_id'] = nuevo_msg.message_id            
+
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
 
     items = data_json.get("items", [])
@@ -4372,13 +3801,15 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
         traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
         
         if tipo == "Actividad":
-            txt_exceso = (
+            txt_exceso = traducciones.get(
+                "06_bot_act_limite_superado",
                 "⚠️ **Límite de actividad superado**\n\n"
                 f"El gasto energético ingresado (`{magnitud_calorica:.0f} kcal`) supera el límite máximo permitido por registro (1.000 kcal).\n\n"
                 "Si realizaste un entrenamiento muy extenso, podés dividirlo en dos registros separados (ej: turno mañana y turno tarde)."
             )
         else:
-            txt_exceso = (
+            txt_exceso = traducciones.get(
+                "06_bot_comida_limite_superado",
                 "⚠️ **Cantidad excesiva detectada**\n\n"
                 f"El registro ingresado (`{magnitud_calorica:.0f} kcal`) supera el límite razonable para una sola ingesta.\n\n"
                 "Por favor, ingresá las porciones individuales reales de tu plato."
@@ -4449,7 +3880,6 @@ async def callback_handler_presion_foto(update: Update, context: ContextTypes.DE
             
             pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
             
-            # Reemplazado por traducciones.get con formato seguro
             msg_base = traducciones.get(
                 "06_bot_presion_exito", 
                 "✅ **¡Presión arterial registrada con éxito!**\n\n• Presión Alta: `{alta:.0f} mmHg`\n• Presión Baja: `{baja:.0f} mmHg`{pul_txt}"
@@ -4458,7 +3888,8 @@ async def callback_handler_presion_foto(update: Update, context: ContextTypes.DE
             
             await query.edit_message_text(txt_exito, parse_mode="Markdown")
         else:
-            await query.edit_message_text("⚠️ Los datos temporales de la presión expiraron.")
+            txt_expirada = traducciones.get("06_bot_presion_expirada", "⚠️ Los datos temporales de la presión expiraron.")
+            await query.edit_message_text(txt_expirada)
 
     elif data == "presion_pedir_nota":
         context.user_data['awaiting_presion_nota'] = True
@@ -4474,7 +3905,7 @@ async def callback_handler_presion_foto(update: Update, context: ContextTypes.DE
         context.user_data.pop('awaiting_presion_nota', None)
         txt_canc = traducciones.get("06_bot_presion_cancelada", "❌ Registro de presión cancelado.")
         await query.edit_message_text(txt_canc)
-        
+                
 @requiere_registro
 async def callback_handler_actividades(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -4486,18 +3917,17 @@ async def callback_handler_actividades(update: Update, context: ContextTypes.DEF
 
     if data in ["act_tipo_texto", "act_ind_texto"]:
         context.user_data['awaiting_activity_text'] = True
-        msg_solic = await query.message.reply_text(
-            "⌨️ Escribí la actividad (Ej: `50 minutos de caminata a velocidad moderada`):", parse_mode="Markdown"
-        )
+        txt_escribir = traducciones.get("06_bot_escribir_actividad", "📝 Escribí la actividad (Ej: `50 minutos de caminata a velocidad moderada`):")
+        msg_solic = await query.message.reply_text(txt_escribir, parse_mode="Markdown")
         context.user_data['msg_solicitud_activity_id'] = msg_solic.message_id
     elif data in ["act_tipo_audio", "act_ind_audio"]:
         context.user_data['awaiting_activity_voice'] = True
-        txt_act_voz = traducciones.get("06_bot_act_voz", "🎙️ Enviá una nota de voz describiendo tu actividad física.")
+        txt_act_voz = traducciones.get('06_bot_act_voz', "🎤 Enviá una nota de voz describiendo tu actividad física.")
         await query.message.reply_text(txt_act_voz, parse_mode="Markdown")
     elif data in ["act_cancelar", "act_ind_cancelar"]:
         context.user_data.pop('awaiting_activity_text', None)
         context.user_data.pop('awaiting_activity_voice', None)
-        txt_act_canc = traducciones.get("06_bot_act_cancelada", "❌ Registro de actividad cancelado.")
+        txt_act_canc = traducciones.get('06_bot_act_cancelada', "❌ Registro de actividad cancelado.")
         await query.edit_message_text(txt_act_canc)
 
 @requiere_registro
@@ -4506,6 +3936,8 @@ async def callback_handler_eliminacion(update: Update, context: ContextTypes.DEF
     await query.answer()
     data = query.data
     user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
     if data in ["del_cambiar_fecha", "del_volver_momentos"]:
         await mostrar_selector_momento_eliminar(query, context)
@@ -4517,7 +3949,8 @@ async def callback_handler_eliminacion(update: Update, context: ContextTypes.DEF
         await mostrar_selector_momento_eliminar(query, context)
     elif data == "del_d_otro":
         context.user_data['awaiting_del_custom_date'] = True
-        msg = await query.message.reply_text("📅 Ingresá la fecha que querés revisar (Ej: `2026-08-15` o `15/08`):", parse_mode="Markdown")
+        txt_fecha_rev = traducciones.get("06_bot_ingresar_fecha_revision", "📅 Ingresá la fecha que querés revisar (Ej: `2026-08-15` o `15/08`):")
+        msg = await query.message.reply_text(txt_fecha_rev, parse_mode="Markdown")
         context.user_data['msg_solicitud_del_fecha_id'] = msg.message_id
     elif data.startswith("del_mom_"):
         context.user_data['del_momento'] = data.replace("del_mom_", "")
@@ -4548,18 +3981,18 @@ async def callback_handler_reportes_pdf(update: Update, context: ContextTypes.DE
         f_str = data.replace("descargar_pdf_diario_", "")
         df = obtener_datos_usuario(user_id)
         pdf = generar_pdf_diario_bytes(f_str, df[df['Fecha'] == f_str] if not df.empty else pd.DataFrame(), user_id)
-        await context.bot.send_document(chat_id=query.message.chat_id, document=pdf, filename=f"D_{f_str}.pdf")
+        await context.bot.send_document(chat_id=query.message.chat_id, document=pdf, filename=f"📄 D_{f_str}.pdf")
     elif data.startswith("descargar_pdf_presion_"):
         mes_str = data.replace("descargar_pdf_presion_", "")
         df_p = obtener_datos_presion_db(user_id)
         pdf_p = generar_pdf_presion_bytes(mes_str, df_p[df_p['Fecha_Dia'].str.startswith(mes_str)] if not df_p.empty else pd.DataFrame(), user_id)
-        await context.bot.send_document(chat_id=query.message.chat_id, document=pdf_p, filename=f"P_{mes_str}.pdf")
+        await context.bot.send_document(chat_id=query.message.chat_id, document=pdf_p, filename=f"📄 P_{mes_str}.pdf")
     elif data.startswith("enviar_inf_"):
         target_user_id = int(data.replace("enviar_inf_", ""))
         ahora = obtener_ahora_arg()
         mes_target = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m") if ahora.day <= 7 else ahora.strftime("%Y-%m")
         await procesar_y_enviar_informe_mensual(context, target_user_id, target_user_id, mes_target, False, True)
-
+        
 #              INICIO                      FUNCIONES MANEJADORES MODULARIZADOS (NUEVOS)                   INICIO
 # =====================================================================================================================================
 
@@ -4792,12 +4225,12 @@ async def _sub_manejar_plantilla_comida(update: Update, context: ContextTypes.DE
             "fibr_base": f_b
         }
         
-        txt_proc = traducciones.get('bot_proc_comida', "⏳ Procesando comida predeterminada...")
+        txt_proc = traducciones.get('06_bot_proc_comida', "⏳ Procesando comida predeterminada...")
         msg = await update.message.reply_text(txt_proc)
         await procesar_y_mostrar_confirmacion({"items": [item_gen], "tipo": "Comida"}, msg, context)
     else:
         # Buscamos la traducción y si no existe, usamos un texto por defecto seguro
-        mensaje_base = traducciones.get('bot_error_comida_no_enc')
+        mensaje_base = traducciones.get('06_bot_error_comida_no_enc')
         if not mensaje_base or not str(mensaje_base).strip():
             mensaje_base = "❌ No se encontró la comida `*{nombre}` en tu planilla `Comidas_{user_id}`."
             
@@ -4937,7 +4370,7 @@ async def callback_btn_fechas_diario(update: Update, context: ContextTypes.DEFAU
         await render_confirmation_screen(query, context)
     elif data in ["set_d_otro", "set_d_custom"]:
         context.user_data['awaiting_custom_date'] = True
-        txt_fec_ing = traducciones.get('06_bot_solic_fecha_ingesta', "📅 Ingresá la fecha deseada para la ingesta (Ej: `2026-08-15` o `15/08`):")
+        txt_fec_ing = traducciones.get('06_bot_solic_fecha_ingesta', "📅 ✏️ Ingresá la fecha deseada para la ingesta (Ej: `2026-08-15` o `15/08`):")
         msg = await query.message.reply_text(txt_fec_ing, parse_mode="Markdown")
         context.user_data['msg_solicitud_fecha_id'] = msg.message_id
     elif data == "diario_hoy":
@@ -4946,10 +4379,10 @@ async def callback_btn_fechas_diario(update: Update, context: ContextTypes.DEFAU
         await mostrar_diario_fecha(query, user_id, (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d"))
     elif data == "diario_otro":
         context.user_data['awaiting_diario_custom_date'] = True
-        txt_diar_cons = traducciones.get('06_bot_solic_diario_consulta', "📅 Ingresá la fecha del diario que querés consultar (Ej: `2026-08-15` o `15/08`):")
+        txt_diar_cons = traducciones.get('06_bot_solic_diario_consulta', "🗓️ Ingresá la fecha del diario que querés consultar (Ej: `2026-08-15` o `15/08`):")
         msg = await query.message.reply_text(txt_diar_cons, parse_mode="Markdown")
         context.user_data['msg_solicitud_diario_fecha_id'] = msg.message_id
-
+        
 @requiere_registro
 async def callback_btn_editar_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -5055,77 +4488,6 @@ async def callback_btn_guardar_registro(update: Update, context: ContextTypes.DE
 #              INICIO                     FUNCIONES COMIDAS                   INICIO
 # =============================================================================================================================================
 
-def analizar_frecuencia_alimentos_mes(df_o_user_id, cat_dict_o_mes=None, col_integrales=None, col_refinadas=None, otras_categorias=None):
-    try:
-        if isinstance(df_o_user_id, (int, str)) and isinstance(cat_dict_o_mes, str) and not isinstance(df_o_user_id, pd.DataFrame):
-            user_id = int(df_o_user_id)
-            mes_str = cat_dict_o_mes
-            
-            df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
-            if df_datos.empty or 'Fecha' not in df_datos.columns:
-                return {}
-                
-            df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
-            inicio_periodo = pd.Timestamp(f"{mes_str}-01").normalize()
-            fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
-            
-            df_mes = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
-            if df_mes.empty:
-                return {}
-                
-            cat_dict = {'harinas_integrales': ['integral', 'salvado'], 'harinas_refinadas': ['blanca', 'refinada']}
-        else:
-            df_mes = df_o_user_id
-            cat_dict = cat_dict_o_mes if isinstance(cat_dict_o_mes, dict) else {}
-
-        if otras_categorias is None:
-            otras_categorias = {}
-            
-        frecuencias = {cat: 0 for cat in cat_dict.keys()} if cat_dict else {}
-
-        for _, row in df_mes.iterrows():
-            texto_celda = str(row.get('Alimento', '')).strip().lower()
-            if not texto_celda:
-                continue
-
-            es_integral = any(p in texto_celda for p in (col_integrales or ['integral', 'salvado', 'centeno', 'avena']))
-            
-            if es_integral:
-                for cat_key in frecuencias.keys():
-                    if 'integral' in cat_key:
-                        frecuencias[cat_key] += 1
-            else:
-                if col_refinadas and any(p in texto_celda for p in col_refinadas):
-                    for cat_key in frecuencias.keys():
-                        if 'refinada' in cat_key or 'blanca' in cat_key:
-                            frecuencias[cat_key] += 1
-
-            for cat_nombre, palabras in otras_categorias.items():
-                if any(p in texto_celda for p in palabras):
-                    if cat_nombre not in frecuencias:
-                        frecuencias[cat_nombre] = 0
-                    frecuencias[cat_nombre] += 1
-
-        return frecuencias
-    except Exception as e:
-        print(f"Error analizando frecuencias de alimentos: {e}")
-        return {}
-
-def calcular_porcentajes_harinas(frecuencias):
-    key_int = next((k for k in frecuencias.keys() if 'integral' in k), None)
-    key_ref = next((k for k in frecuencias.keys() if 'refinada' in k or 'blanca' in k), None)
-
-    total_integrales = frecuencias.get(key_int, 0) if key_int else 0
-    total_refinadas = frecuencias.get(key_ref, 0) if key_ref else 0
-    total_harinas = total_integrales + total_refinadas
-    
-    if total_harinas > 0:
-        porc_int = round((total_integrales / total_harinas) * 100)
-        porc_ref = round((total_refinadas / total_harinas) * 100)
-    else:
-        porc_int, porc_ref = 0, 0
-        
-    return porc_int, porc_ref
 
 def consultar_codigo_barras(barcode: str) -> dict | bool:
     url = f"https://world.openfoodfacts.org/api/v2/product/{barcode.strip()}.json"
