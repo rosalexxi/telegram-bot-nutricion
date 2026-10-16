@@ -6170,6 +6170,465 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
 
+# =============================================================================================================================================
+#                INICIO                            COMANDOS FACTURACION                             INICIO 
+# =============================================================================================================================================
+
+async def facturar_saldo_del_mes(context: ContextTypes.DEFAULT_TYPE, user_id: int, dias_restantes: int, estrellas_prorrateadas: int):
+    """
+    Emite una factura prorrateada el día 20 para los usuarios que no cumplieron 
+    con el mínimo de registros y pasaron a Estado 3.
+    """
+    try:
+        lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
+        traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+        titulo_factura = traducciones.get("10_factura_rescate_titulo", "Regularización de Cuenta")
+        desc_tpl = traducciones.get("10_factura_rescate_desc", "Abono proporcional correspondiente a los {dias_restantes} días restantes del mes en curso.")
+        item_desc_tpl = traducciones.get("10_factura_rescate_item", "Activación prorrateada ({dias_restantes} días)")
+
+        descripcion_item = item_desc_tpl.format(dias_restantes=dias_restantes)
+        precios = [LabeledPrice(descripcion_item, estrellas_prorrateadas)]
+        
+        payload_transaccion = f"rescate_mensual_{user_id}"
+
+        await context.bot.send_invoice(
+            chat_id=int(user_id),
+            title=titulo_factura,
+            description=desc_tpl.format(dias_restantes=dias_restantes),
+            payload=payload_transaccion,
+            provider_token="",
+            currency="XTR",
+            prices=precios,
+            start_parameter="rescate_prorrateo"
+        )
+        logger.info(f"Factura prorrateada del día 20 enviada con éxito al usuario {user_id} por {estrellas_prorrateadas} estrellas.")
+    except Exception as e:
+        logger.error(f"Error al enviar la factura prorrateada al usuario {user_id}: {e}")
+        
+async def rutina_nocturna_revision(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Se ejecuta de madrugada. Revisa inactividad (strikes) y manda avisos de pesaje.
+    No utiliza IA para abaratar costos y acelerar el proceso.
+    """
+    ahora = obtener_ahora_arg()
+    hoy_str = ahora.strftime("%Y-%m-%d")
+    dia_actual = ahora.day
+
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur.execute('SELECT "User ID", "Estado", "dias_inactivo" FROM "Usuarios" WHERE "Estado" NOT IN (\'3\', \'inactivo\', \'baja\')')
+        usuarios_activos = cur.fetchall()
+
+        for usr in usuarios_activos:
+            user_id = str(usr[0]).strip()
+            estado_actual = str(usr[1])
+            dias_inact = int(usr[2] if usr[2] is not None else 0)
+
+            u_lang = obtener_idioma_usuario(int(user_id)) if 'obtener_idioma_usuario' in globals() else 'es'
+            u_trad = obtener_traducciones_db(u_lang) if 'obtener_traducciones_db' in globals() else {}
+
+            # 1. VERIFICACIÓN DE CARGAS (Sistema de Strikes)
+            tabla_perfil = f"Perfil_{user_id}"
+            cargo_hoy = False
+            try:
+                cur.execute(f'SELECT COUNT(*) FROM "{tabla_perfil}" WHERE "Fecha_Actualizacion" = %s', (hoy_str,))
+                if cur.fetchone()[0] > 0:
+                    cargo_hoy = True
+            except Exception:
+                pass 
+
+            if cargo_hoy:
+                cur.execute('UPDATE "Usuarios" SET "dias_inactivo" = 0 WHERE "User ID" = %s', (user_id,))
+            else:
+                dias_inact += 1
+                cur.execute('UPDATE "Usuarios" SET "dias_inactivo" = %s WHERE "User ID" = %s', (dias_inact, user_id))
+                
+                # Strike 1
+                if dias_inact == 1:
+                    msg_s1 = u_trad.get("10_strike_1", "⚠️ **Aviso de sistema:** Notamos que hoy no registraste comidas. Recordá que el plan requiere carga diaria para mantener la cuenta activa.")
+                    await context.bot.send_message(chat_id=int(user_id), text=msg_s1, parse_mode="Markdown")
+                # Strike 2
+                elif dias_inact == 2:
+                    msg_s2 = u_trad.get("10_strike_2", "⏳ **Último aviso:** Llevás 2 días sin registrar. Si mañana no se detecta actividad, tu cuenta pasará a estado suspendido.")
+                    await context.bot.send_message(chat_id=int(user_id), text=msg_s2, parse_mode="Markdown")
+                # Strike 3 (Guillotina)
+                elif dias_inact >= 3:
+                    cur.execute('UPDATE "Usuarios" SET "Estado" = %s WHERE "User ID" = %s', ('3', user_id))
+                    msg_s3 = u_trad.get("10_strike_3", "❌ **Cuenta suspendida** por falta de registro consecutivo.\n\nEscribí cualquier comando (ej: `/dia`) para ver las opciones de reactivación.")
+                    await context.bot.send_message(chat_id=int(user_id), text=msg_s3, parse_mode="Markdown")
+
+            # 2. RECORDATORIOS DE PESAJE (Regla de las 3 Ventanas)
+            if dia_actual == 15 and estado_actual != '3':
+                msg_peso_15 = u_trad.get("10_aviso_peso_15", "⚖️ **Control Quincenal Habilitado**\n\nYa podés ingresar tu control de peso de mitad de mes para calibrar tu metabolismo.\n👉 Escribí `/peso [tu_peso]` (ej: `/peso 85`).")
+                await context.bot.send_message(chat_id=int(user_id), text=msg_peso_15, parse_mode="Markdown")
+            
+            elif dia_actual == 26 and estado_actual != '3':
+                msg_peso_26 = u_trad.get("10_aviso_peso_26", "⚖️ **Cierre de Mes Habilitado**\n\nSe habilitó el ingreso de tu peso final para cerrar el balance mensual y preparar tu próxima rutina.\n👉 Escribí `/peso [tu_peso]`.")
+                await context.bot.send_message(chat_id=int(user_id), text=msg_peso_26, parse_mode="Markdown")
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        logger.info("Rutina nocturna finalizada con éxito.")
+    except Exception as e:
+        logger.error(f"Error en rutina nocturna: {e}")
+
+# =========================================================================
+# 1. COMANDO /pagar (Menú dinámico de planes desde Supabase)
+# =========================================================================
+async def cmd_pagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra al usuario los planes de pago disponibles de forma dinámica."""
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
+        cur.execute('SELECT "plan_id", "descripcion", "estrellas" FROM "Planes" WHERE "activo" = TRUE')
+        planes = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        if not planes:
+            msg_sin_planes = traducciones.get("10_pagar_sin_planes", "⚠️ No hay planes de pago disponibles en este momento.")
+            await update.message.reply_text(msg_sin_planes)
+            return
+
+        keyboard = []
+        for plan in planes:
+            plan_id, descripcion_db, estrellas = plan[0], plan[1], plan[2]
+            nombre_plan = traducciones.get(str(plan_id).strip(), descripcion_db)
+            keyboard.append([InlineKeyboardButton(f"{nombre_plan} ({estrellas} ⭐)", callback_data=f"comprar_{plan_id}")])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        msg_titulo = traducciones.get("10_pagar_titulo", "⭐ **Seleccioná el plan con el que deseás abonar o renovar tu suscripción:**")
+        await update.message.reply_text(
+            msg_titulo,
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error(f"Error al cargar planes dinámicos para /pagar: {e}")
+        msg_error = traducciones.get("10_pagar_error_carga", "❌ Ocurrió un error al cargar las opciones de pago.")
+        await update.message.reply_text(msg_error)
+
+
+# =========================================================================
+# 2. MANEJADOR DE BOTONES DE PLANES (Callback Query)
+# =========================================================================
+async def boton_elegir_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = str(query.from_user.id).strip()
+    lang = obtener_idioma_usuario(int(user_id)) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    data = query.data
+    
+    # Lógica de rescate prorrateado para Estado 3
+    if data == "rescate_mensual":
+        try:
+            conn, cur = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
+            cur.execute('SELECT "estrellas" FROM "Planes" WHERE "plan_id" = %s', ('1_mes',))
+            plan_base = cur.fetchone()
+            cur.close()
+            conn.close()
+
+            estrellas_mes = plan_base[0] if plan_base else 250
+            
+            hoy = datetime.now()
+            dias_en_mes = calendar.monthrange(hoy.year, hoy.month)[1]
+            dias_restantes = dias_en_mes - hoy.day + 1
+            
+            estrellas_prorrateo = math.floor((estrellas_mes / dias_en_mes) * dias_restantes)
+            
+            item_desc_rescate = traducciones.get("10_rescate_item_desc", "Activación hasta fin de mes ({dias_restantes} días)").format(dias_restantes=dias_restantes)
+            precios = [LabeledPrice(item_desc_rescate, estrellas_prorrateo)]
+            
+            titulo_rescate = traducciones.get("10_rescate_inv_titulo", "Activación de Cuenta")
+            desc_rescate = traducciones.get("10_rescate_inv_desc", "Abono prorrateado para habilitar la cuenta hasta el último día del mes actual.")
+
+            await context.bot.send_invoice(
+                chat_id=int(user_id),
+                title=titulo_rescate,
+                description=desc_rescate,
+                payload=f"rescate_mensual_{user_id}",
+                provider_token="",
+                currency="XTR",
+                prices=precios,
+                start_parameter="rescate"
+            )
+            msg_gen_fact = traducciones.get("10_rescate_factura_generada", "✅ Se generó la factura por **{estrellas_prorrateo} Estrellas** para reactivar tu cuenta.").format(estrellas_prorrateo=estrellas_prorrateo)
+            await query.edit_message_text(msg_gen_fact, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Error generando rescate mensual para {user_id}: {e}")
+            msg_err_act = traducciones.get("10_rescate_error_act", "❌ Error al procesar la activación.")
+            await query.edit_message_text(msg_err_act)
+        return
+
+    if not data.startswith("comprar_"):
+        return
+
+    plan_id = data.replace("comprar_", "")
+
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
+        cur.execute('SELECT "descripcion", "estrellas" FROM "Planes" WHERE "plan_id" = %s', (plan_id,))
+        plan = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if not plan:
+            msg_no_disp = traducciones.get("10_pagar_plan_no_disp", "❌ El plan seleccionado ya no está disponible.")
+            await query.edit_message_text(msg_no_disp)
+            return
+
+        descripcion_db, estrellas = plan[0], plan[1]
+        descripcion = traducciones.get(str(plan_id).strip(), descripcion_db)
+
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur.execute('UPDATE "Usuarios" SET "plan_preferido" = %s WHERE "User ID" = %s', (plan_id, user_id))
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        precios = [LabeledPrice(descripcion, estrellas)]
+        payload_transaccion = f"pago_{plan_id}_{user_id}"
+
+        desc_factura_tpl = traducciones.get("10_pagar_factura_desc", "Suscripción - {descripcion}")
+        await context.bot.send_invoice(
+            chat_id=int(user_id),
+            title=descripcion,
+            description=desc_factura_tpl.format(descripcion=descripcion),
+            payload=payload_transaccion,
+            provider_token="",
+            currency="XTR",
+            prices=precios,
+            start_parameter=f"pay_{plan_id}"
+        )
+        
+        msg_enviado_tpl = traducciones.get("10_pagar_enviado", "✅ Has seleccionado: **{descripcion} ({estrellas} Estrellas)**.\nTe hemos enviado la factura para abonar en el chat.")
+        await query.edit_message_text(msg_enviado_tpl.format(descripcion=descripcion, estrellas=estrellas), parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Error procesando la selección de plan para el usuario {user_id}: {e}")
+        msg_err_proc = traducciones.get("10_pagar_error_proc", "❌ Ocurrió un error al procesar tu selección.")
+        await query.edit_message_text(msg_err_proc)
+
+# =========================================================================
+# 3. COMANDO ADMINISTRATIVO /cobrar (Cobro Manual por ID y Estrellas)
+# =========================================================================
+async def cmd_forzar_cobro(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Comando administrativo para emitir un cobro manual por cantidad de estrellas.
+    Uso: /cobrar <user_id> <estrellas>
+    """
+    user_actual = update.effective_user.id
+    lang = obtener_idioma_usuario(user_actual) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    if not es_administrador(user_actual):
+        msg_no_perm = traducciones.get("10_cobrar_no_perm", "❌ No tenés permisos para ejecutar este comando.")
+        await update.message.reply_text(msg_no_perm)
+        return
+
+    if not context.args or len(context.args) < 2:
+        msg_uso_inc = traducciones.get(
+            "10_cobrar_uso_incorrecto",
+            "⚠️ Uso incorrecto.\nUso correcto: `/cobrar <user_id> <estrellas>`"
+        )
+        await update.message.reply_text(msg_uso_inc, parse_mode="Markdown")
+        return
+
+    target_user_id = context.args[0].strip()
+    try:
+        cantidad_estrellas = int(context.args[1].strip())
+    except ValueError:
+        msg_num_inv = traducciones.get("10_cobrar_num_invalido", "❌ La cantidad de estrellas debe ser un número entero válido.")
+        await update.message.reply_text(msg_num_inv)
+        return
+
+    titulo_manual_tpl = traducciones.get("10_cobrar_titulo_manual", "Pago Especial / Manual ({cantidad_estrellas} Estrellas)")
+    precios = [LabeledPrice(titulo_manual_tpl.format(cantidad_estrellas=cantidad_estrellas), cantidad_estrellas)]
+    payload_transaccion = f"pago_manual_{target_user_id}"
+
+    try:
+        msg_aviso_adm = traducciones.get("10_cobrar_aviso_adm", "🔔 **Aviso de Facturación Administrativa:** Se ha generado una solicitud de pago especial:")
+        await context.bot.send_message(chat_id=int(target_user_id), text=msg_aviso_adm, parse_mode="Markdown")
+        
+        desc_manual = traducciones.get("10_cobrar_desc_manual", "Factura administrativa personalizada.")
+        await context.bot.send_invoice(
+            chat_id=int(target_user_id),
+            title=traducciones.get("10_cobrar_titulo_factura", "Pago Especial / Manual"),
+            description=desc_manual,
+            payload=payload_transaccion,
+            provider_token="",
+            currency="XTR",
+            prices=precios,
+            start_parameter="manual_pago"
+        )
+        
+        msg_exito_adm_tpl = traducciones.get("10_cobrar_exito_adm", "✅ Factura manual por `{cantidad_estrellas}` estrellas enviada con éxito al usuario `{target_user_id}`.")
+        await update.message.reply_text(msg_exito_adm_tpl.format(cantidad_estrellas=cantidad_estrellas, target_user_id=target_user_id))
+
+    except Exception as e:
+        logger.error(f"Error al enviar factura manual al usuario {target_user_id}: {e}")
+        msg_err_envio_tpl = traducciones.get("10_cobrar_error_envio", "❌ Error al enviar la factura: {e}")
+        await update.message.reply_text(msg_err_envio_tpl.format(e=e))
+
+# =========================================================================
+# 4. PRE-CHECKOUT Y SUCCESSFUL PAYMENT HANDLERS
+# =========================================================================
+async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.pre_checkout_query
+    await query.answer(ok=True)
+
+async def successful_payment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    payment = update.message.successful_payment
+    user_id = str(update.effective_user.id).strip()
+    lang = obtener_idioma_usuario(int(user_id)) if 'obtener_idioma_usuario' in globals() else 'en'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    payload = payment.invoice_payload
+    total_estrellas_pagadas = payment.total_amount
+
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+
+        # Lógica del pago de rescate prorrateado
+        if payload.startswith("rescate_mensual_"):
+            hoy = datetime.now().date()
+            ultimo_dia_mes = calendar.monthrange(hoy.year, hoy.month)[1]
+            nuevo_vencimiento = hoy.replace(day=ultimo_dia_mes).strftime("%Y-%m-%d")
+
+            cur.execute(
+                'UPDATE "Usuarios" SET "vencimiento_suscripcion" = %s, "Estado" = %s WHERE "User ID" = %s',
+                (nuevo_vencimiento, "10", user_id)
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            msg_rescate_exito = traducciones.get(
+                "10_pago_exito_rescate",
+                "⭐ **¡Cuenta reactivada con éxito!**\n\nTu acceso ha sido restaurado y tu ciclo de facturación se ha ajustado para el {nuevo_vencimiento}.\nYa podés seguir utilizando todos los comandos."
+            ).format(nuevo_vencimiento=nuevo_vencimiento)
+            await update.message.reply_text(msg_rescate_exito, parse_mode="Markdown")
+            return
+
+        # Lógica de pago manual
+        if "pago_manual" in payload:
+            cur.execute(
+                'UPDATE "Usuarios" SET "saldo_estrellas" = COALESCE("saldo_estrellas", 0) + %s WHERE "User ID" = %s',
+                (total_estrellas_pagadas, user_id)
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            msg_pago_exito_tpl = traducciones.get(
+                "10_pago_exito_manual",
+                "⭐ **¡Pago recibido con éxito!**\n\nSe han acreditado `{total_estrellas_pagadas}` estrellas a tu saldo."
+            )
+            await update.message.reply_text(msg_pago_exito_tpl.format(total_estrellas_pagadas=total_estrellas_pagadas), parse_mode="Markdown")
+            return
+
+        # Lógica de Planes regulares
+        plan_id = payload.replace("pago_", "").rsplit("_", 1)[0]
+
+        conn_p, cur_p = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
+        cur_p.execute('SELECT "dias" FROM "Planes" WHERE "plan_id" = %s', (plan_id,))
+        resultado_plan = cur_p.fetchone()
+        cur_p.close()
+        conn_p.close()
+
+        dias_a_sumar = resultado_plan[0] if resultado_plan else 30
+        hoy = datetime.now().date()
+        nuevo_vencimiento = (hoy + timedelta(days=dias_a_sumar)).strftime("%Y-%m-%d")
+
+        cur.execute(
+            'UPDATE "Usuarios" SET "vencimiento_suscripcion" = %s, "plan_preferido" = NULL, "Estado" = %s WHERE "User ID" = %s',
+            (nuevo_vencimiento, "10", user_id)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        msg_renov_exito_tpl = traducciones.get(
+            "10_pago_exito_plan",
+            "⭐ **¡Suscripción renovada con éxito!**\n\nTu acceso se encuentra activo hasta el **{nuevo_vencimiento}**."
+        )
+        await update.message.reply_text(msg_renov_exito_tpl.format(nuevo_vencimiento=nuevo_vencimiento), parse_mode="Markdown")
+        logger.info(f"✅ Suscripción actualizada para usuario {user_id} mediante plan {plan_id} hasta {nuevo_vencimiento}.")
+
+    except Exception as e:
+        logger.error(f"❌ Error al procesar pago exitoso para {user_id}: {e}")
+        msg_err_pago = traducciones.get("10_pago_error_ficha", "⚠️ El pago se realizó pero hubo un error al actualizar tu ficha.")
+        await update.message.reply_text(msg_err_pago)
+
+# =========================================================================
+# 5. PROCESO MASIVO DE FACTURACIÓN AUTOMÁTICA
+# =========================================================================
+async def proceso_masivo_cobros(context: ContextTypes.DEFAULT_TYPE):
+    """Proceso periódico que emite facturas considerando el plan preferido o 1 mes por defecto."""
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur.execute('SELECT "User ID", "plan_preferido" FROM "Usuarios"')
+        usuarios = cur.fetchall()
+        
+        conn_p, cur_p = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
+        cur_p.execute('SELECT "plan_id", "descripcion", "estrellas" FROM "Planes"')
+        planes_dict = {row[0]: {"descripcion": row[1], "estrellas": row[2]} for row in cur_p.fetchall()}
+        cur_p.close()
+        conn_p.close()
+
+        for user in usuarios:
+            user_id, plan_preferido = user[0], user[1]
+            
+            u_lang = obtener_idioma_usuario(int(str(user_id).split('.')[0].strip())) if 'obtener_idioma_usuario' in globals() else 'en'
+            u_trad = obtener_traducciones_db(u_lang) if 'obtener_traducciones_db' in globals() else {}
+
+            plan_a_facturar = plan_preferido if plan_preferido in planes_dict else "1_mes"
+            datos_plan = planes_dict.get(plan_a_facturar, planes_dict.get("1_mes"))
+
+            if not datos_plan:
+                continue
+
+            descripcion_db = datos_plan["descripcion"]
+            estrellas = datos_plan["estrellas"]
+            descripcion_plan = u_trad.get(str(plan_a_facturar).strip(), descripcion_db)
+
+            precios = [LabeledPrice(descripcion_plan, estrellas)]
+            payload_transaccion = f"pago_{plan_a_facturar}_{user_id}"
+
+            desc_auto_tpl = u_trad.get("10_factura_auto_desc", "Renovación automática - {descripcion}")
+            try:
+                await context.bot.send_invoice(
+                    chat_id=int(str(user_id).split('.')[0].strip()),
+                    title=descripcion_plan,
+                    description=desc_auto_tpl.format(descripcion=descripcion_plan),
+                    payload=payload_transaccion,
+                    provider_token="",
+                    currency="XTR",
+                    prices=precios,
+                    start_parameter=f"auto_{plan_a_facturar}"
+                )
+                logger.info(f"Factura automática enviada a {user_id} por plan {plan_a_facturar}")
+            except Exception as ex:
+                logger.error(f"No se pudo enviar factura automática a {user_id}: {ex}")
+                
+            await asyncio.sleep(2)
+
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error en el proceso masivo de cobros: {e}")
+        
+# =============================================================================================================================================
+#                FINAL                            COMANDOS FACTURACION                             FINAL 
+# =============================================================================================================================================
 
 # ======================================================================================================================================
 #                   INICIO                                    COMANDOS INFORMES                                   INICIO  DB OK
@@ -6182,11 +6641,23 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Manejador del comando /diario.
+    Permite argumento para ir a un día directo del mes actual (ej: /diario 5).
     Muestra el menú de selección de fecha con formato Día/Mes (DD/MM).
     """
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    # Si pasaron un argumento (atajo)
+    if context.args:
+        dia_str = context.args[0]
+        if dia_str.isdigit():
+            dia_int = int(dia_str)
+            ahora = obtener_ahora_arg()
+            if 1 <= dia_int <= ahora.day:
+                fecha_str = f"{ahora.year}-{ahora.month:02d}-{dia_int:02d}"
+                await mostrar_diario_fecha(update, user_id, fecha_str)
+                return
 
     # Obtenemos las etiquetas numéricas en formato Día/Mes (ej: 23/09)
     hoy_label = obtener_ahora_arg().strftime("%d/%m")
@@ -6198,7 +6669,7 @@ async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton(f"📆 {ayer_label}", callback_data="diario_ayer")
         ],
         [
-            InlineKeyboardButton("🗓️", callback_data="diario_otro")
+            InlineKeyboardButton("🔄 📅", callback_data="diario_otro")
         ]
     ])
     
@@ -6211,11 +6682,7 @@ async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
 async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
-    """
-    Función auxiliar para procesar y renderizar el reporte del diario agrupado por evento
-    en orden cronológico estricto (Desayuno, Almuerzo, Merienda, Cena, Actividad) y formato limpio.
-    """
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
     try:
@@ -6282,7 +6749,6 @@ async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
             keyboard = [[InlineKeyboardButton(btn_pdf_text, callback_data=f"descargar_pdf_diario_{fecha_str}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Reemplazamos los '\n' literales por saltos de línea reales de Python
         texto = texto.replace('\\n', '\n')
 
         if hasattr(update_or_query, 'edit_message_text'):
@@ -6314,7 +6780,7 @@ async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
             await update_or_query.message.reply_text(msg_err, parse_mode="Markdown")
             
 def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
     buffer = io.BytesIO()
@@ -6366,14 +6832,13 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
             "actividad": traducciones.get("08_inf_diario_momento_actividad", "Actividad Física")
         }
 
-        # 🔹 ORDEN CRONOLÓGICO ESTRICTO: Desayuno (1) -> Almuerzo (2) -> Merienda (3) -> Cena (4) -> Actividad (5)
         def obtener_orden_momento(momento_val):
             m_str = str(momento_val).strip().lower()
             if "desayuno" in m_str: return 1
             if "almuerzo" in m_str: return 2
             if "merienda" in m_str: return 3
             if "cena" in m_str: return 4
-            return 5 # Actividad o cualquier otro
+            return 5
 
         df_diario = df_diario.copy()
         df_diario['orden_temp'] = df_diario['Momento'].apply(obtener_orden_momento)
@@ -6429,7 +6894,7 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
 # ======================================================================================================================================
 
 def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo):
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
     df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
@@ -6449,9 +6914,11 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
 
     peso_act_val = float(m.get('peso_actual', 0))
     peso_ref_val = float(m.get('peso_referencia', 0))
-    act_min_val, act_max_val = calcular_rango_actividad_fisica(peso_act_val, peso_ref_val)
+    if 'calcular_rango_actividad_fisica' in globals():
+        act_min_val, act_max_val = calcular_rango_actividad_fisica(peso_act_val, peso_ref_val)
+    else:
+        act_min_val, act_max_val = 30, 60
 
-    # Cálculo dinámico de días efectivos con registros en el rango
     dias_efectivos = df_semana['Fecha_dt'].nunique()
     if dias_efectivos <= 0:
         dias_efectivos = 1
@@ -6467,7 +6934,6 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
                 if match:
                     minutos_totales_actividad += int(match.group(1))
 
-    # Se divide por los días efectivos reales en lugar de un 7 fijo
     prom_minutos_act = int(round(minutos_totales_actividad / dias_efectivos))
 
     prom_alta, prom_baja = None, None
@@ -6489,7 +6955,7 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
     t_prom = traducciones.get("08_inf_semana_promedios", "📈 **Promedios vs. Rangos Saludables:**")
    
     val_neto_sem = m.get('prom_bal_neto', m.get('prom_cal', 0) - m.get('prom_quem', 0))
-    cal_tpl = traducciones.get("08_inf_semana_calorias", "• Calorías: `{prom_cal} kcal` / Rango: `{cal_min} - {cal_max} kcal`").format(prom_cal=val_neto_sem, cal_min=m.get('cal_min', 0), cal_max=m.get('cal_max', 0))   
+    cal_tpl = traducciones.get("08_inf_semana_calorias", "• Balance Neto: `{prom_cal} kcal` / Rango: `{cal_min} - {cal_max} kcal`").format(prom_cal=val_neto_sem, cal_min=m.get('cal_min', 0), cal_max=m.get('cal_max', 0))   
    
     prot_tpl = traducciones.get("08_inf_semana_proteinas", "• Proteínas: `{prom_prot} g` / Rango: `{prot_min} - {prot_max} g`").format(prom_prot=m.get('prom_prot', 0), prot_min=m.get('prot_min', 0), prot_max=m.get('prot_max', 0))
     gras_tpl = traducciones.get("08_inf_semana_grasas", "• Grasas: `{prom_gras} g` / Rango: `{gras_min} - {gras_max} g`").format(prom_gras=m.get('prom_gras', 0), gras_min=m.get('gras_min', 0), gras_max=m.get('gras_max', 0))
@@ -6527,11 +6993,13 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
 @requiere_registro
 async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
-    msg_espera = await update.message.reply_text("⏳ Procesando tu estadística semanal...", parse_mode="Markdown")
+    msg_proc = traducciones.get("08_inf_semana_proc", "⏳ Procesando tu estadística semanal...")
+    msg_espera = await update.message.reply_text(msg_proc, parse_mode="Markdown")
     
     ahora = obtener_ahora_arg()
-    # Si es lunes, muestra semana pasada. Si no, lo que va de esta.
     if ahora.weekday() == 0:
         inicio_sem = ahora - timedelta(days=7)
         fin_sem = ahora - timedelta(days=1)
@@ -6545,14 +7013,16 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
         if df_datos.empty or 'Fecha' not in df_datos.columns:
-            await msg_espera.edit_text(f"⚠️ No hay datos registrados entre el {inicio_str} y el {fin_str}.")
+            msg_sin_dat = traducciones.get("08_inf_semana_sin_dat", "⚠️ No hay datos registrados entre el {inicio_str} y el {fin_str}.").format(inicio_str=inicio_str, fin_str=fin_str)
+            await msg_espera.edit_text(msg_sin_dat)
             return
             
         df_sem = df_datos[(df_datos['Fecha'] >= inicio_str) & (df_datos['Fecha'] <= fin_str)]
         dias_validos = df_sem['Fecha'].nunique()
         
         if dias_validos == 0:
-            await msg_espera.edit_text(f"⚠️ No se encontraron ingestas en el período ({inicio_str} a {fin_str}).")
+            msg_sin_ing = traducciones.get("08_inf_semana_sin_ing", "⚠️ No se encontraron ingestas en el período ({inicio_str} a {fin_str}).").format(inicio_str=inicio_str, fin_str=fin_str)
+            await msg_espera.edit_text(msg_sin_ing)
             return
 
         tot_cal = df_sem[df_sem['Calorias'] > 0]['Calorias'].sum()
@@ -6567,7 +7037,6 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prom_carb = df_sem['Carbohidratos'].sum() / dias_validos if 'Carbohidratos' in df_sem.columns else 0
         prom_fibr = df_sem['Fibras'].sum() / dias_validos if 'Fibras' in df_sem.columns else 0
 
-        # Cálculo de minutos de actividad
         minutos_totales_actividad = 0
         if 'Momento' in df_sem.columns and 'Alimento' in df_sem.columns:
             for _, row in df_sem.iterrows():
@@ -6581,25 +7050,34 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         prom_minutos_act = int(round(minutos_totales_actividad / dias_validos))
 
-        txt_informe = (
-            f"📊 **Resumen Semanal** ({inicio_str} al {fin_str})\n"
-            f"🗓️ Días efectivos evaluados: `{dias_validos}`\n\n"
-            f"🔥 Consumo Promedio: `{prom_cal:.0f} kcal/día`\n"
-            f"⚡ Quema Promedio: `{prom_quem:.0f} kcal/día`\n"
-            f"⚖️ Balance Neto Promedio: `{balance:.0f} kcal/día`\n\n"
-            f"🥩 Proteínas: `{prom_prot:.1f} g/día`\n"
-            f"🥑 Grasas: `{prom_gras:.1f} g/día`\n"
-            f"🍞 Carbohidratos: `{prom_carb:.1f} g/día`\n"
-            f"🌾 Fibras: `{prom_fibr:.1f} g/día`\n"
-            f"🏃 Actividad Física: `{prom_minutos_act} min/día`\n\n"
-            f"💡 _Recordá mantener tus registros al día para mayor precisión._"
+        msg_plantilla = traducciones.get(
+            "08_inf_semana_plantilla",
+            "📊 **Resumen Semanal** ({inicio_str} al {fin_str})\n"
+            "🗓️ Días efectivos evaluados: `{dias_validos}`\n\n"
+            "🔥 Consumo Promedio: `{prom_cal:.0f} kcal/día`\n"
+            "⚡ Quema Promedio: `{prom_quem:.0f} kcal/día`\n"
+            "⚖️ Balance Neto Promedio: `{balance:.0f} kcal/día`\n\n"
+            "🥩 Proteínas: `{prom_prot:.1f} g/día`\n"
+            "🥑 Grasas: `{prom_gras:.1f} g/día`\n"
+            "🍞 Carbohidratos: `{prom_carb:.1f} g/día`\n"
+            "🌾 Fibras: `{prom_fibr:.1f} g/día`\n"
+            "🏃 Actividad Física: `{prom_minutos_act} min/día`\n\n"
+            "💡 _Recordá mantener tus registros al día para mayor precisión._"
+        )
+        
+        txt_informe = msg_plantilla.format(
+            inicio_str=inicio_str, fin_str=fin_str, dias_validos=dias_validos,
+            prom_cal=prom_cal, prom_quem=prom_quem, balance=balance,
+            prom_prot=prom_prot, prom_gras=prom_gras, prom_carb=prom_carb,
+            prom_fibr=prom_fibr, prom_minutos_act=prom_minutos_act
         )
         
         await msg_espera.edit_text(txt_informe, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Error en resumen semanal para {user_id}: {e}")
-        await msg_espera.edit_text("❌ Error al procesar tu resumen semanal.")
+        msg_err_proc = traducciones.get("08_inf_semana_err_proc", "❌ Error al procesar tu resumen semanal.")
+        await msg_espera.edit_text(msg_err_proc)
                              
 #               INICIO                                COMANDO RESUMEN COMANDO MES                       INICIO DB OK
 # ==========================================================================================================================================
@@ -6702,20 +7180,15 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
     
     peso_referencia = round(peso_etapa_calculado, 1)
     peso_ideal_dinamico = peso_referencia  
-
-    min_act = 30
-    max_act = 60
-
+    
     _, get_real = calcular_tmb_y_get(
         peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal_dinamico
     )
     _, get_meta = calcular_tmb_y_get(
         peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal_dinamico
     )
-    gasto_diario_total = get_real + prom_quem
-    balance_diario = prom_cons - gasto_diario_total
+    balance_diario = prom_cons - (get_real + prom_quem)
     cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
-    deficit_diario_real = -balance_diario
 
     if is_femenino:
         factor_proteina_min = 1.0
@@ -6726,29 +7199,22 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         factor_proteina_max = 1.5
         fibr_min = 30
 
-    # 1. Calorías: Rango entre el gasto de la etapa (meta) y el actual
     val_get_real = int(round(get_real))
     val_get_meta = int(round(get_meta))
-    
     cal_min = min(val_get_real, val_get_meta)
     cal_max = max(val_get_real, val_get_meta)
 
-    # 2. Peso: Rango entre el peso de etapa (meta) y el actual para proteínas
     peso_min = min(float(peso_actual), float(peso_referencia))
     peso_max = max(float(peso_actual), float(peso_referencia))
 
     prot_min = int(round(peso_min * factor_proteina_min))
     prot_max = int(round(peso_max * factor_proteina_max))
 
-    # 3. Grasas (20% al 30% de las calorías)
     gras_min = int(round((cal_min * 0.20) / 9.0))
     gras_max = int(round((cal_max * 0.30) / 9.0))
 
-    # 4. Carbohidratos (40% al 55% de las calorías)
     carb_min = int(round((cal_min * 0.40) / 4.0))
     carb_max = int(round((cal_max * 0.55) / 4.0))
-
-    fibr_min_val = fibr_min
 
     return {
         "dias_registrados": dias_registrados,
@@ -6760,37 +7226,18 @@ def calcular_metricas_mensuales(df_mes, perfil_dict):
         "prom_carb": prom_carb,
         "prom_fibr": prom_fibr,
         "prom_minutos_act": prom_minutos_act,
-        "act_min": min_act,
-        "act_max": max_act,
         "cal_min": cal_min, "cal_max": cal_max,
         "prot_min": prot_min, "prot_max": prot_max,
         "gras_min": gras_min, "gras_max": gras_max,
         "carb_min": carb_min, "carb_max": carb_max,
-        "fibr_min": fibr_min_val,
-        "ideal_cal": cal_max,
-        "ideal_prot": prot_max,
-        "ideal_gras": gras_max,
-        "ideal_carb": carb_max,
-        "ideal_fibr": fibr_min_val,
+        "fibr_min": fibr_min,
         "peso_actual": round(float(peso_actual), 1),
-        "peso_ideal": round(float(peso_ideal_dinamico), 1),
         "peso_referencia": round(float(peso_referencia), 1),
-        "altura": round(float(altura), 1),
-        "edad": edad,
-        "get_meta": get_meta,
-        "get_real": get_real,
-        "deficit_diario_real": int(round(deficit_diario_real)),
-        "cambio_peso_kg": cambio_peso_kg,
-        "tot_cons": tot_cons_mes,
-        "tot_quem": tot_quem_mes,
-        "tot_prot": tot_prot,
-        "tot_gras": tot_gras,
-        "tot_carb": tot_carb,
-        "tot_fibr": tot_fibr
+        "cambio_peso_kg": cambio_peso_kg
     }
         
 async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
     try:
@@ -6856,9 +7303,29 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
                         
 @requiere_registro
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Manejador del comando /resumen.
+    Permite argumento para ir directo a un mes del año actual (ej: /resumen 08).
+    """
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    # Si pasaron un argumento (atajo)
+    if context.args:
+        mes_str = context.args[0]
+        if len(mes_str) <= 2 and mes_str.isdigit():
+            mes_int = int(mes_str)
+            if 1 <= mes_int <= 12:
+                ahora = obtener_ahora_arg()
+                if mes_int > ahora.month:
+                    msg_futuro = traducciones.get("08_inf_mes_futuro", "⚠️ No se puede consultar un mes futuro.")
+                    await update.message.reply_text(msg_futuro)
+                    return
+                mes_formateado = f"{ahora.year}-{mes_int:02d}"
+                context.args = [mes_formateado] # Simulamos el cb data
+                await mostrar_resumen_mes(update, context)
+                return
 
     if not await _validar_peso_mes_actual(update, context):
         return
@@ -6875,13 +7342,13 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if 1 <= dia_actual <= 7:
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(f"📅 {label_mes_anterior}", callback_data=f"resumen_mes_{mes_anterior_iso}")],
-            [InlineKeyboardButton("🗓️", callback_data="resumen_mes_menu_otros")]
+            [InlineKeyboardButton("🔄 📅", callback_data="resumen_mes_menu_otros")]
         ])
     else:
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(f"📅 {label_mes_actual}", callback_data=f"resumen_mes_{mes_actual_iso}")],
             [InlineKeyboardButton(f"📆 {label_mes_anterior}", callback_data=f"resumen_mes_{mes_anterior_iso}")],
-            [InlineKeyboardButton("🗓️", callback_data="resumen_mes_menu_otros")]
+            [InlineKeyboardButton("🔄 📅", callback_data="resumen_mes_menu_otros")]
         ])
 
     texto_titulo = traducciones.get("08_inf_mes_titulo", "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:")
@@ -6895,7 +7362,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         query = update.callback_query
         user_id = query.from_user.id if query else update.effective_user.id
-        lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+        lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
         traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
         ahora = obtener_ahora_arg()
@@ -6933,13 +7400,13 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
                 if 1 <= dia_actual <= 7:
                     keyboard = InlineKeyboardMarkup([
                         [InlineKeyboardButton(f"📅 {label_mes_anterior}", callback_data=f"resumen_mes_{mes_anterior_iso}")],
-                        [InlineKeyboardButton("🗓️", callback_data="resumen_mes_menu_otros")]
+                        [InlineKeyboardButton("🔄 📅", callback_data="resumen_mes_menu_otros")]
                     ])
                 else:
                     keyboard = InlineKeyboardMarkup([
                         [InlineKeyboardButton(f"📅 {label_mes_actual}", callback_data=f"resumen_mes_{mes_actual_str}")],
                         [InlineKeyboardButton(f"📆 {label_mes_anterior}", callback_data=f"resumen_mes_{mes_anterior_iso}")],
-                        [InlineKeyboardButton("🗓️", callback_data="resumen_mes_menu_otros")]
+                        [InlineKeyboardButton("🔄 📅", callback_data="resumen_mes_menu_otros")]
                     ])
 
                 texto_titulo = traducciones.get("08_inf_mes_titulo", "📊 **Resumen Mensual:** Seleccioná la opción que querés consultar:")
@@ -6999,19 +7466,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
         m = calcular_metricas_mensuales(df_mes, perfil)
 
-        minutos_mes_act = 0
-        dias_activos_act = m.get('dias_registrados', 1) if m.get('dias_registrados', 1) > 0 else 1
-        if not df_mes.empty and 'Momento' in df_mes.columns and 'Alimento' in df_mes.columns:
-            for _, row in df_mes.iterrows():
-                momento_str = str(row.get('Momento', '')).strip().lower()
-                alimento_str = str(row.get('Alimento', '')).strip()
-                cal_val = float(row.get('Calorias', 0) or 0)
-                if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
-                    match = re.match(r'^(\d+)', alimento_str)
-                    if match:
-                        minutos_mes_act += int(match.group(1))
-        prom_minutos_mes_act = int(round(minutos_mes_act / dias_activos_act))
-
         peso_act_val = float(m.get('peso_actual', 0))
         peso_ref_val = float(m.get('peso_referencia', 0))
         if 'calcular_rango_actividad_fisica' in globals():
@@ -7037,7 +7491,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             "• Balance Neto: `{neto} kcal/día`\n"
             "• Variación Est. de Peso: {var_peso} ({dias} días)\n\n"
             "📈 **Promedios vs. Rangos Saludables:**\n"
-            "• Calorías: `{neto} kcal` / Rango: `{c_min} - {c_max} kcal`\n"
+            "• Balance Neto: `{neto} kcal` / Rango: `{c_min} - {c_max} kcal`\n"
             "• Proteínas: `{prot} g` / Rango: `{p_min} - {p_max} g`\n"
             "• Grasas: `{gras} g` / Rango: `{g_min} - {g_max} g`\n"
             "• Carbs: `{carb} g` / Rango: `{cb_min} - {cb_max} g`\n"
@@ -7063,7 +7517,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             cb_min=m.get('carb_min', 0), cb_max=m.get('carb_max', 0),
             fibr=_fmt(m.get('prom_fibr', 0)),
             f_min=m.get('fibr_min', 0),
-            act=prom_minutos_mes_act,
+            act=m.get('prom_minutos_act', 0),
             act_min=act_min_val, act_max=act_max_val
         )
 
@@ -7090,7 +7544,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(msg_err)    
                                 
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, user_id):
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
     buffer = io.BytesIO()
@@ -7100,7 +7554,6 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, user
     title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=14, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
     sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=10, textColor=colors.HexColor('#2563EB'), spaceBefore=6, spaceAfter=2)
     body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#1E293B'))
-    rec_style = ParagraphStyle('RecBody', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#0F172A'), spaceAfter=1)
     header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
 
     t_titulo_tmpl = traducciones.get("08_PDF_resumen_titulo", "Reporte Nutricional Mensual - {mes_str}")
@@ -7210,17 +7663,17 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, user
     th_prom_real = traducciones.get("08_PDF_resumen_th_prom_real", "Promedio Diario Real (Mes)")
     th_rango_salud = traducciones.get("08_PDF_resumen_th_rango_salud", "Rango / Mínimo Saludable")
 
-    n_cal = traducciones.get("08_PDF_resumen_nutr_calorias", "Calorías")
+    n_cal = traducciones.get("08_PDF_resumen_nutr_calorias", "Balance Neto (kcal)")
     n_prot = traducciones.get("08_PDF_resumen_nutr_proteinas", "Proteínas")
     n_gras = traducciones.get("08_PDF_resumen_nutr_grasas", "Grasas")
     n_carb = traducciones.get("08_PDF_resumen_nutr_carbs", "Carbohidratos")
     n_fibr = traducciones.get("08_PDF_resumen_nutr_fibras", "Fibras")
     min_tpl = traducciones.get("08_PDF_resumen_minimo", "Mínimo {val} g")
 
+    # Eliminada la duplicación de la fila de calorías. Ahora solo compara Balance Neto.
     table_comp = [
         [Paragraph(f"<b>{th_nutriente}</b>", header_style), Paragraph(f"<b>{th_prom_real}</b>", header_style), Paragraph(f"<b>{th_rango_salud}</b>", header_style)],
         [Paragraph(n_cal, body_style), Paragraph(f"{m.get('prom_bal_neto', 0)} kcal", body_style), Paragraph(f"{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal", body_style)],
-        [Paragraph(n_cal, body_style), Paragraph(f"{m.get('prom_cal', 0)} kcal", body_style), Paragraph(f"{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal", body_style)],
         [Paragraph(n_prot, body_style), Paragraph(f"{m.get('prom_prot', 0)} g", body_style), Paragraph(f"{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g", body_style)],
         [Paragraph(n_gras, body_style), Paragraph(f"{m.get('prom_gras', 0)} g", body_style), Paragraph(f"{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g", body_style)],
         [Paragraph(n_carb, body_style), Paragraph(f"{m.get('prom_carb', 0)} g", body_style), Paragraph(f"{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g", body_style)],
@@ -7239,14 +7692,11 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, user
     peso_ref_pdf = round(float(m.get('peso_referencia', 0)), 1)
 
     p_perfil_tmpl = traducciones.get("08_PDF_resumen_perfil_reg", "• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {peso_act_pdf} kg | Peso Objetivo de esta etapa : {peso_ref_pdf} kg |")
-    p_def_tmpl = traducciones.get("08_PDF_resumen_deficit_diario", "• <b>DÉFICIT CALÓRICO DIARIO PROMEDIO:</b> {deficit} kcal / día")
-    
     p_cambio_tmpl = traducciones.get("08_PDF_resumen_cambio_peso", "• <b>TENDENCIA ESTIMADA DE PESO:</b> {cambio_txt}")
     p_act_tmpl = traducciones.get("08_PDF_resumen_act_fisica", "• <b>ACTIVIDAD FÍSICA PROMEDIO:</b> {act_minutos} min/día (Rango recomendado: {act_min} - {act_max} min/día)")
     p_nota_act = traducciones.get("08_PDF_resumen_nota_act", "<i>(Nota: Los rangos de actividad consideran impacto corporal; actividades de bajo impacto como aquagym, natación o yoga no aplican restricciones de sobrepeso).</i>")
 
     story.append(Paragraph(p_perfil_tmpl.format(mes_str=mes_str, peso_act_pdf=peso_act_pdf, peso_ref_pdf=peso_ref_pdf), body_style))
-    story.append(Paragraph(p_def_tmpl.format(deficit=m.get('deficit_diario_real', 0)), body_style))
     
     cambio_val = float(m.get('cambio_peso_kg', 0))
     mensaje_variacion = obtener_mensaje_variacion_peso(cambio_val)
@@ -7270,7 +7720,7 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, user
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
     txt_aviso = traducciones.get("08_PDF_envio_aviso_inicial", "¡Recibido! Prepararemos el documento y cuando esté listo lo recibirá automáticamente. ⏳")
@@ -7363,57 +7813,25 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
 #               INICIO                               MENSAJES PROGRAMADOS                          INICIO  
 # ======================================================================================================================================
 
-async def job_buenas_noches(context):
-    """Envía un mensajito de buenas noches empático basado en lo que registró el usuario hoy."""
-    try:
-        registros_usuarios = obtener_todos_usuarios()
-        if not registros_usuarios:
-            return
-
-        ahora_dt = obtener_ahora_arg()
-        str_hoy = ahora_dt.strftime("%Y-%m-%d")
-
-        for index, u in enumerate(registros_usuarios):
-            try:
-                estado_raw = str(u.get("Estado", u.get("estado", "0"))).strip().lower()
-                notif = str(u.get("Notificaciones", "")).strip().lower()
-                raw_user_id = u.get("User ID", u.get("user_id", ""))
-                
-                if not raw_user_id or estado_raw in ['baja', 'suspendido', '3'] or notif not in ["si", "sí"]:
-                    continue
-                
-                user_id = int(str(raw_user_id).split('.')[0].strip())
-                
-                # Soporte multilenguaje para el usuario
-                lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-                traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-                
-                registros_u = obtener_registros_usuario(user_id)
-                registros_hoy = [r for r in registros_u if str(r.get("Fecha", "")).strip() == str_hoy]
-                
-                if registros_hoy:
-                    resumen_texto = ", ".join([f"{r.get('Momento/Actividad') or r.get('Momento', '')}: {r.get('Alimento/Detalle') or r.get('Alimento', '')}" for r in registros_hoy])
-                    
-                    prompt_noches = (
-                        f"Actúa como un coach nutricional súper empático, cálido y amigable. "
-                        f"Esto registró el usuario hoy: {resumen_texto}. "
-                        f"Escríbete un mensaje de buenas noches brevísimo (máximo 2 o 3 líneas), recontra motivador, "
-                        f"sin ningún regaño, destacando el esfuerzo del día y deseándole un buen descanso."
-                    )
-                    
-                    mensaje_ia = ejecutar_consulta_ia(prompt_noches, max_tokens=150, temperature=0.5)
-                    if mensaje_ia:
-                        titulo_bn = traducciones.get("08_notif_buenas_noches_titulo", "🌙 **Buenas noches:**")
-                        texto_final = f"{titulo_bn}\n\n{mensaje_ia}"
-                        await context.bot.send_message(chat_id=user_id, text=texto_final, parse_mode="Markdown")
-                        
-                        if index < len(registros_usuarios) - 1:
-                            await asyncio.sleep(5)
-            except Exception as e_user:
-                logger.error(f"Error en buenas noches para usuario {u}: {e_user}")
-    except Exception as e:
-        logger.error(f"Error general en job_buenas_noches: {e}")
-        
+def evaluar_dias_validos(registros, fecha_inicio, fecha_fin):
+    """Cuenta cuántos días en un rango de fechas cumplen con los requisitos mínimos (2 comidas, 1 principal)."""
+    validos = 0
+    todas_comidas = {"Desayuno", "Almuerzo", "Merienda", "Cena"}
+    comidas_principales = {"Almuerzo", "Cena"}
+    
+    curr = fecha_inicio
+    while curr <= fecha_fin:
+        str_d = curr.strftime("%Y-%m-%d")
+        comidas_del_dia = [
+            str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() 
+            for r in registros 
+            if str(r.get("Fecha", "")).strip() == str_d 
+            and str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() in todas_comidas
+        ]
+        if len(comidas_del_dia) >= 2 and any(c in comidas_principales for c in comidas_del_dia):
+            validos += 1
+        curr += timedelta(days=1)
+    return validos
 
 async def recordatorio_lunes_presion(context):
     try:
@@ -7438,6 +7856,9 @@ async def recordatorio_lunes_presion(context):
             if estado_val not in ['activo', 'sí', 'si', 'true', '1'] and not estado_val.isdigit():
                 continue
 
+            lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
+            traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
             df_presion = obtener_datos_presion_db(user_id) if 'obtener_datos_presion_db' in globals() else pd.DataFrame()
             
             tiene_medicion_reciente = False
@@ -7448,13 +7869,9 @@ async def recordatorio_lunes_presion(context):
                     tiene_medicion_reciente = True
 
             if not tiene_medicion_reciente:
-                mensaje = (
-                    "🩺 **Recordatorio de Presión Arterial**\n\n"
-                    "Hola. Notamos que todavía no registraste ninguna medición de presión arterial durante la semana pasada. "
-                    "Te recordamos la importancia de mantener un control regular para tu seguimiento médico.\n\n"
-                    "Podés registrarla cuando gustes usando el comando:\n"
-                    "`/presi 120,80,70`\n\n"
-                    "_Este es un aviso informativo y de acompañamiento, sin ninguna penalización._"
+                mensaje = traducciones.get(
+                    "08_notif_recordatorio_presion",
+                    "🩺 **Recordatorio de Presión Arterial**\n\nHola. Notamos que todavía no registraste ninguna medición de presión arterial durante la semana pasada. Te recordamos la importancia de mantener un control regular para tu seguimiento médico.\n\nPodés registrarla cuando gustes usando el comando:\n`/presi 120,80,70`"
                 )
                 try:
                     await context.bot.send_message(
@@ -7483,7 +7900,6 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
     str_anteayer = anteayer.strftime("%Y-%m-%d")
 
     todas_comidas = ["Desayuno", "Almuerzo", "Merienda", "Cena"]
-    comidas_principales = {"Almuerzo", "Cena"}
     
     es_lunes_manana = (hoy.weekday() == 0 and momento == 'manana')
     es_martes_manana = (hoy.weekday() == 1 and momento == 'manana')
@@ -7494,10 +7910,10 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
     es_dia_20 = (hoy.day == 20 and momento == 'tarde')
 
     # 1. Día 1: Proceso masivo de facturación automática por lotes
-    if es_primer_dia_mes:
+    if es_primer_dia_mes and 'proceso_masivo_cobros' in globals():
         await proceso_masivo_cobros(context)
 
-    # 2. Día 5 y Día 20: Avisos dirigidos exclusivamente a quienes vencen a fin de mes (Integrados con traductor)
+    # 2. Avisos de suscripciones a punto de vencer (Día 5 y Día 20)
     if es_dia_5 or es_dia_20:
         try:
             conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
@@ -7510,8 +7926,7 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
             for u_ven in usuarios_vencen:
                 u_id_str = str(u_ven[0]).split('.')[0].strip()
                 try:
-                    # Soporte multilenguaje por usuario
-                    u_lang = obtener_idioma_usuario(int(u_id_str)) if 'obtener_idioma_usuario' in globals() else 'en'
+                    u_lang = obtener_idioma_usuario(int(u_id_str)) if 'obtener_idioma_usuario' in globals() else 'es'
                     u_trad = obtener_traducciones_db(u_lang) if 'obtener_traducciones_db' in globals() else {}
 
                     if es_dia_5:
@@ -7519,7 +7934,7 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
                             "08_inf_venc_dia5", 
                             "🔔 **Aviso de Suscripción:** Te recordamos que tu plan actual vence a finales de este mes. Podés verificar las opciones de renovación o elegir una promoción ingresando al comando `/pagar`."
                         )
-                    else:  # es_dia_20
+                    else:
                         mensaje = u_trad.get(
                             "08_inf_venc_dia20", 
                             "📢 **Próxima Facturación:** Te recordamos que a fin de mes se emitirá la factura para renovar tu suscripción. Si deseás cambiar de plan o elegir alguna de nuestras promociones especiales, podés seleccionarla usando el comando `/pagar`."
@@ -7559,118 +7974,63 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
             if notif not in ["si", "sí"]:
                 continue
 
+            lang_u = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
+            traducciones = obtener_traducciones_db(lang_u) if 'obtener_traducciones_db' in globals() else {}
+
+            # ================= EVALUACIÓN DE INACTIVIDAD (SISTEMA FREEMIUM) =================
+            if es_dia_5:
+                inicio_check = hoy - timedelta(days=14)
+                fin_check = hoy
+                registros_u = obtener_registros_usuario(user_id)
+                dias_validos = evaluar_dias_validos(registros_u, inicio_check, fin_check)
+                dias_evaluados = (fin_check - inicio_check).days + 1
+                faltas = dias_evaluados - dias_validos
+                
+                if faltas >= 5:
+                    msg_aviso = traducciones.get(
+                        "08_notif_freemium_aviso5",
+                        "⚠️ **Aviso de uso gratuito:** Te recordamos que para mantener la beca de uso 100% gratuito de la plataforma, necesitás registrar tus comidas al menos 20 días al mes. De los últimos 15 días, faltó el registro en {faltas} días. ¡Ponete al día para no perder el beneficio!"
+                    ).format(faltas=faltas)
+                    await context.bot.send_message(chat_id=user_id, text=msg_aviso, parse_mode="Markdown")
+
+            if es_dia_20:
+                inicio_check = hoy - timedelta(days=29)
+                fin_check = hoy
+                registros_u = obtener_registros_usuario(user_id)
+                dias_validos = evaluar_dias_validos(registros_u, inicio_check, fin_check)
+                
+                if dias_validos < 20:
+                    actualizar_estado_usuario(str(user_id), "3")
+                    
+                    # Cálculo dinámico del prorrateo para los días restantes
+                    _, dias_en_mes = calendar.monthrange(hoy.year, hoy.month)
+                    dias_restantes = dias_en_mes - hoy.day 
+                    precio_base_estrellas = obtener_precio_plan_mensual() if 'obtener_precio_plan_mensual' in globals() else 100
+                    estrellas_prorrateadas = int(round((precio_base_estrellas / dias_en_mes) * dias_restantes))
+                    costo_usd_prorrateado = estrellas_prorrateadas * 0.02
+                    
+                    # Llamada a la función de facturación proporcional
+                    if 'facturar_saldo_del_mes' in globals():
+                        await facturar_saldo_del_mes(context, user_id, dias_restantes, estrellas_prorrateadas)
+                        
+                    msg_fin = traducciones.get(
+                        "08_notif_freemium_fin20",
+                        "❌ **Período de prueba finalizado.**\nNo alcanzaste el objetivo mínimo de constancia (20 días) para mantener la cuenta gratuita y el seguimiento fue pausado.\n\nPara reactivarlo y usar el bot sin interrupciones hasta fin de mes, hemos emitido una factura proporcional por los días restantes (aprox. {costo_usd} USD / {estrellas} ⭐️).\n\nA fin de mes podrás elegir tu plan definitivo."
+                    ).format(
+                        costo_usd=f"{costo_usd_prorrateado:.2f}", 
+                        estrellas=estrellas_prorrateadas
+                    )
+                    
+                    await context.bot.send_message(chat_id=user_id, text=msg_fin, parse_mode="Markdown")
+                    continue # Se ignora el resto de las tareas de hoy porque quedó suspendido
+            # ================================================================================
+
             if es_lunes_manana:
                 await _validar_peso_mes_actual(context=context, user_id=user_id)
 
-                inicio_semana_pasada = hoy - timedelta(days=7)
-                fin_semana_pasada = hoy - timedelta(days=1)
-
-                registros_u = obtener_registros_usuario(user_id)
-
-                dias_incompletos = []
-                dias_validos_count = 0
-                current_d = inicio_semana_pasada
-
-                while current_d <= fin_semana_pasada:
-                    str_d = current_d.strftime("%Y-%m-%d")
-                    
-                    comidas_del_dia = [
-                        str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() 
-                        for r in registros_u 
-                        if str(r.get("Fecha", "")).strip() == str_d 
-                        and str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() in todas_comidas
-                    ]
-                    
-                    total_comidas = len(comidas_del_dia)
-                    tiene_principal = any(c in comidas_principales for c in comidas_del_dia)
-                    
-                    if total_comidas >= 2 and tiene_principal:
-                        dias_validos_count += 1
-                    else:
-                        dias_incompletos.append(str_d)
-                    
-                    current_d += timedelta(days=1)
-
-                semana_completa = (dias_validos_count == 7)
-
-                try:
-                    actual_puntos = int(estado_raw) if estado_raw.isdigit() else 0
-                except ValueError:
-                    actual_puntos = 0
-
-                if not semana_completa:
-                    actual_puntos += 1
-                    if actual_puntos >= 3:
-                        actual_puntos = 3
-                        actualizar_estado_usuario(user_id, "3")
-
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text=(
-                                "Hola. Vimos que pasaron varias semanas sin actividad en el bot y por ahora pausamos tu seguimiento automático para no llenarte de avisos. "
-                                "Cuando tengas ganas de retomar y ordenar tus hábitos de nuevo, simplemente escribinos o usá `/alta` para reactivar tu ficha. "
-                                "¡Acá vamos a estar esperándote sin juzgar a nadie!"
-                            ),
-                            parse_mode="Markdown"
-                        )
-                        continue
-                    else:
-                        actualizar_estado_usuario(user_id, str(actual_puntos))
-
-                        dias_str = ", ".join(dias_incompletos) if dias_incompletos else "varios días"
-                        await context.bot.send_message(
-                            chat_id=user_id,
-                            text=(
-                                f"¡Hola! ☕ Notamos que la semana pasada se nos complicó un poquito el registro de las comidas ({dias_str}). "
-                                f"¡No pasa nada! Los baches son totalmente normales y a todos nos pasa.\n\n"
-                                f"Queremos acompañarte de la mejor manera, pero para que los reportes semanales salgan bien afinados necesitamos un mínimo de constancia. "
-                                f"¿Te parece si arrancamos de nuevo hoy con toda la energía?"
-                            ),
-                            parse_mode="Markdown"
-                        )
-                else:
-                    if actual_puntos > 0:
-                        actual_puntos = 0
-                        actualizar_estado_usuario(user_id, "0")
-
             if es_martes_manana:
-                usuarios_actualizados = obtener_todos_usuarios()
-                usuario_actual = next((u for u in usuarios_actualizados if str(u.get("User ID", u.get("user_id", ""))).split('.')[0].strip() == str(user_id)), {})
-                current_estado_val = str(usuario_actual.get("Estado", usuario_actual.get("estado", "0"))).strip().lower()
-                if current_estado_val == '3':
-                    continue
-
                 peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
-                registros_u = obtener_registros_usuario(user_id)
-
-                inicio_semana_pasada = hoy - timedelta(days=7)
-                fin_semana_pasada = hoy - timedelta(days=1)
-                dias_validos_count = 0
-                dias_faltantes_detalle = []
-
-                curr = inicio_semana_pasada
-                while curr <= fin_semana_pasada:
-                    str_c = curr.strftime("%Y-%m-%d")
-                    
-                    comidas_del_dia = [
-                        str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() 
-                        for r in registros_u 
-                        if str(r.get("Fecha", "")).strip() == str_c 
-                        and str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() in todas_comidas
-                    ]
-                    
-                    total_comidas = len(comidas_del_dia)
-                    tiene_principal = any(c in comidas_principales for c in comidas_del_dia)
-                    
-                    if total_comidas >= 2 and tiene_principal:
-                        dias_validos_count += 1
-                    else:
-                        dias_faltantes_detalle.append(str_c)
-                    curr += timedelta(days=1)
-
-                semana_ok = (dias_validos_count == 7)
-
-                if peso_ok and semana_ok:
+                if peso_ok:
                     try:
                         ahora_raw = obtener_ahora_arg()
                         if hasattr(ahora_raw, 'tzinfo') and ahora_raw.tzinfo is not None:
@@ -7679,7 +8039,7 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
 
                         inicio_rango = (ahora_ts.floor('D') - pd.Timedelta(days=7)).date()
                         fin_rango = (ahora_ts.floor('D') - pd.Timedelta(seconds=1)).date()
-                        etiqueta_periodo = "Semana Anterior (Lunes a Domingo)"
+                        etiqueta_periodo = traducciones.get("08_notif_etiqueta_semana", "Semana Anterior (Lunes a Domingo)")
 
                         txt_resumen, m = _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo)
 
@@ -7689,21 +8049,8 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
 
                             if index < len(registros_usuarios) - 1:
                                 await asyncio.sleep(60)
-
                     except Exception as e_ia:
                         logger.error(f"Error generando resumen semanal para {user_id}: {e_ia}")
-                else:
-                    faltas_str = ", ".join(dias_faltantes_detalle) if dias_faltantes_detalle else "días de la semana pasada"
-                    await context.bot.send_message(
-                        chat_id=int(user_id),
-                        text=(
-                            f"⚠️ **No se pudo emitir el resumen semanal**\n\n"
-                            f"Motivo: Faltó registrar las ingestas correspondientes (se requieren al menos 2 comidas diarias con al menos una principal: Almuerzo o Cena) o el peso mensual obligatorio. "
-                            f"Se detectaron registros insuficientes en los siguientes días: `{faltas_str}`.\n"
-                            f"Ingresá tus comidas pendientes para retomar la normalidad en los próximos reportes."
-                        ),
-                        parse_mode="Markdown"
-                    )
 
             if es_informe_mensual_pdf:
                 peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
@@ -7774,21 +8121,20 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
 
             if faltantes:
                 lista_formateada = "\n• " + "\n• ".join(faltantes)
-                mensaje_recordatorio = (
-                    f"📌 **Recordatorio de comidas pendientes:**\n"
-                    f"{lista_formateada}\n\n"
-                    f"Si ya las consumiste, podés registrarlas en cualquier momento."
+                msg_recordatorio_comidas = traducciones.get(
+                    "08_notif_recordatorio_comidas",
+                    "📌 **Recordatorio de comidas pendientes:**\n{lista_formateada}\n\nSi ya las consumiste, podés registrarlas en cualquier momento."
                 )
                 await context.bot.send_message(
                     chat_id=int(user_id), 
-                    text=mensaje_recordatorio, 
+                    text=msg_recordatorio_comidas.format(lista_formateada=lista_formateada), 
                     parse_mode="Markdown"
                 )
                 logger.info(f"Recordatorio de comidas ({momento}) enviado a {user_id}")
 
         except Exception as e:
             logger.error(f"Error procesando usuario {user_id}: {e}")
-                                 
+                                         
 # =============================================================================================================================================
 #                    FINAL                                    COMANDOS INFORMES                                   FINAL
 # =============================================================================================================================================
@@ -7797,12 +8143,12 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
 #                       INICIO                  COMANDOS INGRESOS                            INICIO
 # =====================================================================================================================================
 
-#                       INICIO                         COMANDO START                          INICIO  2026 09 05
+#                       INICIO                         COMANDO START                          INICIO  
 # =========================================================================================================================================
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
     msg = traducciones.get('09_start_mensaje_bienvenida', 
@@ -7813,302 +8159,48 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/barra`: Ingresa por código de barras un comestible.\n"
         "• `/borracomida`: Borra una comida de la Planilla.\n"
         "• `/comidas`: Planilla de comidas precargadas y PDF.\n"
-        "• `/dia`: Ingestas del día, detalle nutricional y PDF.\n"
+        "• `/diario`: Ingestas de un día específico (ej: `/diario 5`) y PDF.\n"
         "• `/eliminar`: Borra ingestas y actividades.\n"
-        "• `/GET`: Actualiza GET por medio del reloj inteligente.\n"
-        "• `/inicio`: Resumen de comandos y PDF del manual.\n"
-        "• `/mes`: Reporte con estimación de peso y PDF.\n"
-        "• `/perfil`: Actualizar de datos biométricos.\n"
+        "• `/GET` o `/factor`: Actualiza GET por reloj inteligente.\n"
+        "• `/inicio`: Resumen de comandos y manual en PDF.\n"
+        "• `/pago`: Elegir el plan o promoción de pago vigente.\n"
+        "• `/perfil`: Actualización de datos biométricos.\n"
+        "• `/peso`: Registro o control de peso mensual (ej: `/peso 82.5`).\n"
         "• `/presi`: Registro y consulta de presión arterial.\n"
-        "• `/pago`: Elegir el plan promocional vigente.\n"
         "• `/receta`: Calculadora Web para registrar comidas.\n"
+        "• `/resumen`: Reporte mensual de calorías y PDF (ej: `/resumen 08`).\n"
         "• `/semana`: Estadística semanal (calorías, fibras, etc.).\n\n"
         "📌 *Métodos de Registro:*\n"
         "• *Ingestas con IA:* 📝 Texto, 🎤 Notas de voz, 📸 Fotos.\n"
-        "• *Modificación parcial:* por item \n"
-        "    `DESCRIPCION` manteniendo el peso recalcula IA.\n"
-        "    `DESCRIPCION,PESO` recalculo total por IA.\n"
-        "    `,PESO` recalculo sin intervencion de IA\n"
-        "• *Ingestas sin IA:* 📝 Planilla:\n"
-        "    `*DESAYUNO`: menú completo\n"
-        "    `*PIZZA (porción),4`: 4 porciones de pizza\n"
-        "    `*TORTA (fracción x 100g),1.5`: 150 g de torta\n"
-        "• *Modificación parcial:* ingresar cantidad de unidades \n"
-        "• *Ingestas con IA:* 📸 Fotos.Codigo de barras x 100 g \n"
-        "• *Modificación parcial:* ingresar nuevo peso \n"
-        "• *Presión arterial con IA:* 📸 Fotos.\n"
-        "    Ingresar nota aclaratoria .\n"
-        "• *Actividad física con IA:* 📝 Texto, 🎤 Notas de voz.\n"
-        "• *Modificación:* ingresar el nuevo valor de calorías.\n\n"
-        "📄 *A continuación te comparto el manual en PDF.*"
+        "• *Modificación parcial:* por item (`DESCRIPCION`, `DESCRIPCION,PESO`, `,PESO`).\n"
+        "• *Ingestas sin IA:* 📝 Planilla (`*DESAYUNO,1`, `*PIZZA,4`).\n"
+        "• *Presión arterial:* 📸 Fotos o comando manual (`/presi 120,80,70`).\n"
+        "• *Actividad física:* 📝 Texto o 🎤 Notas de voz."
     )
     
     texto_final = msg.replace('<br>', '\n').replace('\\n', '\n')
     texto_final = re.sub(r'\n{2,}', '\n\n', texto_final)
-    texto_final = texto_final.replace('\n\n•', '\n•')
-    texto_final = texto_final.replace('\n\n/', '\n/')
+    
+    # Botón para descargar el PDF estático alojado en el servidor según el idioma
+    pdf_filename = f"{lang.upper()}.pdf"
+    btn_manual_txt = traducciones.get('09_btn_descargar_manual', "📄 Descargar Manual Completo en PDF")
+    
+    # Nota: El archivo se puede enviar por enlace web o por documento si está en el entorno local
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(btn_manual_txt, callback_data=f"descargar_manual_{lang}")]
+    ])
     
     try:
-        await update.message.reply_text(texto_final, parse_mode="Markdown")
+        await update.message.reply_text(texto_final, reply_markup=keyboard, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error de formato Markdown en /start: {e}")
-        await update.message.reply_text(texto_final)
-    
-    try:
-        pdf_buf = generar_pdf_instrucciones_bytes(traducciones)
-        await context.bot.send_document(
-            chat_id=update.effective_chat.id,
-            document=pdf_buf,
-            filename="Manual_Bot_Nutricional.pdf"
-        )
-    except Exception as e:
-        logger.error(f"Error generando PDF manual en /start: {e}" )
-
-
-def generar_pdf_instrucciones_bytes(traducciones: dict) -> io.BytesIO:
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer, 
-        pagesize=letter, 
-        rightMargin=36, 
-        leftMargin=36, 
-        topMargin=36, 
-        bottomMargin=36
-    )
-    
-    styles = getSampleStyleSheet()
-    
-    PRIMARY = colors.HexColor('#1E293B')
-    SECONDARY = colors.HexColor('#2563EB')
-    TEXT_MAIN = colors.HexColor('#334155')
-    BG_LIGHT = colors.HexColor('#F8FAFC')
-    BG_CARD = colors.HexColor('#F1F5F9')
-    BORDER_COLOR = colors.HexColor('#E2E8F0')
-
-    title_style = ParagraphStyle(
-        'DocTitle', parent=styles['Heading1'], 
-        fontSize=18, leading=22, textColor=PRIMARY, fontName='Helvetica-Bold', spaceAfter=2
-    )
-    subtitle_style = ParagraphStyle(
-        'DocSubTitle', parent=styles['Normal'], 
-        fontSize=9.5, leading=12, textColor=SECONDARY, fontName='Helvetica-Bold', spaceAfter=8
-    )
-    section_style = ParagraphStyle(
-        'DocSection', parent=styles['Heading2'], 
-        fontSize=12, leading=15, textColor=PRIMARY, fontName='Helvetica-Bold', spaceBefore=4, spaceAfter=6
-    )
-    subsection_style = ParagraphStyle(
-        'DocSubSection', parent=styles['Heading3'], 
-        fontSize=9.5, leading=12, textColor=SECONDARY, fontName='Helvetica-Bold', spaceBefore=3, spaceAfter=2
-    )
-    
-    body_style = ParagraphStyle(
-        'DocBody', parent=styles['Normal'], 
-        fontSize=9.5, leading=12, textColor=TEXT_MAIN, fontName='Helvetica'
-    )
-    body_bold = ParagraphStyle(
-        'DocBodyBold', parent=body_style, fontName='Helvetica-Bold'
-    )
-    code_style = ParagraphStyle(
-        'DocCode', parent=styles['Normal'], 
-        fontSize=10, leading=13, textColor=PRIMARY, fontName='Courier-Bold'
-    )
-    body_bold_white = ParagraphStyle(
-        'DocBodyBoldWhite', parent=styles['Normal'], 
-        fontSize=9.5, leading=12, textColor=colors.white, fontName='Helvetica-Bold'
-    )
-
-    story = []
-
-    def crear_encabezado():
-        header_content = [
-            [Paragraph(traducciones.get('09_pdf_titulo_principal', "GUÍA INTERACTIVA DEL BOT NUTRICIONAL"), title_style)],
-            [Paragraph(traducciones.get('09_pdf_subtitulo_principal', "MANUAL INTEGRAL DE USUARIO • ASISTENTE PERSONAL INTELIGENTE"), subtitle_style)]
-        ]
-        t_header = Table(header_content, colWidths=[540])
-        t_header.setStyle(TableStyle([
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('LEFTPADDING', (0,0), (-1,-1), 0),
-            ('RIGHTPADDING', (0,0), (-1,-1), 0),
-            ('TOPPADDING', (0,0), (-1,-1), 0),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-            ('LINEBELOW', (0,1), (-1,1), 2, SECONDARY),
-        ]))
-        return t_header
-
-    story.append(crear_encabezado())
-    story.append(Spacer(1, 4))
-    story.append(Paragraph(traducciones.get('09_pdf_sec_alta', "1. Alta al Sistema y Registro Inicial"), section_style))
-    
-    alta_data = [
-        [Paragraph(traducciones.get('09_pdf_col_comando', "Comando / Campo"), body_bold_white), Paragraph(traducciones.get('09_pdf_col_descripcion', "Descripción Detallada y Formato de Uso"), body_bold_white)],
-        [Paragraph("<b>/alta</b>", code_style), Paragraph(traducciones.get('09_pdf_desc_alta', "<b>Comando de Inicio de Registro:</b> Permite iniciar el proceso de apertura de cuenta y creación de ficha nutricional."), body_style)],
-        [Paragraph(traducciones.get('09_pdf_lbl_prof', "<b>ID de Profesional</b>"), code_style), Paragraph(traducciones.get('09_pdf_desc_prof', "<b>Validación del Profesional:</b> Ingresar el ID de Telegram del profesional autorizado para asociar y validar la cuenta."), body_style)],
-        [Paragraph(traducciones.get('09_pdf_lbl_nombre', "<b>Nombre y Apellido</b>"), code_style), Paragraph(traducciones.get('09_pdf_desc_nombre', "<b>Identificación:</b> Ingresar el nombre o apodo con el que figurará el paciente en el sistema (mínimo 2 caracteres)."), body_style)],
-        [Paragraph(traducciones.get('09_pdf_lbl_edad', "<b>Edad</b>"), code_style), Paragraph(traducciones.get('09_pdf_desc_edad', "<b>Edad en años:</b> Ingresar un valor numérico válido entre 10 y 110 años."), body_style)],
-        [Paragraph(traducciones.get('09_pdf_lbl_sexo', "<b>Sexo Biológico</b>"), code_style), Paragraph(traducciones.get('09_pdf_desc_sexo', "<b>Selección por Botón:</b> Elegir entre Masculino (M) o Femenino (F) mediante el teclado interactivo."), body_style)],
-        [Paragraph(traducciones.get('09_pdf_lbl_altura', "<b>Altura</b>"), code_style), Paragraph(traducciones.get('09_pdf_desc_altura', "<b>Estatura en centímetros:</b> Ingresar altura en cm (ejemplo: <code>175</code> para 1,75 m, con un rango válido de 100 a 230 cm)."), body_style)],
-        [Paragraph(traducciones.get('09_pdf_lbl_peso', "<b>Peso Actual</b>"), code_style), Paragraph(traducciones.get('09_pdf_desc_peso', "<b>Peso en kilogramos:</b> Ingresar el peso actual en kg (ejemplo: <code>82.5</code> kg, con un rango válido de 30 a 300 kg)."), body_style)],
-        [Paragraph(traducciones.get('09_pdf_lbl_cintura', "<b>Cintura</b>"), code_style), Paragraph(traducciones.get('09_pdf_desc_cintura', "<b>Perímetro de la cintura:</b> Ingresar la medida en cm (ejemplo: <code>90</code> cm) para calcular la contextura corporal."), body_style)],
-        [Paragraph(traducciones.get('09_pdf_lbl_cuello', "<b>Cuello</b>"), code_style), Paragraph(traducciones.get('09_pdf_desc_cuello', "<b>Perímetro del cuello:</b> Ingresar la medida en cm (ejemplo: <code>40</code> cm) para calcular la contextura corporal."), body_style)],
-        [Paragraph(traducciones.get('09_pdf_lbl_ocupacion', "<b>Ocupación / Actividad</b>"), code_style), Paragraph(traducciones.get('09_pdf_desc_ocupacion', "<b>Nivel de Actividad:</b> Seleccionar mediante botones el nivel de actividad habitual (Sedentario/Ligero, Moderado o Intenso)."), body_style)],
-        [Paragraph(traducciones.get('09_pdf_lbl_cumple', "<b>Fecha de Nacimiento</b>"), code_style), Paragraph(traducciones.get('09_pdf_desc_cumple', "<b>Cumpleaños:</b> Ingresar la fecha de nacimiento obligatoriamente en formato <code>AAAA-MM-DD</code> (ejemplo: <code>1985-04-12</code>)."), body_style)],
-        [Paragraph(traducciones.get('09_pdf_lbl_intensidad', "<b>Intensidad</b>"), code_style), Paragraph(traducciones.get('09_pdf_desc_intensidad', "<b>Ritmo de avance:</b> Seleccionar el nivel de ritmo para la etapa (Tranquilo, Moderado o Intenso)."), body_style)],
-        [Paragraph("<b>/cancelar</b>", code_style), Paragraph(traducciones.get('09_pdf_desc_cancelar', "<b>Cancelar Registro:</b> Permite abortar el proceso de alta en cualquier momento, limpiando los datos temporales."), body_style)]
-    ]
-
-    t_alta = Table(alta_data, colWidths=[130, 410])
-    t_alta.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), PRIMARY),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('TOPPADDING', (0,0), (-1,-1), 3),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
-        ('LEFTPADDING', (0,0), (-1,-1), 6),
-        ('RIGHTPADDING', (0,0), (-1,-1), 6),
-        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, BG_LIGHT])
-    ]))
-    
-    story.append(t_alta)
-    story.append(PageBreak())
-
-    story.append(crear_encabezado())
-    story.append(Spacer(1, 4))
-    story.append(Paragraph(traducciones.get('09_pdf_sec_metodos', "2. Métodos de Registro de Ingestas y Actividades"), section_style))
-
-    story.append(Paragraph(traducciones.get('09_pdf_subsec_ia', "A. Con Intervención de IA (Texto, Voz e Imagen)"), subsection_style))
-    
-    registro_ia_data = [
-        [Paragraph(traducciones.get('09_pdf_ia_texto', "<b>Texto Libre:</b> Escribí tus alimentos de forma natural detallando porciones. Detallá tu actividad física indicando tipo, duración e intensidad."), body_style)],
-        [Paragraph(traducciones.get('09_pdf_ia_voz', "<b>Notas de Voz:</b> Dictá tu ingesta o actividad física en una nota de voz; la IA convertirá el audio a texto y procesará los datos nutricionales."), body_style)],
-        [Paragraph(traducciones.get('09_pdf_ia_foto', "<b>Fotografías de Galería / Cámara:</b> Envía una foto del plato con o sin descripción aclaratoria."), body_style)],
-        [Paragraph(traducciones.get('09_pdf_ia_edicion', "<b>Proceso de Edición y Confirmación de ingestas:</b><br/>• <b>Momento:</b> Desayuno, Almuerzo, Merienda o Cena.<br/>• <b>Edición parcial:</b> Seleccioná ítem por ítem enviando una <i>nueva descripción</i>, <i>,nuevo peso</i> o <i>nueva descripción,nuevo peso</i>.<br/>• <b>Fecha y Guardado:</b> Confirmá la fecha del consumo para asentar en tu planilla."), body_style)],
-        [Paragraph(traducciones.get('09_pdf_ia_actividad', "<b>Proceso de Edición y Confirmación de actividades:</b><br/>• <b>Momento:</b> Actividad.<br/>• <b>Edición parcial:</b> Ingresar un nuevo valor de las calorías quemadas.<br/>• <b>Fecha y Guardado:</b> Confirmá para asentar en tu planilla."), body_style)]
-    ]
-
-    t_reg_ia = Table(registro_ia_data, colWidths=[540])
-    t_reg_ia.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), BG_LIGHT),
-        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('TOPPADDING', (0,0), (-1,-1), 3),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
-        ('LEFTPADDING', (0,0), (-1,-1), 6),
-        ('RIGHTPADDING', (0,0), (-1,-1), 6),
-    ]))
-    story.append(t_reg_ia)
-    story.append(Spacer(1, 4))
-
-    story.append(Paragraph(traducciones.get('09_pdf_subsec_sin_ia', "B. Sin Intervención de IA (Comidas Precargadas)"), subsection_style))
-
-    direct_data = [
-        [Paragraph(traducciones.get('09_pdf_col_tipo_reg', "Tipo de Registro"), body_bold_white), Paragraph(traducciones.get('09_pdf_col_sintaxis', "Sintaxis"), body_bold_white), Paragraph(traducciones.get('09_pdf_col_ejemplos', "Ejemplos y Funcionamiento"), body_bold_white)],
-        [
-            Paragraph(traducciones.get('09_pdf_reg_plantilla', "<b>Plantilla de Comidas</b>"), body_style),
-            Paragraph("<code>*CODIGO, CANTI</code>", code_style),
-            Paragraph(traducciones.get('09_pdf_desc_plantilla', "• <code>*DESAYUNO,1</code> Ingresa 1 unidad.<br/>• <code>*PIZZA,4</code> Registra 4 porciones."), body_style)
-        ],
-        [
-            Paragraph(traducciones.get('09_pdf_reg_barra', "<b>Código de barras</b>"), body_style),
-            Paragraph("<code>/barra NUMERO</code>", code_style),
-            Paragraph(traducciones.get('09_pdf_desc_barra', "• <code>/barra 7790742363107</code><br/>Ingresá el EAN del producto para consultar fracciones de 100 g."), body_style)
-        ]
-    ]
-
-    t_direct = Table(direct_data, colWidths=[120, 130, 290])
-    t_direct.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), PRIMARY),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('TOPPADDING', (0,0), (-1,-1), 3),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
-        ('LEFTPADDING', (0,0), (-1,-1), 5),
-        ('RIGHTPADDING', (0,0), (-1,-1), 5),
-        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, BG_LIGHT])
-    ]))
-    story.append(t_direct)
-    story.append(Spacer(1, 4))
-
-    story.append(Paragraph(traducciones.get('09_pdf_sec_calc', "3. Calculadora Nutricional Web (/receta)"), section_style))
-    story.append(Paragraph(traducciones.get('09_pdf_desc_calc', "Permite cargar recetas elaboradas o combinaciones de alimentos habituales directamente en tu planilla personal."), body_style))
-
-    receta_data = [
-        [
-            Paragraph(traducciones.get('09_pdf_receta_ej1', "Ejemplo 1: Combinación (DESAYUNO)"), body_bold_white),
-            Paragraph(traducciones.get('09_pdf_receta_ej2', "Ejemplo 2: Receta Elaborada (TORTA)"), body_bold_white)
-        ],
-        [
-            Paragraph("• <b>Código:</b> <code>DESAYUNO</code><br/>• <b>Desc:</b> Desayuno tradicional.<br/>• <b>Criterio:</b> Porciones = 1.", body_style),
-            Paragraph("• <b>Código:</b> <code>TORTA</code><br/>• <b>Desc:</b> Torta casera.<br/>• <b>Criterio:</b> Fracción de 100 g.", body_style)
-        ]
-    ]
-
-    t_receta = Table(receta_data, colWidths=[270, 270])
-    t_receta.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), PRIMARY),
-        ('BACKGROUND', (0,1), (-1,1), BG_CARD),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('TOPPADDING', (0,0), (-1,-1), 3),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
-        ('LEFTPADDING', (0,0), (-1,-1), 5),
-        ('RIGHTPADDING', (0,0), (-1,-1), 5),
-        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR)
-    ]))
-    story.append(t_receta)
-    story.append(PageBreak())
-
-    story.append(crear_encabezado())
-    story.append(Spacer(1, 4))
-    story.append(Paragraph(traducciones.get('09_pdf_sec_cmds', "4. Comandos Principales del Sistema"), section_style))
-    
-    cmds_data = [
-        [Paragraph(traducciones.get('09_pdf_col_cmd', "Comando"), body_bold_white), Paragraph(traducciones.get('09_pdf_col_desc_cmd', "Descripción Detallada y Formato de Uso"), body_bold_white)],
-        [Paragraph("<b>/barra</b>", code_style), Paragraph(traducciones.get('09_pdf_cmd_barra', "<b>Código de barras:</b> Ingresa un código de barras y se presenta un comestible en fracciones de 100 g."), body_style)],
-        [Paragraph("<b>/borracomida</b>", code_style), Paragraph(traducciones.get('09_pdf_cmd_borra', "<b>Borra una comida:</b> Permite la eliminación de una comida predeterminada."), body_style)],
-        [Paragraph("<b>/comidas</b>", code_style), Paragraph(traducciones.get('09_pdf_cmd_comidas', "<b>Planilla de comidas:</b> Listado de comidas predeterminadas y descarga de PDF."), body_style)],
-        [Paragraph("<b>/dia</b>", code_style), Paragraph(traducciones.get('09_pdf_cmd_dia', "<b>Resumen diario:</b> Muestra los consumos del día y descarga el PDF detallado."), body_style)],
-        [Paragraph("<b>/eliminar</b>", code_style), Paragraph(traducciones.get('09_pdf_cmd_eliminar', "<b>Borrar registros:</b> Permite eliminar ingestas y actividades seleccionando el día."), body_style)],
-        [Paragraph("<b>/GET</b>", code_style), Paragraph(traducciones.get('09_pdf_cmd_get', "<b>Gasto Energético Total:</b> Actualiza el GET mediante calorías base de 24 horas (ejemplo: <code>/GET 2150</code>)."), body_style)],
-        [Paragraph("<b>/inicio</b>", code_style), Paragraph(traducciones.get('09_pdf_cmd_inicio', "<b>Guía principal:</b> Presenta la guía rápida de comandos e ingresos."), body_style)],
-        [Paragraph("<b>/mes</b>", code_style), Paragraph(traducciones.get('09_pdf_cmd_mes', "<b>Resumen mensual:</b> Reporte mensual, calorías, estimación de peso y PDF completo."), body_style)],
-        [Paragraph("<b>/pago</b>", code_style), Paragraph(traducciones.get('09_pdf_cmd_pago', "<b>Muestra y da opcion de seleccionar alguno de los planes de pago promocionales  vigentes."), body_style)],
-        [Paragraph("<b>/perfil</b>", code_style), Paragraph(traducciones.get('09_pdf_cmd_perfil', "<b>Datos biométricos:</b> Muestra los datos corporales cargados en el sistema."), body_style)],
-        [Paragraph("<b>/peso</b>", code_style), Paragraph(traducciones.get('09_pdf_cmd_peso', "<b>Actualización del peso:</b> Actualiza el peso registrado para el mes en curso."), body_style)],
-        [Paragraph("<b>/presi</b>", code_style), Paragraph(traducciones.get('09_pdf_cmd_presi', "<b>Presión arterial:</b> Registro (<code>/presi ALTA,BAJA,PULSO,NOTA</code>) y consulta mensual (<code>/presi AAAA-MM</code>)."), body_style)],
-        [Paragraph("<b>/receta</b>", code_style), Paragraph(traducciones.get('09_pdf_cmd_receta', "<b>Calculadora nutricional:</b> Acceso directo al módulo de recetas web."), body_style)],
-        [Paragraph("<b>/semana</b>", code_style), Paragraph(traducciones.get('09_pdf_cmd_semana', "<b>Promedio semanal:</b> Estadística semanal de calorías, proteínas y macronutrientes."), body_style)],
-    ]
-
-    t_cmds = Table(cmds_data, colWidths=[110, 430])
-    t_cmds.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), PRIMARY),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('TOPPADDING', (0,0), (-1,-1), 3),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
-        ('LEFTPADDING', (0,0), (-1,-1), 6),
-        ('RIGHTPADDING', (0,0), (-1,-1), 6),
-        ('BOX', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, BG_LIGHT])
-    ]))
-    
-    story.append(t_cmds)
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer    
+        await update.message.reply_text(texto_final, reply_markup=keyboard)
 
 
 #                       COMANDO ALTA Y FLUJO DE USUARIO CON INFORME IA
 # =========================================================================================================================================
 
-
 def _verificar_estado_usuario_en_hoja(user_id):
-    """Verifica si el usuario ya existe en la base de datos y devuelve su estado actual."""
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
         cur.execute('SELECT "Estado" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
@@ -8127,7 +8219,6 @@ def _verificar_estado_usuario_en_hoja(user_id):
         return None
 
 def _verificar_profesional_valido(prof_id):
-    """Verifica si el ID de Telegram ingresado pertenece a un profesional registrado."""
     prof_limpio = str(prof_id).strip()
     try:
         conn, cur = _asegurar_tabla_y_conectar("Profesionales", tipo_tabla="profesionales")
@@ -8184,7 +8275,6 @@ async def ing_recibir_ritmo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_text("🌐 Seleccioná tu **idioma preferido**:", reply_markup=InlineKeyboardMarkup(b_list), parse_mode="Markdown")
     return ING_IDIOMA
-
 
 async def ing_recibir_cadera(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = update.message.text.strip().replace(',', '.')
@@ -8243,9 +8333,6 @@ async def ing_recibir_ocupacion(update: Update, context: ContextTypes.DEFAULT_TY
         
     await query.edit_message_text("Ingresá tu **peso actual en kg** (ejemplo: `82.5`):", parse_mode="Markdown")
     return ING_PESO
-        
-    await query.edit_message_text("Ingresá tu **peso actual en kg** (ejemplo: `82.5`):", parse_mode="Markdown")
-    return ING_PESO
 
 async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -8258,7 +8345,6 @@ async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if estado_usr is not None:
         estado_lower = estado_usr.lower()
         
-        # NUEVO: Integración directa del rescate para Estado 3
         if estado_lower == '3':
             mensaje_bloqueo = (
                 "⚠️ **Tu período de prueba gratuito ha finalizado.**\n\n"
@@ -8420,7 +8506,6 @@ async def ing_recibir_cuello(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"Ingresá el **perímetro de tu cadera en cm** (ejemplo: `100`):\n\n{tip_cadera}", parse_mode="Markdown")
         return ING_CADERA
 
-    # Si es hombre, pasa a ritmo
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🟢 Tranquilo / Lento", callback_data="ritmo_tranquilo")],
         [InlineKeyboardButton("🟡 Moderado", callback_data="ritmo_moderado")],
@@ -8474,7 +8559,6 @@ async def ing_recibir_peso(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['ing_peso'] = peso
     await update.message.reply_text("Ingresá tu **altura en centímetros** (ejemplo: `175` para 1,75 m):", parse_mode="Markdown")
     return ING_ALTURA
-
 
 async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = update.message.text.strip().replace(',', '.')
@@ -8567,6 +8651,15 @@ async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 filename=filename_pdf
             )
 
+        # 🔔 Notificación al profesional si corresponde (si no es el ID genérico)
+        prof_id = datos_usuario.get("profesional", "")
+        if prof_id and prof_id != "123456789":
+            try:
+                msg_prof = f"🩺 **Nuevo paciente registrado:** Se ha asociado a su seguimiento el usuario *{datos_usuario['nombre']}* (ID: `{user_id}`)."
+                await context.bot.send_message(chat_id=int(prof_id), text=msg_prof, parse_mode="Markdown")
+            except Exception as e_prof:
+                logger.error(f"No se pudo notificar al profesional {prof_id}: {e_prof}")
+
     except Exception as e:
         logger.error(f"Error al registrar cuenta final o PDF para {user_id}: {e}")
         txt_err_gen = traducciones.get('09_ing_error_proceso_general', "❌ Ocurrió un error al procesar el ingreso: {e}").format(e=e)
@@ -8575,7 +8668,6 @@ async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data.clear()
     return ConversationHandler.END
 
-# 10. PERSISTENCIA DE CADERA EN ALTA DE USUARIOS
 def cmd_nuevo_usuario(datos_usuario):
     user_id = datos_usuario.get("user_id")
     nombre = datos_usuario.get("nombre")
@@ -8635,15 +8727,7 @@ def cmd_nuevo_usuario(datos_usuario):
         conn_p.close()
     except Exception as e:
         logger.error(f"Error alta tabla Perfil: {e}")
-        
-def formatear_ritmo_numero(ritmo_crudo):
-    ritmo_str = str(ritmo_crudo).strip().lower()
-    if ritmo_str in ['1', 'tranquilo', 'lento']:
-        return "1 (Tranquilo 🐢)"
-    elif ritmo_str in ['3', 'intenso', 'rapido', 'rápido']:
-        return "3 (Intenso 🚀)"
-    else:
-        return "2 (Moderado 🚶)"
+
 
 #                       INICIO                        COMANDOS PERFIL                           INICIO
 # ======================================================================================================================================
@@ -8661,7 +8745,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _garantizar_fila_mes_actual(user_id, ahora)
 
     try:
-        perfil_completo = obtener_datos_completos_usuario(user_id, mes_target=mes_actual)
+        perfil_completo = obtener_datos_completos_usuario(user_id, mes_target=mes_actual) if 'obtener_datos_completos_usuario' in globals() else obtener_perfil_usuario(user_id, mes_target=mes_actual)
 
         if perfil_completo:
             peso = parse_raw_val(perfil_completo.get('PESO', perfil_completo.get('Peso', 0)))
@@ -8786,7 +8870,7 @@ def actualizar_idioma_usuario(user_id, nuevo_idioma):
     except Exception as e:
         logger.error(f"Error al actualizar idioma para {user_id}: {e}")
 
-# 12. MANEJADORES DE CALLBACK Y ENTRADA DE EDICIÓN EN PERFIL
+# MANEJADORES DE CALLBACK Y ENTRADA DE EDICIÓN EN PERFIL
 @requiere_registro
 async def callback_handler_editar_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -8798,69 +8882,55 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
 
     if data == "edit_perfil_peso":
         context.user_data['awaiting_edit_perfil_peso'] = True
-        msg = await query.message.reply_text(traducciones.get('09_solic_nuevo_peso', "⚖️ Por favor, ingresá tu nuevo peso en kg (ej: `78.5`):"), parse_mode="Markdown")
+        msg = await query.message.reply_text("⚖️ Por favor, ingresá tu nuevo peso en kg (ej: `78.5`):", parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
-
     elif data == "edit_perfil_altura":
         context.user_data['awaiting_edit_perfil_altura'] = True
-        msg = await query.message.reply_text(traducciones.get('09_solic_nueva_altura', "📏 Por favor, ingresá tu nueva altura en cm (ej: `175`):"), parse_mode="Markdown")
+        msg = await query.message.reply_text("📏 Por favor, ingresá tu nueva altura en cm (ej: `175`):", parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
-
     elif data == "edit_perfil_cintura":
         context.user_data['awaiting_edit_perfil_cintura'] = True
-        msg = await query.message.reply_text(traducciones.get('09_solic_nueva_cintura', "📏 Por favor, ingresá el nuevo perímetro de tu cintura en cm (ej: `84`):"), parse_mode="Markdown")
+        msg = await query.message.reply_text("📏 Por favor, ingresá el nuevo perímetro de tu cintura en cm (ej: `84`):", parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
-
     elif data == "edit_perfil_cuello":
         context.user_data['awaiting_edit_perfil_cuello'] = True
-        msg = await query.message.reply_text(traducciones.get('09_solic_nuevo_cuello', "📐 Por favor, ingresá el nuevo perímetro de tu cuello en cm (ej: `37`):"), parse_mode="Markdown")
+        msg = await query.message.reply_text("📐 Por favor, ingresá el nuevo perímetro de tu cuello en cm (ej: `37`):", parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
-
     elif data == "edit_perfil_cadera":
         context.user_data['awaiting_edit_perfil_cadera'] = True
         msg = await query.message.reply_text("📐 Por favor, ingresá el nuevo perímetro de tu cadera en cm (ej: `104`):", parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
-
     elif data == "edit_perfil_nombre":
         context.user_data['awaiting_edit_perfil_nombre'] = True
-        msg = await query.message.reply_text(traducciones.get('09_solic_nuevo_nombre', "👤 Por favor, ingresá tu nuevo Nombre y Apellido:"), parse_mode="Markdown")
+        msg = await query.message.reply_text("👤 Por favor, ingresá tu nuevo Nombre y Apellido:", parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
-
     elif data == "edit_perfil_prof":
         context.user_data['awaiting_edit_perfil_prof'] = True
-        msg = await query.message.reply_text(traducciones.get('09_solic_nuevo_prof', "🩺 Por favor, ingresá el ID de Telegram de tu nuevo profesional:"), parse_mode="Markdown")
+        msg = await query.message.reply_text("🩺 Por favor, ingresá el ID de Telegram de tu nuevo profesional:", parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
-
     elif data == "edit_perfil_ritmo":
-        btn_r1 = traducciones.get('09_btn_ritmo_tranquilo', "🟢 Tranquilo / Lento")
-        btn_r2 = traducciones.get('09_btn_ritmo_moderado', "🟡 Moderado")
-        btn_r3 = traducciones.get('09_btn_ritmo_intenso', "🔴 Intenso / Rápido")
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton(btn_r1, callback_data="set_ritmo_1")],
-            [InlineKeyboardButton(btn_r2, callback_data="set_ritmo_2")],
-            [InlineKeyboardButton(btn_r3, callback_data="set_ritmo_3")]
+            [InlineKeyboardButton("🟢 Tranquilo / Lento", callback_data="set_ritmo_1")],
+            [InlineKeyboardButton("🟡 Moderado", callback_data="set_ritmo_2")],
+            [InlineKeyboardButton("🔴 Intenso / Rápido", callback_data="set_ritmo_3")]
         ])
-        await query.message.reply_text(traducciones.get('09_solic_elegir_ritmo', "🎯 Seleccioná tu nuevo ritmo de avance deseado:"), reply_markup=keyboard, parse_mode="Markdown")
-
+        await query.message.reply_text("🎯 Seleccioná tu nuevo ritmo de avance deseado:", reply_markup=keyboard, parse_mode="Markdown")
     elif data == "edit_perfil_idioma":
         idiomas_disp = await obtener_idiomas_disponibles_db() if 'obtener_idiomas_disponibles_db' in globals() else [{'codigo': 'es', 'nombre': 'Español', 'bandera': '🇪🇸'}, {'codigo': 'en', 'nombre': 'English', 'bandera': '🇺🇸'}]
         b_list = [[InlineKeyboardButton(f"{i['bandera']} {i['nombre']}", callback_data=f"set_lang_{i['codigo']}")] for i in idiomas_disp]
-        await query.message.reply_text(traducciones.get('09_solic_elegir_idioma', "🌐 Seleccioná tu idioma preferido:"), reply_markup=InlineKeyboardMarkup(b_list), parse_mode="Markdown")
-
+        await query.message.reply_text("🌐 Seleccioná tu idioma preferido:", reply_markup=InlineKeyboardMarkup(b_list), parse_mode="Markdown")
     elif data.startswith("set_ritmo_"):
         val_r = data.replace("set_ritmo_", "")
         ritmos_map = {"1": "tranquilo", "2": "moderado", "3": "intenso"}
         ritmo_txt = ritmos_map.get(val_r, "moderado")
         actualizar_ritmo_usuario(user_id, ritmo_txt)
-        msg_ok = traducciones.get('09_perfil_ritmo_actualizado_ok', "✅ ¡Ritmo actualizado exitosamente a *{ritmo}*!").format(ritmo=ritmo_txt.capitalize())
+        msg_ok = f"✅ ¡Ritmo actualizado exitosamente a *{ritmo_txt.capitalize()}*!"
         await query.edit_message_text(msg_ok, parse_mode="Markdown")
-
     elif data.startswith("set_lang_"):
         nuevo_lang = data.replace("set_lang_", "")
         actualizar_idioma_usuario(user_id, nuevo_lang)
-        msg_ok = traducciones.get('09_perfil_lang_actualizado_ok', "✅ ¡Idioma actualizado exitosamente a *{lang}*!").format(lang=nuevo_lang.upper())
+        msg_ok = f"✅ ¡Idioma actualizado exitosamente a *{nuevo_lang.upper()}*!"
         await query.edit_message_text(msg_ok, parse_mode="Markdown")
-
 
 
 #                       INICIO                        COMANDOS BIOMETRICOS                           INICIO
@@ -8916,11 +8986,6 @@ async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
             raise ValueError()
 
         res_cal = guardar_perfil_db(user_id, peso=nuevo_peso, mes=mes_actual)
-
-        if res_cal.get("error"):
-            await update.message.reply_text(res_cal["mensaje"], parse_mode="Markdown")
-            return
-
         await update.message.reply_text(res_cal["mensaje"], parse_mode="Markdown")
 
     except ValueError:
@@ -8936,7 +9001,7 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
 
     df_presion = obtener_datos_presion_db(user_id)
     if df_presion.empty:
-        txt = traducciones.get("09_sup_sin_presion_usuario", f"🩺 No se encontraron registros de presión para el usuario `{user_id}`.").format(user_id=user_id)
+        txt = f"🩺 No se encontraron registros de presión para el usuario `{user_id}`."
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(txt, parse_mode="Markdown")
         else:
@@ -8945,7 +9010,7 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
 
     df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
     if df_p_mes.empty:
-        txt = traducciones.get("09_sup_sin_presion_mes", f"🩺 No se encontraron registros de presión para el mes `{mes_str}`.").format(mes_str=mes_str)
+        txt = f"🩺 No se encontraron registros de presión para el mes `{mes_str}`."
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(txt, parse_mode="Markdown")
         else:
@@ -8956,19 +9021,18 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
     baja_prom = df_p_mes['Baja'].mean()
     pul_prom = df_p_mes[df_p_mes['Pulsaciones'] > 0]['Pulsaciones'].mean() if 'Pulsaciones' in df_p_mes.columns else 0
 
-    # 🟢 Aquí se corrigieron todos los textos por defecto al español
-    titulo_resumen = traducciones.get("09_sup_resumen_presion_titulo", "🩺 <b>Resumen de Presión Arterial ({mes_str}):</b>").format(mes_str=mes_str)
-    mediciones_reg = traducciones.get("09_sup_mediciones_registradas", "• Mediciones registradas: `{count}`").format(count=len(df_p_mes))
-    prom_alta = traducciones.get("09_sup_prom_alta", "• <b>Promedio Alta (Sistólica):</b> `{alta:.1f} mmHg`").format(alta=alta_prom)
-    prom_baja = traducciones.get("09_sup_prom_baja", "• <b>Promedio Baja (Diastólica):</b> `{baja:.1f} mmHg`").format(baja=baja_prom)
+    titulo_resumen = f"🩺 <b>Resumen de Presión Arterial ({mes_str}):</b>"
+    mediciones_reg = f"• Mediciones registradas: `{len(df_p_mes)}`"
+    prom_alta = f"• <b>Promedio Alta (Sistólica):</b> `{alta_prom:.1f} mmHg`"
+    prom_baja = f"• <b>Promedio Baja (Diastólica):</b> `{baja_prom:.1f} mmHg`"
     
     txt = f"{titulo_resumen}\n\n{mediciones_reg}\n{prom_alta}\n{prom_baja}\n"
 
     if pul_prom > 0:
-        prom_pulso = traducciones.get("09_sup_prom_pulsaciones", "• <b>Pulsaciones promedio:</b> `{pul:.1f} lpm`").format(pul=pul_prom)
+        prom_pulso = f"• <b>Pulsaciones promedio:</b> `{pul_prom:.1f} lpm`"
         txt += f"{prom_pulso}\n"
 
-    btn_texto = traducciones.get("09_sup_btn_descargar_pdf_presion", "📄 Descargar PDF de Presión")
+    btn_texto = "📄 Descargar PDF de Presión"
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(btn_texto, callback_data=f"descargar_pdf_presion_{mes_str}")]
     ])
@@ -8980,56 +9044,36 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
   
 async def _sub_manejar_foto_presion(update, context, res_presion, msg):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
     alta = float(res_presion.get("alta", 0))
     baja = float(res_presion.get("baja", 0))
     pulsaciones = float(res_presion.get("pulsaciones", 0))
     
-    # 🛑 FILTRO DE CORDURA PARA PRESIÓN ARTERIAL (Detectar errores de lectura o de la IA)
     if not (70 <= alta <= 250) or not (40 <= baja <= 150) or (pulsaciones > 0 and not (30 <= pulsaciones <= 220)):
         txt_error_presion = (
             "⚠️ **Lectura de presión atípica o errónea**\n\n"
-            f"Los valores detectados en la imagen (`{alta:.0f}/{baja:.0f} mmHg`{' - ' + str(round(pulsaciones)) + ' lpm' if pulsaciones > 0 else ''}) "
-            "están fuera de los rangos biológicos lógicos. Es probable que la foto haya salido movida o la IA haya leído mal la pantalla.\n\n"
-            "Por favor, registrala manualmente usando el comando:\n`/presi [alta],[baja],[pulsaciones]` (ej: `/presi 120,80,75`)."
+            f"Los valores detectados en la imagen (`{alta:.0f}/{baja:.0f} mmHg`) "
+            "están fuera de los rangos biológicos lógicos.\n\n"
+            "Por favor, registrala manualmente usando:\n`/presi [alta],[baja],[pulsaciones]` (ej: `/presi 120,80,75`)."
         )
         await msg.edit_text(txt_error_presion, parse_mode="Markdown")
         return
 
     context.user_data['pending_presion_foto'] = {"alta": alta, "baja": baja, "pulsaciones": pulsaciones}
-
-    t_pulso_etiqueta = traducciones.get('09_presi_foto_pulsaciones', 'Pulsaciones')
-    pul_txt = f" | {t_pulso_etiqueta}: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
+    pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
     
-    txt_tensio_detectado = traducciones.get('09_presi_foto_detectado', "🩺 **Tensiómetro detectado en la imagen:**")
-    txt_alta = traducciones.get('09_presi_foto_alta', "• Presión Alta")
-    txt_baja = traducciones.get('09_presi_foto_baja', "• Presión Baja")
-    txt_opcion_nota = traducciones.get('09_presi_txt_elegir_opcion', "Seleccioná una opción para continuar:")
-
-    btn_agregar_nota = traducciones.get('09_btn_agregar_nota', "✏️ Agregar Nota")
-    btn_guardar_sin = traducciones.get('09_btn_guardar_sin_nota', "💾 Guardar sin Nota")
-    btn_cancelar = traducciones.get('09_btn_cancelar_operacion', "❌ Cancelar")
-
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(btn_agregar_nota, callback_data="presion_pedir_nota")],
-        [InlineKeyboardButton(btn_guardar_sin, callback_data="presion_guardar_directo")],
-        [InlineKeyboardButton(btn_cancelar, callback_data="cancelar_presion_foto")]
+        [InlineKeyboardButton("✏️ Agregar Nota", callback_data="presion_pedir_nota")],
+        [InlineKeyboardButton("💾 Guardar sin Nota", callback_data="presion_guardar_directo")],
+        [InlineKeyboardButton("❌ Cancelar", callback_data="cancelar_presion_foto")]
     ])
 
     mensaje_final = (
-        f"{txt_tensio_detectado}\n\n"
-        f"• {txt_alta}: `{alta:.0f} mmHg`\n"
-        f"• {txt_baja}: `{baja:.0f} mmHg`{pul_txt}\n\n"
-        f"{txt_opcion_nota}"
-    ).replace('\\n', '\n')
-
-    await msg.edit_text(
-        mensaje_final,
-        reply_markup=keyboard,
-        parse_mode="Markdown"
+        f"🩺 **Tensiómetro detectado en la imagen:**\n\n"
+        f"• Presión Alta: `{alta:.0f} mmHg`\n"
+        f"• Presión Baja: `{baja:.0f} mmHg`{pul_txt}\n\n"
+        f"Seleccioná una opción para continuar:"
     )
+    await msg.edit_text(mensaje_final, reply_markup=keyboard, parse_mode="Markdown")
      
 def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
@@ -9056,18 +9100,12 @@ def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
         msg_vacio = traducciones.get("09_PDF_presion_sin_reg", "No hay registros de presion para este mes.")
         story.append(Paragraph(msg_vacio, body_style))
     else:
-        th_fecha = traducciones.get("09_PDF_presion_th_fecha", "Fecha y Hora")
-        th_alta = traducciones.get("09_PDF_presion_th_alta", "Alta (mmHg)")
-        th_baja = traducciones.get("09_PDF_presion_th_baja", "Baja (mmHg)")
-        th_pulso = traducciones.get("09_PDF_presion_th_pulso", "Pulsaciones")
-        th_nota = traducciones.get("09_PDF_presion_th_nota", "Nota / Detalle")
-
         table_data = [[
-            Paragraph(th_fecha, header_style),
-            Paragraph(th_alta, header_style),
-            Paragraph(th_baja, header_style),
-            Paragraph(th_pulso, header_style),
-            Paragraph(th_nota, header_style)
+            Paragraph("Fecha y Hora", header_style),
+            Paragraph("Alta (mmHg)", header_style),
+            Paragraph("Baja (mmHg)", header_style),
+            Paragraph("Pulsaciones", header_style),
+            Paragraph("Nota / Detalle", header_style)
         ]]
 
         for _, r in df_presion.iterrows():
@@ -9103,15 +9141,28 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if not raw_text:
         txt_ayuda_presi = traducciones.get('09_presi_ayuda_formato', 
-            "Ingresá o consultá un mes usando /presi. Ejemplos:\n\n"
+            "Ingresá o consultá presión usando /presi. Ejemplos:\n\n"
             "• `/presi 120,80,70, después de caminar`\n"
             "• `/presi 120,80,70`\n"
             "• `/presi 120,80`\n"
-            "• `/presi 2026-08`"
+            "• `/presi 08` (consulta promedio del mes de agosto del año actual)"
         ).replace('\\n', '\n')
         
         await update.message.reply_text(txt_ayuda_presi, parse_mode="Markdown")
         return
+
+    # NUEVO ATAJO INTELIGENTE: Si ingresa solo un número de mes (ej: "08" o "8")
+    if raw_text.isdigit() and 1 <= int(raw_text) <= 12:
+        mes_int = int(raw_text)
+        ahora = obtener_ahora_arg()
+        # Valida que sea un mes anterior o igual al actual dentro del año corriente
+        if mes_int <= ahora.month:
+            mes_str = f"{ahora.year}-{mes_int:02d}"
+            await mostrar_resumen_presion_mes(update, user_id, mes_str)
+            return
+        else:
+            await update.message.reply_text("⚠️ No podés consultar un mes futuro.", parse_mode="Markdown")
+            return
 
     if re.match(r'^20\d{2}-\d{2}$', raw_text):
         await mostrar_resumen_presion_mes(update, user_id, raw_text)
@@ -9143,21 +9194,14 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         guardar_presion_db(user_id, alta, baja, pulsaciones, nota)
 
-        t_pulsos_lbl = traducciones.get('09_presi_lbl_pulsaciones', 'Pulsaciones')
-        t_nota_lbl = traducciones.get('09_presi_lbl_nota', 'Nota')
-
-        pul_str = f" | {t_pulsos_lbl}: `{pulsaciones:.0f}`" if pulsaciones is not None else ""
-        nota_str = f"\n{t_nota_lbl}: `{nota}`" if nota else ""
+        pul_str = f" | Pulsaciones: `{pulsaciones:.0f}`" if pulsaciones is not None else ""
+        nota_str = f"\nNota: `{nota}`" if nota else ""
         
-        txt_registrada = traducciones.get('09_presi_registrada_ok', "Presión registrada:\nAlta: `{alta:.0f}` | Baja: `{baja:.0f}`{pul_str}{nota_str}").format(
-            alta=alta, baja=baja, pul_str=pul_str, nota_str=nota_str
-        ).replace('\\n', '\n')
-        
+        txt_registrada = f"Presión registrada:\nAlta: `{alta:.0f}` | Baja: `{baja:.0f}`{pul_str}{nota_str}"
         await update.message.reply_text(txt_registrada, parse_mode="Markdown")
         return
 
-    txt_error_formato = traducciones.get('09_presi_error_formato', "Formato incorrecto. Uso: /presi 120,80,70, al despertar o /presi 120,80 o /presi 2026-08").replace('\\n', '\n')
-    await update.message.reply_text(txt_error_formato, parse_mode="Markdown")
+    await update.message.reply_text("Formato incorrecto. Uso: /presi 120,80,70, nota o /presi 08", parse_mode="Markdown")
     
 @requiere_registro
 async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -9166,7 +9210,6 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
     raw_text = re.sub(r'^/(factor|fac|get)\w*(@\w+)?', '', update.message.text, flags=re.IGNORECASE).strip()
-
     ahora = obtener_ahora_arg()
     mes_actual = ahora.strftime("%Y-%m")
 
@@ -9185,8 +9228,7 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if not raw_text:
         txt_ayuda_get = traducciones.get('09_get_ayuda_formato', 
-            "Ingresá las calorías totales que registró tu reloj en 24 horas. Ejemplo:\n\n"
-            "• `/GET 2150`"
+            "Ingresá las calorías totales que registró tu reloj en 24 horas. Ejemplo:\n\n• `/GET 2150`"
         )
         await update.message.reply_text(txt_ayuda_get, parse_mode="Markdown")
         return
@@ -9194,14 +9236,12 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         calorias_reloj = float(raw_text.replace(',', '.'))
         if not (1000 <= calorias_reloj <= 6000):
-            txt_err_rango = traducciones.get('09_get_error_rango_kcal', "⚠️ Ingresá un valor de calorías realista (entre 1000 y 6000 kcal).")
-            await update.message.reply_text(txt_err_rango, parse_mode="Markdown")
+            await update.message.reply_text("⚠️ Ingresá un valor de calorías realista (entre 1000 y 6000 kcal).", parse_mode="Markdown")
             return
 
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
         if not perfil:
-            txt_err_noperfil = traducciones.get('09_get_error_sin_perfil', "❌ No se encontró tu perfil activo para este mes. Registrá tu peso primero con `/peso`.")
-            await update.message.reply_text(txt_err_noperfil, parse_mode="Markdown")
+            await update.message.reply_text("❌ No se encontró tu perfil activo para este mes. Registrá tu peso primero con `/peso`.", parse_mode="Markdown")
             return
 
         peso = parse_raw_val(perfil.get('PESO', perfil.get('Peso', 70)))
@@ -9210,18 +9250,15 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         genero = str(perfil.get('GENERO', perfil.get('Genero', 'masculino')))
 
         factor_anterior = parse_raw_val(perfil.get('OCUPACION', perfil.get('Ocupacion', 1.375)))
-        if factor_anterior <= 0:
-            factor_anterior = 1.375
+        if factor_anterior <= 0: factor_anterior = 1.375
 
         tmb, get_anterior = calcular_tmb_y_get(peso, altura, edad, genero, actividad=factor_anterior)
         
         if tmb <= 0:
-            txt_err_tmb = traducciones.get('09_get_error_calculo_tmb', "❌ Error al calcular la TMB base.")
-            await update.message.reply_text(txt_err_tmb, parse_mode="Markdown")
+            await update.message.reply_text("❌ Error al calcular la TMB base.", parse_mode="Markdown")
             return
 
         factor_crudo_reloj = round(calorias_reloj / tmb, 3)
-
         nuevo_factor = aplicar_calibracion_reloj(
             factor_previo=factor_anterior, 
             get_reloj=calorias_reloj, 
@@ -9233,62 +9270,46 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         aviso_tope = ""
         if abs(nuevo_factor - factor_crudo_reloj) > 0.005:
-            aviso_tope = traducciones.get('09_get_aviso_tope_seguridad', 
-                "\n⚠️ *Nota de seguridad:* El valor del reloj se apartaba más del "
-                "10% de tu tendencia habitual. Se aplicó un ajuste máximo permitido "
-                "para proteger la estabilidad de tu plan.\n"
-            )
+            aviso_tope = "\n⚠️ *Nota de seguridad:* El valor del reloj se apartaba más del 10% de tu tendencia habitual. Se aplicó un ajuste máximo permitido.\n"
 
         context.user_data['temp_nuevo_factor'] = nuevo_factor
 
         keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("✅", callback_data="confirmar_factor_si"),
-                InlineKeyboardButton("❌", callback_data="confirmar_factor_no")
-            ]
+            [InlineKeyboardButton("✅", callback_data="confirmar_factor_si"), InlineKeyboardButton("❌", callback_data="confirmar_factor_no")]
         ])
 
-        msg_texto = traducciones.get('09_get_preview_calibracion', 
-            "📊 **Calibración de Gasto Energético (Reloj):**\n\n"
-            "• Calorías reportadas por el reloj: `{calorias_reloj:.0f} kcal`\n"
-            "• TMB Base estimada: `{tmb:.0f} kcal`\n\n"
-            "• **Gasto Diario Anterior:** `{get_anterior:.0f} kcal`\n"
-            "• **Nuevo Gasto Diario Ajustado:** `{get_nuevo:.0f} kcal`\n\n"
-            "{aviso_tope}"
-            "¿Deseás actualizar tu gasto diario con este valor?"
-        ).format(calorias_reloj=calorias_reloj, tmb=tmb, get_anterior=get_anterior, get_nuevo=get_nuevo, aviso_tope=aviso_tope)
-
+        msg_texto = (
+            f"📊 **Calibración de Gasto Energético (Reloj):**\n\n"
+            f"• Calorías reportadas por el reloj: `{calorias_reloj:.0f} kcal`\n"
+            f"• TMB Base estimada: `{tmb:.0f} kcal`\n\n"
+            f"• **Gasto Diario Anterior:** `{get_anterior:.0f} kcal`\n"
+            f"• **Nuevo Gasto Diario Ajustado:** `{get_nuevo:.0f} kcal`\n\n"
+            f"{aviso_tope}"
+            f"¿Deseás actualizar tu gasto diario con este valor?"
+        )
         await update.message.reply_text(msg_texto, reply_markup=keyboard, parse_mode="Markdown")
 
     except ValueError:
-        txt_err_val = traducciones.get('09_get_error_formato_numero', "❌ Formato incorrecto. Ingresá un número válido. Ejemplo: `/GET 2150`")
-        await update.message.reply_text(txt_err_val, parse_mode="Markdown")
+        await update.message.reply_text("❌ Formato incorrecto. Ingresá un número válido. Ejemplo: `/GET 2150`", parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error al previsualizar /factor para {user_id}: {e}")
-        txt_err_gral = traducciones.get('09_get_error_proceso', "⚠️ Ocurrió un error al procesar la solicitud: {e}").format(e=e)
-        await update.message.reply_text(txt_err_gral, parse_mode="Markdown")
+        await update.message.reply_text(f"⚠️ Ocurrió un error al procesar la solicitud: {e}", parse_mode="Markdown")
                 
 async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     data = query.data
 
     if data == "confirmar_factor_no":
         context.user_data.pop('temp_nuevo_factor', None)
-        txt_canc_calib = traducciones.get('09_get_calibracion_cancelada', "🚫 Operación cancelada. No se modificó tu gasto energético.")
-        await query.edit_message_text(txt_canc_calib, parse_mode="Markdown")
+        await query.edit_message_text("🚫 Operación cancelada. No se modificó tu gasto energético.", parse_mode="Markdown")
         return
 
     if data == "confirmar_factor_si":
         nuevo_factor_val = context.user_data.get('temp_nuevo_factor')
-        
         if not nuevo_factor_val:
-            txt_err_exp = traducciones.get('09_get_error_datos_expirados', "⚠️ Los datos temporales expiraron. Por favor, volvé a enviar el comando `/factor`.")
-            await query.edit_message_text(txt_err_exp, parse_mode="Markdown")
+            await query.edit_message_text("⚠️ Los datos temporales expiraron. Por favor, volvé a enviar el comando `/factor`.", parse_mode="Markdown")
             return
 
         ahora = obtener_ahora_arg()
@@ -9296,7 +9317,6 @@ async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAUL
 
         try:
             guardar_ocupacion_db(user_id, nuevo_factor_val, mes_actual, reloj_actualizado=mes_actual)
-            
             perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
             peso = parse_raw_val(perfil.get('PESO', perfil.get('Peso', 70))) if perfil else 70
             altura = parse_raw_val(perfil.get('ALTURA', perfil.get('Altura', 170))) if perfil else 170
@@ -9305,471 +9325,22 @@ async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAUL
             
             _, get_final = calcular_tmb_y_get(peso, altura, edad, genero, actividad=nuevo_factor_val)
 
-            txt_exito_get = traducciones.get('09_get_calibracion_exito', 
-                "✅ **¡Gasto energético actualizado con éxito!**\n\n"
-                "• Nuevo Gasto Diario asignado: `{get_final:.0f} kcal`\n"
-                "• Período actualizado: `{mes_actual}`\n"
-                "• Estado: Calibración mensual registrada."
-            ).format(get_final=get_final, mes_actual=mes_actual)
-
+            txt_exito_get = (
+                f"✅ **¡Gasto energético actualizado con éxito!**\n\n"
+                f"• Nuevo Gasto Diario asignado: `{get_final:.0f} kcal`\n"
+                f"• Período actualizado: `{mes_actual}`\n"
+                f"• Estado: Calibración mensual registrada."
+            )
             await query.edit_message_text(txt_exito_get, parse_mode="Markdown")
         except Exception as e:
             logger.error(f"Error al guardar el factor confirmado para {user_id}: {e}")
-            txt_err_db = traducciones.get('09_get_error_guardar_db', "⚠️️ Ocurrió un error al guardar en la base de datos: {e}").format(e=e)
-            await query.edit_message_text(txt_err_db, parse_mode="Markdown")
+            await query.edit_message_text(f"⚠ Ocurrió un error al guardar en la base de datos: {e}", parse_mode="Markdown")
         
         context.user_data.pop('temp_nuevo_factor', None)
-        
+
 # ======================================================================================================================================
 #                       FINAL                        COMANDOS INGRESOS                                      FINAL
 # ======================================================================================================================================
-
-# =============================================================================================================================================
-#                INICIO                            COMANDOS FACTURACION                             INICIO 
-# =============================================================================================================================================
-
-async def rutina_nocturna_revision(context: ContextTypes.DEFAULT_TYPE):
-    """
-    Se ejecuta de madrugada. Revisa inactividad (strikes) y manda avisos de pesaje.
-    No utiliza IA para abaratar costos y acelerar el proceso.
-    """
-    ahora = obtener_ahora_arg()
-    hoy_str = ahora.strftime("%Y-%m-%d")
-    dia_actual = ahora.day
-
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        cur.execute('SELECT "User ID", "Estado", "dias_inactivo" FROM "Usuarios" WHERE "Estado" NOT IN (\'3\', \'inactivo\', \'baja\')')
-        usuarios_activos = cur.fetchall()
-
-        for usr in usuarios_activos:
-            user_id = str(usr[0]).strip()
-            estado_actual = str(usr[1])
-            dias_inact = int(usr[2] if usr[2] is not None else 0)
-
-            # 1. VERIFICACIÓN DE CARGAS (Sistema de Strikes)
-            # Buscamos si cargó algo hoy en su tabla de perfil
-            tabla_perfil = f"Perfil_{user_id}"
-            cargo_hoy = False
-            try:
-                cur.execute(f'SELECT COUNT(*) FROM "{tabla_perfil}" WHERE "Fecha_Actualizacion" = %s', (hoy_str,))
-                if cur.fetchone()[0] > 0:
-                    cargo_hoy = True
-            except Exception:
-                pass # Si no existe la tabla o falla, asumimos que no cargó
-
-            if cargo_hoy:
-                # Si cumplió, reseteamos el contador de inactividad silenciosamente
-                cur.execute('UPDATE "Usuarios" SET "dias_inactivo" = 0 WHERE "User ID" = %s', (user_id,))
-            else:
-                dias_inact += 1
-                cur.execute('UPDATE "Usuarios" SET "dias_inactivo" = %s WHERE "User ID" = %s', (dias_inact, user_id))
-                
-                # Strike 1
-                if dias_inact == 1:
-                    await context.bot.send_message(chat_id=int(user_id), text="⚠️ **Aviso de sistema:** Notamos que hoy no registraste comidas. Recordá que el plan requiere carga diaria para mantener la cuenta activa.", parse_mode="Markdown")
-                # Strike 2
-                elif dias_inact == 2:
-                    await context.bot.send_message(chat_id=int(user_id), text="⏳ **Último aviso:** Llevás 2 días sin registrar. Si mañana no se detecta actividad, tu cuenta pasará a estado suspendido.", parse_mode="Markdown")
-                # Strike 3 (Guillotina)
-                elif dias_inact >= 3:
-                    cur.execute('UPDATE "Usuarios" SET "Estado" = %s WHERE "User ID" = %s', ('3', user_id))
-                    await context.bot.send_message(chat_id=int(user_id), text="❌ **Cuenta suspendida** por falta de registro consecutivo.\n\nEscribí cualquier comando (ej: `/dia`) para ver las opciones de reactivación.", parse_mode="Markdown")
-
-            # 2. RECORDATORIOS DE PESAJE (Regla de las 3 Ventanas)
-            if dia_actual == 15 and estado_actual != '3':
-                msg_peso = "⚖️ **Control Quincenal Habilitado**\n\nYa podés ingresar tu control de peso de mitad de mes para calibrar tu metabolismo.\n👉 Escribí `/peso [tu_peso]` (ej: `/peso 85`)."
-                await context.bot.send_message(chat_id=int(user_id), text=msg_peso, parse_mode="Markdown")
-            
-            elif dia_actual == 26 and estado_actual != '3':
-                msg_peso = "⚖️ **Cierre de Mes Habilitado**\n\nSe habilitó el ingreso de tu peso final para cerrar el balance mensual y preparar tu próxima rutina.\n👉 Escribí `/peso [tu_peso]`."
-                await context.bot.send_message(chat_id=int(user_id), text=msg_peso, parse_mode="Markdown")
-
-        conn.commit()
-        cur.close()
-        conn.close()
-        logger.info("Rutina nocturna finalizada con éxito.")
-    except Exception as e:
-        logger.error(f"Error en rutina nocturna: {e}")
-
-# =========================================================================
-# 1. COMANDO /pagar (Menú dinámico de planes desde Supabase)
-# =========================================================================
-async def cmd_pagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Muestra al usuario los planes de pago disponibles de forma dinámica."""
-    user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
-        cur.execute('SELECT "plan_id", "descripcion", "estrellas" FROM "Planes" WHERE "activo" = TRUE')
-        planes = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        if not planes:
-            msg_sin_planes = traducciones.get("10_pagar_sin_planes", "⚠️ No hay planes de pago disponibles en este momento.")
-            await update.message.reply_text(msg_sin_planes)
-            return
-
-        keyboard = []
-        for plan in planes:
-            plan_id, descripcion_db, estrellas = plan[0], plan[1], plan[2]
-            
-            # 🟢 Lógica directa: Usa el plan_id como clave de traducción; si no existe, muestra el inglés de la BD
-            nombre_plan = traducciones.get(str(plan_id).strip(), descripcion_db)
-
-            keyboard.append([InlineKeyboardButton(f"{nombre_plan} ({estrellas} ⭐)", callback_data=f"comprar_{plan_id}")])
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        msg_titulo = traducciones.get("10_pagar_titulo", "⭐ **Seleccioná el plan con el que deseás abonar o renovar tu suscripción:**")
-        await update.message.reply_text(
-            msg_titulo,
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        logger.error(f"Error al cargar planes dinámicos para /pagar: {e}")
-        msg_error = traducciones.get("10_pagar_error_carga", "❌ Ocurrió un error al cargar las opciones de pago.")
-        await update.message.reply_text(msg_error)
-
-
-# =========================================================================
-# 2. MANEJADOR DE BOTONES DE PLANES (Callback Query)
-# =========================================================================
-async def boton_elegir_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = str(query.from_user.id).strip()
-    lang = obtener_idioma_usuario(int(user_id)) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    data = query.data
-    
-    # NUEVO: Lógica de rescate prorrateado para Estado 3
-    if data == "rescate_mensual":
-        try:
-            conn, cur = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
-            cur.execute('SELECT "estrellas" FROM "Planes" WHERE "plan_id" = %s', ('1_mes',))
-            plan_base = cur.fetchone()
-            cur.close()
-            conn.close()
-
-            estrellas_mes = plan_base[0] if plan_base else 250
-            
-            hoy = datetime.now()
-            dias_en_mes = calendar.monthrange(hoy.year, hoy.month)[1]
-            dias_restantes = dias_en_mes - hoy.day + 1
-            
-            # Redondeo hacia abajo del prorrateo
-            estrellas_prorrateo = math.floor((estrellas_mes / dias_en_mes) * dias_restantes)
-            
-            descripcion = f"Activación hasta fin de mes ({dias_restantes} días)"
-            precios = [LabeledPrice(descripcion, estrellas_prorrateo)]
-            
-            await context.bot.send_invoice(
-                chat_id=int(user_id),
-                title="Activación de Cuenta",
-                description="Abono prorrateado para habilitar la cuenta hasta el último día del mes actual.",
-                payload=f"rescate_mensual_{user_id}",
-                provider_token="",
-                currency="XTR",
-                prices=precios,
-                start_parameter="rescate"
-            )
-            await query.edit_message_text(f"✅ Se generó la factura por **{estrellas_prorrateo} Estrellas** para reactivar tu cuenta.", parse_mode="Markdown")
-        except Exception as e:
-            logger.error(f"Error generando rescate mensual para {user_id}: {e}")
-            await query.edit_message_text("❌ Error al procesar la activación.")
-        return
-
-    # Lógica normal de selección de planes (intacta)
-    if not data.startswith("comprar_"):
-        return
-
-    plan_id = data.replace("comprar_", "")
-
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
-        cur.execute('SELECT "descripcion", "estrellas" FROM "Planes" WHERE "plan_id" = %s', (plan_id,))
-        plan = cur.fetchone()
-        cur.close()
-        conn.close()
-
-        if not plan:
-            msg_no_disp = traducciones.get("10_pagar_plan_no_disp", "❌ El plan seleccionado ya no está disponible.")
-            await query.edit_message_text(msg_no_disp)
-            return
-
-        descripcion_db, estrellas = plan[0], plan[1]
-        descripcion = traducciones.get(str(plan_id).strip(), descripcion_db)
-
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        cur.execute('UPDATE "Usuarios" SET "plan_preferido" = %s WHERE "User ID" = %s', (plan_id, user_id))
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        precios = [LabeledPrice(descripcion, estrellas)]
-        payload_transaccion = f"pago_{plan_id}_{user_id}"
-
-        desc_factura_tpl = traducciones.get("10_pagar_factura_desc", "Suscripción - {descripcion}")
-        await context.bot.send_invoice(
-            chat_id=int(user_id),
-            title=descripcion,
-            description=desc_factura_tpl.format(descripcion=descripcion),
-            payload=payload_transaccion,
-            provider_token="",
-            currency="XTR",
-            prices=precios,
-            start_parameter=f"pay_{plan_id}"
-        )
-        
-        msg_enviado_tpl = traducciones.get("10_pagar_enviado", "✅ Has seleccionado: **{descripcion} ({estrellas} Estrellas)**.\nTe hemos enviado la factura para abonar en el chat.")
-        await query.edit_message_text(msg_enviado_tpl.format(descripcion=descripcion, estrellas=estrellas), parse_mode="Markdown")
-
-    except Exception as e:
-        logger.error(f"Error procesando la selección de plan para el usuario {user_id}: {e}")
-        msg_err_proc = traducciones.get("10_pagar_error_proc", "❌ Ocurrió un error al procesar tu selección.")
-        await query.edit_message_text(msg_err_proc)
-
-# =========================================================================
-# 3. COMANDO ADMINISTRATIVO /cobrar (Cobro Manual por ID y Estrellas)
-# =========================================================================
-async def cmd_forzar_cobro(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Comando administrativo para emitir un cobro manual por cantidad de estrellas.
-    Uso: /cobrar <user_id> <estrellas>
-    Ejemplo: /cobrar 123456789 100
-    """
-    user_actual = update.effective_user.id
-    lang = obtener_idioma_usuario(user_actual) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    if not es_administrador(user_actual):
-        msg_no_perm = traducciones.get("10_cobrar_no_perm", "❌ No tenés permisos para ejecutar este comando.")
-        await update.message.reply_text(msg_no_perm)
-        return
-
-    if not context.args or len(context.args) < 2:
-        msg_uso_inc = traducciones.get(
-            "10_cobrar_uso_incorrecto",
-            "⚠️ Uso incorrecto.\n"
-            "Uso correcto: `/cobrar <user_id> <estrellas>`\n"
-            "Ejemplo: `/cobrar 123456789 100`"
-        )
-        await update.message.reply_text(msg_uso_inc, parse_mode="Markdown")
-        return
-
-    target_user_id = context.args[0].strip()
-    try:
-        cantidad_estrellas = int(context.args[1].strip())
-    except ValueError:
-        msg_num_inv = traducciones.get("10_cobrar_num_invalido", "❌ La cantidad de estrellas debe ser un número entero válido.")
-        await update.message.reply_text(msg_num_inv)
-        return
-
-    titulo_manual_tpl = traducciones.get("10_cobrar_titulo_manual", "Pago Especial / Manual ({cantidad_estrellas} Estrellas)")
-    precios = [LabeledPrice(titulo_manual_tpl.format(cantidad_estrellas=cantidad_estrellas), cantidad_estrellas)]
-    payload_transaccion = f"pago_manual_{target_user_id}"
-
-    try:
-        msg_aviso_adm = traducciones.get("10_cobrar_aviso_adm", "🔔 **Aviso de Facturación Administrativa:** Se ha generado una solicitud de pago especial:")
-        await context.bot.send_message(
-            chat_id=int(target_user_id),
-            text=msg_aviso_adm,
-            parse_mode="Markdown"
-        )
-        
-        desc_manual = traducciones.get("10_cobrar_desc_manual", "Factura administrativa personalizada.")
-        await context.bot.send_invoice(
-            chat_id=int(target_user_id),
-            title=traducciones.get("10_cobrar_titulo_factura", "Pago Especial / Manual"),
-            description=desc_manual,
-            payload=payload_transaccion,
-            provider_token="",
-            currency="XTR",
-            prices=precios,
-            start_parameter="manual_pago"
-        )
-        
-        msg_exito_adm_tpl = traducciones.get("10_cobrar_exito_adm", "✅ Factura manual por `{cantidad_estrellas}` estrellas enviada con éxito al usuario `{target_user_id}`.")
-        await update.message.reply_text(msg_exito_adm_tpl.format(cantidad_estrellas=cantidad_estrellas, target_user_id=target_user_id))
-
-    except Exception as e:
-        logger.error(f"Error al enviar factura manual al usuario {target_user_id}: {e}")
-        msg_err_envio_tpl = traducciones.get("10_cobrar_error_envio", "❌ Error al enviar la factura: {e}")
-        await update.message.reply_text(msg_err_envio_tpl.format(e=e))
-
-
-# =========================================================================
-# 4. PRE-CHECKOUT Y SUCCESSFUL PAYMENT HANDLERS
-# =========================================================================
-async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.pre_checkout_query
-    await query.answer(ok=True)
-
-async def successful_payment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    payment = update.message.successful_payment
-    user_id = str(update.effective_user.id).strip()
-    lang = obtener_idioma_usuario(int(user_id)) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    payload = payment.invoice_payload
-    total_estrellas_pagadas = payment.total_amount
-
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-
-        # NUEVO: Lógica del pago de rescate prorrateado
-        if payload.startswith("rescate_mensual_"):
-            hoy = datetime.now().date()
-            ultimo_dia_mes = calendar.monthrange(hoy.year, hoy.month)[1]
-            nuevo_vencimiento = hoy.replace(day=ultimo_dia_mes).strftime("%Y-%m-%d")
-
-            cur.execute(
-                'UPDATE "Usuarios" SET "vencimiento_suscripcion" = %s, "Estado" = %s WHERE "User ID" = %s',
-                (nuevo_vencimiento, 10, user_id)
-            )
-            conn.commit()
-            cur.close()
-            conn.close()
-
-            msg_rescate_exito = (
-                "⭐ **¡Cuenta reactivada con éxito!**\n\n"
-                f"Tu acceso ha sido restaurado y tu ciclo de facturación se ha ajustado para el {nuevo_vencimiento}.\n"
-                "Ya podés seguir utilizando todos los comandos."
-            )
-            await update.message.reply_text(msg_rescate_exito, parse_mode="Markdown")
-            return
-
-        # Lógica de pago manual (intacta)
-        if "pago_manual" in payload:
-            cur.execute(
-                'UPDATE "Usuarios" SET "saldo_estrellas" = COALESCE("saldo_estrellas", 0) + %s WHERE "User ID" = %s',
-                (total_estrellas_pagadas, user_id)
-            )
-            conn.commit()
-            cur.close()
-            conn.close()
-
-            msg_pago_exito_tpl = traducciones.get(
-                "10_pago_exito_manual",
-                "⭐ **¡Pago recibido con éxito!**\n\n"
-                "Se han acreditado `{total_estrellas_pagadas}` estrellas a tu saldo a favor en el sistema."
-            )
-            await update.message.reply_text(
-                msg_pago_exito_tpl.format(total_estrellas_pagadas=total_estrellas_pagadas),
-                parse_mode="Markdown"
-            )
-            return
-
-        # Lógica de Planes regulares (1 mes, 6 meses, 1 año o dinámicos)
-        plan_id = payload.replace("pago_", "").rsplit("_", 1)[0]
-
-        conn_p, cur_p = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
-        cur_p.execute('SELECT "dias" FROM "Planes" WHERE "plan_id" = %s', (plan_id,))
-        resultado_plan = cur_p.fetchone()
-        cur_p.close()
-        conn_p.close()
-
-        dias_a_sumar = resultado_plan[0] if resultado_plan else 30
-        hoy = datetime.now().date()
-        nuevo_vencimiento = (hoy + timedelta(days=dias_a_sumar)).strftime("%Y-%m-%d")
-
-        # Se actualiza directamente al Estado 10 (Premium)
-        cur.execute(
-            'UPDATE "Usuarios" SET "vencimiento_suscripcion" = %s, "plan_preferido" = NULL, "Estado" = %s WHERE "User ID" = %s',
-            (nuevo_vencimiento, "10", user_id)
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        msg_renov_exito_tpl = traducciones.get(
-            "10_pago_exito_plan",
-            "⭐ **¡Suscripción renovada con éxito!**\n\n"
-            "Tu acceso se encuentra activo hasta el **{nuevo_vencimiento}**.\n"
-            "¡Gracias por tu apoyo!"
-        )
-        await update.message.reply_text(
-            msg_renov_exito_tpl.format(nuevo_vencimiento=nuevo_vencimiento),
-            parse_mode="Markdown"
-        )
-        logger.info(f"✅ Suscripción actualizada para usuario {user_id} mediante plan {plan_id} hasta {nuevo_vencimiento}.")
-
-    except Exception as e:
-        logger.error(f"❌ Error al procesar pago exitoso para {user_id}: {e}")
-        msg_err_pago = traducciones.get("10_pago_error_ficha", "⚠️ El pago se realizó pero hubo un error al actualizar tu ficha. Contactá al administrador.")
-        await update.message.reply_text(msg_err_pago)
-
-# =========================================================================
-# 5. PROCESO MASIVO DE FACTURACIÓN AUTOMÁTICA
-# =========================================================================
-async def proceso_masivo_cobros(context: ContextTypes.DEFAULT_TYPE):
-    """Proceso periódico que emite facturas considerando el plan preferido o 1 mes por defecto."""
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        cur.execute('SELECT "User ID", "plan_preferido" FROM "Usuarios"')
-        usuarios = cur.fetchall()
-        
-        conn_p, cur_p = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
-        cur_p.execute('SELECT "plan_id", "descripcion", "estrellas" FROM "Planes"')
-        planes_dict = {row[0]: {"descripcion": row[1], "estrellas": row[2]} for row in cur_p.fetchall()}
-        cur_p.close()
-        conn_p.close()
-
-        for user in usuarios:
-            user_id, plan_preferido = user[0], user[1]
-            
-            # Soporte de idioma por usuario para las facturas automáticas
-            u_lang = obtener_idioma_usuario(int(str(user_id).split('.')[0].strip())) if 'obtener_idioma_usuario' in globals() else 'en'
-            u_trad = obtener_traducciones_db(u_lang) if 'obtener_traducciones_db' in globals() else {}
-
-            plan_a_facturar = plan_preferido if plan_preferido in planes_dict else "1_mes"
-            datos_plan = planes_dict.get(plan_a_facturar, planes_dict.get("1_mes"))
-
-            if not datos_plan:
-                continue
-
-            descripcion_db = datos_plan["descripcion"]
-            estrellas = datos_plan["estrellas"]
-
-            # 🟢 Lógica directa de traducción para el cobro masivo usando el plan_id como clave
-            descripcion_plan = u_trad.get(str(plan_a_facturar).strip(), descripcion_db)
-
-            precios = [LabeledPrice(descripcion_plan, estrellas)]
-            payload_transaccion = f"pago_{plan_a_facturar}_{user_id}"
-
-            desc_auto_tpl = u_trad.get("10_factura_auto_desc", "Renovación automática - {descripcion}")
-            try:
-                await context.bot.send_invoice(
-                    chat_id=int(str(user_id).split('.')[0].strip()),
-                    title=descripcion_plan,
-                    description=desc_auto_tpl.format(descripcion=descripcion_plan),
-                    payload=payload_transaccion,
-                    provider_token="",
-                    currency="XTR",
-                    prices=precios,
-                    start_parameter=f"auto_{plan_a_facturar}"
-                )
-                logger.info(f"Factura automática enviada a {user_id} por plan {plan_a_facturar}")
-            except Exception as ex:
-                logger.error(f"No se pudo enviar factura automática a {user_id}: {ex}")
-                
-            # 🟢 CORRECCIÓN: Pausa para evitar el Flood Control de Telegram
-            await asyncio.sleep(2)
-
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error en el proceso masivo de cobros: {e}")
-        
-# =============================================================================================================================================
-#                FINAL                            COMANDOS FACTURACION                             FINAL 
-# =============================================================================================================================================
 
 # =============================================================================================================================================
 #                INICIO                            COMANDOS PROFESIONALES                             INICIO 
