@@ -6630,52 +6630,6 @@ async def proceso_masivo_cobros(context: ContextTypes.DEFAULT_TYPE):
 #                FINAL                            COMANDOS FACTURACION                             FINAL 
 # =============================================================================================================================================
 
-import io
-import re
-import asyncio
-import logging
-from datetime import datetime, timedelta
-import pandas as pd
-import pytz
-import calendar
-
-# --- Telegram ---
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ContextTypes
-
-# --- ReportLab (PDF) ---
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, HRFlowable, Spacer, PageBreak
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
-
-# --- Configuración del Logger ---
-logger = logging.getLogger(__name__)
-
-# --- IMPORTACIONES DE MÓDULOS INTERNOS ---
-from FuncionesAuxiliares import (
-    obtener_ahora_arg,
-    obtener_idioma_usuario,
-    obtener_traducciones_db,
-    requiere_registro,
-    parse_raw_val,
-    parsear_fecha_flexible,
-    calcular_peso_ideal,
-    calcular_peso_etapa,
-    calcular_tmb_y_get
-)
-from SupabaseModule import (
-    obtener_datos_usuario,
-    obtener_perfil_usuario,
-    obtener_datos_presion_db,
-    _validar_peso_mes_actual,
-    obtener_todos_usuarios,
-    obtener_registros_usuario,
-    actualizar_estado_usuario,
-    _asegurar_tabla_y_conectar,
-    obtener_valores_clinicos_profesional
-)
-
 # ======================================================================================================================================
 #                   INICIO                                    COMANDOS INFORMES                                   INICIO  DB OK
 # =====================================================================================================================================
