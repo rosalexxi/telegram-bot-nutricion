@@ -10016,10 +10016,10 @@ def main():
         app_bot.add_handler(conv_handler_ingreso)
 
         # ==================================PROFESIONALES===============================================
-        app_bot.add_handler(CommandHandler(["pacientes"], cmd_pacientes))[cite: 3]
-        app_bot.add_handler(CommandHandler(["informe"], cmd_enviar_informe_actual))[cite: 3]
+        app_bot.add_handler(CommandHandler(["pacientes"], cmd_pacientes))
+        app_bot.add_handler(CommandHandler(["informe"], cmd_enviar_informe_actual))
         app_bot.add_handler(CommandHandler(["nota"], cmd_enviar_nota_paciente))
-        app_bot.add_handler(CommandHandler(["valores"], cmd_editar_valores_clinicos))[cite: 3]
+        app_bot.add_handler(CommandHandler(["valores"], cmd_editar_valores_clinicos))
         app_bot.add_handler(CommandHandler(["manual", "documentacion"], cmd_generar_manual_pdf))
         # =================================INGRESOS Y CONSULTAS MANUALES============================================
         app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
@@ -10057,9 +10057,9 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
         
-        # Enrutadores para el módulo profesional (listados, informes y edición por botones)[cite: 3]
-        app_bot.add_handler(CallbackQueryHandler(callback_enviar_informe_paciente, pattern="^enviar_inf_"))[cite: 3]
-        app_bot.add_handler(CallbackQueryHandler(callback_seleccionar_paciente_clinico, pattern="^edit_clinico_sel_"))[cite: 3]
+        # Enrutadores para el módulo profesional (listados, informes y edición por botones)
+        app_bot.add_handler(CallbackQueryHandler(callback_enviar_informe_paciente, pattern="^enviar_inf_"))
+        app_bot.add_handler(CallbackQueryHandler(callback_seleccionar_paciente_clinico, pattern="^edit_clinico_sel_"))
         
         app_bot.add_handler(CallbackQueryHandler(boton_elegir_plan, pattern="^comprar_"))
 
