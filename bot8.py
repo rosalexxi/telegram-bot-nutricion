@@ -2038,6 +2038,43 @@ def obtener_pacientes_por_medico(prof_id):
     except Exception as e:
         logger.error(f"Error en obtener_pacientes_por_medico para {prof_id}: {e}")
     return pacientes
+  
+def obtener_valores_clinicos_profesional(user_id, mes_str):
+    """Consulta la tabla Valores_Clinicos_Profesional en Supabase para un usuario y mes específico."""
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Valores_Clinicos_Profesional", tipo_tabla="comidas_precargadas")
+        query = """
+            SELECT tmb, get, peso_etapa, calorias_min, calorias_max, 
+                   proteinas_min, proteinas_max, hidratos_min, hidratos_max, 
+                   grasas_min, grasas_max, fibras_min
+            FROM "Valores_Clinicos_Profesional"
+            WHERE "user_id" = %s AND "mes" = %s
+            ORDER BY id DESC LIMIT 1
+        """
+        cur.execute(query, (str(user_id).strip(), str(mes_str).strip()))
+        fila = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if fila:
+            return {
+                "tmb": float(fila[0] or 0),
+                "get": float(fila[1] or 0),
+                "peso_etapa": float(fila[2] or 0),
+                "calorias_min": float(fila[3] or 0),
+                "calorias_max": float(fila[4] or 0),
+                "proteinas_min": float(fila[5] or 0),
+                "proteinas_max": float(fila[6] or 0),
+                "hidratos_min": float(fila[7] or 0),
+                "hidratos_max": float(fila[8] or 0),
+                "grasas_min": float(fila[9] or 0),
+                "grasas_max": float(fila[10] or 0),
+                "fibras_min": float(fila[11] or 0)
+            }
+    except Exception as e:
+        logger.error(f"Error obteniendo valores clínicos del profesional para {user_id}: {e}")
+    
+    return None
     
 #              INICIO                                  7 FUNCIONES USUARIOS                        INICIO
 # =============================================================================================================================================
@@ -7123,9 +7160,11 @@ def calcular_metricas_mensuales(df_mes, perfil_dict, user_id=None, mes_str=None)
     carb_max = int(round((cal_max * 0.55) / 4.0))
 
     # --- SUPREMACÍA CLÍNICA: VERIFICAR SI TIENE VALORES DEL PROFESIONAL ---
+    valores_personalizados = False
     if user_id and mes_str:
         valores_prof = obtener_valores_clinicos_profesional(user_id, mes_str)
         if valores_prof:
+            valores_personalizados = True
             cal_min = int(valores_prof.get("calorias_min", cal_min))
             cal_max = int(valores_prof.get("calorias_max", cal_max))
             prot_min = int(valores_prof.get("proteinas_min", prot_min))
@@ -7155,9 +7194,10 @@ def calcular_metricas_mensuales(df_mes, perfil_dict, user_id=None, mes_str=None)
         "fibr_min": fibr_min,
         "peso_actual": round(float(peso_actual), 1),
         "peso_referencia": round(float(peso_referencia), 1),
-        "cambio_peso_kg": cambio_peso_kg
+        "cambio_peso_kg": cambio_peso_kg,
+        "valores_personalizados": valores_personalizados
     }
-        
+    
 async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
     lang = obtener_idioma_usuario(user_id) or '$1'
     traducciones = obtener_traducciones_db(lang) or {}
@@ -7341,7 +7381,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         query = update.callback_query
         user_id = query.from_user.id if query else update.effective_user.id
-        lang = obtener_idioma_usuario(user_id) or '$1'
+        lang = obtener_idioma_usuario(user_id) or 'es'
         traducciones = obtener_traducciones_db(lang) or {}
 
         ahora = obtener_ahora_arg()
@@ -7462,6 +7502,17 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         cambio_peso_val = float(m.get('cambio_peso_kg', 0))
         texto_variacion_peso = f"`{obtener_mensaje_variacion_peso(cambio_peso_val)}`"
 
+        # --- DEFINIR TEXTO ACLARATORIO ---
+        es_personalizado = m.get('valores_personalizados', False)
+        id_prof = str(perfil.get('profesional', '123456789')).strip()
+        
+        if es_personalizado:
+            nota_sistema = "👨‍⚕️ _Nota Clínica: Las metas y rangos de macronutrientes de este reporte han sido personalizados, revisados y aprobados por tu profesional a cargo._"
+        elif id_prof != "123456789" and id_prof != "S/D" and id_prof != "":
+            nota_sistema = "🤖 _Nota del Sistema: Tu profesional aún no ha personalizado las metas de este mes. Los rangos mostrados fueron calculados automáticamente por el motor clínico del bot._"
+        else:
+            nota_sistema = "🤖 _Nota del Sistema: Reporte generado mediante métricas analíticas directas y algoritmos automatizados._"
+
         template_enc = traducciones.get(
             "08_inf_mes_reporte_enc",
             "📊 **Reporte Nutricional Mensual ({mes_str}):**\n"
@@ -7476,7 +7527,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             "• Carbs: `{carb} g` / Rango: `{cb_min} - {cb_max} g`\n"
             "• Fibras: `{fibr} g` / Mínimo: `{f_min} g`\n"
             "• Actividad Física: `{act} min/día` / Rango: `{act_min} - {act_max} min/día`\n\n"
-            "_(Nota: Reporte generado mediante métricas analíticas directas)._"
+            "{nota_sistema}"
         )
 
         encabezado_txt = template_enc.format(
@@ -7497,7 +7548,8 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             fibr=_fmt(m.get('prom_fibr', 0)),
             f_min=m.get('fibr_min', 0),
             act=m.get('prom_minutos_act', 0),
-            act_min=act_min_val, act_max=act_max_val
+            act_min=act_min_val, act_max=act_max_val,
+            nota_sistema=nota_sistema  # <--- INYECTAMOS LA NOTA ACÁ
         )
 
         pie_txt = traducciones.get("08_inf_mes_pie_pdf", "\n\n📄 Podés descargar el informe completo en PDF abajo:")
@@ -7520,10 +7572,10 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         if update.callback_query:
             await update.callback_query.edit_message_text(msg_err)
         else:
-            await update.message.reply_text(msg_err)    
-                                
+            await update.message.reply_text(msg_err)
+                                            
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, user_id):
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     buffer = io.BytesIO()
@@ -7685,16 +7737,24 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, user
     story.append(Paragraph(p_nota_act, body_style))
 
     story.append(Spacer(1, 6))
-    disclaimer_texto = traducciones.get(
-        "08_PDF_resumen_disclaimer", 
-        "<i>* Aclaración: La tendencia de peso indicada es una proyección matemática aproximada, calculada exclusivamente en base a los registros ingresados por el usuario en la plataforma. No posee exactitud ni validez clínica, ya que el resultado real depende de la precisión de dichas cargas y del metabolismo individual de cada paciente.</i>"
-    )
-    story.append(Paragraph(disclaimer_texto, body_style))
+    
+    # --- NUEVA LÓGICA DE DISCLAIMER ---
+    es_personalizado = m.get('valores_personalizados', False)
+    id_prof = str(perfil_dict.get('profesional', '123456789')).strip()
+    
+    if es_personalizado:
+        nota_pdf = "<i>👨‍⚕️ <b>Nota Clínica:</b> Las metas y rangos de macronutrientes de este reporte han sido analizados, personalizados y aprobados explícitamente por tu profesional a cargo, reemplazando el cálculo estándar.</i>"
+    elif id_prof != "123456789" and id_prof != "S/D" and id_prof != "":
+        nota_pdf = "<i>🤖 <b>Nota del Sistema:</b> Tu profesional a cargo aún no ha personalizado las metas para este período. Los rangos mostrados han sido calculados de forma automática por el motor clínico del asistente (Fórmulas estandarizadas).</i>"
+    else:
+        nota_pdf = "<i>🤖 <b>Nota del Sistema:</b> Reporte generado mediante métricas analíticas directas y cálculos automatizados. La tendencia de peso indicada es una proyección matemática aproximada calculada en base a tus registros.</i>"
+
+    story.append(Paragraph(nota_pdf, body_style))
 
     doc.build(story)
     buffer.seek(0)
     return buffer
-        
+    
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
