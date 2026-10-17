@@ -9839,7 +9839,6 @@ async def callback_seleccionar_paciente_clinico(update: Update, context: Context
     context.user_data['edit_medico_mes'] = mes_actual
 
     # Obtener valores actuales (si los hay en la tabla del profesional o los calculados)
-    from SupabaseModule import obtener_valores_clinicos_profesional
     valores = obtener_valores_clinicos_profesional(target_user_id, mes_actual)
 
     if not valores:
@@ -10146,7 +10145,6 @@ async def callback_acciones_informe(update: Update, context: ContextTypes.DEFAUL
         await query.edit_message_text(f"⏳ Generando y enviando informe al paciente `{target_user_id}`...", parse_mode="Markdown")
         
         try:
-            from 08ComandosInformes1016 import procesar_y_enviar_informe_mensual
             exito = await procesar_y_enviar_informe_mensual(context, user_id=int(target_user_id), chat_destino=int(target_user_id), mes_target=mes_target, forzar_envio=True)
             
             if exito:
@@ -10192,7 +10190,6 @@ async def procesar_texto_nota_informe(update: Update, context: ContextTypes.DEFA
     try:
         msg_esp = await update.message.reply_text("⏳ **Generando informe con la nota médica adjunta...**", parse_mode="Markdown")
         
-        from 08ComandosInformes1016 import procesar_y_enviar_informe_mensual
         exito = await procesar_y_enviar_informe_mensual(context, user_id=int(target_user_id), chat_destino=int(target_user_id), mes_target=mes_target, forzar_envio=True)
         
         if exito:
