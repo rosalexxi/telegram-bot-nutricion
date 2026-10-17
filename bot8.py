@@ -6634,7 +6634,7 @@ async def proceso_masivo_cobros(context: ContextTypes.DEFAULT_TYPE):
 #                   INICIO                                    COMANDOS INFORMES                                   INICIO  DB OK
 # =====================================================================================================================================
 
-#                   INICIO                                    COMANDO DIA                                    INICIO  DB OK
+#                   INICIO                                    COMANDO DIA COMNADO DIARIO                            INICIO  DB OK
 # =====================================================================================================================================
 
 @requiere_registro
@@ -6776,6 +6776,9 @@ async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
             await update_or_query.reply_text(msg_err, parse_mode="Markdown")
         elif hasattr(update_or_query, 'message') and update_or_query.message:
             await update_or_query.message.reply_text(msg_err, parse_mode="Markdown")
+
+
+
             
 def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
@@ -6887,6 +6890,27 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
     doc.build(story)
     buffer.seek(0)
     return buffer
+    
+async def generar_y_enviar_pdf_diario_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("Generando PDF del día... ⏳")
+    user_id = query.from_user.id
+    
+    cb_data = query.data
+    fecha_str = cb_data.replace("descargar_pdf_diario_", "").strip()
+    
+    df = obtener_datos_usuario(user_id)
+    df_diario = df[df['Fecha'].astype(str).str.strip() == str(fecha_str).strip()] if not df.empty and 'Fecha' in df.columns else pd.DataFrame()
+    
+    pdf_buffer = generar_pdf_diario_bytes(fecha_str, df_diario, user_id)
+    
+    await context.bot.send_document(
+        chat_id=query.message.chat_id,
+        document=pdf_buffer,
+        filename=f"Diario_{fecha_str}.pdf",
+        caption=f"📄 Detalle Diario de Ingestas - {fecha_str}",
+        parse_mode="Markdown"
+    )
     
 #                 INICIO                            COMANDO SEMANA                             INICIO   DB OK
 # ======================================================================================================================================
@@ -7070,13 +7094,15 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
             prom_fibr=prom_fibr, prom_minutos_act=prom_minutos_act
         )
         
+        # Corrección clave para reemplazar los \n en texto plano por saltos reales de Telegram
+        txt_informe = txt_informe.replace('\\n', '\n')
+        
         await msg_espera.edit_text(txt_informe, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Error en resumen semanal para {user_id}: {e}")
         msg_err_proc = traducciones.get("08_inf_semana_err_proc", "❌ Error al procesar tu resumen semanal.")
-        await msg_espera.edit_text(msg_err_proc)
-                             
+        await msg_espera.edit_text(msg_err_proc)        
 #               INICIO                                COMANDO RESUMEN COMANDO MES                       INICIO DB OK
 # ==========================================================================================================================================
 
@@ -8843,9 +8869,9 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             lineas_medidas = ""
             if es_adulto:
-                lineas_medidas += f"• Cintura: `{cintura:.1f}` cm\n• Cuello: `{cuello:.1f}` cm\n"
+                lineas_medidas += f"• 📏 Cintura: `{cintura:.1f}` cm\n• 📐 Cuello: `{cuello:.1f}` cm\n"
                 if is_fem:
-                    lineas_medidas += f"• Cadera: `{cadera:.1f}` cm\n"
+                    lineas_medidas += f"• 📐 Cadera: `{cadera:.1f}` cm\n"
             else:
                 lineas_medidas = "• *Modalidad Pediátrica/Juvenil (Cálculo OMS sin circunferencias)*\n"
 
@@ -8854,48 +8880,50 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if cintura <= 1.0 or cuello <= 1.0 or (is_fem and cadera <= 1.0):
                     alerta_medidas = "\n⚠️ **Atención:** Tenés 18 años o más. Actualizá tus medidas con los botones de abajo para activar el cálculo de masa magra de alta precisión clínica.\n"
 
+            # Presentación con los mismos emojis de la botonera para absoluta sincronía
             txt_perfil = (
                 f"👤 **{traducciones.get('09_perfil_titulo_biometrico', 'Perfil Biométrico Actual')} ({mes_actual}):**\n\n"
-                f"• {traducciones.get('09_perfil_lbl_nombre', 'Nombre')}: `{nombre}`\n"
-                f"• {traducciones.get('09_perfil_lbl_edad', 'Edad')}: `{edad:.0f}` {traducciones.get('09_perfil_anos', 'años')}\n"
-                f"• {traducciones.get('09_perfil_lbl_peso', 'Peso')}: `{peso:.1f}` kg *(Act: {fecha_act_peso})*\n"
-                f"• {traducciones.get('09_perfil_lbl_altura', 'Altura')}: `{altura:.1f}` cm\n"
+                f"• 👤 {traducciones.get('09_perfil_lbl_nombre', 'Nombre')}: `{nombre}`\n"
+                f"• 🎯 {traducciones.get('09_perfil_lbl_edad', 'Edad')}: `{edad:.0f}` {traducciones.get('09_perfil_anos', 'años')}\n"
+                f"• ⚖️ {traducciones.get('09_perfil_lbl_peso', 'Peso')}: `{peso:.1f}` kg *(Act: {fecha_act_peso})*\n"
+                f"• 📏 {traducciones.get('09_perfil_lbl_altura', 'Altura')}: `{altura:.1f}` cm\n"
                 f"{lineas_medidas}"
-                f"• {traducciones.get('09_perfil_lbl_ritmo', 'Ritmo de avance')}: `{str(ritmo).capitalize()}`\n"
-                f"• {traducciones.get('09_perfil_lbl_idioma', 'Idioma')}: `{str(idioma_usr).upper()}`\n"
-                f"• {traducciones.get('09_perfil_lbl_profesional', 'ID Profesional')}: `{profesional}`\n\n"
-                f"• **{traducciones.get('09_perfil_lbl_tmb', 'TMB Estimada')}:** `{tmb:.0f} kcal/día`\n"
-                f"• **{traducciones.get('09_perfil_lbl_get', 'GET Estimado')}:** `{get_val:.0f} kcal/día`\n"
-                f"• **{traducciones.get('09_perfil_lbl_etapa', 'Meta / Peso de Etapa')}:** `{peso_etapa:.1f} kg`\n"
+                f"• 🎯 {traducciones.get('09_perfil_lbl_ritmo', 'Ritmo de avance')}: `{str(ritmo).capitalize()}`\n"
+                f"• 🌐 {traducciones.get('09_perfil_lbl_idioma', 'Idioma')}: `{str(idioma_usr).upper()}`\n"
+                f"• 🩺 {traducciones.get('09_perfil_lbl_profesional', 'ID Profesional')}: `{profesional}`\n\n"
+                f"• 🔥 **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
+                f"• ⚡ **GET Estimado:** `{get_val:.0f} kcal/día`\n"
+                f"• 🎯 **Meta / Peso de Etapa:** `{peso_etapa:.1f} kg`\n"
                 f"{alerta_medidas}"
             )
         else:
             txt_perfil = traducciones.get('09_perfil_no_registrado', "👤 **Perfil no registrado para este mes.** Podés cargar tu peso ejecutando:\n`/peso 82.5`")
 
+        # Botonera con emojis solos limpios y coincidentes
         keyboard = [
             [
-                InlineKeyboardButton(traducciones.get('09_btn_edit_peso', "⚖️ Peso"), callback_data="edit_perfil_peso"),
-                InlineKeyboardButton(traducciones.get('09_btn_edit_altura', "📏 Altura"), callback_data="edit_perfil_altura")
+                InlineKeyboardButton("⚖️", callback_data="edit_perfil_peso"),
+                InlineKeyboardButton("📏", callback_data="edit_perfil_altura")
             ]
         ]
 
         if es_adulto:
             fila_cintas = [
-                InlineKeyboardButton(traducciones.get('09_btn_edit_cintura', "📏 Cintura"), callback_data="edit_perfil_cintura"),
-                InlineKeyboardButton(traducciones.get('09_btn_edit_cuello', "📐 Cuello"), callback_data="edit_perfil_cuello")
+                InlineKeyboardButton("📏", callback_data="edit_perfil_cintura"),
+                InlineKeyboardButton("📐", callback_data="edit_perfil_cuello")
             ]
             keyboard.append(fila_cintas)
             if is_fem:
-                keyboard.append([InlineKeyboardButton("📐 Cadera", callback_data="edit_perfil_cadera")])
+                keyboard.append([InlineKeyboardButton("📐", callback_data="edit_perfil_cadera")])
 
         keyboard.extend([
             [
-                InlineKeyboardButton(traducciones.get('09_btn_edit_ritmo', "🎯 Ritmo"), callback_data="edit_perfil_ritmo"),
-                InlineKeyboardButton(traducciones.get('09_btn_edit_idioma', "🌐 Idioma"), callback_data="edit_perfil_idioma")
+                InlineKeyboardButton("🎯", callback_data="edit_perfil_ritmo"),
+                InlineKeyboardButton("🌐", callback_data="edit_perfil_idioma")
             ],
             [
-                InlineKeyboardButton(traducciones.get('09_btn_edit_nombre', "👤 Nombre"), callback_data="edit_perfil_nombre"),
-                InlineKeyboardButton(traducciones.get('09_btn_edit_prof', "🩺 Profesional"), callback_data="edit_perfil_prof")
+                InlineKeyboardButton("👤", callback_data="edit_perfil_nombre"),
+                InlineKeyboardButton("🩺", callback_data="edit_perfil_prof")
             ]
         ])
         markup = InlineKeyboardMarkup(keyboard)
@@ -8936,6 +8964,7 @@ def actualizar_idioma_usuario(user_id, nuevo_idioma):
     except Exception as e:
         logger.error(f"Error al actualizar idioma para {user_id}: {e}")
 
+
 @requiere_registro
 async def callback_handler_editar_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -8947,31 +8976,31 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
 
     if data == "edit_perfil_peso":
         context.user_data['awaiting_edit_perfil_peso'] = True
-        msg = await query.message.reply_text("⚖️ Por favor, ingresá tu nuevo peso en kg (ej: `78.5`):", parse_mode="Markdown")
+        msg = await query.message.reply_text(traducciones.get('09_solic_peso', "⚖️ Por favor, ingresá tu nuevo peso en kg (ej: `78.5`):"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
     elif data == "edit_perfil_altura":
         context.user_data['awaiting_edit_perfil_altura'] = True
-        msg = await query.message.reply_text("📏 Por favor, ingresá tu nueva altura en cm (ej: `175`):", parse_mode="Markdown")
+        msg = await query.message.reply_text(traducciones.get('09_solic_altura', "📏 Por favor, ingresá tu nueva altura en cm (ej: `175`):"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
     elif data == "edit_perfil_cintura":
         context.user_data['awaiting_edit_perfil_cintura'] = True
-        msg = await query.message.reply_text("📏 Por favor, ingresá el nuevo perímetro de tu cintura en cm (ej: `84`):", parse_mode="Markdown")
+        msg = await query.message.reply_text(traducciones.get('09_solic_cintura', "📏 Por favor, ingresá el nuevo perímetro de tu cintura en cm (ej: `84`):"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
     elif data == "edit_perfil_cuello":
         context.user_data['awaiting_edit_perfil_cuello'] = True
-        msg = await query.message.reply_text("📐 Por favor, ingresá el nuevo perímetro de tu cuello en cm (ej: `37`):", parse_mode="Markdown")
+        msg = await query.message.reply_text(traducciones.get('09_solic_cuello', "📐 Por favor, ingresá el nuevo perímetro de tu cuello en cm (ej: `37`):"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
     elif data == "edit_perfil_cadera":
         context.user_data['awaiting_edit_perfil_cadera'] = True
-        msg = await query.message.reply_text("📐 Por favor, ingresá el nuevo perímetro de tu cadera en cm (ej: `104`):", parse_mode="Markdown")
+        msg = await query.message.reply_text(traducciones.get('09_solic_cadera', "📐 Por favor, ingresá el nuevo perímetro de tu cadera en cm (ej: `104`):"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
     elif data == "edit_perfil_nombre":
         context.user_data['awaiting_edit_perfil_nombre'] = True
-        msg = await query.message.reply_text("👤 Por favor, ingresá tu nuevo Nombre y Apellido:", parse_mode="Markdown")
+        msg = await query.message.reply_text(traducciones.get('09_solic_nombre', "👤 Por favor, ingresá tu nuevo Nombre y Apellido:"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
     elif data == "edit_perfil_prof":
         context.user_data['awaiting_edit_perfil_prof'] = True
-        msg = await query.message.reply_text("🩺 Por favor, ingresá el ID de Telegram de tu nuevo profesional:", parse_mode="Markdown")
+        msg = await query.message.reply_text(traducciones.get('09_solic_prof', "🩺 Por favor, ingresá el ID de Telegram de tu nuevo profesional:"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
     elif data == "edit_perfil_ritmo":
         keyboard = InlineKeyboardMarkup([
@@ -8979,25 +9008,24 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
             [InlineKeyboardButton("🟡 Moderado", callback_data="set_ritmo_2")],
             [InlineKeyboardButton("🔴 Intenso / Rápido", callback_data="set_ritmo_3")]
         ])
-        await query.message.reply_text("🎯 Seleccioná tu nuevo ritmo de avance deseado:", reply_markup=keyboard, parse_mode="Markdown")
+        await query.message.reply_text(traducciones.get('09_solic_ritmo', "🎯 Seleccioná tu nuevo ritmo de avance deseado:"), reply_markup=keyboard, parse_mode="Markdown")
     elif data == "edit_perfil_idioma":
         idiomas_disp = await obtener_idiomas_disponibles_db() if 'obtener_idiomas_disponibles_db' in globals() else [{'codigo': 'es', 'nombre': 'Español', 'bandera': '🇪🇸'}, {'codigo': 'en', 'nombre': 'English', 'bandera': '🇺🇸'}]
         b_list = [[InlineKeyboardButton(f"{i['bandera']} {i['nombre']}", callback_data=f"set_lang_{i['codigo']}")] for i in idiomas_disp]
-        await query.message.reply_text("🌐 Seleccioná tu idioma preferido:", reply_markup=InlineKeyboardMarkup(b_list), parse_mode="Markdown")
+        await query.message.reply_text(traducciones.get('09_solic_idioma', "🌐 Seleccioná tu idioma preferido:"), reply_markup=InlineKeyboardMarkup(b_list), parse_mode="Markdown")
     elif data.startswith("set_ritmo_"):
         val_r = data.replace("set_ritmo_", "")
         ritmos_map = {"1": "tranquilo", "2": "moderado", "3": "intenso"}
         ritmo_txt = ritmos_map.get(val_r, "moderado")
         actualizar_ritmo_usuario(user_id, ritmo_txt)
-        msg_ok = f"✅ ¡Ritmo actualizado exitosamente a *{ritmo_txt.capitalize()}*!"
+        msg_ok = traducciones.get('09_ritmo_actualizado_ok', "✅ ¡Ritmo actualizado exitosamente a *{ritmo}*!").format(ritmo=ritmo_txt.capitalize())
         await query.edit_message_text(msg_ok, parse_mode="Markdown")
     elif data.startswith("set_lang_"):
         nuevo_lang = data.replace("set_lang_", "")
         actualizar_idioma_usuario(user_id, nuevo_lang)
-        msg_ok = f"✅ ¡Idioma actualizado exitosamente a *{nuevo_lang.upper()}*!"
+        msg_ok = traducciones.get('09_idioma_actualizado_ok', "✅ ¡Idioma actualizado exitosamente a *{lang}*!").format(lang=nuevo_lang.upper())
         await query.edit_message_text(msg_ok, parse_mode="Markdown")
-
-
+        
 #                       INICIO                        COMANDOS BIOMETRICOS                           INICIO
 # ======================================================================================================================================
 
@@ -9026,19 +9054,24 @@ async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ultimo_informado = parse_raw_val(perfil.get('peso_actual', 0)) if perfil else 0
         
         if peso_base > 0:
-            txt_actual = f"⚖️ **Peso base registrado ({mes_actual}):** `{peso_base:.1f} kg`\n"
+            txt_peso_base = traducciones.get('09_peso_base_reg', "⚖️ **Peso base registrado ({mes}):** `{peso:.1f} kg`").format(mes=mes_actual, peso=peso_base)
+            txt_actual = f"{txt_peso_base}\n"
             if ultimo_informado > 0 and ultimo_informado != peso_base:
-                txt_actual += f"📊 **Último peso informado en el mes:** `{ultimo_informado:.1f} kg`\n"
+                txt_ult_inf = traducciones.get('09_peso_ult_inf', "📊 **Último peso informado en el mes:** `{peso:.1f} kg`").format(peso=ultimo_informado)
+                txt_actual += f"{txt_ult_inf}\n"
             
             dia_actual = ahora.day
             if dia_actual <= 14:
-                txt_actual += "\n⏳ *Tu próximo control de peso se habilitará a partir del día 15.*"
+                txt_prox = traducciones.get('09_peso_prox_quincena', "\n⏳ *Tu próximo control de peso se habilitará a partir del día 15.*")
+                txt_actual += txt_prox
             elif 15 <= dia_actual <= 25:
-                txt_actual += "\nPara ingresar tu control quincenal y calibrar tu factor, escribí:\n`/peso [nuevo_peso]` (ejemplo: `/peso 96`)"
+                txt_ing_quinc = traducciones.get('09_peso_ingreso_quincenal', "\nPara ingresar tu control quincenal y calibrar tu factor, escribí:\n`/peso [nuevo_peso]` (ejemplo: `/peso 96`)")
+                txt_actual += txt_ing_quinc
             else:
-                txt_actual += "\nPara ingresar tu peso de cierre de mes, escribí:\n`/peso [nuevo_peso]` (ejemplo: `/peso 96`)"
+                txt_ing_cierre = traducciones.get('09_peso_ingreso_cierre', "\nPara ingresar tu peso de cierre de mes, escribí:\n`/peso [nuevo_peso]` (ejemplo: `/peso 96`)")
+                txt_actual += txt_ing_cierre
         else:
-            txt_actual = "⚠️ No tenés un peso registrado para este mes.\n\nPara registrarlo, escribí:\n`/peso [tu_peso]` (ejemplo: `/peso 100`)"
+            txt_actual = traducciones.get('09_peso_no_registrado', "⚠️ No tenés un peso registrado para este mes.\n\nPara registrarlo, escribí:\n`/peso [tu_peso]` (ejemplo: `/peso 100`)")
         
         await update.message.reply_text(txt_actual.replace('\\n', '\n'), parse_mode="Markdown")
         return
@@ -9054,19 +9087,20 @@ async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(res_cal["mensaje"], parse_mode="Markdown")
 
     except ValueError:
-        txt_err = "⚠️ Por favor, ingresá un peso válido en kg entre 30 y 300 (ejemplo: `/peso 82.5`)."
+        txt_err = traducciones.get('09_peso_error_valido', "⚠️ Por favor, ingresá un peso válido en kg entre 30 y 300 (ejemplo: `/peso 82.5`).")
         await update.message.reply_text(txt_err, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error en cmd_peso_rapido para {user_id}: {e}")
-        await update.message.reply_text(f"❌ Error al guardar el peso: {e}")
-                                        
+        txt_err_guardar = traducciones.get('09_peso_error_guardar', "❌ Error al guardar el peso: {e}").format(e=e)
+        await update.message.reply_text(txt_err_guardar)
+                                      
 async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
     lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
     df_presion = obtener_datos_presion_db(user_id)
     if df_presion.empty:
-        txt = f"🩺 No se encontraron registros de presión para el usuario `{user_id}`."
+        txt = traducciones.get('09_presi_sin_registros_usr', "🩺 No se encontraron registros de presión para el usuario `{user_id}`.").format(user_id=user_id)
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(txt, parse_mode="Markdown")
         else:
@@ -9075,7 +9109,7 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
 
     df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
     if df_p_mes.empty:
-        txt = f"🩺 No se encontraron registros de presión para el mes `{mes_str}`."
+        txt = traducciones.get('09_presi_sin_registros_mes', "🩺 No se encontraron registros de presión para el mes `{mes}`.").format(mes=mes_str)
         if hasattr(query_or_update, 'edit_message_text'):
             await query_or_update.edit_message_text(txt, parse_mode="Markdown")
         else:
@@ -9097,7 +9131,7 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
         prom_pulso = f"• <b>Pulsaciones promedio:</b> `{pul_prom:.1f} lpm`"
         txt += f"{prom_pulso}\n"
 
-    btn_texto = "📄 Descargar PDF de Presión"
+    btn_texto = traducciones.get('09_btn_descargar_pdf_presi', "📄 Descargar PDF de Presión")
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(btn_texto, callback_data=f"descargar_pdf_presion_{mes_str}")]
     ])
@@ -9140,62 +9174,27 @@ async def _sub_manejar_foto_presion(update, context, res_presion, msg):
     )
     await msg.edit_text(mensaje_final, reply_markup=keyboard, parse_mode="Markdown")
      
-def generar_pdf_presion_bytes(mes_str, df_presion, user_id):
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
-    styles = getSampleStyleSheet()
+async def generar_y_enviar_pdf_presion(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("Generando PDF de presión... ⏳")
+    user_id = query.from_user.id
     
-    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#1E293B'))
-    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8.5, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
-
-    t_titulo_tmpl = traducciones.get("09_PDF_presion_titulo", "Detalle Diario de Presion Arterial - {mes_str}")
-    t_usr_tmpl = traducciones.get("09_PDF_presion_usuario_id", "**Usuario Telegram ID:** {user_id}")
-
-    story = [
-        Paragraph(f"<b>{t_titulo_tmpl.format(mes_str=mes_str)}</b>", title_style),
-        Paragraph(t_usr_tmpl.format(user_id=user_id), body_style),
-        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
-    ]
-
-    if df_presion.empty:
-        msg_vacio = traducciones.get("09_PDF_presion_sin_reg", "No hay registros de presion para este mes.")
-        story.append(Paragraph(msg_vacio, body_style))
-    else:
-        table_data = [[
-            Paragraph("Fecha y Hora", header_style),
-            Paragraph("Alta (mmHg)", header_style),
-            Paragraph("Baja (mmHg)", header_style),
-            Paragraph("Pulsaciones", header_style),
-            Paragraph("Nota / Detalle", header_style)
-        ]]
-
-        for _, r in df_presion.iterrows():
-            table_data.append([
-                Paragraph(str(r.get('Fecha_Hora', '')), body_style),
-                Paragraph(f"{r.get('Alta', 0):.0f}", body_style),
-                Paragraph(f"{r.get('Baja', 0):.0f}", body_style),
-                Paragraph(f"{r.get('Pulsaciones', 0):.0f}", body_style),
-                Paragraph(str(r.get('Nota', '')), body_style)
-            ])
-
-        t = Table(table_data, colWidths=[110, 65, 65, 70, 190])
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
-        ]))
-        story.append(t)
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
-
+    cb_data = query.data
+    mes_str = cb_data.replace("descargar_pdf_presion_", "").strip()
+    
+    df_presion = obtener_datos_presion_db(user_id)
+    df_p_mes = df_presion[df_presion['Fecha_Dia'].str.startswith(mes_str)] if not df_presion.empty and 'Fecha_Dia' in df_presion.columns else pd.DataFrame()
+    
+    pdf_buffer = generar_pdf_presion_bytes(mes_str, df_p_mes, user_id)
+    
+    await context.bot.send_document(
+        chat_id=query.message.chat_id,
+        document=pdf_buffer,
+        filename=f"Presion_{mes_str}.pdf",
+        caption=f"🩺 Reporte de Presión Arterial - Período {mes_str}",
+        parse_mode="Markdown"
+    )
+    
 @requiere_registro
 async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -9224,7 +9223,8 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             await mostrar_resumen_presion_mes(update, user_id, mes_str)
             return
         else:
-            await update.message.reply_text("⚠️ No podés consultar un mes futuro.", parse_mode="Markdown")
+            txt_futuro = traducciones.get('09_presi_error_futuro', "⚠️ No podés consultar un mes futuro.")
+            await update.message.reply_text(txt_futuro, parse_mode="Markdown")
             return
 
     if re.match(r'^20\d{2}-\d{2}$', raw_text):
@@ -9260,12 +9260,15 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         pul_str = f" | Pulsaciones: `{pulsaciones:.0f}`" if pulsaciones is not None else ""
         nota_str = f"\nNota: `{nota}`" if nota else ""
         
-        txt_registrada = f"Presión registrada:\nAlta: `{alta:.0f}` | Baja: `{baja:.0f}`{pul_str}{nota_str}"
-        await update.message.reply_text(txt_registrada, parse_mode="Markdown")
+        txt_reg_ok = traducciones.get('09_presi_registrada_ok', "Presión registrada:\nAlta: `{alta}` | Baja: `{baja}`{pul}{nota}").format(
+            alta=f"{alta:.0f}", baja=f"{baja:.0f}", pul=pul_str, nota=nota_str
+        )
+        await update.message.reply_text(txt_reg_ok, parse_mode="Markdown")
         return
 
-    await update.message.reply_text("Formato incorrecto. Uso: /presi 120,80,70, nota o /presi 08", parse_mode="Markdown")
-    
+    txt_err_formato = traducciones.get('09_presi_error_formato', "Formato incorrecto. Uso: `/presi 120,80,70, nota` o `/presi 08`")
+    await update.message.reply_text(txt_err_formato, parse_mode="Markdown")
+   
 @requiere_registro
 async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -9422,168 +9425,6 @@ async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAUL
 #                INICIO                            COMANDOS PROFESIONALES                             INICIO 
 # =============================================================================================================================================
 
-async def cmd_generar_manual_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Comando para que el profesional descargue el manual operativo y técnico de 3 páginas.
-    Uso: /manual
-    """
-    prof_id = str(update.effective_user.id).strip()
-    
-    # Validar si es profesional autorizado
-    especialidad_prof = obtener_especialidad_profesional(prof_id)
-    if not especialidad_prof:
-        await update.message.reply_text("⛔ **Acceso denegado:** Este comando es exclusivo para profesionales registrados.", parse_mode="Markdown")
-        return
-
-    msg_espera = await update.message.reply_text("⏳ **Generando el manual operativo oficial de 3 páginas...** Por favor aguarde.", parse_mode="Markdown")
-
-    try:
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(
-            buffer, 
-            pagesize=letter, 
-            rightMargin=36, 
-            leftMargin=36, 
-            topMargin=36, 
-            bottomMargin=36
-        )
-        
-        styles = getSampleStyleSheet()
-        
-        c_primario = colors.HexColor('#1E3A8A')  # Azul institucional
-        c_secundario = colors.HexColor('#2563EB') # Azul brillante
-        c_texto = colors.HexColor('#1E293B')     # Gris oscuro texto
-        c_fondo_tbl = colors.HexColor('#F8FAFC')  # Fondo claro tabla
-        
-        title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=c_primario, spaceAfter=4, alignment=1)
-        subtitle_style = ParagraphStyle('SubTitleStyle', parent=styles['Normal'], fontSize=10, leading=13, textColor=c_secundario, spaceAfter=10, alignment=1)
-        h1_style = ParagraphStyle('H1Style', parent=styles['Heading2'], fontSize=12, leading=15, textColor=c_primario, spaceBefore=8, spaceAfter=4)
-        body_style = ParagraphStyle('BodyStyle', parent=styles['Normal'], fontSize=8.5, leading=11.5, textColor=c_texto, spaceAfter=5)
-        bullet_style = ParagraphStyle('BulletStyle', parent=styles['Normal'], fontSize=8.5, leading=11.5, textColor=c_texto, leftIndent=10, spaceAfter=3)
-        
-        story = []
-
-        # =====================================================================
-        # PÁGINA 1: PORTADA Y RESUMEN DE VENTAJAS
-        # =====================================================================
-        story.append(Paragraph("<b>IA NutriBot — Sistema de Gestión y Supervisión Clínica</b>", title_style))
-        story.append(Paragraph("<b>Manual Operativo y Especificaciones Técnicas para Profesionales</b>", subtitle_style))
-        story.append(HRFlowable(width="100%", thickness=1.2, color=c_secundario, spaceAfter=8))
-        
-        story.append(Paragraph("<b>1. Resumen de Ventajas y Propuesta de Valor</b>", h1_style))
-        story.append(Paragraph("IA NutriBot combina la accesibilidad masiva de Telegram con una potente capa clínica de supervisión. Sus fortalezas principales son:", body_style))
-        
-        ventajas = [
-            "<b>• Supremacía Clínica:</b> El bot respeta estrictamente los criterios del médico tratante por sobre las fórmulas matemáticas estándar.",
-            "<b>• Protección del Tiempo Profesional:</b> Canales de salida <b>unidireccionales</b> (notas y recetas) para evitar chats abiertos y saturación de consultas.",
-            "<b>• Alertas de Desvío Automáticas:</b> Al cierre del ciclo mensual, el sistema audita registros y reenvía una copia con alertas si el paciente sale de rango.",
-            "<b>• Autogestión Segura:</b> Calibración mediante relojes inteligentes acotada estrictamente a partir del día 15 y con topes del 20%.",
-            "<b>• Trazabilidad de 6 Meses:</b> Arquitectura robusta en Python y Supabase para almacenar historiales clínicos consolidados."
-        ]
-        for v in ventajas:
-            story.append(Paragraph(v, bullet_style))
-        
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("<b>2. Seguridad y Privacidad de Datos</b>", h1_style))
-        story.append(Paragraph("La plataforma aísla el entorno del usuario general del panel médico. Los pacientes vinculados a un profesional tienen bloqueadas las modificaciones autónomas de peso y GET a mitad de mes.", body_style))
-        
-        story.append(PageBreak()) # Salto exacto a Página 2
-
-        # =====================================================================
-        # PÁGINA 2: GUÍA DE COMANDOS Y FUNCIONES
-        # =====================================================================
-        story.append(Paragraph("<b>3. Guía de Comandos y Funciones del Módulo Profesional</b>", h1_style))
-        story.append(Paragraph("El profesional opera de forma directa mediante comandos de texto y menús interactivos táctiles:", body_style))
-        
-        tabla_funciones = [
-            [Paragraph("<b>Comando</b>", ParagraphStyle('Th', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold')), 
-             Paragraph("<b>Descripción y Alcance Operativo</b>", ParagraphStyle('Th2', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold'))],
-            
-            [Paragraph("<b>/pacientes</b>", body_style), 
-             Paragraph("Genera un reporte PDF clínico con el historial de los últimos 6 meses (peso, calorías, macros y presión) de todos los pacientes asignados.", body_style)],
-            
-            [Paragraph("<b>/informe</b>", body_style), 
-             Paragraph("Despliega botones interactivos con nombres e IDs de los pacientes para reenviar el informe mensual en PDF de manera individual.", body_style)],
-            
-            [Paragraph("<b>/editar_valores</b>", body_style), 
-             Paragraph("Panel táctil interactivo. Permite visualizar las metas actuales del paciente (TMB, GET, peso de etapa) y corregirlas al instante en Supabase.", body_style)],
-            
-            [Paragraph("<b>/enviar_nota</b><br/><i>&lt;id&gt; &lt;texto&gt;</i>", body_style), 
-             Paragraph("Envía directivas, ajustes dietarios o recetas directamente al chat privado del paciente de forma institucional y unidireccional.", body_style)]
-        ]
-        
-        t_func = Table(tabla_funciones, colWidths=[110, 430])
-        t_func.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), c_primario),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, c_fondo_tbl]),
-            ('TOPPADDING', (0, 0), (-1, -1), 5),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ]))
-        
-        story.append(t_func)
-        story.append(Spacer(1, 6))
-        story.append(Paragraph("<b>4. Ciclo de Control Clínico</b>", h1_style))
-        story.append(Paragraph("• <b>Alta:</b> El paciente ingresa el ID del médico al registrarse (`/alta`). El bot notifica al profesional.<br/>"
-                               "• <b>Seguimiento:</b> Control quincenal estricto de restricciones y cumplimiento.<br/>"
-                               "• <b>Cierre:</b> Auditoría mensual de desvíos y envío automático de alertas clínicas al médico.", body_style))
-        
-        story.append(PageBreak()) # Salto exacto a Página 3
-
-        # =====================================================================
-        # PÁGINA 3: ESPECIFICACIONES TÉCNICAS Y CIERRE
-        # =====================================================================
-        story.append(Paragraph("<b>5. Base de Datos: Valores_Clinicos_Profesional</b>", h1_style))
-        story.append(Paragraph("La persistencia de los valores clínicos personalizados se administra mediante la siguiente estructura relacional:", body_style))
-        
-        tabla_db = [
-            [Paragraph("<b>Columna SQL</b>", ParagraphStyle('Th3', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold')), 
-             Paragraph("<b>Tipo</b>", ParagraphStyle('Th4', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold')),
-             Paragraph("<b>Descripción del Parámetro Clínico</b>", ParagraphStyle('Th5', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold'))],
-            [Paragraph("`user_id` / `prof_id`", body_style), Paragraph("TEXT", body_style), Paragraph("Identificadores de Telegram vinculados.", body_style)],
-            [Paragraph("`mes`", body_style), Paragraph("VARCHAR", body_style), Paragraph("Período de validez en formato `YYYY-MM`.", body_style)],
-            [Paragraph("`tmb` / `get_val`", body_style), Paragraph("NUMERIC", body_style), Paragraph("Tasa metabólica basal y gasto energético total.", body_style)],
-            [Paragraph("`peso_etapa`", body_style), Paragraph("NUMERIC", body_style), Paragraph("Meta de peso establecida para la etapa.", body_style)],
-            [Paragraph("`calorias_min/max`", body_style), Paragraph("NUMERIC", body_style), Paragraph("Topes de control calórico permitidos.", body_style)],
-            [Paragraph("`proteinas/hidratos/grasas`", body_style), Paragraph("NUMERIC", body_style), Paragraph("Rangos de macronutrientes asignados.", body_style)]
-        ]
-        
-        t_db = Table(tabla_db, colWidths=[120, 70, 350])
-        t_db.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), c_secundario),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, c_fondo_tbl]),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ]))
-        story.append(t_db)
-        story.append(Spacer(1, 10))
-        
-        story.append(Paragraph("<b>6. Conclusión del Proyecto</b>", h1_style))
-        story.append(Paragraph("Con este desarrollo, IA NutriBot se consolida como una herramienta integral, equilibrando de forma óptima la autonomía del usuario con la rigurosidad del control médico profesional a distancia.", body_style))
-        story.append(Spacer(1, 15))
-        
-        story.append(Paragraph("<b>Sistema Operativo:</b> 100% Sincronizado y Funcional (Módulos 08, 09 y 11)", ParagraphStyle('Firma', parent=body_style, textColor=colors.HexColor('#64748B'))))
-
-        doc.build(story)
-        buffer.seek(0)
-
-        await msg_espera.delete()
-        await update.message.reply_document(
-            document=buffer,
-            filename="Manual_Profesional_IA_NutriBot.pdf",
-            caption="📄 **¡Aquí tenés el manual oficial de 3 páginas!** Explicación de funciones y ventajas del bot lista para compartir.",
-            parse_mode="Markdown"
-        )
-
-    except Exception as e:
-        logger.error(f"Error al generar el manual PDF para el profesional {prof_id}: {e}")
-        await msg_espera.edit_text(f"❌ Ocurrió un error al generar el documento PDF: {e}")
-
 async def cmd_editar_valores_clinicos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando para que el médico despliegue el menú de pacientes y seleccione 
@@ -9620,8 +9461,7 @@ async def cmd_editar_valores_clinicos(update: Update, context: ContextTypes.DEFA
         reply_markup=reply_markup,
         parse_mode="Markdown"
     )
-
-
+    
 async def callback_seleccionar_paciente_clinico(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Maneja la selección del paciente y muestra sus valores clínicos actuales del mes."""
     query = update.callback_query
@@ -9885,51 +9725,240 @@ async def callback_enviar_informe_paciente(update: Update, context: ContextTypes
         logger.error(f"Error al enviar informe individual desde el profesional {prof_id} al usuario {target_user_id}: {e}")
         await query.edit_message_text(f"❌ No se pudo enviar el informe al paciente: {e}")
 
-
 async def cmd_enviar_nota_paciente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Comando para que el profesional envíe una nota o indicación médica directa al chat del paciente.
-    Uso: /enviar_nota <user_id> <mensaje>
+    Comando interactivo por botones para que el profesional seleccione al paciente 
+    al que desea enviarle una nota o indicación médica.
+    Uso: /nota o /enviar_nota
     """
     prof_id = str(update.effective_user.id).strip()
     
     especialidad_prof = obtener_especialidad_profesional(prof_id)
     if not especialidad_prof:
-        await update.message.reply_text("⛔ No tenés permisos para ejecutar este comando.")
+        await update.message.reply_text("⛔ **Acceso denegado:** Este comando es exclusivo para profesionales registrados.", parse_mode="Markdown")
         return
 
-    if not context.args or len(context.args) < 2:
-        await update.message.reply_text(
-            "⚠️ **Uso incorrecto.**\n"
-            "Formato correcto: `/enviar_nota <user_id> <tu mensaje o indicación>`\n"
-            "Ejemplo: `/enviar_nota 123456789 Reducir el consumo de sodio en las próximas dos semanas.`",
-            parse_mode="Markdown"
-        )
+    pacientes = obtener_pacientes_por_medico(prof_id)
+    if not pacientes:
+        await update.message.reply_text("📋 No tenés pacientes activos asignados en este momento para enviarles notas.", parse_mode="Markdown")
         return
 
-    target_user_id = context.args[0].strip()
-    nota_texto = " ".join(context.args[1:]).strip()
+    # Armar teclado interactivo dinámico con los pacientes del médico
+    keyboard = []
+    for pac in pacientes:
+        u_id = str(pac["user_id"])
+        nombre = pac["nombre"]
+        btn_text = f"👤 {nombre} (ID: {u_id})"
+        callback_data = f"selec_nota_pac_{u_id}"
+        keyboard.append([InlineKeyboardButton(btn_text, callback_data=callback_data)])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "📝 **Envío de Nota Médica**\n\n"
+        "Seleccioná de la lista al paciente al que querés enviarle una indicación:",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+
+async def callback_seleccionar_paciente_nota(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Maneja la selección del paciente por botón para la nota y activa el estado de espera del mensaje."""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    if not data.startswith("selec_nota_pac_"):
+        return
+
+    target_user_id = data.replace("selec_nota_pac_", "").strip()
+    
+    # Guardar el ID objetivo en el contexto del usuario para capturar su siguiente mensaje de texto
+    context.user_data['esperando_texto_nota_para'] = target_user_id
+
+    await query.edit_message_text(
+        f"✅ Paciente seleccionado (ID: `{target_user_id}`).\n\n"
+        "✍️ **Escribí a continuación el texto de la nota o indicación** que querés enviarle:",
+        parse_mode="Markdown"
+    )
+
+
+async def procesar_texto_nota_medica(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Captura el texto escrito por el médico tras haber seleccionado al paciente y se lo envía."""
+    target_user_id = context.user_data.get('esperando_texto_nota_para')
+    if not target_user_id:
+        return False # No era una nota pendiente, dejar pasar a otros message handlers
+
+    prof_id = str(update.effective_user.id).strip()
+    nota_texto = update.message.text.strip()
+    
+    # Limpiar estado del contexto
+    context.user_data.pop('esperando_texto_nota_para', None)
+
+    especialidad_prof = obtener_especialidad_profesional(prof_id)
 
     try:
-        # Validar que el paciente pertenezca a este médico
-        pacientes_medico = obtener_pacientes_por_medico(prof_id)
-        es_su_paciente = any(str(p["user_id"]) == target_user_id for p in pacientes_medico)
-
-        if not es_su_paciente:
-            await update.message.reply_text("⛔ El ID ingresado no corresponde a ninguno de tus pacientes activos.")
-            return
-
         mensaje_paciente = (
             f"🩺 **Indicación de tu médico tratante ({especialidad_prof}):**\n\n"
             f"\"{nota_texto}\""
         )
         
         await context.bot.send_message(chat_id=int(target_user_id), text=mensaje_paciente, parse_mode="Markdown")
-        await update.message.reply_text(f"✅ Nota enviada correctamente al paciente con ID `{target_user_id}`.", parse_mode="Markdown")
+        await update.message.reply_text(f"✅ **Nota enviada correctamente** al paciente con ID `{target_user_id}`.", parse_mode="Markdown")
+        return True
+    except Exception as e:
+        logger.error(f"Error al enviar nota interactiva del profesional {prof_id} al paciente {target_user_id}: {e}")
+        await update.message.reply_text(f"❌ Ocurrió un error al enviar la nota: {e}")
+        return True
+
+
+async def cmd_generar_manual_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Comando /manual: Muestra por pantalla el resumen de comandos disponibles para el profesional 
+    y adjunta el manual operativo oficial en PDF de 3 páginas.
+    """
+    prof_id = str(update.effective_user.id).strip()
+    
+    especialidad_prof = obtener_especialidad_profesional(prof_id)
+    if not especialidad_prof:
+        await update.message.reply_text("⛔ **Acceso denegado:** Este comando es exclusivo para profesionales registrados.", parse_mode="Markdown")
+        return
+
+    # 1. Enviar el resumen interactivo de comandos disponibles en pantalla
+    resumen_comandos = (
+        "🩺 **Panel de Control — Guía de Comandos Profesionales**\n\n"
+        "• `/pacientes`: Genera un reporte clínico consolidado en PDF con el historial de los últimos 6 meses de tus pacientes.\n"
+        "• `/informe`: Despliega un menú táctil para auditar y reenviar el informe mensual individual en PDF.\n"
+        "• `/editar_valores`: Panel interactivo para consultar y corregir las metas clínicas (TMB, GET, macros, peso de etapa).\n"
+        "• `/nota` (o `/enviar_nota`): Despliega los botones con tus pacientes para enviarles notas clínicas o directivas directas.\n"
+        "• `/manual`: Muestra esta guía rápida y adjunta el manual completo en PDF.\n\n"
+        "📄 *A continuación se adjunta el documento técnico operativo completo:*"
+    )
+    await update.message.reply_text(resumen_comandos, parse_mode="Markdown")
+
+    # 2. Generar y enviar el PDF completo
+    msg_espera = await update.message.reply_text("⏳ **Generando el manual operativo oficial de 3 páginas...**", parse_mode="Markdown")
+
+    try:
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, 
+            pagesize=letter, 
+            rightMargin=36, 
+            leftMargin=36, 
+            topMargin=36, 
+            bottomMargin=36
+        )
+        
+        styles = getSampleStyleSheet()
+        c_primario = colors.HexColor('#1E3A8A')
+        c_secundario = colors.HexColor('#2563EB')
+        c_texto = colors.HexColor('#1E293B')
+        c_fondo_tbl = colors.HexColor('#F8FAFC')
+        
+        title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=c_primario, spaceAfter=4, alignment=1)
+        subtitle_style = ParagraphStyle('SubTitleStyle', parent=styles['Normal'], fontSize=10, leading=13, textColor=c_secundario, spaceAfter=10, alignment=1)
+        h1_style = ParagraphStyle('H1Style', parent=styles['Heading2'], fontSize=12, leading=15, textColor=c_primario, spaceBefore=8, spaceAfter=4)
+        body_style = ParagraphStyle('BodyStyle', parent=styles['Normal'], fontSize=8.5, leading=11.5, textColor=c_texto, spaceAfter=5)
+        bullet_style = ParagraphStyle('BulletStyle', parent=styles['Normal'], fontSize=8.5, leading=11.5, textColor=c_texto, leftIndent=10, spaceAfter=3)
+        
+        story = []
+
+        # PÁGINA 1
+        story.append(Paragraph("<b>IA NutriBot — Sistema de Gestión y Supervisión Clínica</b>", title_style))
+        story.append(Paragraph("<b>Manual Operativo y Especificaciones Técnicas para Profesionales</b>", subtitle_style))
+        story.append(HRFlowable(width="100%", thickness=1.2, color=c_secundario, spaceAfter=8))
+        
+        story.append(Paragraph("<b>1. Resumen de Ventajas y Propuesta de Valor</b>", h1_style))
+        story.append(Paragraph("IA NutriBot combina la accesibilidad masiva de Telegram con una potente capa clínica de supervisión:", body_style))
+        
+        ventajas = [
+            "<b>• Supremacía Clínica:</b> El bot respeta estrictamente los criterios del médico tratante por sobre las fórmulas matemáticas estándar.",
+            "<b>• Protección del Tiempo Profesional:</b> Canales de salida <b>unidireccionales</b> (notas y recetas) para evitar saturación de consultas.",
+            "<b>• Alertas de Desvío Automáticas:</b> Al cierre mensual, el sistema audita registros y reenvía una copia con alertas si el paciente sale de rango.",
+            "<b>• Autogestión Segura:</b> Calibración mediante relojes inteligentes acotada estrictamente a partir del día 15 y con topes del 20%.",
+            "<b>• Trazabilidad de 6 Meses:</b> Arquitectura robusta en Python y Supabase para almacenar historiales clínicos consolidados."
+        ]
+        for v in ventajas:
+            story.append(Paragraph(v, bullet_style))
+        
+        story.append(PageBreak())
+
+        # PÁGINA 2
+        story.append(Paragraph("<b>2. Guía de Comandos y Funciones del Módulo Profesional</b>", h1_style))
+        story.append(Paragraph("El profesional opera de forma directa mediante comandos de texto y menús interactivos táctiles:", body_style))
+        
+        tabla_funciones = [
+            [Paragraph("<b>Comando</b>", ParagraphStyle('Th', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold')), 
+             Paragraph("<b>Descripción y Alcance Operativo</b>", ParagraphStyle('Th2', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold'))],
+            [Paragraph("<b>/pacientes</b>", body_style), Paragraph("Genera un reporte PDF clínico con el historial de los últimos 6 meses de todos los pacientes asignados.", body_style)],
+            [Paragraph("<b>/informe</b>", body_style), Paragraph("Despliega botones interactivos con nombres e IDs para reenviar el informe mensual en PDF de manera individual.", body_style)],
+            [Paragraph("<b>/editar_valores</b>", body_style), Paragraph("Panel táctil interactivo para visualizar metas actuales (TMB, GET, peso de etapa) y corregirlas al instante.", body_style)],
+            [Paragraph("<b>/nota</b>", body_style), Paragraph("Despliega botones interactivos con tus pacientes para enviarles notas o indicaciones médicas directas.", body_style)],
+            [Paragraph("<b>/manual</b>", body_style), Paragraph("Muestra el resumen de comandos en pantalla y adjunta el manual completo en PDF.", body_style)]
+        ]
+        
+        t_func = Table(tabla_funciones, colWidths=[110, 430])
+        t_func.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), c_primario),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, c_fondo_tbl]),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ]))
+        story.append(t_func)
+        
+        story.append(PageBreak())
+
+        # PÁGINA 3
+        story.append(Paragraph("<b>3. Base de Datos: Valores_Clinicos_Profesional</b>", h1_style))
+        story.append(Paragraph("La persistencia de los valores clínicos personalizados se administra mediante la siguiente estructura relacional:", body_style))
+        
+        tabla_db = [
+            [Paragraph("<b>Columna SQL</b>", ParagraphStyle('Th3', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold')), 
+             Paragraph("<b>Tipo</b>", ParagraphStyle('Th4', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold')),
+             Paragraph("<b>Descripción del Parámetro Clínico</b>", ParagraphStyle('Th5', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold'))],
+            [Paragraph("`user_id` / `prof_id`", body_style), Paragraph("TEXT", body_style), Paragraph("Identificadores de Telegram vinculados.", body_style)],
+            [Paragraph("`mes`", body_style), Paragraph("VARCHAR", body_style), Paragraph("Período de validez en formato `YYYY-MM`.", body_style)],
+            [Paragraph("`tmb` / `get_val`", body_style), Paragraph("NUMERIC", body_style), Paragraph("Tasa metabólica basal y gasto energético total.", body_style)],
+            [Paragraph("`peso_etapa`", body_style), Paragraph("NUMERIC", body_style), Paragraph("Meta de peso establecida para la etapa.", body_style)],
+            [Paragraph("`calorias_min/max`", body_style), Paragraph("NUMERIC", body_style), Paragraph("Topes de control calórico permitidos.", body_style)],
+            [Paragraph("`proteinas/hidratos/grasas`", body_style), Paragraph("NUMERIC", body_style), Paragraph("Rangos de macronutrientes asignados.", body_style)]
+        ]
+        
+        t_db = Table(tabla_db, colWidths=[120, 70, 350])
+        t_db.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), c_secundario),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, c_fondo_tbl]),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        story.append(t_db)
+        story.append(Spacer(1, 15))
+        story.append(Paragraph("<b>Sistema Operativo:</b> 100% Sincronizado y Funcional (Módulos 08, 09 y 11)", ParagraphStyle('Firma', parent=body_style, textColor=colors.HexColor('#64748B'))))
+
+        doc.build(story)
+        buffer.seek(0)
+
+        await msg_espera.delete()
+        await update.message.reply_document(
+            document=buffer,
+            filename="Manual_Profesional_IA_NutriBot.pdf",
+            caption="📄 **Aquí tenés el manual oficial completo en PDF.**",
+            parse_mode="Markdown"
+        )
 
     except Exception as e:
-        logger.error(f"Error al enviar nota del profesional {prof_id} al paciente {target_user_id}: {e}")
-        await update.message.reply_text(f"❌ Ocurrió un error al enviar la nota: {e}")
+        logger.error(f"Error al generar el manual PDF para el profesional {prof_id}: {e}")
+        await msg_espera.edit_text(f"❌ Ocurrió un error al generar el documento PDF: {e}")
+        
+
+
+
 
 # ==========================================================================================================================================
 #                    FINAL                      COMANDOS PROFESIONALES                               FINAL  
@@ -10015,6 +10044,10 @@ def main():
        
         app_bot.add_handler(conv_handler_ingreso)
 
+        # Callbacks y captura de texto para notas médicas interactivas
+        app_bot.add_handler(CallbackQueryHandler(callback_seleccionar_paciente_nota, pattern="^selec_nota_pac_"))
+        app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_diario_callback, pattern="^descargar_pdf_diario_"))
+
         # ==================================PROFESIONALES===============================================
         app_bot.add_handler(CommandHandler(["pacientes"], cmd_pacientes))
         app_bot.add_handler(CommandHandler(["informe"], cmd_enviar_informe_actual))
@@ -10049,6 +10082,9 @@ def main():
         app_bot.add_handler(CommandHandler("armar", cmd_armar_excel))
         app_bot.add_handler(CommandHandler("hablar", cmd_hablar))
 
+
+        app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_diario_callback, pattern="^descargar_pdf_diario_"))
+        
         # =================================CALLBACK QUERY HANDLERS====================================
         app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^presion_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^cancelar_presion_foto$"))
