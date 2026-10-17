@@ -5942,14 +5942,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- INTERCEPTOR DE NOTAS MÉDICAS (Evita que la IA las procese como comidas) ---
     if context.user_data.get('esperando_texto_nota_para') or context.user_data.get('esperando_nota_informe_para'):
         if 'esperando_nota_informe_para' in context.user_data:
-            from 11ComandosProfesionales import procesar_texto_nota_informe
             if await procesar_texto_nota_informe(update, context):
                 return
         else:
-            from 11ComandosProfesionales import procesar_texto_nota_medica
             if await procesar_texto_nota_medica(update, context):
                 return
-
+                
     estados_perfil = [
         'awaiting_edit_perfil_peso', 'awaiting_edit_perfil_altura', 
         'awaiting_edit_perfil_cintura', 'awaiting_edit_perfil_cuello', 
