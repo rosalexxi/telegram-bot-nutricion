@@ -30,7 +30,6 @@ import urllib.request
 import urllib.parse
 import calendar
 
-from deep_translator import GoogleTranslator
 from openai import OpenAI
 from typing import Dict, Tuple, List, Optional, Any            
 from urllib.parse import urlparse 
@@ -1075,6 +1074,28 @@ def api_calcular_receta():
         logger.error(f"Error en api_calcular_receta: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/guardar-comida', methods=['POST'])
+def api_guardar_comida():
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        fila = data.get('fila')
+
+        if not user_id or not fila:
+            return jsonify({"error": "Faltan datos de usuario o de la receta."}), 400
+
+        # Llama a la función que ya tenés definida para guardar en Supabase
+        codigo_guardado = guardar_comida_precargada_db(user_id, fila)
+
+        return jsonify({
+            "message": "Receta guardada exitosamente en tu base de datos.",
+            "codigo_guardado": codigo_guardado
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en api_guardar_comida: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
 # =====================================================================================================================================
 #              FINAL                                  PAGINA WEB (CALCULADORA UNICA)                  FINAL
 # =====================================================================================================================================
@@ -1125,28 +1146,6 @@ def get_or_create_worksheet(spreadsheet, title):
             return ws
         else:
             return spreadsheet.add_worksheet(title=title, rows="200", cols="10")
-
-def get_user_worksheet(user_id):
-    """Obtiene o crea una pestaña dinámica 'Comidas_<user_id>' dentro de la planilla."""
-    gc = get_gspread_client()
-    sh = gc.open(SPREADSHEET_NAME)
-    
-    sheet_name = f"Comidas_{user_id}"
-    ws = get_or_create_worksheet(sh, sheet_name)
-    
-    if not ws.get_all_values():
-        ws.append_row([
-            "Código / Nombre", 
-            "Descripción", 
-            "Peso (g x1000)", 
-            "Calorías (x1000)", 
-            "Proteínas (g x1000)", 
-            "Grasas (g x1000)", 
-            "Carbohidratos (g x1000)", 
-            "Fibras (g x1000)"
-        ])
-        
-    return ws
 
 #              INICIO                           2  FUNCIONES CONEXIONES                            INICIO
 # =============================================================================================================================================
@@ -1923,40 +1922,6 @@ def obtener_comidas_usuario(user_id):
             try: conn.close()
             except: pass
                                 
-def obtener_codigo_unico(tabla_nombre, codigo_base):
-    conn = None
-    cur = None
-    try:
-        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comidas_precargadas")
-        query = f'SELECT "Nombre" FROM "{tabla_nombre}"'
-        cur.execute(query)
-        filas = cur.fetchall()
-
-        codigos_existentes = set(str(fila[0]).strip().upper() for fila in filas if fila[0] is not None)
-    except Exception as e:
-        logger.error(f"Error al obtener códigos existentes de Supabase para {tabla_nombre}: {e}")
-        codigos_existentes = set()
-    finally:
-        if cur:
-            try: cur.close()
-            except: pass
-        if conn:
-            try: conn.close()
-            except: pass
-
-    codigo_limpio = str(codigo_base).strip().upper()
-    
-    if codigo_limpio not in codigos_existentes:
-        return codigo_limpio
-
-    i = 1
-    mientras_repetido = f"{codigo_limpio}{i}"
-    while mientras_repetido in codigos_existentes:
-        i += 1
-        mientras_repetido = f"{codigo_limpio}{i}"
-        
-    return mientras_repetido   
-
 def eliminar_comida_precargada_db(user_id, nombre_a_borrar):
     """Elimina una comida precargada de la tabla 'Comidas_<user_id>' en Supabase de forma exacta."""
     tabla_nombre = f"Comidas_{user_id}"
@@ -2269,9 +2234,6 @@ def obtener_datos_usuario_general(user_id):
 
 #              INICIO                                  8 FUNCIONES GUARDAR                        INICIO
 # =============================================================================================================================================
-
-def guardar_in_sheets_and_db(user_id, items, fecha, momento):
-    pass # Mantiene compatibilidad
 
 def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
     """Guarda los registros de ingesta alimentaria de forma dual en Google Sheets (multiplicado por 1000) y Supabase."""
@@ -3121,10 +3083,6 @@ def parse_raw_val(val):
     except ValueError:
         return 0.0
 
-def parse_float_from_sheets(val):
-    num = parse_raw_val(val)
-    return num / 1000.0
-
 def obtener_ahora_arg():
     return datetime.now(pytz.timezone('America/Argentina/Buenos_Aires'))
     
@@ -3147,31 +3105,8 @@ def obtener_momento_y_fecha_auto():
         
     return fecha_obj.strftime("%Y-%m-%d"), momento
 
-def extraer_val(texto: str) -> float:
-    if not texto:
-        return 0.0
-    coincidencia = re.search(r'(\d+(?:[.,]\d+)?)', str(texto))
-    if coincidencia:
-        try:
-            return float(coincidencia.group(1).replace(',', '.'))
-        except ValueError:
-            return 0.0
-    return 0.0
-
 #              INICIO                     FUNCIONES BIOMETRICAS Y METRICAS                   INICIO
 # =============================================================================================================================================
-
-def calcular_contextura(sexo: str, altura_cm: float, muneca_cm: float):
-    if muneca_cm <= 0: return "Mediana"
-    r = altura_cm / muneca_cm
-    if str(sexo).upper() in ['M', 'MASCULINO']:
-        if r > 10.4: return "Pequeña"
-        elif 9.6 <= r <= 10.4: return "Mediana"
-        else: return "Grande"
-    else:
-        if r > 11.0: return "Pequeña"
-        elif 10.1 <= r <= 11.0: return "Mediana"
-        else: return "Grande"
 
 def _obtener_biometria_encapsulada(sexo_arg=None, altura_arg=None, peso_arg=None, edad_arg=None):
     datos = {
@@ -4328,48 +4263,6 @@ async def analizar_imagen_con_groq(base64_image: str, user_id=None):
 
     return {"items": [], "tipo": "Rechazo"}
             
-def detectar_codigo_con_groq(contenido_entrada):
-    """Detecta y extrae códigos de barras, QR o referencias numéricas usando la IA global."""
-    try:
-        client = globals().get('client_ai') or globals().get('groq_client')
-        if not client:
-            api_key = globals().get('GROQ_API_KEY') or os.getenv("GROQ_API_KEY")
-            if not api_key:
-                logger.error("⚠️ GROQ_API_KEY no configurada para detección de códigos.")
-                return None
-            client = Groq(api_key=api_key)
-
-        # Usamos el modelo global de texto principal o secundario para procesar la extracción
-        modelo = globals().get('GROQ_REVISION_2', globals().get('GROQ_TEXTO', "openai/gpt-oss-120b"))
-
-        system_prompt = (
-            "Eres un asistente especializado en extracción de códigos numéricos, códigos de barras o referencias de productos. "
-            "Analiza la entrada provista por el usuario y extrae únicamente el número de código de barras o identificación del producto. "
-            "Devuelve exclusivamente un JSON con este formato exacto:\n"
-            '{\n  "codigo": "numero_detectado_o_vacio"\n}'
-        )
-
-        response = client.chat.completions.create(
-            model=modelo,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": str(contenido_entrada)}
-            ],
-            temperature=0.0,
-            response_format={"type": "json_object"}
-        )
-
-        if response and response.choices:
-            content = response.choices[0].message.content
-            if content:
-                resultado = json.loads(content.strip())
-                return resultado.get("codigo")
-
-    except Exception as e:
-        logger.error(f"⚠️ Error detectando código con IA: {e}")
-
-    return None
-
 # =====================================================================================================================================
 #                FINAL                          FUNCIONES IA GROQ                                     FINAL
 # =====================================================================================================================================
@@ -4622,29 +4515,6 @@ async def callback_handler_presion_foto(update: Update, context: ContextTypes.DE
         txt_canc = traducciones.get("06_bot_presion_cancelada", "❌ Registro de presión cancelado.")
         await query.edit_message_text(txt_canc)
                 
-@requiere_registro
-async def callback_handler_actividades(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
-    traducciones = obtener_traducciones_db(lang) or {}
-
-    if data in ["act_tipo_texto", "act_ind_texto"]:
-        context.user_data['awaiting_activity_text'] = True
-        txt_escribir = traducciones.get("06_bot_escribir_actividad", "📝 Escribí la actividad (Ej: `50 minutos de caminata a velocidad moderada`):")
-        msg_solic = await query.message.reply_text(txt_escribir, parse_mode="Markdown")
-        context.user_data['msg_solicitud_activity_id'] = msg_solic.message_id
-    elif data in ["act_tipo_audio", "act_ind_audio"]:
-        context.user_data['awaiting_activity_voice'] = True
-        txt_act_voz = traducciones.get('06_bot_act_voz', "🎤 Enviá una nota de voz describiendo tu actividad física.")
-        await query.message.reply_text(txt_act_voz, parse_mode="Markdown")
-    elif data in ["act_cancelar", "act_ind_cancelar"]:
-        context.user_data.pop('awaiting_activity_text', None)
-        context.user_data.pop('awaiting_activity_voice', None)
-        txt_act_canc = traducciones.get('06_bot_act_cancelada', "❌ Registro de actividad cancelado.")
-        await query.edit_message_text(txt_act_canc)
 
 @requiere_registro
 async def callback_handler_reportes_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4921,20 +4791,6 @@ async def _sub_manejar_plantilla_comida(update: Update, context: ContextTypes.DE
             
         await update.message.reply_text(txt_err_noenc, parse_mode="Markdown")
         
-async def _sub_manejar_ingesta_libre_ia(update, context, raw_text):
-    user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
-    traducciones = obtener_traducciones_db(lang) or {}
-
-    txt_analiz_ia = traducciones.get('06_bot_analizando_texto', "🤖 Analizando texto con Inteligencia Artificial...")
-    msg = await update.message.reply_text(txt_analiz_ia)
-    try:
-        data = analizar_con_groq(raw_text)
-        await procesar_y_mostrar_confirmacion(data, msg, context)
-    except Exception as e:
-        txt_err_ia = traducciones.get('06_bot_error_proc_texto', "❌ Error al procesar el texto: {e}").format(e=e)
-        await msg.edit_text(txt_err_ia)
-
 def parsear_fecha_flexible(raw_text):
     txt = raw_text.replace('/', '-').replace('.', '-')
     partes = txt.split('-')
@@ -5213,27 +5069,6 @@ def consultar_codigo_barras(barcode: str) -> dict | bool:
         }
     except Exception as e:
         logger.error(f"⚠️ Error al consultar el código de barras {barcode}: {e}")
-        return False
-
-def procesar_foto_codigo_barras(base64_image: str) -> dict | bool:
-    try:
-        image_bytes = base64.b64decode(base64_image)
-        np_arr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-        if img is None:
-            return False
-            
-        detector = cv2.barcode.BarcodeDetector()
-        retval, decoded_info, decoded_type, points = detector.detectAndDecode(img)
-        
-        if retval and decoded_info:
-            for barcode_text in decoded_info:
-                if barcode_text and barcode_text.strip():
-                    resultado_api = consultar_codigo_barras(barcode_text.strip())
-                    if resultado_api:
-                        return resultado_api
-        return False
-    except Exception as e:
         return False
 
 def construir_texto_listado_comidas(user_id, comidas, traducciones=None):
@@ -6123,7 +5958,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @requiere_registro
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     msg_procesando_audio = traducciones.get("07_bot_procesando_audio_ia", "🎙️ Procesando audio con IA...")
@@ -6145,6 +5980,15 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg_audio_no_entendido = traducciones.get("07_bot_audio_no_entendido", "⚠️ No se pudo entender el audio.")
             await msg.edit_text(msg_audio_no_entendido)
             return
+
+        # >>> INTERCEPTOR DE EDICIÓN POR VOZ <<<
+        # Si el usuario mandó un audio habiendo tocado "Editar", el bot entra por acá y corrige el valor.
+        if context.user_data.get('awaiting_edit_item_val'):
+            await msg.delete()
+            chat_id = update.effective_chat.id
+            await _sub_manejar_edicion_item(update, context, transcription, chat_id)
+            return
+        # >>> FIN DEL INTERCEPTOR <<<
 
         if context.user_data.get('awaiting_activity_voice'):
             return await _sub_manejar_voz_actividad(update, context, transcription, msg)
@@ -6209,7 +6053,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error al procesar audio: {e}")
         msg_err_audio = traducciones.get("07_bot_error_procesar_audio", "❌ Error al procesar audio: {e}")
         await msg.edit_text(msg_err_audio.format(e=e))
-        
+       
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
@@ -10515,7 +10359,7 @@ def main():
         app_bot.add_handler(CommandHandler(["mes", "m", "month"], cmd_resumen))
         app_bot.add_handler(CommandHandler(["semana", "s", "w", "week"], cmd_mensaje))
         app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
-
+        app_bot.add_handler(CommandHandler(["cancelar", "exit", "x"], cmd_cancelar_conversacion))
         # =================================FACTURACIÓN Y PAGOS (TELEGRAM STARS)======================
         app_bot.add_handler(CommandHandler(["pagar", "pay"], cmd_pagar))
         app_bot.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
