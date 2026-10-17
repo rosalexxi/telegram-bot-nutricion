@@ -1766,7 +1766,7 @@ def obtener_ultimo_perfil_dict(u_id):
   
 def _calcular_y_actualizar_factor_mes_anterior(user_id, mes_anterior_str, peso_fin_mes_override=None):
     try:
-        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        df_datos = obtener_datos_usuario(user_id) 
         if df_datos.empty or 'Fecha' not in df_datos.columns:
             return None
 
@@ -1784,7 +1784,7 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, mes_anterior_str, peso_f
         ingesta_diaria = tot_cons_mes / dias_registrados
         ejercicio_diario = tot_quem_mes / dias_registrados
 
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_anterior_str) if 'obtener_perfil_usuario' in globals() else {}
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_anterior_str) or {}
         
         peso_actual = float(perfil.get('Peso', perfil.get('peso', 108.5)))
         if peso_actual > 1000: peso_actual /= 1000.0
@@ -2523,7 +2523,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     # --- Función interna para recalcular factor ---
     def recalcular_factor_diluido(peso_base, peso_nuevo_ingreso):
         try:
-            df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+            df_datos = obtener_datos_usuario(user_id) 
             if df_datos.empty or 'Fecha' not in df_datos.columns:
                 return factor_previo
                 
@@ -2672,8 +2672,8 @@ def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
 async def cmd_hablar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     if not es_administrador(user_id):
         msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
@@ -2734,8 +2734,8 @@ async def cmd_hablar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     if not es_administrador(user_id):
         msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
@@ -2840,8 +2840,8 @@ async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     if not es_administrador(user_id):
         msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
@@ -2961,8 +2961,8 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     if not es_administrador(user_id):
         msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
@@ -3038,8 +3038,8 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     if not es_administrador(user_id):
         msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
@@ -3568,8 +3568,8 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
         logger.error(f"Error verificando peso post-día 24 para {uid}: {e_post24}")
 
     # 4. Si no hay peso en el mes actual ni posterior al día 24 del mes pasado, solicitar el peso al usuario
-    lang = obtener_idioma_usuario(uid) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(uid) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     msg_falta_peso = traducciones.get(
         "04_bot_solic_peso_mensual",
         "⚖️ **Actualización de Peso Mensual Requerida**\n\n"
@@ -3757,7 +3757,7 @@ def analizar_frecuencia_alimentos_mes(df_o_user_id, cat_dict_o_mes=None, col_int
             user_id = int(df_o_user_id)
             mes_str = cat_dict_o_mes
             
-            df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+            df_datos = obtener_datos_usuario(user_id) 
             if df_datos.empty or 'Fecha' not in df_datos.columns:
                 return {}
                 
@@ -3876,7 +3876,6 @@ def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float 
             if not api_key:
                 logger.error("⚠️ GROQ_API_KEY no configurada.")
                 return ""
-            from groq import Groq
             client = Groq(api_key=api_key)
 
         modelo = modelo_override or globals().get('GROQ_TEXTO', "openai/gpt-oss-120b")
@@ -4001,19 +4000,19 @@ async def generar_recomendacion_semanal_ia(m: dict, etiqueta_periodo: str, user_
     except Exception as e:
         logger.error(f"Error al generar recomendación semanal con IA: {e}")
         
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     return traducciones.get("05_bot_err_analisis_nutricional", "El análisis nutricional no está disponible temporalmente.")
     
 async def generar_recomendacion_mensual_para_pdf(user_id: int, mes_str: str, df_mes, perfil: dict, m: dict, context=None) -> str:
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     msg_error_inf = traducciones.get("05_bot_err_generar_inf", "No se pudo generar el reporte auditado por la IA.")
     msg_error_comp = traducciones.get("05_bot_err_compilar_inf", "Error al compilar la recomendación de la IA para el reporte.")
 
     try:
-        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) if 'analizar_frecuencia_alimentos_mes' in globals() else {}
+        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) or {}
 
         peso_actual_eval = float(m.get('peso_actual', 0))
         peso_referencia_eval = float(m.get('peso_referencia', 0))
@@ -4157,8 +4156,8 @@ async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuen
 
 async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.BytesIO]:
     user_id = datos_usuario.get('user_id')
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     nombre = datos_usuario.get('nombre', 'Paciente')
     edad = datos_usuario.get('edad', 0)
@@ -4277,7 +4276,6 @@ async def analizar_imagen_con_groq(base64_image: str, user_id=None):
         if not api_key:
             logger.error("⚠️ GROQ_API_KEY no configurada para análisis de imagen.")
             return {"items": [], "tipo": "Rechazo"}
-        from groq import Groq
         client = Groq(api_key=api_key)
 
     nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
@@ -4339,7 +4337,6 @@ def detectar_codigo_con_groq(contenido_entrada):
             if not api_key:
                 logger.error("⚠️ GROQ_API_KEY no configurada para detección de códigos.")
                 return None
-            from groq import Groq
             client = Groq(api_key=api_key)
 
         # Usamos el modelo global de texto principal o secundario para procesar la extracción
@@ -4388,7 +4385,7 @@ def detectar_codigo_con_groq(contenido_entrada):
 async def render_confirmation_screen(msg_or_query, context):
     user_id = msg_or_query.from_user.id if hasattr(msg_or_query, 'from_user') and msg_or_query.from_user else (msg_or_query.message.from_user.id if hasattr(msg_or_query, 'message') and msg_or_query.message and hasattr(msg_or_query.message, 'from_user') and msg_or_query.message.from_user else None)
     lang = obtener_idioma_usuario(user_id) if user_id and 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    traducciones = obtener_traducciones_db(lang) or {}
 
     items = context.user_data.get('pending_items', [])
     fecha = context.user_data.get('pending_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
@@ -4515,8 +4512,8 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     limite_exceso = 1000 if tipo == "Actividad" else 2200
 
     if magnitud_calorica > limite_exceso:
-        lang = obtener_idioma_usuario(msg_obj.chat_id) if 'obtener_idioma_usuario' in globals() else 'es'
-        traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+        lang = obtener_idioma_usuario(msg_obj.chat_id) or '$1'
+        traducciones = obtener_traducciones_db(lang) or {}
         
         if tipo == "Actividad":
             txt_exceso = traducciones.get(
@@ -4582,8 +4579,8 @@ async def callback_handler_presion_foto(update: Update, context: ContextTypes.DE
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     if data == "presion_guardar_directo":
         datos_presion = context.user_data.pop('pending_presion_foto', None)
@@ -4631,8 +4628,8 @@ async def callback_handler_actividades(update: Update, context: ContextTypes.DEF
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     if data in ["act_tipo_texto", "act_ind_texto"]:
         context.user_data['awaiting_activity_text'] = True
@@ -4648,42 +4645,6 @@ async def callback_handler_actividades(update: Update, context: ContextTypes.DEF
         context.user_data.pop('awaiting_activity_voice', None)
         txt_act_canc = traducciones.get('06_bot_act_cancelada', "❌ Registro de actividad cancelado.")
         await query.edit_message_text(txt_act_canc)
-
-@requiere_registro
-async def callback_handler_eliminacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-
-    if data in ["del_cambiar_fecha", "del_volver_momentos"]:
-        await mostrar_selector_momento_eliminar(query, context)
-    elif data == "del_d_hoy":
-        context.user_data['del_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
-        await mostrar_selector_momento_eliminar(query, context)
-    elif data == "del_d_ayer":
-        context.user_data['del_fecha'] = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
-        await mostrar_selector_momento_eliminar(query, context)
-    elif data == "del_d_otro":
-        context.user_data['awaiting_del_custom_date'] = True
-        txt_fecha_rev = traducciones.get("06_bot_ingresar_fecha_revision", "📅 Ingresá la fecha que querés revisar (Ej: `2026-08-15` o `15/08`):")
-        msg = await query.message.reply_text(txt_fecha_rev, parse_mode="Markdown")
-        context.user_data['msg_solicitud_del_fecha_id'] = msg.message_id
-    elif data.startswith("del_mom_"):
-        context.user_data['del_momento'] = data.replace("del_mom_", "")
-        await render_pantalla_items_eliminar(query, user_id, context)
-    elif data.startswith("del_reg_"):
-        eliminar_registro_por_id(user_id, int(data.replace("del_reg_", "")))
-        await render_pantalla_items_eliminar(query, user_id, context)
-    elif data == "del_borrar_todo_momento":
-        fecha, momento = context.user_data.get('del_fecha'), context.user_data.get('del_momento')
-        df = obtener_datos_usuario(user_id)
-        if not df.empty and 'Fecha' in df.columns and 'Momento' in df.columns:
-            for _, r in df[(df['Fecha'] == fecha) & (df['Momento'].str.lower() == momento.lower())].iterrows():
-                if 'id_registro' in r: eliminar_registro_por_id(user_id, int(r['id_registro']))
-        await mostrar_selector_momento_eliminar(query, context)
 
 @requiere_registro
 async def callback_handler_reportes_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4717,8 +4678,8 @@ async def callback_handler_reportes_pdf(update: Update, context: ContextTypes.DE
 
 async def _sub_manejar_texto_actividad(update, context, raw_text, chat_id):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     msg_solic = context.user_data.pop('msg_solicitud_activity_id', None)
     if msg_solic:
@@ -4752,8 +4713,8 @@ async def _sub_manejar_texto_actividad(update, context, raw_text, chat_id):
                 
 async def _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     fecha_parseada = parsear_fecha_flexible(raw_text)
     msg_solic = context.user_data.pop('msg_solicitud_del_fecha_id', None)
@@ -4777,8 +4738,8 @@ async def _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id):
 
 async def _sub_manejar_fecha_diario(update, context, raw_text, chat_id):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     fecha_parseada = parsear_fecha_flexible(raw_text)
     msg_solic = context.user_data.pop('msg_solicitud_diario_fecha_id', None)
@@ -4798,8 +4759,8 @@ async def _sub_manejar_fecha_diario(update, context, raw_text, chat_id):
 
 async def _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     fecha_parseada = parsear_fecha_flexible(raw_text)
     msg_solic = context.user_data.pop('msg_solicitud_fecha_id', None)
@@ -4826,8 +4787,8 @@ async def _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, ch
 
 async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     idx = context.user_data.get('editing_item_idx')
     items = context.user_data.get('pending_items', [])
@@ -4905,8 +4866,8 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
     await render_confirmation_screen(update, context)
     
 async def _sub_manejar_plantilla_comida(update: Update, context: ContextTypes.DEFAULT_TYPE, raw_text, user_id):
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     contenido = raw_text[1:].strip()
     partes = [p.strip() for p in contenido.split(',')]
@@ -4962,8 +4923,8 @@ async def _sub_manejar_plantilla_comida(update: Update, context: ContextTypes.DE
         
 async def _sub_manejar_ingesta_libre_ia(update, context, raw_text):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     txt_analiz_ia = traducciones.get('06_bot_analizando_texto', "🤖 Analizando texto con Inteligencia Artificial...")
     msg = await update.message.reply_text(txt_analiz_ia)
@@ -4992,16 +4953,16 @@ async def _sub_manejar_voz_ingesta(update, context, transcription, msg):
         await procesar_y_mostrar_confirmacion(data, msg, context)
     except Exception as e:
         user_id = update.effective_user.id
-        lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-        traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+        lang = obtener_idioma_usuario(user_id) or '$1'
+        traducciones = obtener_traducciones_db(lang) or {}
         txt_err_aud = traducciones.get('06_bot_error_audio', "❌ Error al procesar el audio con IA: {e}").format(e=e)
         logger.error(f"Error procesando voz de ingesta: {e}")
         await msg.edit_text(txt_err_aud)
 
 async def _sub_manejar_voz_actividad(update, context, transcription, msg):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     context.user_data['awaiting_activity_voice'] = False
     perfil_biometrico = obtener_perfil_usuario(user_id)
@@ -5025,8 +4986,8 @@ async def _sub_manejar_voz_actividad(update, context, transcription, msg):
     
 async def _sub_manejar_foto_plato_ia(update, context, base64_image, user_caption, msg):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     txt_analiz_plato = traducciones.get('06_bot_analizando_plato', "🤖 Analizando imagen con Inteligencia Artificial...")
     await msg.edit_text(txt_analiz_plato)
@@ -5077,8 +5038,8 @@ async def callback_btn_fechas_diario(update: Update, context: ContextTypes.DEFAU
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     context.user_data['last_menu_msg_id'] = query.message.message_id
 
     if data == "set_d_hoy":
@@ -5108,8 +5069,8 @@ async def callback_btn_editar_item(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     context.user_data['last_menu_msg_id'] = query.message.message_id
 
     idx = int(data.replace("edit_item_", "")) - 1
@@ -5140,8 +5101,8 @@ async def callback_btn_anular_item(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     context.user_data['last_menu_msg_id'] = query.message.message_id
 
     idx = int(data.replace("del_item_", "")) - 1
@@ -5161,8 +5122,8 @@ async def callback_btn_cancelar_registro(update: Update, context: ContextTypes.D
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     context.user_data.pop('pending_items', None)
     context.user_data.pop('last_menu_msg_id', None)
@@ -5173,8 +5134,8 @@ async def callback_btn_guardar_registro(update: Update, context: ContextTypes.DE
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     
     items = context.user_data.get('pending_items', [])
     fecha = context.user_data.get('pending_fecha')
@@ -5312,8 +5273,8 @@ def construir_texto_listado_comidas(user_id, comidas, traducciones=None):
 async def cmd_comidas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     
     comidas = obtener_comidas_usuario(user_id)
     
@@ -5367,7 +5328,7 @@ def buscar_comida_precargada_exacta(user_id, texto_codigo):
     
 def generar_pdf_comidas_bytes(plantillas, user_id=None):
     lang = obtener_idioma_usuario(user_id) if user_id and 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    traducciones = obtener_traducciones_db(lang) or {}
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
@@ -5442,8 +5403,8 @@ def generar_pdf_comidas_bytes(plantillas, user_id=None):
 @requiere_registro
 async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     
     web_app_url = f"https://ianutribot.com/?user_id={user_id}#calculadora"
     
@@ -5496,8 +5457,8 @@ def detectar_y_leer_codigo_barras_ia(base64_image: str) -> str:
 async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
     user_id = message_obj.from_user.id
     
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     
     msg_analizando = traducciones.get("07_bot_analizando_barra", "🔍 Analizando código de barras y verificando producto...")
     msg_espera = await message_obj.reply_text(msg_analizando)
@@ -5542,8 +5503,8 @@ async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
 async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     
     args = context.args
     
@@ -5567,8 +5528,8 @@ async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_borrar_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     
     if context.args:
         nombre_a_borrar = " ".join(context.args).strip()
@@ -5620,8 +5581,8 @@ async def cmd_borrar_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @requiere_registro
 async def cmd_eliminar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     context.user_data.pop('del_fecha', None)
     context.user_data.pop('del_momento', None)
@@ -5649,8 +5610,8 @@ async def cmd_eliminar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def mostrar_selector_momento_eliminar(query_or_msg, context):
     user_id = query_or_msg.from_user.id if hasattr(query_or_msg, 'from_user') else query_or_msg.message.chat_id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     if not context.user_data.get('del_fecha'):
         context.user_data['del_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
@@ -5749,8 +5710,8 @@ async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEF
     data = query.data
     user_id = query.from_user.id
     
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     
     if data == "del_d_hoy":
         context.user_data['del_fecha'] = obtener_ahora_arg().strftime("%Y-%m-%d")
@@ -5802,8 +5763,8 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
 
     cambio_biometrico = False
     mensaje_exito = ""
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     if context.user_data.get('awaiting_edit_perfil_peso'):
         try:
@@ -5932,8 +5893,8 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, chat_id = update.effective_user.id, update.effective_chat.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     raw_text = update.message.text.strip() if update.message and update.message.text else ""
     if not raw_text: 
@@ -6077,8 +6038,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     
     txt_analizando_img = traducciones.get("07_bot_analizando_imagen", "📸 Analizando imagen...")
     msg = await update.message.reply_text(txt_analizando_img)
@@ -6162,8 +6123,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @requiere_registro
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     msg_procesando_audio = traducciones.get("07_bot_procesando_audio_ia", "🎙️ Procesando audio con IA...")
     msg = await update.message.reply_text(msg_procesando_audio)
@@ -6263,8 +6224,8 @@ async def facturar_saldo_del_mes(context: ContextTypes.DEFAULT_TYPE, user_id: in
     con el mínimo de registros y pasaron a Estado 3.
     """
     try:
-        lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-        traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+        lang = obtener_idioma_usuario(user_id) or '$1'
+        traducciones = obtener_traducciones_db(lang) or {}
 
         titulo_factura = traducciones.get("10_factura_rescate_titulo", "Regularización de Cuenta")
         desc_tpl = traducciones.get("10_factura_rescate_desc", "Abono proporcional correspondiente a los {dias_restantes} días restantes del mes en curso.")
@@ -6308,8 +6269,8 @@ async def rutina_nocturna_revision(context: ContextTypes.DEFAULT_TYPE):
             estado_actual = str(usr[1])
             dias_inact = int(usr[2] if usr[2] is not None else 0)
 
-            u_lang = obtener_idioma_usuario(int(user_id)) if 'obtener_idioma_usuario' in globals() else 'es'
-            u_trad = obtener_traducciones_db(u_lang) if 'obtener_traducciones_db' in globals() else {}
+            u_lang = obtener_idioma_usuario(int(user_id)) or '$1'
+            u_trad = obtener_traducciones_db(u_lang) or {}
 
             # 1. VERIFICACIÓN DE CARGAS (Sistema de Strikes)
             tabla_perfil = f"Perfil_{user_id}"
@@ -6362,8 +6323,8 @@ async def rutina_nocturna_revision(context: ContextTypes.DEFAULT_TYPE):
 async def cmd_pagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Muestra al usuario los planes de pago disponibles de forma dinámica."""
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     try:
         conn, cur = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
@@ -6402,8 +6363,8 @@ async def boton_elegir_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     user_id = str(query.from_user.id).strip()
-    lang = obtener_idioma_usuario(int(user_id)) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(int(user_id)) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     data = query.data
     
@@ -6505,8 +6466,8 @@ async def cmd_forzar_cobro(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Uso: /cobrar <user_id> <estrellas>
     """
     user_actual = update.effective_user.id
-    lang = obtener_idioma_usuario(user_actual) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_actual) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     if not es_administrador(user_actual):
         msg_no_perm = traducciones.get("10_cobrar_no_perm", "❌ No tenés permisos para ejecutar este comando.")
@@ -6566,8 +6527,8 @@ async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 async def successful_payment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     payment = update.message.successful_payment
     user_id = str(update.effective_user.id).strip()
-    lang = obtener_idioma_usuario(int(user_id)) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(int(user_id)) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     payload = payment.invoice_payload
     total_estrellas_pagadas = payment.total_amount
@@ -6664,8 +6625,8 @@ async def proceso_masivo_cobros(context: ContextTypes.DEFAULT_TYPE):
         for user in usuarios:
             user_id, plan_preferido = user[0], user[1]
             
-            u_lang = obtener_idioma_usuario(int(str(user_id).split('.')[0].strip())) if 'obtener_idioma_usuario' in globals() else 'en'
-            u_trad = obtener_traducciones_db(u_lang) if 'obtener_traducciones_db' in globals() else {}
+            u_lang = obtener_idioma_usuario(int(str(user_id).split('.')[0].strip())) or '$1'
+            u_trad = obtener_traducciones_db(u_lang) or {}
 
             plan_a_facturar = plan_preferido if plan_preferido in planes_dict else "1_mes"
             datos_plan = planes_dict.get(plan_a_facturar, planes_dict.get("1_mes"))
@@ -6722,8 +6683,8 @@ async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Muestra el menú de selección de fecha con formato Día/Mes (DD/MM).
     """
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     if context.args:
         dia_str = context.args[0]
@@ -6757,8 +6718,8 @@ async def cmd_diario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
 async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     try:
         df = obtener_datos_usuario(user_id)
@@ -6858,8 +6819,8 @@ async def mostrar_diario_fecha(update_or_query, user_id, fecha_str):
 
             
 def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
@@ -6993,10 +6954,10 @@ async def generar_y_enviar_pdf_diario_callback(update: Update, context: ContextT
 # ======================================================================================================================================
 
 def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_periodo):
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
-    df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+    df_datos = obtener_datos_usuario(user_id) 
 
     if df_datos.empty or 'Fecha' not in df_datos.columns:
         return None, None
@@ -7008,8 +6969,8 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
         return None, None
 
     mes_target = inicio_rango.strftime("%Y-%m")
-    perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
-    m = calcular_metricas_mensuales(df_semana, perfil) if 'calcular_metricas_mensuales' in globals() else {}
+    perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) or {}
+    m = calcular_metricas_mensuales(df_semana, perfil) or {}
 
     peso_act_val = float(m.get('peso_actual', 0))
     peso_ref_val = float(m.get('peso_referencia', 0))
@@ -7037,7 +6998,7 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
 
     prom_alta, prom_baja = None, None
     try:
-        df_presion = obtener_datos_presion_db(user_id) if 'obtener_datos_presion_db' in globals() else pd.DataFrame()
+        df_presion = obtener_datos_presion_db(user_id) 
         if not df_presion.empty and 'Fecha_Dia' in df_presion.columns:
             df_presion['Fecha_Dia_dt'] = pd.to_datetime(df_presion['Fecha_Dia'], errors='coerce').dt.date
             df_presion_semana = df_presion[
@@ -7092,8 +7053,8 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
 @requiere_registro
 async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     
     msg_proc = traducciones.get("08_inf_semana_proc", "⏳ Procesando tu estadística semanal...")
     msg_espera = await update.message.reply_text(msg_proc, parse_mode="Markdown")
@@ -7110,7 +7071,7 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
     fin_str = fin_sem.strftime("%Y-%m-%d")
 
     try:
-        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        df_datos = obtener_datos_usuario(user_id) 
         if df_datos.empty or 'Fecha' not in df_datos.columns:
             msg_sin_dat = traducciones.get("08_inf_semana_sin_dat", "⚠️ No hay datos registrados entre el {inicio_str} y el {fin_str}.").format(inicio_str=inicio_str, fin_str=fin_str)
             await msg_espera.edit_text(msg_sin_dat)
@@ -7354,15 +7315,15 @@ def calcular_metricas_mensuales(df_mes, perfil_dict, user_id=None, mes_str=None)
     }
         
 async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     try:
         peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
         if not peso_ok and not forzar_envio:
             return False
 
-        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        df_datos = obtener_datos_usuario(user_id) 
         if df_datos.empty or 'Fecha' not in df_datos.columns:
             msg_nodata = traducciones.get("08_sup_inf_no_registros", "⚠️ Not enough records to generate the report.")
             await context.bot.send_message(chat_id=user_id, text=msg_nodata)
@@ -7399,8 +7360,8 @@ async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino:
             await context.bot.send_message(chat_id=user_id, text=msg_closed)
             return False
 
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) if 'obtener_perfil_usuario' in globals() else {}
-        m = calcular_metricas_mensuales(df_filtrado, perfil, user_id=user_id, mes_str=mes_target) if 'calcular_metricas_mensuales' in globals() else {}
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) or {}
+        m = calcular_metricas_mensuales(df_filtrado, perfil, user_id=user_id, mes_str=mes_target) or {}
 
         df_presion = pd.DataFrame()
         tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
@@ -7483,8 +7444,8 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Permite argumento para ir directo a un mes del año actual (ej: /resumen 08).
     """
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     if context.args:
         mes_str = context.args[0]
@@ -7536,8 +7497,8 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         query = update.callback_query
         user_id = query.from_user.id if query else update.effective_user.id
-        lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-        traducciones = obtener_traducciones_db(lang) if 'obtener_idioma_usuario' in globals() else {}
+        lang = obtener_idioma_usuario(user_id) or '$1'
+        traducciones = obtener_traducciones_db(lang) or {}
 
         ahora = obtener_ahora_arg()
         mes_actual_str = ahora.strftime("%Y-%m")
@@ -7612,7 +7573,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             if not await _validar_peso_mes_actual(update, context):
                 return
 
-        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        df_datos = obtener_datos_usuario(user_id) 
         
         if not df_datos.empty and 'Fecha' in df_datos.columns:
             df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce')
@@ -7637,7 +7598,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await update.message.reply_text(msg, parse_mode="Markdown")
             return
 
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) or {}
         m = calcular_metricas_mensuales(df_mes, perfil, user_id=user_id, mes_str=mes_str)
 
         peso_act_val = float(m.get('peso_actual', 0))
@@ -7718,8 +7679,8 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(msg_err)    
                                 
 def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, user_id):
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
@@ -7893,8 +7854,8 @@ def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, user
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     
     txt_aviso = traducciones.get("08_PDF_envio_aviso_inicial", "¡Recibido! Prepararemos el documento y cuando esté listo lo recibirá automáticamente. ⏳")
     await query.answer(txt_aviso, show_alert=True)
@@ -7927,7 +7888,7 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
                 await mensaje_espera.delete()
                 return
 
-        df_datos = obtener_datos_usuario(user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        df_datos = obtener_datos_usuario(user_id) 
         
         if not df_datos.empty and 'Fecha' in df_datos.columns:
             df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'])
@@ -7948,7 +7909,7 @@ async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEF
             await mensaje_espera.edit_text(txt_sin_reg_tmpl.format(mes_str=mes_str), parse_mode="Markdown")
             return
 
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) if 'obtener_perfil_usuario' in globals() else {}
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) or {}
         df_presion = pd.DataFrame()
         tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
 
@@ -8028,10 +7989,10 @@ async def recordatorio_lunes_presion(context):
             if estado_val not in ['activo', 'sí', 'si', 'true', '1'] and not estado_val.isdigit():
                 continue
 
-            lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-            traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+            lang = obtener_idioma_usuario(user_id) or '$1'
+            traducciones = obtener_traducciones_db(lang) or {}
 
-            df_presion = obtener_datos_presion_db(user_id) if 'obtener_datos_presion_db' in globals() else pd.DataFrame()
+            df_presion = obtener_datos_presion_db(user_id) 
             
             tiene_medicion_reciente = False
             if not df_presion.empty and 'Fecha_Dia' in df_presion.columns:
@@ -8096,8 +8057,8 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
             for u_ven in usuarios_vencen:
                 u_id_str = str(u_ven[0]).split('.')[0].strip()
                 try:
-                    u_lang = obtener_idioma_usuario(int(u_id_str)) if 'obtener_idioma_usuario' in globals() else 'es'
-                    u_trad = obtener_traducciones_db(u_lang) if 'obtener_traducciones_db' in globals() else {}
+                    u_lang = obtener_idioma_usuario(int(u_id_str)) or '$1'
+                    u_trad = obtener_traducciones_db(u_lang) or {}
 
                     if es_dia_5:
                         mensaje = u_trad.get(
@@ -8144,8 +8105,8 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
             if notif not in ["si", "sí"]:
                 continue
 
-            lang_u = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-            traducciones = obtener_traducciones_db(lang_u) if 'obtener_traducciones_db' in globals() else {}
+            lang_u = obtener_idioma_usuario(user_id) or '$1'
+            traducciones = obtener_traducciones_db(lang_u) or {}
 
             if es_dia_5:
                 inicio_check = hoy - timedelta(days=14)
@@ -8315,8 +8276,8 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     msg = traducciones.get('09_start_mensaje_bienvenida', 
         "👋 *¡Bienvenido a tu Bot Nutricional Personalizado!*\n\n"
@@ -8503,7 +8464,7 @@ async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     idioma_detectado = 'es'
     context.user_data['ing_idioma'] = idioma_detectado
-    traducciones = obtener_traducciones_db(idioma_detectado) if 'obtener_traducciones_db' in globals() else {}
+    traducciones = obtener_traducciones_db(idioma_detectado) or {}
 
     estado_usr = _verificar_estado_usuario_en_hoja(user_id)
     
@@ -8527,7 +8488,7 @@ async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(txt_bloq.replace('\\n', '\n'), parse_mode="Markdown")
             return ConversationHandler.END
         else:
-            perfil_existente = obtener_perfil_usuario(user_id) if 'obtener_perfil_usuario' in globals() else {}
+            perfil_existente = obtener_perfil_usuario(user_id) or {}
             nombre_usr = perfil_existente.get('nombre', 'Usuario') if perfil_existente else 'Usuario'
             txt_activo = traducciones.get('09_ing_cuenta_activa_aviso', 
                 "ℹ **¡Ya tenés una cuenta activa, {nombre_usr}!**\n\n"
@@ -8733,7 +8694,7 @@ async def ing_recibir_peso(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = update.message.text.strip().replace(',', '.')
     lang = context.user_data.get('ing_idioma', 'es')
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    traducciones = obtener_traducciones_db(lang) or {}
 
     try:
         alt = float(txt)
@@ -8943,8 +8904,8 @@ def cmd_nuevo_usuario(datos_usuario):
 @requiere_registro
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     
     ahora = obtener_ahora_arg()
     mes_actual = ahora.strftime("%Y-%m")
@@ -9109,8 +9070,8 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     if data == "edit_perfil_peso":
         context.user_data['awaiting_edit_perfil_peso'] = True
@@ -9174,8 +9135,8 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
 @requiere_registro
 async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     texto_mensaje = update.message.text.strip() if update.message and update.message.text else ""
     raw_text = ""
@@ -9191,7 +9152,7 @@ async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _garantizar_fila_mes_actual(user_id, ahora)
 
     if not raw_text:
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual) if 'obtener_perfil_usuario' in globals() else {}
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual) or {}
         peso_base = parse_raw_val(perfil.get('PESO', perfil.get('Peso', 0))) if perfil else 0
         ultimo_informado = parse_raw_val(perfil.get('peso_actual', 0)) if perfil else 0
         
@@ -9237,8 +9198,8 @@ async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(txt_err_guardar)
                                       
 async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     df_presion = obtener_datos_presion_db(user_id)
     if df_presion.empty:
@@ -9285,8 +9246,8 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
   
 async def _sub_manejar_foto_presion(update, context, res_presion, msg):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_idioma_usuario' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     alta = float(res_presion.get("alta", 0))
     baja = float(res_presion.get("baja", 0))
@@ -9329,8 +9290,8 @@ async def _sub_manejar_foto_presion(update, context, res_presion, msg):
 async def generar_y_enviar_pdf_presion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
 
     await query.answer(traducciones.get('09_presi_generando_pdf', "Generando PDF de presión... ⏳"))
     
@@ -9354,8 +9315,8 @@ async def generar_y_enviar_pdf_presion(update: Update, context: ContextTypes.DEF
 @requiere_registro
 async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     
     raw_text = re.sub(r'^/(presio|presi|presion)\w*(@\w+)?', '', update.message.text, flags=re.IGNORECASE).strip()
 
@@ -9428,8 +9389,8 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 @requiere_registro
 async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+    lang = obtener_idioma_usuario(user_id) or '$1'
+    traducciones = obtener_traducciones_db(lang) or {}
     
     ahora = obtener_ahora_arg()
     
@@ -9925,7 +9886,7 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             historial_6m = []
             perfil_dict = obtener_ultimo_perfil_dict(u_id)
             
-            df_u = obtener_datos_usuario(u_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+            df_u = obtener_datos_usuario(u_id) 
             if not df_u.empty and 'Fecha' in df_u.columns:
                 df_u['Mes_Filtro'] = df_u['Fecha'].str.slice(0, 7)
 
@@ -10091,8 +10052,8 @@ async def callback_enviar_informe_paciente(update: Update, context: ContextTypes
 
     try:
         # Obtener datos y calcular métricas del mes actual para la previsualización
-        df_u = obtener_datos_usuario(target_user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
-        perfil = obtener_perfil_usuario(target_user_id, mes_target=mes_actual) if 'obtener_perfil_usuario' in globals() else {}
+        df_u = obtener_datos_usuario(target_user_id) 
+        perfil = obtener_perfil_usuario(target_user_id, mes_target=mes_actual) or {}
         
         if not df_u.empty and 'Fecha' in df_u.columns:
             df_u['Mes_Filtro'] = df_u['Fecha'].str.slice(0, 7)
@@ -10567,9 +10528,6 @@ def main():
         app_bot.add_handler(CommandHandler("armar", cmd_armar_excel))
         app_bot.add_handler(CommandHandler("hablar", cmd_hablar))
 
-
-        app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_diario_callback, pattern="^descargar_pdf_diario_"))
-        
         # =================================CALLBACK QUERY HANDLERS====================================
         app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^presion_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^cancelar_presion_foto$"))
@@ -10595,7 +10553,6 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(callback_btn_guardar_registro, pattern="^confirm_save$"))        
        
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_(d_|mom_|reg_|borrar)"))
-        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_"))
         app_bot.add_handler(CallbackQueryHandler(callback_gestion_solicitud_medico, pattern="^medico_(aceptar|rechazar)_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_perfil, pattern="^(edit_perfil_|set_ritmo_|set_ocup_|set_lang_)"))
 
