@@ -1079,17 +1079,17 @@ def api_calcular_receta():
 #              FINAL                                  PAGINA WEB (CALCULADORA UNICA)                  FINAL
 # =====================================================================================================================================
 
-# ======================================================================================================================================
+# =============================================================================================================================================
 #              INICIO                                   FUNCIONES SUPABASE                           INICIO
-# ======================================================================================================================================
+# =============================================================================================================================================
 
 #                 INICIO                                     1  GOOGLE SHEETS                       INICIO
-# ======================================================================================================================================
-                
+# =============================================================================================================================================
+
 def to_sheet_int(val):
     num = parse_raw_val(val)
     return int(round(num * 1000))
-
+                
 def get_gspread_client():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     if os.path.exists(GOOGLE_SHEETS_KEY_PATH):
@@ -2042,7 +2042,6 @@ def obtener_especialidad_profesional(prof_id):
             except: pass
     return None
 
-
 def obtener_pacientes_por_medico(prof_id):
     pacientes = []
     try:
@@ -2061,13 +2060,20 @@ def obtener_pacientes_por_medico(prof_id):
             if p_id == str(prof_id).strip():
                 u_id = str(fila[0] or "").split('.')[0].strip()
                 nombre = fila[1] or "Sin Nombre"
-                estado = fila[2] if fila[2] is not None else "Activo"
-                if str(estado).lower() in ['activo', 'sí', 'si', 'true', '1']:
+                
+                # Estado numérico: 3 es bloqueado/inactivo. 0, 1, 2, 10, etc., son válidos.
+                try:
+                    estado_int = int(fila[2]) if fila[2] is not None else 0
+                except (ValueError, TypeError):
+                    estado_int = 0
+
+                # Si no está en estado 3 (bloqueado), se incluye en la lista del médico
+                if estado_int != 3:
                     pacientes.append({"user_id": u_id, "nombre": nombre})
     except Exception as e:
         logger.error(f"Error en obtener_pacientes_por_medico para {prof_id}: {e}")
     return pacientes
-
+    
 #              INICIO                                  7 FUNCIONES USUARIOS                        INICIO
 # =============================================================================================================================================
 
@@ -2460,7 +2466,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     traducciones_msj = {}
     try:
         conn_m, cur_m = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
-        cur_m.execute('SELECT variables, "{0}" FROM "multi"'.format(lang_usuario))
+        cur_m.execute('SELECT variables, "{0}" FROM "multi"'.format(lang_usuario.upper()))
         filas_m = cur_m.fetchall()
         traducciones_msj = {row[0].strip().lower(): row[1] for row in filas_m if row[0] and row[1]}
         cur_m.close()
@@ -2469,7 +2475,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         pass
 
     def msg_t(clave, fallback):
-        return traducciones_msj.get(clave, fallback)
+        return traducciones_msj.get(clave.lower(), fallback)
 
     conn = None
     cur = None
@@ -2494,7 +2500,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
                     
     except Exception as e:
         logger.error(f"Error preliminar en guardar_perfil_db para {user_id}: {e}")
-        return {"error": True, "mensaje": "❌ Error al consultar la base de datos."}
+        return {"error": True, "mensaje": msg_t("03_bot_err_db", "❌ Error al consultar la base de datos.")}
     finally:
         if cur:
             try: cur.close()
@@ -2666,17 +2672,17 @@ def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
 async def cmd_hablar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     if not es_administrador(user_id):
-        msg_no_perm = "❌ No tenés permisos para ejecutar este comando."
+        msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
         await update.message.reply_text(msg_no_perm)
         return
 
     if not context.args or len(context.args) < 2:
-        await update.message.reply_text(
-            "⚠ Formato incorrecto. Usa:\n"
-            "/hablar M [tu texto para voz de mujer]\n"
-            "/hablar H [tu texto para voz de hombre]"
-        )
+        msg_formato = traducciones.get("03_bot_hablar_formato", "⚠ Formato incorrecto. Usa:\n/hablar M [tu texto para voz de mujer]\n/hablar H [tu texto para voz de hombre]")
+        await update.message.reply_text(msg_formato)
         return
 
     genero = context.args[0].upper()
@@ -2690,7 +2696,8 @@ async def cmd_hablar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif genero == "H":
         voz_elegida = voz_hombre_defecto
     else:
-        await update.message.reply_text("⚠️ Especifica 'M' para mujer o 'H' para hombre.")
+        msg_especifica = traducciones.get("03_bot_hablar_especifica", "⚠️ Especifica 'M' para mujer o 'H' para hombre.")
+        await update.message.reply_text(msg_especifica)
         return
 
     output_path = "voz_temporal.mp3"
@@ -2707,7 +2714,8 @@ async def cmd_hablar(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_voice(voice=audio_file)
 
     except Exception as e:
-        await update.message.reply_text(f"Hubo un error al generar la voz: {str(e)}")
+        msg_err = traducciones.get("03_bot_hablar_err", "Hubo un error al generar la voz: {e}").format(e=str(e))
+        await update.message.reply_text(msg_err)
 
     finally:
         if os.path.exists(output_path):
@@ -2726,8 +2734,11 @@ async def cmd_hablar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     if not es_administrador(user_id):
-        msg_no_perm = "❌ No tenés permisos para ejecutar este comando."
+        msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
         await update.message.reply_text(msg_no_perm)
         return
 
@@ -2736,47 +2747,57 @@ async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         ruta_archivo = f"{nombre_tabla}.xlsx"
         if not os.path.exists(ruta_archivo):
-            await update.message.reply_text(f"❌ No encuentro el archivo `{ruta_archivo}` en el servidor.", parse_mode="Markdown")
+            msg_no_enc = traducciones.get("03_bot_excel_no_enc", "❌ No encuentro el archivo `{ruta_archivo}` en el servidor.").format(ruta_archivo=ruta_archivo)
+            await update.message.reply_text(msg_no_enc, parse_mode="Markdown")
             return
 
         df = pd.read_excel(ruta_archivo)
         df.columns = [str(c).strip() for c in df.columns]
 
-        if 'variables' not in df.columns or 'ES' not in df.columns:
-            await update.message.reply_text("❌ El archivo base debe tener columnas 'variables' y 'ES'.", parse_mode="Markdown")
+        # Buscar nombres reales de columnas 'variables' y 'ES' sin importar mayúsculas/minúsculas
+        col_vars = next((c for c in df.columns if c.lower() == 'variables'), None)
+        col_es = next((c for c in df.columns if c.upper() == 'ES'), None)
+
+        if not col_vars or not col_es:
+            msg_cols = traducciones.get("03_bot_excel_columnas", "❌ El archivo base debe tener columnas 'variables' y 'ES'.")
+            await update.message.reply_text(msg_cols, parse_mode="Markdown")
             return
 
+        # Limpiar nombres de variables y dejar SOLO LA ÚLTIMA VERSIÓN si hay repetidas
+        df[col_vars] = df[col_vars].astype(str).str.strip()
+        df = df[df[col_vars].notna() & (df[col_vars] != "") & (df[col_vars].str.lower() != "nan")]
+        df = df.drop_duplicates(subset=[col_vars], keep='last').reset_index(drop=True)
+
         mapa_variables = {}
+        mapa_inverso = {}
         contador_var = 1
         textos_preparados = []
-        
-        for idx, row in df.iterrows():
-            texto_es = str(row['ES']) if pd.notna(row['ES']) else ""
+
+        # Función interna para reemplazar cada {var} o [var] de forma exacta sin colisiones
+        def reemplazar_placeholder(match):
+            nonlocal contador_var
+            ph = match.group(0)
+            if ph in mapa_inverso:
+                return mapa_inverso[ph]
+            token = f"__VAR_{contador_var:04d}__"
+            mapa_variables[token] = ph
+            mapa_inverso[ph] = token
+            contador_var += 1
+            return token
+
+        patron_ph = re.compile(r'(\[[^\]\n]+\]|\{[^}\n]+\})')
+
+        for _, row in df.iterrows():
+            texto_es = str(row[col_es]) if pd.notna(row[col_es]) else ""
             if not texto_es.strip() or texto_es.strip().lower() == 'nan':
                 textos_preparados.append("")
                 continue
 
-            # Expresión regular robusta que evita saltos de línea y captura limpiamente entre llaves o corchetes
-            placeholders = re.findall(r'(\[.*?\]|\{[^}\n]+\})', texto_es)
-            texto_modificado = texto_es
-            
-            for ph in placeholders:
-                token = None
-                for t, original in mapa_variables.items():
-                    if original == ph:
-                        token = t
-                        break
-                if not token:
-                    token = f"__VAR_{contador_var:04d}__"
-                    mapa_variables[token] = ph
-                    contador_var += 1
-                
-                texto_modificado = texto_modificado.replace(ph, token)
-            
+            texto_modificado = patron_ph.sub(reemplazar_placeholder, texto_es)
             textos_preparados.append(texto_modificado)
 
         df_hoja1 = pd.DataFrame()
-        df_hoja1['variables'] = df['variables']
+        df_hoja1['variables'] = df[col_vars]
         df_hoja1['ES'] = textos_preparados
 
         lista_diccionario = [{"codigo": k, "variable_original": v} for k, v in mapa_variables.items()]
@@ -2790,21 +2811,21 @@ async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
             df_hoja2.to_excel(writer, index=False, sheet_name='diccionario_vars')
         buffer_out.seek(0)
 
+        msg_exito = traducciones.get(
+            "03_bot_desarmar_exito", 
+            "✅ **¡Archivo desarmado detectando todas las variables y corchetes!**\n\n1. Subilo a Google Drive, agregale las columnas de idiomas que quieras (`EN`, `IT`, etc.) y traducilo.\n2. La segunda pestaña (`diccionario_vars`) ahora indexa el 100% de las variables sin cortes.\n3. Cuando termines, mandámelo con `/armar`."
+        )
         await update.message.reply_document(
             document=buffer_out,
             filename=nombre_salida,
-            caption=(
-                f"✅ **¡Archivo desarmado detectando todas las variables y corchetes!**\n\n"
-                f"1. Subilo a Google Drive, agregale las columnas de idiomas que quieras (`EN`, `IT`, etc.) y traducilo.\n"
-                f"2. La segunda pestaña (`diccionario_vars`) ahora indexa el 100% de las variables sin cortes.\n"
-                f"3. Cuando termines, mandámelo con `/armar`."
-            ),
+            caption=msg_exito,
             parse_mode="Markdown"
         )
 
     except Exception as e:
         logger.error(f"Error en desarmar Excel: {e}", exc_info=True)
-        await update.message.reply_text(f"❌ Error: `{e}`", parse_mode="Markdown")
+        msg_err_gen = traducciones.get("03_bot_err_gen", "❌ Error: `{e}`").format(e=e)
+        await update.message.reply_text(msg_err_gen, parse_mode="Markdown")
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # COMANDO DE TELEGRAM: /armar (Lee el Excel desarmado directamente del servidor, restaura variables y sube a Supabase)
@@ -2812,14 +2833,18 @@ async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # ¿QUÉ HACE?:
 #   1. Busca el archivo 'multi_desarmado.xlsx' (o el que corresponda) directamente en la carpeta del servidor.
 #   2. Lee las solapas 'traduccion' y 'diccionario_vars'.
-#   3. Reemplaza todos los códigos __VAR_XXXX__ por sus llaves {variable} o corchetes [variable] originales.
+#   3. Reemplaza todos los códigos __VAR_XXXX__ por sus llaves {variable} o corchetes [variable] original.
 #   4. Borra y vuelve a crear la tabla 'multi' en Supabase con la información limpia y traducida.
 # ---------------------------------------------------------------------------------------------------------------------------------------------
+
 async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     if not es_administrador(user_id):
-        msg_no_perm = "❌ No tenés permisos para ejecutar este comando."
+        msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
         await update.message.reply_text(msg_no_perm)
         return
 
@@ -2827,21 +2852,20 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ruta_archivo = f"{nombre_tabla}_desarmado.xlsx"
 
     if not os.path.exists(ruta_archivo):
-        await update.message.reply_text(
-            f"❌ No encuentro el archivo `{ruta_archivo}` en el servidor. Asegurate de haber subido el archivo traducido al repositorio o carpeta del bot.",
-            parse_mode="Markdown"
-        )
+        msg_no_enc = traducciones.get("03_bot_armar_no_enc", "❌ No encuentro el archivo `{ruta_archivo}` en el servidor. Asegurate de haber subido el archivo traducido al repositorio o carpeta del bot.").format(ruta_archivo=ruta_archivo)
+        await update.message.reply_text(msg_no_enc, parse_mode="Markdown")
         return
 
-    mensaje_espera = await update.message.reply_text("🔄 Leyendo del servidor, ensamblando traducciones y sincronizando Supabase...", parse_mode="Markdown")
+    msg_leyendo = traducciones.get("03_bot_armar_leyendo", "🔄 Leyendo del servidor, ensamblando traducciones y sincronizando Supabase...")
+    mensaje_espera = await update.message.reply_text(msg_leyendo, parse_mode="Markdown")
 
     try:
-        # Leer el archivo Excel directamente desde el disco del servidor
         xls = pd.ExcelFile(ruta_archivo)
         sheets = xls.sheet_names
 
         if 'traduccion' not in sheets or 'diccionario_vars' not in sheets:
-            await mensaje_espera.edit_text("❌ El archivo en el servidor no tiene las solapas requeridas ('traduccion' y 'diccionario_vars').", parse_mode="Markdown")
+            msg_solapas = traducciones.get("03_bot_armar_solapas", "❌ El archivo en el servidor no tiene las solapas requeridas ('traduccion' y 'diccionario_vars').")
+            await mensaje_espera.edit_text(msg_solapas, parse_mode="Markdown")
             return
 
         df_trad = pd.read_excel(ruta_archivo, sheet_name='traduccion')
@@ -2850,30 +2874,54 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         df_trad.columns = [str(c).strip() for c in df_trad.columns]
         df_dict.columns = [str(c).strip() for c in df_dict.columns]
 
-        mapa_variables = dict(zip(df_dict['codigo'], df_dict['variable_original']))
-        columnas_idiomas = [c for c in df_trad.columns if c.upper() != 'VARIABLES']
+        # Eliminar columna 'id' si vino heredada de una descarga previa de Supabase
+        cols_id = [c for c in df_trad.columns if c.lower() == 'id']
+        if cols_id:
+            df_trad = df_trad.drop(columns=cols_id)
+
+        # Identificar explícitamente la columna 'variables' y quedarnos SOLO CON LA ÚLTIMA si hay repetidas
+        col_vars = next((c for c in df_trad.columns if c.lower() == 'variables'), df_trad.columns[0])
+        df_trad[col_vars] = df_trad[col_vars].astype(str).str.strip()
+        df_trad = df_trad[df_trad[col_vars].notna() & (df_trad[col_vars] != "") & (df_trad[col_vars].str.lower() != "nan")]
+        df_trad = df_trad.drop_duplicates(subset=[col_vars], keep='last').reset_index(drop=True)
+
+        # Mapa de códigos por número ('0001' -> '{peso}') para tolerar alteraciones del traductor
+        mapa_por_num = {}
+        if not df_dict.empty and 'codigo' in df_dict.columns and 'variable_original' in df_dict.columns:
+            for _, r_d in df_dict.iterrows():
+                cod_str = str(r_d['codigo']).strip()
+                orig_str = str(r_d['variable_original'])
+                m_num = re.search(r'(\d{4})', cod_str)
+                if m_num:
+                    mapa_por_num[m_num.group(1)] = orig_str
+
+        # Regex tolerante a espacios, mayúsculas/minúsculas que Google Translate suele alterar (ej: __ var_0001 __)
+        patron_restaurar = re.compile(r'_\s*_\s*VAR\s*_\s*(\d{4})\s*_\s*_', re.IGNORECASE)
+
+        def restaurar_token(match):
+            num_id = match.group(1)
+            return mapa_por_num.get(num_id, match.group(0))
+
+        columnas_idiomas = [c for c in df_trad.columns if c.lower() != col_vars.lower()]
 
         for col in columnas_idiomas:
             nueva_columna = []
-            for idx, val in df_trad[col].items():
+            for _, val in df_trad[col].items():
                 texto = str(val) if pd.notna(val) else ""
                 if not texto.strip() or texto.strip().lower() == 'nan':
                     nueva_columna.append("")
                     continue
 
-                for codigo, original in mapa_variables.items():
-                    texto = texto.replace(codigo, original)
-                    texto = texto.replace(codigo.replace('__', '__ '), original)
-                    texto = texto.replace(codigo.replace('__', ' __'), original)
+                # 1. Restaurar todas las variables {var} y [var] aunque el traductor haya metido espacios o minúsculas
+                texto = patron_restaurar.sub(restaurar_token, texto)
+                # 2. Reparar saltos de línea '\ n' que Google Translate suele separar con espacio
+                texto = re.sub(r'\\\s+n', r'\\n', texto)
 
                 nueva_columna.append(texto)
             
             df_trad[col] = nueva_columna
 
-        columna_clave = df_trad.columns[0]
-        df_trad = df_trad.drop_duplicates(subset=[columna_clave], keep='last')
-
-        # Guardar una copia limpia localmente como 'multi.xlsx'
+        # Guardar copia limpia localmente como 'multi.xlsx'
         ruta_archivo_local = f"{nombre_tabla}.xlsx"
         df_trad.to_excel(ruta_archivo_local, index=False)
 
@@ -2896,15 +2944,13 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cur.close()
         conn.close()
 
-        await mensaje_espera.edit_text(
-            f"🏆 **¡Traducción aplicada con éxito!**\n"
-            f"La tabla `{nombre_tabla}` fue completamente reemplazada en Supabase con {filas_insertadas} registros procesados desde el servidor.",
-            parse_mode="Markdown"
-        )
+        msg_exito = traducciones.get("03_bot_armar_exito", "🏆 **¡Traducción aplicada con éxito!**\nLa tabla `{nombre_tabla}` fue completamente reemplazada en Supabase con {filas_insertadas} registros procesados desde el servidor.").format(nombre_tabla=nombre_tabla, filas_insertadas=filas_insertadas)
+        await mensaje_espera.edit_text(msg_exito, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Error armando Excel desde el servidor: {e}", exc_info=True)
-        await mensaje_espera.edit_text(f"❌ Error al ensamblar: `{e}`", parse_mode="Markdown")
+        msg_err_armar = traducciones.get("03_bot_armar_err", "❌ Error al ensamblar: `{e}`").format(e=e)
+        await mensaje_espera.edit_text(msg_err_armar, parse_mode="Markdown")
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # COMANDO DE TELEGRAM: /subir (Pasa un archivo .xlsx que ya esté en GitHub/Servidor directo a Supabase)
@@ -2915,38 +2961,36 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     if not es_administrador(user_id):
-        msg_no_perm = "❌ No tenés permisos para ejecutar este comando."
+        msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
         await update.message.reply_text(msg_no_perm)
         return
     
     if not context.args or len(context.args) == 0:
-        await update.message.reply_text(
-            "⚠️ Por favor, indica el nombre de la tabla a importar.\nEjemplo: `/subir multi`",
-            parse_mode="Markdown"
-        )
+        msg_formato = traducciones.get("03_bot_subir_formato", "⚠️ Por favor, indica el nombre de la tabla a importar.\nEjemplo: `/subir multi`")
+        await update.message.reply_text(msg_formato, parse_mode="Markdown")
         return
 
     nombre_tabla = context.args[0].strip()
     ruta_archivo = f"{nombre_tabla}.xlsx"
 
     if not os.path.exists(ruta_archivo):
-        await update.message.reply_text(
-            f"❌ No encontré el archivo `{ruta_archivo}` en el servidor. Asegurate de haberlo subido al repositorio de GitHub.",
-            parse_mode="Markdown"
-        )
+        msg_no_enc = traducciones.get("03_bot_subir_no_enc", "❌ No encontré el archivo `{ruta_archivo}` en el servidor. Asegurate de haberlo subido al repositorio de GitHub.").format(ruta_archivo=ruta_archivo)
+        await update.message.reply_text(msg_no_enc, parse_mode="Markdown")
         return
 
-    mensaje_espera = await update.message.reply_text(
-        f"🔄 Leyendo `{ruta_archivo}` del servidor y reescribiendo la tabla `{nombre_tabla}` en Supabase...", 
-        parse_mode="Markdown"
-    )
+    msg_leyendo = traducciones.get("03_bot_subir_leyendo", "🔄 Leyendo `{ruta_archivo}` del servidor y reescribiendo la tabla `{nombre_tabla}` en Supabase...").format(ruta_archivo=ruta_archivo, nombre_tabla=nombre_tabla)
+    mensaje_espera = await update.message.reply_text(msg_leyendo, parse_mode="Markdown")
 
     try:
         df = pd.read_excel(ruta_archivo)
 
         if df.empty:
-            await mensaje_espera.edit_text(f"⚠️ El archivo `{ruta_archivo}` está vacío.", parse_mode="Markdown")
+            msg_vacio = traducciones.get("03_bot_subir_vacio", "⚠️ El archivo `{ruta_archivo}` está vacío.").format(ruta_archivo=ruta_archivo)
+            await mensaje_espera.edit_text(msg_vacio, parse_mode="Markdown")
             return
 
         df.columns = [str(c).strip() for c in df.columns]
@@ -2977,14 +3021,13 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cur.close()
         conn.close()
 
-        await mensaje_espera.edit_text(
-            f"✅ ¡Éxito! La tabla `{nombre_tabla}` fue leída del servidor y sincronizada en Supabase con {filas_insertadas} registros.", 
-            parse_mode="Markdown"
-        )
+        msg_exito = traducciones.get("03_bot_subir_exito", "✅ ¡Éxito! La tabla `{nombre_tabla}` fue leída del servidor y sincronizada en Supabase con {filas_insertadas} registros.").format(nombre_tabla=nombre_tabla, filas_insertadas=filas_insertadas)
+        await mensaje_espera.edit_text(msg_exito, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Error al importar la tabla {nombre_tabla} desde el servidor: {e}", exc_info=True)
-        await mensaje_espera.edit_text(f"❌ Error al importar la tabla: `{e}`", parse_mode="Markdown")
+        msg_err = traducciones.get("03_bot_subir_err", "❌ Error al importar la tabla: `{e}`").format(e=e)
+        await mensaje_espera.edit_text(msg_err, parse_mode="Markdown")
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # COMANDO DE TELEGRAM: /descargar (Descarga cualquier tabla de Supabase a un archivo Excel)
@@ -2995,21 +3038,22 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
     if not es_administrador(user_id):
-        msg_no_perm = "❌ No tenés permisos para ejecutar este comando."
+        msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
         await update.message.reply_text(msg_no_perm)
         return
     
     if not context.args or len(context.args) == 0:
-        await update.message.reply_text(
-            "⚠️ Por favor, indica el nombre de la tabla que deseas descargar.\nEjemplo: `/descargar textos_bot` o `/descargar Usuarios`",
-            parse_mode="Markdown"
-        )
+        msg_formato = traducciones.get("03_bot_descargar_formato", "⚠️ Por favor, indica el nombre de la tabla que deseas descargar.\nEjemplo: `/descargar textos_bot` o `/descargar Usuarios`")
+        await update.message.reply_text(msg_formato, parse_mode="Markdown")
         return
 
     nombre_tabla = context.args[0].strip()
-    mensaje_espera = await update.message.reply_text(f"⏳ Consultando y preparando la tabla `{nombre_tabla}`...", parse_mode="Markdown")
+    msg_consultando = traducciones.get("03_bot_descargar_consultando", "⏳ Consultando y preparando la tabla `{nombre_tabla}`...").format(nombre_tabla=nombre_tabla)
+    mensaje_espera = await update.message.reply_text(msg_consultando, parse_mode="Markdown")
 
     try:
         conn, cur = _asegurar_tabla_y_conectar(nombre_tabla, tipo_tabla="comida")
@@ -3020,7 +3064,8 @@ async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
 
         if df.empty:
-            await mensaje_espera.edit_text(f"⚠️ La tabla `{nombre_tabla}` existe pero está vacía.", parse_mode="Markdown")
+            msg_vacia = traducciones.get("03_bot_descargar_vacia", "⚠️ La tabla `{nombre_tabla}` existe pero está vacía.").format(nombre_tabla=nombre_tabla)
+            await mensaje_espera.edit_text(msg_vacia, parse_mode="Markdown")
             return
 
         buffer = io.BytesIO()
@@ -3029,10 +3074,12 @@ async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         buffer.seek(0)
 
         filename = f"{nombre_tabla}.xlsx"
+        
+        msg_exito = traducciones.get("03_bot_descargar_exito", "✅ Aquí tienes el respaldo de la tabla *{nombre_tabla}* ({len_df} registros).").format(nombre_tabla=nombre_tabla, len_df=len(df))
         await update.message.reply_document(
             document=buffer,
             filename=filename,
-            caption=f"✅ Aquí tienes el respaldo de la tabla *{nombre_tabla}* ({len(df)} registros).",
+            caption=msg_exito,
             parse_mode="Markdown"
         )
         
@@ -3043,10 +3090,8 @@ async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Error al descargar la tabla {nombre_tabla} para el usuario {user_id}: {e}", exc_info=True)
-        await mensaje_espera.edit_text(
-            f"❌ No se pudo descargar la tabla `{nombre_tabla}`.\nError: `{e}`",
-            parse_mode="Markdown"
-        )   
+        msg_err = traducciones.get("03_bot_descargar_err", "❌ No se pudo descargar la tabla `{nombre_tabla}`.\nError: `{e}`").format(nombre_tabla=nombre_tabla, e=e)
+        await mensaje_espera.edit_text(msg_err, parse_mode="Markdown")   
             
 # =============================================================================================================================================
 #              FINAL                            FUNCIONES SUPABASE                 FINAL
@@ -3548,11 +3593,14 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
 #              INICIO                     FUNCIONES SOPORTE MULTILENGUAJE                   INICIO
 # =============================================================================================================================================
 
+#              INICIO                     FUNCIONES SOPORTE MULTILENGUAJE                   INICIO
+# =============================================================================================================================================
+
 def obtener_idioma_usuario(user_id):
     """Obtiene el idioma configurado para un usuario de Telegram desde Supabase."""
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        cur.execute('SELECT "Idioma" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
+        cur.execute('SELECT "Idioma" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id).strip(),))
         row = cur.fetchone()
         cur.close()
         conn.close()
@@ -3560,29 +3608,53 @@ def obtener_idioma_usuario(user_id):
             return str(row[0]).strip().lower()
     except Exception as e:
         logger.error(f"Error obteniendo idioma para {user_id}: {e}")
-    return 'en'
+    return 'es'
 
 def obtener_traducciones_db(lang):
-    """Consulta la tabla 'multi' en Supabase y devuelve un diccionario con las traducciones."""
+    """Consulta la tabla 'multi' en Supabase dinámicamente para cualquier idioma cargado."""
     traducciones = {}
-    col_lang = "ES" if str(lang).strip().lower() == "es" else "EN"
+    lang_clean = str(lang or "es").strip().lower()
     try:
         conn, cur = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
-        query = f'SELECT "variables", "{col_lang}" FROM "multi"'
+        
+        # Obtenemos los nombres exactos de las columnas reales en Supabase (para evitar errores de mayúsculas/minúsculas)
+        cur.execute("""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_schema = 'public' AND LOWER(table_name) = 'multi'
+        """)
+        columnas_reales = {row[0].strip().lower(): row[0] for row in cur.fetchall() if row[0]}
+        
+        col_var_real = columnas_reales.get('variables', 'variables')
+        # Busca el idioma pedido; si no existe esa columna, cae a 'es' o 'en'
+        col_lang_real = (
+            columnas_reales.get(lang_clean) or 
+            columnas_reales.get('es') or 
+            columnas_reales.get('en')
+        )
+
+        if not col_lang_real:
+            cur.close()
+            conn.close()
+            return traducciones
+
+        query = f'SELECT "{col_var_real}", "{col_lang_real}" FROM "multi"'
         cur.execute(query)
         filas = cur.fetchall()
         cur.close()
         conn.close()
 
         for fila in filas:
-            var_name = str(fila[0]).strip()
+            var_name = str(fila[0] or "").strip()
             var_text = str(fila[1] or "").strip()
-            if var_name:
+            if var_name and var_text:
+                # Guardamos la clave tanto original como en minúsculas por seguridad
                 traducciones[var_name] = var_text
+                traducciones[var_name.lower()] = var_text
     except Exception as e:
         logger.error(f"Error al obtener traducciones de Supabase para el idioma {lang}: {e}")
     return traducciones
-
+    
 def requiere_registro(func):
     """Decorador que verifica registro y bloquea usuarios en Estado 3 ofreciendo reactivación prorrateada."""
     @wraps(func)
@@ -4510,7 +4582,7 @@ async def callback_handler_presion_foto(update: Update, context: ContextTypes.DE
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
     if data == "presion_guardar_directo":
@@ -4518,20 +4590,21 @@ async def callback_handler_presion_foto(update: Update, context: ContextTypes.DE
         context.user_data.pop('awaiting_presion_nota', None)
         
         if datos_presion:
-            alta = datos_presion.get("alta")
-            baja = datos_presion.get("baja")
-            pulsaciones = datos_presion.get("pulsaciones")
+            alta = float(datos_presion.get("alta", 0))
+            baja = float(datos_presion.get("baja", 0))
+            pulsaciones = float(datos_presion.get("pulsaciones", 0))
             
             guardar_presion_db(user_id, alta, baja, pulsaciones, nota="")
             
-            pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
+            lbl_pul = traducciones.get("09_presi_lbl_pulsaciones", "Pulsaciones")
+            pul_txt = f" | {lbl_pul}: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
             
             msg_base = traducciones.get(
                 "06_bot_presion_exito", 
-                "✅ **¡Presión arterial registrada con éxito!**\n\n• Presión Alta: `{alta:.0f} mmHg`\n• Presión Baja: `{baja:.0f} mmHg`{pul_txt}"
-            )
-            txt_exito = msg_base.format(alta=alta, baja=baja, pul_txt=pul_txt)
+                "✅ **¡Presión arterial registrada con éxito!**\n\n• Presión Alta: `{alta} mmHg`\n• Presión Baja: `{baja} mmHg`{pul_txt}"
+            ).replace('\\n', '\n').replace("{alta:.0f}", "{alta}").replace("{baja:.0f}", "{baja}")
             
+            txt_exito = msg_base.format(alta=f"{alta:.0f}", baja=f"{baja:.0f}", pul_txt=pul_txt)
             await query.edit_message_text(txt_exito, parse_mode="Markdown")
         else:
             txt_expirada = traducciones.get("06_bot_presion_expirada", "⚠️ Los datos temporales de la presión expiraron.")
@@ -4539,7 +4612,7 @@ async def callback_handler_presion_foto(update: Update, context: ContextTypes.DE
 
     elif data == "presion_pedir_nota":
         context.user_data['awaiting_presion_nota'] = True
-        txt_pedir_nota = traducciones.get("06_bot_pedir_nota_presion", "✏️ Por favor, escribí la nota o detalle para este registro de presión (o escribí `cancelar` para anular):")
+        txt_pedir_nota = traducciones.get("06_bot_pedir_nota_presion", "✏️ Por favor, escribí la nota o detalle para este registro de presión (o escribí `cancelar` para anular):").replace('\\n', '\n')
         await query.message.reply_text(txt_pedir_nota, parse_mode="Markdown")
         try:
             await query.message.delete()
@@ -5729,13 +5802,12 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
 
     cambio_biometrico = False
     mensaje_exito = ""
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
     if context.user_data.get('awaiting_edit_perfil_peso'):
         try:
             nuevo_val = float(raw_text.replace(',', '.'))
-            # Delegamos a la función asíncrona usando hilos para no bloquear
             res_cal = await asyncio.to_thread(guardar_perfil_db, user_id, peso=nuevo_val, mes=mes_actual)
             if isinstance(res_cal, dict) and res_cal.get("error"):
                 await update.message.reply_text(res_cal["mensaje"], parse_mode="Markdown")
@@ -5743,7 +5815,7 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
                 msg_ok = traducciones.get("07_bot_peso_actualizado", "✅ Peso actualizado a `{nuevo_val} kg`.").format(nuevo_val=nuevo_val)
                 mensaje_exito = res_cal["mensaje"] if isinstance(res_cal, dict) and "mensaje" in res_cal else msg_ok
                 cambio_biometrico = True
-        except Exception as e:
+        except Exception:
             msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido. Ingresá números.")
             await update.message.reply_text(msg_err)
         context.user_data['awaiting_edit_perfil_peso'] = False
@@ -5751,12 +5823,10 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
     elif context.user_data.get('awaiting_edit_perfil_altura'):
         try:
             nuevo_val = float(raw_text.replace(',', '.'))
-            # Usamos la función central segura envuelta en hilo
             await asyncio.to_thread(_core_guardar_perfil_db, user_id, mes_actual, {"ALTURA": nuevo_val})
-            msg_ok = traducciones.get("07_bot_altura_actualizada", "✅ Altura actualizada a `{nuevo_val} cm`.").format(nuevo_val=nuevo_val)
-            mensaje_exito = msg_ok
+            mensaje_exito = traducciones.get("07_bot_altura_actualizada", "✅ Altura actualizada a `{nuevo_val} cm`.").format(nuevo_val=nuevo_val)
             cambio_biometrico = True
-        except Exception as e:
+        except Exception:
             msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido. Ingresá números.")
             await update.message.reply_text(msg_err)
         context.user_data['awaiting_edit_perfil_altura'] = False
@@ -5765,10 +5835,9 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
         try:
             nuevo_val = float(raw_text.replace(',', '.'))
             await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"cintura_cm": nuevo_val})
-            msg_ok = traducciones.get("07_bot_cintura_actualizada", "✅ Cintura actualizada a `{nuevo_val} cm`.").format(nuevo_val=nuevo_val)
-            mensaje_exito = msg_ok
+            mensaje_exito = traducciones.get("07_bot_cintura_actualizada", "✅ Cintura actualizada a `{nuevo_val} cm`.").format(nuevo_val=nuevo_val)
             cambio_biometrico = True
-        except Exception as e:
+        except Exception:
             msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido.")
             await update.message.reply_text(msg_err)
         context.user_data['awaiting_edit_perfil_cintura'] = False
@@ -5777,10 +5846,9 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
         try:
             nuevo_val = float(raw_text.replace(',', '.'))
             await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"cuello_cm": nuevo_val})
-            msg_ok = traducciones.get("07_bot_cuello_actualizado", "✅ Cuello actualizado a `{nuevo_val} cm`.").format(nuevo_val=nuevo_val)
-            mensaje_exito = msg_ok
+            mensaje_exito = traducciones.get("07_bot_cuello_actualizado", "✅ Cuello actualizado a `{nuevo_val} cm`.").format(nuevo_val=nuevo_val)
             cambio_biometrico = True
-        except Exception as e:
+        except Exception:
             msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido.")
             await update.message.reply_text(msg_err)
         context.user_data['awaiting_edit_perfil_cuello'] = False
@@ -5789,10 +5857,9 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
         try:
             nuevo_val = float(raw_text.replace(',', '.'))
             await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"cadera_cm": nuevo_val})
-            msg_ok = traducciones.get("07_bot_cadera_actualizada", "✅ Cadera actualizada a `{nuevo_val} cm`.").format(nuevo_val=nuevo_val)
-            mensaje_exito = msg_ok
+            mensaje_exito = traducciones.get("07_bot_cadera_actualizada", "✅ Cadera actualizada a `{nuevo_val} cm`.").format(nuevo_val=nuevo_val)
             cambio_biometrico = True
-        except Exception as e:
+        except Exception:
             msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido.")
             await update.message.reply_text(msg_err)
         context.user_data['awaiting_edit_perfil_cadera'] = False
@@ -5802,8 +5869,8 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
             nuevo_val = str(raw_text).strip()
             await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"Nombre": nuevo_val})
             msg_ok = traducciones.get("07_bot_nombre_actualizado", "✅ Nombre actualizado a `{nuevo_val}`.").format(nuevo_val=nuevo_val)
-            await update.message.reply_text(msg_ok, parse_mode="Markdown")
-        except Exception as e:
+            await update.message.reply_text(msg_ok.replace('\\n', '\n'), parse_mode="Markdown")
+        except Exception:
             msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido.")
             await update.message.reply_text(msg_err)
         context.user_data['awaiting_edit_perfil_nombre'] = False
@@ -5813,8 +5880,8 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
             nuevo_val = str(raw_text).strip()
             await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"profesional": nuevo_val})
             msg_ok = traducciones.get("07_bot_profesional_actualizado", "✅ Profesional actualizado a `{nuevo_val}`.").format(nuevo_val=nuevo_val)
-            await update.message.reply_text(msg_ok, parse_mode="Markdown")
-        except Exception as e:
+            await update.message.reply_text(msg_ok.replace('\\n', '\n'), parse_mode="Markdown")
+        except Exception:
             msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido.")
             await update.message.reply_text(msg_err)
         context.user_data['awaiting_edit_perfil_prof'] = False
@@ -5822,11 +5889,9 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
     # --- RECÁLCULO DINÁMICO INMEDIATO ---
     if cambio_biometrico and mensaje_exito:
         try:
-            # Obtenemos los datos completos del usuario con la BD ya actualizada (en hilo asíncrono)
             perfil = await asyncio.to_thread(obtener_datos_completos_usuario, user_id, mes_target=mes_actual)
             
             if perfil:
-                # Extraer métricas clave
                 peso = parse_raw_val(perfil.get('PESO', perfil.get('Peso', 0)))
                 altura = parse_raw_val(perfil.get('ALTURA', perfil.get('Altura', 0)))
                 edad = parse_raw_val(perfil.get('EDAD', perfil.get('Edad', 0)))
@@ -5838,23 +5903,31 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
                 cadera = perfil.get('cadera_cm', 0.0)
                 ritmo = perfil.get('ritmo_preferido', 'moderado')
 
-                # Recalcular metabolismo e ideal
                 tmb, get_val = calcular_tmb_y_get(peso, altura, int(edad), genero, ocupacion, cadera_cm=cadera)
                 peso_ideal = calcular_peso_ideal(genero, altura, edad=int(edad))
                 peso_etapa = calcular_peso_etapa(peso, peso_ideal, ritmo)
 
                 msg_recalculo = traducciones.get(
                     "07_bot_metricas_recalculadas",
-                    "{mensaje_exito}\n\n🔄 **Nuevas métricas calculadas:**\n• TMB (Metabolismo Basal): `{tmb:.0f} kcal/día`\n• GET (Gasto Energético): `{get_val:.0f} kcal/día`\n• Meta / Peso Etapa: `{peso_etapa:.1f} kg`"
+                    "{mensaje_exito}\n\n🔄 **Nuevas métricas calculadas:**\n• TMB (Metabolismo Basal): `{tmb} kcal/día`\n• GET (Gasto Energético): `{get_val} kcal/día`\n• Meta / Peso Etapa: `{peso_etapa} kg`"
+                ).replace('\\n', '\n')
+                
+                # Reemplazamos formatos complejos si quedaron en la base de datos vieja
+                msg_recalculo = msg_recalculo.replace("{tmb:.0f}", "{tmb}").replace("{get_val:.0f}", "{get_val}").replace("{peso_etapa:.1f}", "{peso_etapa}")
+                
+                txt_recalculo = msg_recalculo.format(
+                    mensaje_exito=mensaje_exito, 
+                    tmb=f"{tmb:.0f}", 
+                    get_val=f"{get_val:.0f}", 
+                    peso_etapa=f"{peso_etapa:.1f}"
                 )
-                txt_recalculo = msg_recalculo.format(mensaje_exito=mensaje_exito, tmb=tmb, get_val=get_val, peso_etapa=peso_etapa)
 
                 await update.message.reply_text(txt_recalculo, parse_mode="Markdown")
             else:
-                await update.message.reply_text(mensaje_exito, parse_mode="Markdown")
+                await update.message.reply_text(mensaje_exito.replace('\\n', '\n'), parse_mode="Markdown")
         except Exception as e:
             logger.error(f"Error recalculando métricas en vivo para {user_id}: {e}")
-            await update.message.reply_text(mensaje_exito, parse_mode="Markdown")
+            await update.message.reply_text(mensaje_exito.replace('\\n', '\n'), parse_mode="Markdown")
                                                     
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -5865,6 +5938,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw_text = update.message.text.strip() if update.message and update.message.text else ""
     if not raw_text: 
         return
+
+    # --- INTERCEPTOR DE NOTAS MÉDICAS (Evita que la IA las procese como comidas) ---
+    if context.user_data.get('esperando_texto_nota_para') or context.user_data.get('esperando_nota_informe_para'):
+        if 'esperando_nota_informe_para' in context.user_data:
+            from 11ComandosProfesionales import procesar_texto_nota_informe
+            if await procesar_texto_nota_informe(update, context):
+                return
+        else:
+            from 11ComandosProfesionales import procesar_texto_nota_medica
+            if await procesar_texto_nota_medica(update, context):
+                return
 
     estados_perfil = [
         'awaiting_edit_perfil_peso', 'awaiting_edit_perfil_altura', 
@@ -5894,11 +5978,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await asyncio.to_thread(guardar_presion_db, user_id, alta, baja, pulsaciones, nota=nota)
 
-            pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
+            lbl_pul = traducciones.get("09_presi_lbl_pulsaciones", "Pulsaciones")
+            pul_txt = f" | {lbl_pul}: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
             msg_presion_ok = traducciones.get(
                 "07_bot_presion_registrada_ok",
                 "✅ *¡Presión arterial registrada con éxito!*\n\n• Presión Alta: `{alta:.0f} mmHg`\n• Presión Baja: `{baja:.0f} mmHg`{pul_txt}\n📝 Nota: `{nota}`"
-            )
+            ).replace('\\n', '\n')
             await update.message.reply_text(
                 msg_presion_ok.format(alta=alta, baja=baja, pul_txt=pul_txt, nota=nota),
                 parse_mode="Markdown"
@@ -6274,7 +6359,6 @@ async def rutina_nocturna_revision(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error en rutina nocturna: {e}")
 
-# =========================================================================
 # 1. COMANDO /pagar (Menú dinámico de planes desde Supabase)
 # =========================================================================
 async def cmd_pagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -6313,8 +6397,6 @@ async def cmd_pagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_error = traducciones.get("10_pagar_error_carga", "❌ Ocurrió un error al cargar las opciones de pago.")
         await update.message.reply_text(msg_error)
 
-
-# =========================================================================
 # 2. MANEJADOR DE BOTONES DE PLANES (Callback Query)
 # =========================================================================
 async def boton_elegir_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -6417,7 +6499,6 @@ async def boton_elegir_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_err_proc = traducciones.get("10_pagar_error_proc", "❌ Ocurrió un error al procesar tu selección.")
         await query.edit_message_text(msg_err_proc)
 
-# =========================================================================
 # 3. COMANDO ADMINISTRATIVO /cobrar (Cobro Manual por ID y Estrellas)
 # =========================================================================
 async def cmd_forzar_cobro(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -6478,7 +6559,6 @@ async def cmd_forzar_cobro(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_err_envio_tpl = traducciones.get("10_cobrar_error_envio", "❌ Error al enviar la factura: {e}")
         await update.message.reply_text(msg_err_envio_tpl.format(e=e))
 
-# =========================================================================
 # 4. PRE-CHECKOUT Y SUCCESSFUL PAYMENT HANDLERS
 # =========================================================================
 async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -6568,7 +6648,6 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
         msg_err_pago = traducciones.get("10_pago_error_ficha", "⚠️ El pago se realizó pero hubo un error al actualizar tu ficha.")
         await update.message.reply_text(msg_err_pago)
 
-# =========================================================================
 # 5. PROCESO MASIVO DE FACTURACIÓN AUTOMÁTICA
 # =========================================================================
 async def proceso_masivo_cobros(context: ContextTypes.DEFAULT_TYPE):
@@ -8497,9 +8576,15 @@ async def ing_recibir_profesional(update: Update, context: ContextTypes.DEFAULT_
     es_valido = False
     if prof_id == "123456789":
         es_valido = True
+        context.user_data['ing_profesional_oficial'] = "123456789"
+        context.user_data['ing_profesional_pendiente'] = None
     else:
         loop = asyncio.get_running_loop()
         es_valido = await loop.run_in_executor(None, _verificar_profesional_valido, prof_id)
+        if es_valido:
+            # Si el profesional existe, lo guardamos como pendiente y asignamos el genérico provisionalmente
+            context.user_data['ing_profesional_oficial'] = "123456789"
+            context.user_data['ing_profesional_pendiente'] = prof_id
     
     if not es_valido:
         txt_err_prof = (
@@ -8510,7 +8595,6 @@ async def ing_recibir_profesional(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text(txt_err_prof, parse_mode="Markdown")
         return ING_PROFESIONAL
 
-    context.user_data['ing_profesional'] = prof_id
     txt_solic_nombre = (
         "✅ **Profesional verificado correctamente.**\n\n"
         "📝 **Apertura de Ficha Nutricional**\n"
@@ -8518,7 +8602,7 @@ async def ing_recibir_profesional(update: Update, context: ContextTypes.DEFAULT_
     )
     await update.message.reply_text(txt_solic_nombre, parse_mode="Markdown")
     return ING_NOMBRE
-
+    
 async def ing_recibir_cumple(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cumple_str = update.message.text.strip()
     try:
@@ -8664,12 +8748,17 @@ async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data['ing_altura'] = alt
     user_id = update.effective_user.id
 
+    # Obtener el profesional oficial (genérico provisional) y el pendiente (médico real)
+    prof_oficial = context.user_data.get('ing_profesional_oficial', '123456789')
+    prof_pendiente = context.user_data.get('ing_profesional_pendiente', None)
+
     datos_usuario = {
         "user_id": user_id,
         "nombre": context.user_data.get('ing_nombre'),
         "sexo": context.user_data.get('ing_sexo'),
         "cumple": context.user_data.get('ing_cumple'),
-        "profesional": context.user_data.get('ing_profesional'),
+        "profesional": prof_oficial,
+        "profesional_pendiente": prof_pendiente,
         "cintura": context.user_data.get('ing_cintura', 0.0),
         "cuello": context.user_data.get('ing_cuello', 0.0),
         "cadera": context.user_data.get('ing_cadera', 0.0),
@@ -8712,11 +8801,10 @@ async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         await msg_espera.delete()
         
-        # Aclaración adicional si tiene médico asignado
+        # Aclaración adicional si dejó un profesional pendiente para auditar
         aviso_medico_alta = ""
-        prof_ingresado = datos_usuario.get("profesional", "")
-        if prof_ingresado and prof_ingresado != "123456789":
-            aviso_medico_alta = "\n\n🩺 *Nota:* Estos valores iniciales fueron calculados automáticamente, pero tu médico tratante se contactará o ajustará tus metas si considera que es necesario."
+        if prof_pendiente and prof_pendiente != "123456789":
+            aviso_medico_alta = "\n\n🩺 *Nota:* Se ha enviado una solicitud a tu médico tratante para que audite y confirme tu seguimiento. Tu cuenta ya se encuentra activa de forma autónoma."
 
         resumen_plantilla = traducciones.get('09_ing_resumen_cuenta_lista', 
             "🎉 **¡Tu cuenta y planillas están listas!**\n\n"
@@ -8745,12 +8833,29 @@ async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 filename=filename_pdf
             )
 
-        if prof_ingresado and prof_ingresado != "123456789":
+        # Enviar solicitud interactiva al médico real si corresponde
+        if prof_pendiente and prof_pendiente != "123456789":
             try:
-                msg_prof = f"🩺 **Nuevo paciente registrado:** Se ha asociado a su seguimiento el usuario *{datos_usuario['nombre']}* (ID: `{user_id}`)."
-                await context.bot.send_message(chat_id=int(prof_ingresado), text=msg_prof, parse_mode="Markdown")
+                keyboard_medico = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Aceptar Paciente", callback_data=f"medico_aceptar_{user_id}")],
+                    [InlineKeyboardButton("❌ Rechazar", callback_data=f"medico_rechazar_{user_id}")]
+                ])
+                
+                msg_solicitud = (
+                    f"🩺 **Nueva Solicitud de Seguimiento Clínico**\n\n"
+                    f"El usuario **{datos_usuario['nombre']}** (ID: `{user_id}`) ha solicitado que usted sea su profesional a cargo y supervise su plan nutricional.\n\n"
+                    f"• ⚖️ Peso Inicial: `{datos_usuario['peso']} kg`\n"
+                    f"• 📏 Altura: `{datos_usuario['altura']} cm`\n\n"
+                    f"¿Desea aceptar la supervisión de este paciente?"
+                )
+                await context.bot.send_message(
+                    chat_id=int(prof_pendiente), 
+                    text=msg_solicitud, 
+                    reply_markup=keyboard_medico, 
+                    parse_mode="Markdown"
+                )
             except Exception as e_prof:
-                logger.error(f"No se pudo notificar al profesional {prof_ingresado}: {e_prof}")
+                logger.error(f"No se pudo enviar la solicitud de supervisión al profesional {prof_pendiente}: {e_prof}")
 
     except Exception as e:
         logger.error(f"Error al registrar cuenta final o PDF para {user_id}: {e}")
@@ -8759,13 +8864,14 @@ async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     context.user_data.clear()
     return ConversationHandler.END
-
+    
 def cmd_nuevo_usuario(datos_usuario):
     user_id = datos_usuario.get("user_id")
     nombre = datos_usuario.get("nombre")
     sexo = datos_usuario.get("sexo", "M")
     cumple = datos_usuario.get("cumple", "")
-    profesional = datos_usuario.get("profesional", "")
+    profesional = datos_usuario.get("profesional", "123456789")
+    profesional_pendiente = datos_usuario.get("profesional_pendiente", None)
     cintura = float(datos_usuario.get("cintura", 0))
     cuello = float(datos_usuario.get("cuello", 0))
     cadera = float(datos_usuario.get("cadera", 0))
@@ -8781,6 +8887,14 @@ def cmd_nuevo_usuario(datos_usuario):
 
     try:
         conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        
+        # Asegurar que exista la columna profesional_pendiente por seguridad
+        try:
+            cur_u.execute('ALTER TABLE "Usuarios" ADD COLUMN IF NOT EXISTS "profesional_pendiente" TEXT;')
+            conn_u.commit()
+        except Exception:
+            conn_u.rollback()
+
         cur_u.execute('SELECT COUNT(*) FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
         existe = cur_u.fetchone()[0] > 0
 
@@ -8789,16 +8903,17 @@ def cmd_nuevo_usuario(datos_usuario):
                 UPDATE "Usuarios" SET
                     "Nombre" = %s, "Estado" = %s, "Ultimo Mes Peso" = %s, "Notificaciones" = %s,
                     "Fecha Alta" = %s, "Sexo" = %s, "cumple" = %s, "profesional" = %s,
-                    "cintura_cm" = %s, "cuello_cm" = %s, "cadera_cm" = %s, "ritmo_preferido" = %s, "Idioma" = %s
+                    "profesional_pendiente" = %s, "cintura_cm" = %s, "cuello_cm" = %s, 
+                    "cadera_cm" = %s, "ritmo_preferido" = %s, "Idioma" = %s
                 WHERE "User ID" = %s
             """
-            valores_usr = (nombre, 0, mes_actual, "Si", fecha_alta, sexo, cumple, profesional, cintura, cuello, cadera, ritmo, idioma, str(user_id))
+            valores_usr = (nombre, 0, mes_actual, "Si", fecha_alta, sexo, cumple, profesional, profesional_pendiente, cintura, cuello, cadera, ritmo, idioma, str(user_id))
         else:
             query_usr = """
-                INSERT INTO "Usuarios" ("User ID", "Nombre", "Estado", "Ultimo Mes Peso", "Notificaciones", "Fecha Alta", "Sexo", "cumple", "profesional", "cintura_cm", "cuello_cm", "cadera_cm", "ritmo_preferido", "Idioma")
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO "Usuarios" ("User ID", "Nombre", "Estado", "Ultimo Mes Peso", "Notificaciones", "Fecha Alta", "Sexo", "cumple", "profesional", "profesional_pendiente", "cintura_cm", "cuello_cm", "cadera_cm", "ritmo_preferido", "Idioma")
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
-            valores_usr = (str(user_id), nombre, 0, mes_actual, "Si", fecha_alta, sexo, cumple, profesional, cintura, cuello, cadera, ritmo, idioma)
+            valores_usr = (str(user_id), nombre, 0, mes_actual, "Si", fecha_alta, sexo, cumple, profesional, profesional_pendiente, cintura, cuello, cadera, ritmo, idioma)
 
         cur_u.execute(query_usr, valores_usr)
         conn_u.commit()
@@ -8820,14 +8935,17 @@ def cmd_nuevo_usuario(datos_usuario):
     except Exception as e:
         logger.error(f"Error alta tabla Perfil: {e}")
 
-
 #                       INICIO                        COMANDOS PERFIL                           INICIO
+# ======================================================================================================================================
+        
+# ======================================================================================================================================
+#                       INICIO                        COMANDOS PERFIL (CORREGIDO)                   INICIO
 # ======================================================================================================================================
         
 @requiere_registro
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
     
     ahora = obtener_ahora_arg()
@@ -8838,6 +8956,18 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         perfil_completo = obtener_datos_completos_usuario(user_id, mes_target=mes_actual) if 'obtener_datos_completos_usuario' in globals() else obtener_perfil_usuario(user_id, mes_target=mes_actual)
+
+        # Etiquetas traducibles (se usan tanto en el texto como en los botones)
+        lbl_nombre = traducciones.get('09_perfil_lbl_nombre', 'Nombre')
+        lbl_edad = traducciones.get('09_perfil_lbl_edad', 'Edad')
+        lbl_peso = traducciones.get('09_perfil_lbl_peso', 'Peso')
+        lbl_altura = traducciones.get('09_perfil_lbl_altura', 'Altura')
+        lbl_cintura = traducciones.get('09_perfil_lbl_cintura', 'Cintura')
+        lbl_cuello = traducciones.get('09_perfil_lbl_cuello', 'Cuello')
+        lbl_cadera = traducciones.get('09_perfil_lbl_cadera', 'Cadera')
+        lbl_ritmo = traducciones.get('09_perfil_lbl_ritmo', 'Ritmo')
+        lbl_idioma = traducciones.get('09_perfil_lbl_idioma', 'Idioma')
+        lbl_prof = traducciones.get('09_perfil_lbl_profesional', 'Profesional')
 
         if perfil_completo:
             peso = parse_raw_val(perfil_completo.get('PESO', perfil_completo.get('Peso', 0)))
@@ -8851,9 +8981,10 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ocupacion = parse_raw_val(perfil_completo.get('ocupacion', perfil_completo.get('OCUPACION', 1.375)))
             if ocupacion > 10: ocupacion = ocupacion / 1000.0
             
-            fecha_act_peso = perfil_completo.get('Fecha_Actualizacion', 'No registrada')
+            txt_no_reg = traducciones.get('09_perfil_fecha_no_reg', 'No registrada')
+            fecha_act_peso = perfil_completo.get('Fecha_Actualizacion', txt_no_reg)
             if fecha_act_peso == 'S/D' or not fecha_act_peso:
-                fecha_act_peso = "No registrada"
+                fecha_act_peso = txt_no_reg
 
             nombre = perfil_completo.get('Nombre', 'S/D')
             cintura = perfil_completo.get('cintura_cm', 0.0)
@@ -8869,66 +9000,75 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             lineas_medidas = ""
             if es_adulto:
-                lineas_medidas += f"• 📏 Cintura: `{cintura:.1f}` cm\n• 📐 Cuello: `{cuello:.1f}` cm\n"
+                lineas_medidas += f"• 📏 {lbl_cintura}: `{cintura:.1f}` cm\n• 📐 {lbl_cuello}: `{cuello:.1f}` cm\n"
                 if is_fem:
-                    lineas_medidas += f"• 📐 Cadera: `{cadera:.1f}` cm\n"
+                    lineas_medidas += f"• 📐 {lbl_cadera}: `{cadera:.1f}` cm\n"
             else:
-                lineas_medidas = "• *Modalidad Pediátrica/Juvenil (Cálculo OMS sin circunferencias)*\n"
+                txt_pediatrico = traducciones.get('09_perfil_mod_pediatrica', 'Modalidad Pediátrica/Juvenil (Cálculo OMS sin circunferencias)')
+                lineas_medidas = f"• *{txt_pediatrico}*\n"
 
             alerta_medidas = ""
             if es_adulto:
                 if cintura <= 1.0 or cuello <= 1.0 or (is_fem and cadera <= 1.0):
-                    alerta_medidas = "\n⚠️ **Atención:** Tenés 18 años o más. Actualizá tus medidas con los botones de abajo para activar el cálculo de masa magra de alta precisión clínica.\n"
+                    txt_alerta_med = traducciones.get(
+                        '09_perfil_alerta_medidas',
+                        "⚠️ **Atención:** Tenés 18 años o más. Actualizá tus medidas con los botones de abajo para activar el cálculo de masa magra de alta precisión clínica."
+                    )
+                    alerta_medidas = f"\n{txt_alerta_med}\n"
 
-            # Presentación con los mismos emojis de la botonera para absoluta sincronía
+            lbl_tmb = traducciones.get('09_perfil_lbl_tmb', 'TMB Estimada')
+            lbl_get = traducciones.get('09_perfil_lbl_get', 'GET Estimado')
+            lbl_meta = traducciones.get('09_perfil_lbl_meta', 'Meta / Peso de Etapa')
+            lbl_act = traducciones.get('09_perfil_lbl_act', 'Act')
+
             txt_perfil = (
                 f"👤 **{traducciones.get('09_perfil_titulo_biometrico', 'Perfil Biométrico Actual')} ({mes_actual}):**\n\n"
-                f"• 👤 {traducciones.get('09_perfil_lbl_nombre', 'Nombre')}: `{nombre}`\n"
-                f"• 🎯 {traducciones.get('09_perfil_lbl_edad', 'Edad')}: `{edad:.0f}` {traducciones.get('09_perfil_anos', 'años')}\n"
-                f"• ⚖️ {traducciones.get('09_perfil_lbl_peso', 'Peso')}: `{peso:.1f}` kg *(Act: {fecha_act_peso})*\n"
-                f"• 📏 {traducciones.get('09_perfil_lbl_altura', 'Altura')}: `{altura:.1f}` cm\n"
+                f"• 👤 {lbl_nombre}: `{nombre}`\n"
+                f"• 🎯 {lbl_edad}: `{edad:.0f}` {traducciones.get('09_perfil_anos', 'años')}\n"
+                f"• ⚖️ {lbl_peso}: `{peso:.1f}` kg *({lbl_act}: {fecha_act_peso})*\n"
+                f"• 📏 {lbl_altura}: `{altura:.1f}` cm\n"
                 f"{lineas_medidas}"
-                f"• 🎯 {traducciones.get('09_perfil_lbl_ritmo', 'Ritmo de avance')}: `{str(ritmo).capitalize()}`\n"
-                f"• 🌐 {traducciones.get('09_perfil_lbl_idioma', 'Idioma')}: `{str(idioma_usr).upper()}`\n"
-                f"• 🩺 {traducciones.get('09_perfil_lbl_profesional', 'ID Profesional')}: `{profesional}`\n\n"
-                f"• 🔥 **TMB Estimada:** `{tmb:.0f} kcal/día`\n"
-                f"• ⚡ **GET Estimado:** `{get_val:.0f} kcal/día`\n"
-                f"• 🎯 **Meta / Peso de Etapa:** `{peso_etapa:.1f} kg`\n"
+                f"• 🎯 {lbl_ritmo}: `{str(ritmo).capitalize()}`\n"
+                f"• 🌐 {lbl_idioma}: `{str(idioma_usr).upper()}`\n"
+                f"• 🩺 {lbl_prof}: `{profesional}`\n\n"
+                f"• 🔥 **{lbl_tmb}:** `{tmb:.0f} kcal/día`\n"
+                f"• ⚡ **{lbl_get}:** `{get_val:.0f} kcal/día`\n"
+                f"• 🎯 **{lbl_meta}:** `{peso_etapa:.1f} kg`\n"
                 f"{alerta_medidas}"
             )
         else:
             txt_perfil = traducciones.get('09_perfil_no_registrado', "👤 **Perfil no registrado para este mes.** Podés cargar tu peso ejecutando:\n`/peso 82.5`")
 
-        # Botonera con emojis solos limpios y coincidentes
+        # Botonera clara con Ícono + Nombre traducido
         keyboard = [
             [
-                InlineKeyboardButton("⚖️", callback_data="edit_perfil_peso"),
-                InlineKeyboardButton("📏", callback_data="edit_perfil_altura")
+                InlineKeyboardButton(f"⚖️ {lbl_peso}", callback_data="edit_perfil_peso"),
+                InlineKeyboardButton(f"📏 {lbl_altura}", callback_data="edit_perfil_altura")
             ]
         ]
 
         if es_adulto:
             fila_cintas = [
-                InlineKeyboardButton("📏", callback_data="edit_perfil_cintura"),
-                InlineKeyboardButton("📐", callback_data="edit_perfil_cuello")
+                InlineKeyboardButton(f"📏 {lbl_cintura}", callback_data="edit_perfil_cintura"),
+                InlineKeyboardButton(f"📐 {lbl_cuello}", callback_data="edit_perfil_cuello")
             ]
             keyboard.append(fila_cintas)
             if is_fem:
-                keyboard.append([InlineKeyboardButton("📐", callback_data="edit_perfil_cadera")])
+                keyboard.append([InlineKeyboardButton(f"📐 {lbl_cadera}", callback_data="edit_perfil_cadera")])
 
         keyboard.extend([
             [
-                InlineKeyboardButton("🎯", callback_data="edit_perfil_ritmo"),
-                InlineKeyboardButton("🌐", callback_data="edit_perfil_idioma")
+                InlineKeyboardButton(f"🎯 {lbl_ritmo}", callback_data="edit_perfil_ritmo"),
+                InlineKeyboardButton(f"🌐 {lbl_idioma}", callback_data="edit_perfil_idioma")
             ],
             [
-                InlineKeyboardButton("👤", callback_data="edit_perfil_nombre"),
-                InlineKeyboardButton("🩺", callback_data="edit_perfil_prof")
+                InlineKeyboardButton(f"👤 {lbl_nombre}", callback_data="edit_perfil_nombre"),
+                InlineKeyboardButton(f"🩺 {lbl_prof}", callback_data="edit_perfil_prof")
             ]
         ])
         markup = InlineKeyboardMarkup(keyboard)
 
-        await update.message.reply_text(txt_perfil, reply_markup=markup, parse_mode="Markdown")
+        await update.message.reply_text(txt_perfil.replace('\\n', '\n'), reply_markup=markup, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Error al consultar perfil: {e}")
@@ -8971,7 +9111,7 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
 
     if data == "edit_perfil_peso":
@@ -9003,10 +9143,13 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
         msg = await query.message.reply_text(traducciones.get('09_solic_prof', "🩺 Por favor, ingresá el ID de Telegram de tu nuevo profesional:"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
     elif data == "edit_perfil_ritmo":
+        btn_r1 = traducciones.get('09_btn_ritmo_tranquilo', "🟢 Tranquilo / Lento")
+        btn_r2 = traducciones.get('09_btn_ritmo_moderado', "🟡 Moderado")
+        btn_r3 = traducciones.get('09_btn_ritmo_intenso', "🔴 Intenso / Rápido")
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🟢 Tranquilo / Lento", callback_data="set_ritmo_1")],
-            [InlineKeyboardButton("🟡 Moderado", callback_data="set_ritmo_2")],
-            [InlineKeyboardButton("🔴 Intenso / Rápido", callback_data="set_ritmo_3")]
+            [InlineKeyboardButton(btn_r1, callback_data="set_ritmo_1")],
+            [InlineKeyboardButton(btn_r2, callback_data="set_ritmo_2")],
+            [InlineKeyboardButton(btn_r3, callback_data="set_ritmo_3")]
         ])
         await query.message.reply_text(traducciones.get('09_solic_ritmo', "🎯 Seleccioná tu nuevo ritmo de avance deseado:"), reply_markup=keyboard, parse_mode="Markdown")
     elif data == "edit_perfil_idioma":
@@ -9023,7 +9166,8 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
     elif data.startswith("set_lang_"):
         nuevo_lang = data.replace("set_lang_", "")
         actualizar_idioma_usuario(user_id, nuevo_lang)
-        msg_ok = traducciones.get('09_idioma_actualizado_ok', "✅ ¡Idioma actualizado exitosamente a *{lang}*!").format(lang=nuevo_lang.upper())
+        trad_nuevas = obtener_traducciones_db(nuevo_lang) if 'obtener_traducciones_db' in globals() else traducciones
+        msg_ok = trad_nuevas.get('09_idioma_actualizado_ok', "✅ ¡Idioma actualizado exitosamente a *{lang}*!").format(lang=nuevo_lang.upper())
         await query.edit_message_text(msg_ok, parse_mode="Markdown")
         
 #                       INICIO                        COMANDOS BIOMETRICOS                           INICIO
@@ -9118,17 +9262,17 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
 
     alta_prom = df_p_mes['Alta'].mean()
     baja_prom = df_p_mes['Baja'].mean()
-    pul_prom = df_p_mes[df_p_mes['Pulsaciones'] > 0]['Pulsaciones'].mean() if 'Pulsaciones' in df_p_mes.columns else 0
+    pul_prom = df_p_mes[df_p_mes['Pulsaciones'] > 0]['Pulsaciones'].mean() if 'Pulsaciones' in df_presion.columns else 0
 
-    titulo_resumen = f"🩺 <b>Resumen de Presión Arterial ({mes_str}):</b>"
-    mediciones_reg = f"• Mediciones registradas: `{len(df_p_mes)}`"
-    prom_alta = f"• <b>Promedio Alta (Sistólica):</b> `{alta_prom:.1f} mmHg`"
-    prom_baja = f"• <b>Promedio Baja (Diastólica):</b> `{baja_prom:.1f} mmHg`"
+    titulo_resumen = traducciones.get('09_presi_resumen_titulo', "🩺 <b>Resumen de Presión Arterial ({mes}):</b>").format(mes=mes_str)
+    mediciones_reg = traducciones.get('09_presi_mediciones_reg', "• Mediciones registradas: `{cant}`").format(cant=len(df_p_mes))
+    prom_alta = traducciones.get('09_presi_prom_alta', "• <b>Promedio Alta (Sistólica):</b> `{alta:.1f} mmHg`").format(alta=alta_prom)
+    prom_baja = traducciones.get('09_presi_prom_baja', "• <b>Promedio Baja (Diastólica):</b> `{baja:.1f} mmHg`").format(baja=baja_prom)
     
     txt = f"{titulo_resumen}\n\n{mediciones_reg}\n{prom_alta}\n{prom_baja}\n"
 
     if pul_prom > 0:
-        prom_pulso = f"• <b>Pulsaciones promedio:</b> `{pul_prom:.1f} lpm`"
+        prom_pulso = traducciones.get('09_presi_prom_pulso', "• <b>Pulsaciones promedio:</b> `{pul:.1f} lpm`").format(pul=pul_prom)
         txt += f"{prom_pulso}\n"
 
     btn_texto = traducciones.get('09_btn_descargar_pdf_presi', "📄 Descargar PDF de Presión")
@@ -9143,41 +9287,54 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
   
 async def _sub_manejar_foto_presion(update, context, res_presion, msg):
     user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_idioma_usuario' in globals() else {}
+
     alta = float(res_presion.get("alta", 0))
     baja = float(res_presion.get("baja", 0))
     pulsaciones = float(res_presion.get("pulsaciones", 0))
     
     if not (70 <= alta <= 250) or not (40 <= baja <= 150) or (pulsaciones > 0 and not (30 <= pulsaciones <= 220)):
-        txt_error_presion = (
+        txt_error_presion = traducciones.get(
+            '09_presi_foto_err_rango',
             "⚠️ **Lectura de presión atípica o errónea**\n\n"
-            f"Los valores detectados en la imagen (`{alta:.0f}/{baja:.0f} mmHg`) "
+            "Los valores detectados en la imagen (`{alta:.0f}/{baja:.0f} mmHg`) "
             "están fuera de los rangos biológicos lógicos.\n\n"
             "Por favor, registrala manualmente usando:\n`/presi [alta],[baja],[pulsaciones]` (ej: `/presi 120,80,75`)."
-        )
-        await msg.edit_text(txt_error_presion, parse_mode="Markdown")
+        ).format(alta=alta, baja=baja)
+        await msg.edit_text(txt_error_presion.replace('\\n', '\n'), parse_mode="Markdown")
         return
 
     context.user_data['pending_presion_foto'] = {"alta": alta, "baja": baja, "pulsaciones": pulsaciones}
-    pul_txt = f" | Pulsaciones: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
+    lbl_pul = traducciones.get('09_presi_lbl_pulsaciones', 'Pulsaciones')
+    pul_txt = f" | {lbl_pul}: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
     
+    btn_nota = traducciones.get('09_btn_presi_agregar_nota', "✏️ Agregar Nota")
+    btn_guardar = traducciones.get('09_btn_presi_guardar_directo', "💾 Guardar sin Nota")
+    btn_cancelar = traducciones.get('09_btn_cancelar', "❌ Cancelar")
+
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✏️ Agregar Nota", callback_data="presion_pedir_nota")],
-        [InlineKeyboardButton("💾 Guardar sin Nota", callback_data="presion_guardar_directo")],
-        [InlineKeyboardButton("❌ Cancelar", callback_data="cancelar_presion_foto")]
+        [InlineKeyboardButton(btn_nota, callback_data="presion_pedir_nota")],
+        [InlineKeyboardButton(btn_guardar, callback_data="presion_guardar_directo")],
+        [InlineKeyboardButton(btn_cancelar, callback_data="cancelar_presion_foto")]
     ])
 
-    mensaje_final = (
-        f"🩺 **Tensiómetro detectado en la imagen:**\n\n"
-        f"• Presión Alta: `{alta:.0f} mmHg`\n"
-        f"• Presión Baja: `{baja:.0f} mmHg`{pul_txt}\n\n"
-        f"Seleccioná una opción para continuar:"
-    )
-    await msg.edit_text(mensaje_final, reply_markup=keyboard, parse_mode="Markdown")
+    mensaje_final = traducciones.get(
+        '09_presi_foto_detectada',
+        "🩺 **Tensiómetro detectado en la imagen:**\n\n"
+        "• Presión Alta: `{alta:.0f} mmHg`\n"
+        "• Presión Baja: `{baja:.0f} mmHg`{pul_txt}\n\n"
+        "Seleccioná una opción para continuar:"
+    ).format(alta=alta, baja=baja, pul_txt=pul_txt)
+    await msg.edit_text(mensaje_final.replace('\\n', '\n'), reply_markup=keyboard, parse_mode="Markdown")
      
 async def generar_y_enviar_pdf_presion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer("Generando PDF de presión... ⏳")
     user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    await query.answer(traducciones.get('09_presi_generando_pdf', "Generando PDF de presión... ⏳"))
     
     cb_data = query.data
     mes_str = cb_data.replace("descargar_pdf_presion_", "").strip()
@@ -9187,11 +9344,12 @@ async def generar_y_enviar_pdf_presion(update: Update, context: ContextTypes.DEF
     
     pdf_buffer = generar_pdf_presion_bytes(mes_str, df_p_mes, user_id)
     
+    caption_txt = traducciones.get('09_presi_pdf_caption', "🩺 Reporte de Presión Arterial - Período {mes}").format(mes=mes_str)
     await context.bot.send_document(
         chat_id=query.message.chat_id,
         document=pdf_buffer,
         filename=f"Presion_{mes_str}.pdf",
-        caption=f"🩺 Reporte de Presión Arterial - Período {mes_str}",
+        caption=caption_txt,
         parse_mode="Markdown"
     )
     
@@ -9425,6 +9583,209 @@ async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAUL
 #                INICIO                            COMANDOS PROFESIONALES                             INICIO 
 # =============================================================================================================================================
 
+async def callback_editar_valor_clinico_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Maneja los botones del menú de edición clínica y le pide el nuevo valor al médico."""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    if data == "edit_val_volver":
+        await query.edit_message_text("🔙 Operación finalizada.", parse_mode="Markdown")
+        return
+
+    # Mapeo de botones a campos en la base de datos
+    mapa_campos = {
+        "edit_val_calorias": ("calorias_max", "Calorías Máximas / GET (ej: 2100)"),
+        "edit_val_proteinas": ("proteinas_max", "Proteínas Máximas en gramos (ej: 120)"),
+        "edit_val_peso": ("peso_etapa", "Peso de Etapa en kg (ej: 80.5)")
+    }
+
+    if data in mapa_campos:
+        campo_db, etiqueta = mapa_campos[data]
+        context.user_data['campo_clinico_a_editar'] = campo_db
+        
+        await query.edit_message_text(
+            f"✍️ **Modificar {etiqueta}**\n\n"
+            "Por favor, escribí a continuación el nuevo valor numérico:",
+            parse_mode="Markdown"
+        )
+        
+async def procesar_cambio_valor_clinico(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Captura el número escrito por el médico y actualiza la tabla de valores clínicos en Supabase."""
+    campo_db = context.user_data.get('campo_clinico_a_editar')
+    target_user_id = context.user_data.get('edit_medico_target_user')
+    mes_actual = context.user_data.get('edit_medico_mes')
+
+    if not campo_db or not target_user_id or not mes_actual:
+        return False # No es una edición clínica activa, dejar pasar el mensaje
+
+    texto_ingresado = update.message.text.strip().replace(',', '.')
+    
+    # Limpiar estado del contexto
+    context.user_data.pop('campo_clinico_a_editar', None)
+
+    try:
+        nuevo_valor = float(texto_ingresado)
+        
+        # Conectar a Supabase y actualizar el registro clínico
+        conn, cur = _asegurar_tabla_y_conectar("Valores_Clinicos_Profesional", tipo_tabla="comidas_precargadas")
+        
+        # Si es calorías, actualizamos un rango lógico (ej: min y max simétricos o ajustados)
+        if campo_db == "calorias_max":
+            cal_min = max(800.0, nuevo_valor - 300.0)
+            cur.execute("""
+                UPDATE "Valores_Clinicos_Profesional" 
+                SET "calorias_min" = %s, "calorias_max" = %s, "get" = %s
+                WHERE "user_id" = %s AND "mes" = %s
+            """, (cal_min, nuevo_valor, nuevo_valor, str(target_user_id), str(mes_actual)))
+        else:
+            query_upd = f'UPDATE "Valores_Clinicos_Profesional" SET "{campo_db}" = %s WHERE "user_id" = %s AND "mes" = %s'
+            cur.execute(query_upd, (nuevo_valor, str(target_user_id), str(mes_actual)))
+            
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        await update.message.reply_text(
+            f"✅ **¡Valor clínico actualizado con éxito!**\n\n"
+            f"• Paciente ID: `{target_user_id}`\n"
+            f"• Período: `{mes_actual}`\n"
+            f"• Nuevo valor registrado para `{campo_db}`: `{nuevo_valor}`",
+            parse_mode="Markdown"
+        )
+        return True
+
+    except ValueError:
+        await update.message.reply_text("⚠️ Por favor, ingresá un número válido (ejemplo: `2100` o `85.5`).")
+        return True
+    except Exception as e:
+        logger.error(f"Error al actualizar valor clínico en Supabase: {e}")
+        await update.message.reply_text(f"❌ Ocurrió un error al actualizar la base de datos: {e}")
+        return True
+        
+async def callback_gestion_solicitud_medico(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Maneja la respuesta del médico al aceptar o rechazar la solicitud de un nuevo paciente."""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    prof_id = str(query.from_user.id).strip()
+
+    if not data.startswith("medico_aceptar_") and not data.startswith("medico_rechazar_"):
+        return
+
+    es_aceptacion = data.startswith("medico_aceptar_")
+    target_user_id = data.replace("medico_aceptar_", "").replace("medico_rechazar_", "").strip()
+
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        
+        if es_aceptacion:
+            # 1. Pasar el profesional pendiente a la columna oficial "profesional" y limpiar el pendiente
+            cur.execute("""
+                UPDATE "Usuarios" 
+                SET "profesional" = %s, "profesional_pendiente" = NULL 
+                WHERE "User ID" = %s
+            """, (prof_id, str(target_user_id)))
+            conn.commit()
+
+            # 2. Generar automáticamente los valores clínicos iniciales para el mes actual en la tabla de Supabase
+            ahora = obtener_ahora_arg()
+            mes_actual = ahora.strftime("%Y-%m")
+            
+            # Consultar biometría del usuario para calcular valores base
+            cur.execute('SELECT "Sexo", "cintura_cm", "cuello_cm", "cadera_cm" FROM "Usuarios" WHERE "User ID" = %s', (str(target_user_id),))
+            fila_u = cur.fetchone()
+            
+            perfil_u = obtener_perfil_usuario(target_user_id, mes_target=mes_actual) or {}
+            peso_u = float(perfil_u.get('PESO', perfil_u.get('Peso', 70)))
+            altura_u = float(perfil_u.get('ALTURA', perfil_u.get('Altura', 170)))
+            edad_u = int(perfil_u.get('EDAD', perfil_u.get('Edad', 40)))
+            sexo_u = str(fila_u[0] if fila_u and fila_u[0] else perfil_u.get('GENERO', 'M'))
+            
+            # Calcular metas y macros iniciales
+            peso_ideal = calcular_peso_ideal(sexo_u, altura_u, edad=edad_u)
+            peso_etapa = calcular_peso_etapa(peso_u, peso_ideal, perfil_u.get('Ritmo', 'moderado'))
+            tmb, get_val = calcular_tmb_y_get(peso_u, altura_u, edad_u, sexo_u, actividad=1.375)
+            
+            # Insertar en la tabla Valores_Clinicos_Profesional
+            try:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS "Valores_Clinicos_Profesional" (
+                        id SERIAL PRIMARY KEY,
+                        "user_id" TEXT,
+                        "prof_id" TEXT,
+                        "mes" TEXT,
+                        "tmb" DOUBLE PRECISION,
+                        "get" DOUBLE PRECISION,
+                        "peso_etapa" DOUBLE PRECISION,
+                        "calorias_min" DOUBLE PRECISION,
+                        "calorias_max" DOUBLE PRECISION,
+                        "proteinas_min" DOUBLE PRECISION,
+                        "proteinas_max" DOUBLE PRECISION,
+                        "hidratos_min" DOUBLE PRECISION,
+                        "hidratos_max" DOUBLE PRECISION,
+                        "grasas_min" DOUBLE PRECISION,
+                        "grasas_max" DOUBLE PRECISION,
+                        "fibras_min" DOUBLE PRECISION
+                    );
+                """)
+                cur.execute("""
+                    INSERT INTO "Valores_Clinicos_Profesional" 
+                    ("user_id", "prof_id", "mes", "tmb", "get", "peso_etapa", "calorias_min", "calorias_max", "proteinas_min", "proteinas_max", "hidratos_min", "hidratos_max", "grasas_min", "grasas_max", "fibras_min")
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    str(target_user_id), prof_id, mes_actual, tmb, get_val, peso_etapa,
+                    get_val - 300, get_val, 80, 110, 150, 220, 45, 65, 25
+                ))
+                conn.commit()
+            except Exception as e_vc:
+                logger.error(f"Error al insertar valores clínicos iniciales: {e_vc}")
+
+            cur.close()
+            conn.close()
+
+            # 3. Informar al médico y al paciente
+            await query.edit_message_text(
+                f"✅ **Paciente aceptado con éxito.**\n\n"
+                f"El usuario con ID `{target_user_id}` ha sido vinculado oficialmente a su cuenta. "
+                f"Se han generado sus valores clínicos iniciales para el período `{mes_actual}`. "
+                f"Ya puede revisarlos o modificarlos desde el comando `/editar_valores`.",
+                parse_mode="Markdown"
+            )
+            
+            try:
+                msg_paciente = "🩺 **¡Buenas noticias!** Tu profesional a cargo ha aceptado la supervisión de tu cuenta. Tu seguimiento clínico ya se encuentra activo."
+                await context.bot.send_message(chat_id=int(target_user_id), text=msg_paciente, parse_mode="Markdown")
+            except Exception as e_notif_pac:
+                logger.error(f"No se pudo notificar la aceptación al paciente {target_user_id}: {e_notif_pac}")
+
+        else:
+            # Si el médico rechaza, limpiamos el campo pendiente pero dejamos el genérico activo en el usuario
+            cur.execute("""
+                UPDATE "Usuarios" 
+                SET "profesional_pendiente" = NULL 
+                WHERE "User ID" = %s
+            """, (str(target_user_id),))
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            await query.edit_message_text(
+                f"❌ **Solicitud rechazada.**\nEl usuario con ID `{target_user_id}` continuará operando de forma autónoma con el sistema genérico.",
+                parse_mode="Markdown"
+            )
+            
+            try:
+                msg_paciente = "ℹ️ Te informamos que tu solicitud de vinculación con el profesional ingresado no pudo ser procesada en este momento. Tu cuenta continúa operando de forma autónoma."
+                await context.bot.send_message(chat_id=int(target_user_id), text=msg_paciente, parse_mode="Markdown")
+            except Exception as e_notif_pac_rec:
+                logger.error(f"No se pudo notificar el rechazo al paciente {target_user_id}: {e_notif_pac_rec}")
+
+    except Exception as e:
+        logger.error(f"Error crítico en gestión de solicitud médica para usuario {target_user_id}: {e}")
+        await query.edit_message_text(f"❌ Ocurrió un error al procesar la respuesta: {e}")
+        
 async def cmd_editar_valores_clinicos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Comando para que el médico despliegue el menú de pacientes y seleccione 
@@ -9512,10 +9873,10 @@ async def callback_seleccionar_paciente_clinico(update: Update, context: Context
     await query.edit_message_text(texto_valores, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     
 async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando para que el profesional vea el listado de sus pacientes y genere un reporte PDF avanzado (hasta 6 meses)."""
+    """Comando para que el profesional vea el listado de sus pacientes y genere un reporte PDF avanzado (hasta 6 meses con promedios mensuales)."""
     prof_id = str(update.effective_user.id).strip()
     
-    msg_espera = await update.message.reply_text("⏳ **Buscando pacientes y procesando historial clínico (hasta 6 meses)...**", parse_mode="Markdown")
+    msg_espera = await update.message.reply_text("⏳ **Buscando pacientes y procesando historial clínico (últimos 6 meses)...**", parse_mode="Markdown")
 
     try:
         especialidad_prof = obtener_especialidad_profesional(prof_id)
@@ -9546,15 +9907,21 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             u_id = pac["user_id"]
             nombre = pac["nombre"]
             
-            peso_str = obtener_ultimo_peso(u_id)
+            peso_raw = obtener_ultimo_peso(u_id)
+            if isinstance(peso_raw, dict):
+                peso_str = peso_raw.get("peso", peso_raw.get("fecha", "S/D"))
+            else:
+                peso_str = str(peso_raw) if peso_raw else "S/D"
+
             recs_presion_all = obtener_registros_presion(u_id)
             presion_str = obtener_ultima_presion(recs_presion_all)
             calorias_str = obtener_promedio_calorias_mes_actual(u_id, ahora)
 
             texto_reporte += (
                 f"👤 **{nombre}** (ID: `{u_id}`)\n"
-                f"⚖️ Peso: `{peso_str}` | 🩸 Presión: `{presion_str}`\n"
-                f"🔥 Prom. Calorías: `{calorias_str}`\n"
+                f"• ⚖️ Peso: `{peso_str}`\n"
+                f"• 🩸 Presión: `{presion_str}`\n"
+                f"• 🔥 Prom. Calorías: `{calorias_str}`\n"
                 "--------------------------------------------------\n"
             )
 
@@ -9566,38 +9933,35 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 df_u['Mes_Filtro'] = df_u['Fecha'].str.slice(0, 7)
 
             for m_str in meses_a_evaluar:
+                prom_cons_m = 0
+                prom_quem_m = 0
+                prom_neto_m = 0
                 prom_prot_m = 0
-                prom_grasas_m = 0
-                dias_m = 0
-                prom_cal_m = 0
+                prom_gras_m = 0
+                prom_carb_m = 0
+                prom_fibr_m = 0
 
                 if not df_u.empty and 'Mes_Filtro' in df_u.columns:
                     df_m = df_u[df_u['Mes_Filtro'] == m_str]
-                    metricas_m = calcular_metricas_mensuales(df_m, perfil_dict)
-                    prom_cal_m = metricas_m.get("prom_cal", 0)
-                    prom_prot_m = metricas_m.get("prom_prot", 0)
-                    prom_grasas_m = metricas_m.get("prom_grasas", metricas_m.get("prom_grasa", 0))
-                    dias_m = metricas_m.get("dias_registrados", 0)
-
-                presion_m_str = "S/D"
-                presiones_mes = []
-                for p in recs_presion_all:
-                    f_pres = str(p.get("Fecha", p.get("fecha", p.get("Fecha_Hora", p.get("fecha_hora", "")))))
-                    if m_str in f_pres:
-                        s = p.get("Alta", p.get("Sistolica", p.get("sistólica", p.get("sistolica", ""))))
-                        d = p.get("Baja", p.get("Diastolica", p.get("diastólica", p.get("diastolica", ""))))
-                        if s and d:
-                            presiones_mes.append(f"{s}/{d}")
-                if presiones_mes:
-                    presion_m_str = presiones_mes[-1]
+                    if not df_m.empty:
+                        metricas_m = calcular_metricas_mensuales(df_m, perfil_dict, user_id=u_id, mes_str=m_str)
+                        prom_cons_m = metricas_m.get("prom_cal", 0)
+                        prom_quem_m = metricas_m.get("prom_quem", 0)
+                        prom_neto_m = metricas_m.get("prom_bal_neto", 0)
+                        prom_prot_m = metricas_m.get("prom_prot", 0)
+                        prom_gras_m = metricas_m.get("prom_gras", 0)
+                        prom_carb_m = metricas_m.get("prom_carb", 0)
+                        prom_fibr_m = metricas_m.get("prom_fibr", 0)
 
                 historial_6m.append({
                     "mes": m_str,
-                    "prom_cal": prom_cal_m,
-                    "prom_prot": prom_prot_m,
-                    "prom_grasas": prom_grasas_m,
-                    "presion": presion_m_str,
-                    "dias": dias_m
+                    "cal_cons": prom_cons_m,
+                    "cal_quem": prom_quem_m,
+                    "bal_neto": prom_neto_m,
+                    "proteinas": prom_prot_m,
+                    "grasas": prom_gras_m,
+                    "carbohidratos": prom_carb_m,
+                    "fibras": prom_fibr_m
                 })
 
             datos_para_pdf.append({
@@ -9607,41 +9971,54 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             })
 
         buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+        doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=20, leftMargin=20, topMargin=30, bottomMargin=30)
         styles = getSampleStyleSheet()
         elements = []
 
-        elements.append(Paragraph(f"<b>Reporte Clínico Consolidado ({especialidad_prof})</b>", styles['Heading1']))
-        elements.append(Paragraph(f"Generado el: {ahora.strftime('%Y-%m-%d')} | Período analizado: Últimos 6 meses", styles['Normal']))
+        elements.append(Paragraph(f"<b>Reporte Clínico Consolidado Promedio ({especialidad_prof})</b>", styles['Heading1']))
+        elements.append(Paragraph(f"Generado el: {ahora.strftime('%Y-%m-%d')} | Historial de Promedios de los Últimos 6 Meses", styles['Normal']))
         elements.append(Spacer(1, 15))
 
-        elements.append(Paragraph("<b>Evolución Mensual por Paciente (Calorías, Proteínas, Grasas y Presión)</b>", styles['Heading2']))
-        elements.append(Spacer(1, 10))
+        header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
+        body_style = ParagraphStyle('BodyStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#1E293B'), alignment=1)
 
         for d in datos_para_pdf:
-            elements.append(Paragraph(f"<b>Paciente: {d['nombre']} (ID: {d['user_id']})</b>", styles['Normal']))
-            hist_data = [["Mes", "Calorías", "Proteínas", "Grasas", "Presión", "Días"]]
+            elements.append(Paragraph(f"<b>Paciente: {d['nombre']} (ID: {d['user_id']})</b>", styles['Heading2']))
+            elements.append(Spacer(1, 4))
+            
+            hist_data = [[
+                Paragraph("Mes", header_style),
+                Paragraph("Cal. Consumid.", header_style),
+                Paragraph("Cal. Quemad.", header_style),
+                Paragraph("Bal. Neto", header_style),
+                Paragraph("Proteínas (g)", header_style),
+                Paragraph("Grasas (g)", header_style),
+                Paragraph("Carbohidr. (g)", header_style),
+                Paragraph("Fibras (g)", header_style)
+            ]]
+
             for h in d["historial"]:
                 hist_data.append([
-                    h["mes"], 
-                    f"{h['prom_cal']} kcal", 
-                    f"{h['prom_prot']} g", 
-                    f"{h['prom_grasas']} g", 
-                    h["presion"], 
-                    str(h["dias"])
+                    Paragraph(h["mes"], body_style),
+                    Paragraph(f"{h['cal_cons']} kcal", body_style),
+                    Paragraph(f"{h['cal_quem']} kcal", body_style),
+                    Paragraph(f"{h['bal_neto']} kcal", body_style),
+                    Paragraph(f"{h['proteinas']} g", body_style),
+                    Paragraph(f"{h['grasas']} g", body_style),
+                    Paragraph(f"{h['carbohidratos']} g", body_style),
+                    Paragraph(f"{h['fibras']} g", body_style)
                 ])
             
-            t_hist = Table(hist_data, colWidths=[80, 100, 95, 95, 102, 80])
+            # Ancho total ajustado para la hoja tamaño carta (Letter = 612 pt de ancho - 40 pt de márgenes = 572 pt disponibles)
+            t_hist = Table(hist_data, colWidths=[65, 75, 75, 70, 70, 70, 77, 70])
             t_hist.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2C3E50")),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2563EB")),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 9),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#F8F9F9")),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#BDC3C7")),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+                ('TOPPADDING', (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
             ]))
             elements.append(t_hist)
             elements.append(Spacer(1, 15))
@@ -9655,15 +10032,14 @@ async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(texto_reporte, parse_mode="Markdown")
         await update.message.reply_document(
             document=buffer,
-            filename=f"Reporte_Clinico_{esp_limpia}_{ahora.strftime('%Y-%m')}.pdf",
-            caption="📄 **Reporte clínico consolidado generado con éxito.**",
+            filename=f"Reporte_Promedios_Clinicos_{esp_limpia}_{ahora.strftime('%Y-%m')}.pdf",
+            caption="📄 **Reporte clínico mensual consolidado generado con éxito.**",
             parse_mode="Markdown"
         )
 
     except Exception as e:
         logger.error(f"Error al generar listado de pacientes para el profesional {prof_id}: {e}")
         await msg_espera.edit_text(f"❌ Ocurrió un error al procesar el listado clínico: {e}")
-
 
 async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -9699,31 +10075,146 @@ async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAUL
         logger.error(f"Error en cmd_enviar_informe_actual: {e}", exc_info=True)
         await update.message.reply_text("⚠️ Ocurrió un error al procesar la solicitud del informe.")
 
-
 async def callback_enviar_informe_paciente(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Manejador del botón para enviar el informe individual al paciente seleccionado por el médico."""
+    """Paso 1: Muestra los promedios del paciente en pantalla y le da opciones al médico antes de enviar."""
     query = update.callback_query
     await query.answer()
     
-    prof_id = str(query.from_user.id).strip()
     data = query.data
-
     if not data.startswith("enviar_inf_"):
         return
 
     target_user_id = data.replace("enviar_inf_", "").strip()
+    ahora = obtener_ahora_arg()
+    mes_actual = ahora.strftime("%Y-%m")
+
+    # Guardar en contexto el paciente seleccionado
+    context.user_data['informe_medico_target'] = target_user_id
+    context.user_data['informe_medico_mes'] = mes_actual
 
     try:
+        # Obtener datos y calcular métricas del mes actual para la previsualización
+        df_u = obtener_datos_usuario(target_user_id) if 'obtener_datos_usuario' in globals() else pd.DataFrame()
+        perfil = obtener_perfil_usuario(target_user_id, mes_target=mes_actual) if 'obtener_perfil_usuario' in globals() else {}
+        
+        if not df_u.empty and 'Fecha' in df_u.columns:
+            df_u['Mes_Filtro'] = df_u['Fecha'].str.slice(0, 7)
+            df_mes = df_u[df_u['Mes_Filtro'] == mes_actual]
+        else:
+            df_mes = pd.DataFrame()
+
+        if df_mes.empty:
+            resumen_txt = f"⚠️ El paciente con ID `{target_user_id}` no tiene registros cargados en el período actual (`{mes_actual}`).\n¿Desea enviarle el informe de todas formas?"
+        else:
+            m = calcular_metricas_mensuales(df_mes, perfil, user_id=target_user_id, mes_str=mes_actual)
+            resumen_txt = (
+                f"📋 **Previsualización de Informe Mensual ({mes_actual})**\n"
+                f"👤 Paciente ID: `{target_user_id}`\n\n"
+                f"• 🔥 Cal. Consumidas: `{m.get('prom_cal', 0)} kcal/día`\n"
+                f"• ⚡ Cal. Quemadas: `{m.get('prom_quem', 0)} kcal/día`\n"
+                f"• ⚖️ Balance Neto: `{m.get('prom_bal_neto', 0)} kcal/día`\n"
+                f"• 🥩 Proteínas: `{m.get('prom_prot', 0)} g/día`\n"
+                f"• 🥑 Grasas: `{m.get('prom_gras', 0)} g/día`\n"
+                f"• 🍞 Carbohidratos: `{m.get('prom_carb', 0)} g/día`\n"
+                f"• 🌾 Fibras: `{m.get('prom_fibr', 0)} g/día`\n\n"
+                f"¿Cómo desea proceder con el envío?"
+            )
+
+        # Botones de decisión para el médico
+        keyboard = [
+            [InlineKeyboardButton("🚀 Enviar Directamente", callback_data=f"inf_dir_{target_user_id}")],
+            [InlineKeyboardButton("✏️ Escribir Nota y Enviar", callback_data=f"inf_nota_{target_user_id}")],
+            [InlineKeyboardButton("❌ Cancelar", callback_data="inf_cancelar")]
+        ]
+        
+        await query.edit_message_text(resumen_txt, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Error al previsualizar informe para el paciente {target_user_id}: {e}")
+        await query.edit_message_text(f"❌ Ocurrió un error al procesar la previsualización: {e}")
+
+
+async def callback_acciones_informe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Maneja las acciones de envío directo o solicitud de nota para el informe."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    prof_id = str(query.from_user.id).strip()
+
+    if data.startswith("inf_dir_"):
+        target_user_id = data.replace("inf_dir_", "").strip()
+        mes_target = context.user_data.get('informe_medico_mes', obtener_ahora_arg().strftime("%Y-%m"))
+        
         await query.edit_message_text(f"⏳ Generando y enviando informe al paciente `{target_user_id}`...", parse_mode="Markdown")
         
-        # Lógica para reeenviar el informe mensual actual al paciente desde el profesional
-        msg_notificacion = "🩺 **Tu profesional a cargo te ha enviado una actualización de tu informe clínico mensual.**"
-        await context.bot.send_message(chat_id=int(target_user_id), text=msg_notificacion, parse_mode="Markdown")
+        try:
+            from 08ComandosInformes1016 import procesar_y_enviar_informe_mensual
+            exito = await procesar_y_enviar_informe_mensual(context, user_id=int(target_user_id), chat_destino=int(target_user_id), mes_target=mes_target, forzar_envio=True)
+            
+            if exito:
+                # Notificar al paciente que su médico le envió una actualización
+                await context.bot.send_message(chat_id=int(target_user_id), text="🩺 **Tu profesional a cargo te ha enviado una actualización de tu informe clínico mensual.**", parse_mode="Markdown")
+                await query.edit_message_text(f"✅ **Informe enviado con éxito** al paciente con ID `{target_user_id}`.", parse_mode="Markdown")
+            else:
+                await query.edit_message_text(f"⚠️ No se pudo generar o enviar el informe al paciente `{target_user_id}` (quizás falten registros).", parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Error en envío directo de informe por médico {prof_id}: {e}")
+            await query.edit_message_text(f"❌ Error al enviar el informe: {e}")
+
+    elif data.startswith("inf_nota_"):
+        target_user_id = data.replace("inf_nota_", "").strip()
+        context.user_data['esperando_nota_informe_para'] = target_user_id
         
-        await query.edit_message_text(f"✅ **Informe enviado con éxito** al paciente con ID `{target_user_id}`.", parse_mode="Markdown")
+        await query.edit_message_text(
+            f"✅ Paciente seleccionado (ID: `{target_user_id}`).\n\n"
+            "✍️ **Escribí a continuación la nota u observación médica** que querés adjuntar al informe:",
+            parse_mode="Markdown"
+        )
+
+    elif data == "inf_cancelar":
+        context.user_data.pop('informe_medico_target', None)
+        context.user_data.pop('informe_medico_mes', None)
+        await query.edit_message_text("❌ Operación cancelada.", parse_mode="Markdown")
+
+async def procesar_texto_nota_informe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Captura la nota escrita por el médico, genera el informe y lo envía al paciente."""
+    target_user_id = context.user_data.get('esperando_nota_informe_para')
+    if not target_user_id:
+        return False # No era una nota de informe, dejar pasar
+
+    prof_id = str(update.effective_user.id).strip()
+    nota_texto = update.message.text.strip()
+    mes_target = context.user_data.get('informe_medico_mes', obtener_ahora_arg().strftime("%Y-%m"))
+    
+    # Limpiar estados del contexto
+    context.user_data.pop('esperando_nota_informe_para', None)
+    context.user_data.pop('informe_medico_target', None)
+    context.user_data.pop('informe_medico_mes', None)
+
+    try:
+        msg_esp = await update.message.reply_text("⏳ **Generando informe con la nota médica adjunta...**", parse_mode="Markdown")
+        
+        from 08ComandosInformes1016 import procesar_y_enviar_informe_mensual
+        exito = await procesar_y_enviar_informe_mensual(context, user_id=int(target_user_id), chat_destino=int(target_user_id), mes_target=mes_target, forzar_envio=True)
+        
+        if exito:
+            # Enviar la nota personalizada del médico al paciente
+            mensaje_paciente = f"🩺 **Nota de tu médico tratante:**\n\n\"{nota_texto}\""
+            await context.bot.send_message(chat_id=int(target_user_id), text=mensaje_paciente, parse_mode="Markdown")
+            
+            await msg_esp.edit_text(f"✅ **Informe y nota médica enviados correctamente** al paciente con ID `{target_user_id}`.", parse_mode="Markdown")
+        else:
+            await msg_esp.edit_text(f"⚠️ No se pudo generar el informe para el paciente `{target_user_id}`.", parse_mode="Markdown")
+        
+        return True
     except Exception as e:
-        logger.error(f"Error al enviar informe individual desde el profesional {prof_id} al usuario {target_user_id}: {e}")
-        await query.edit_message_text(f"❌ No se pudo enviar el informe al paciente: {e}")
+        logger.error(f"Error al enviar informe con nota desde el profesional {prof_id}: {e}")
+        await update.message.reply_text(f"❌ Ocurrió un error al procesar el envío: {e}")
+        return True
+
+
+
+
 
 async def cmd_enviar_nota_paciente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -9956,10 +10447,6 @@ async def cmd_generar_manual_pdf(update: Update, context: ContextTypes.DEFAULT_T
         logger.error(f"Error al generar el manual PDF para el profesional {prof_id}: {e}")
         await msg_espera.edit_text(f"❌ Ocurrió un error al generar el documento PDF: {e}")
         
-
-
-
-
 # ==========================================================================================================================================
 #                    FINAL                      COMANDOS PROFESIONALES                               FINAL  
 # ==========================================================================================================================================
@@ -10047,13 +10534,17 @@ def main():
         # Callbacks y captura de texto para notas médicas interactivas
         app_bot.add_handler(CallbackQueryHandler(callback_seleccionar_paciente_nota, pattern="^selec_nota_pac_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_diario_callback, pattern="^descargar_pdf_diario_"))
-
+        app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_presion, pattern="^descargar_pdf_presion_"))
+        app_bot.add_handler(CallbackQueryHandler(callback_seleccionar_paciente_clinico, pattern="^edit_clinico_sel_"))
+        app_bot.add_handler(CallbackQueryHandler(callback_acciones_informe, pattern="^(inf_dir_|inf_nota_|inf_cancelar)"))        
+        
         # ==================================PROFESIONALES===============================================
         app_bot.add_handler(CommandHandler(["pacientes"], cmd_pacientes))
         app_bot.add_handler(CommandHandler(["informe"], cmd_enviar_informe_actual))
         app_bot.add_handler(CommandHandler(["nota"], cmd_enviar_nota_paciente))
         app_bot.add_handler(CommandHandler(["valores"], cmd_editar_valores_clinicos))
         app_bot.add_handler(CommandHandler(["manual", "documentacion"], cmd_generar_manual_pdf))
+        
         # =================================INGRESOS Y CONSULTAS MANUALES============================================
         app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
         app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
@@ -10072,7 +10563,6 @@ def main():
         # =================================FACTURACIÓN Y PAGOS (TELEGRAM STARS)======================
         app_bot.add_handler(CommandHandler(["pagar", "pay"], cmd_pagar))
         app_bot.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
-        app_bot.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
 
         # =================================ADMINISTRADOR============================================
         app_bot.add_handler(CommandHandler("cobrar", cmd_forzar_cobro))
@@ -10092,6 +10582,9 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
+        app_bot.add_handler(CallbackQueryHandler(callback_editar_valor_clinico_menu, pattern="^(edit_val_calorias|edit_val_proteinas|edit_val_peso|edit_val_volver)$"))
+
+
         
         # Enrutadores para el módulo profesional (listados, informes y edición por botones)
         app_bot.add_handler(CallbackQueryHandler(callback_enviar_informe_paciente, pattern="^enviar_inf_"))
@@ -10108,14 +10601,18 @@ def main():
        
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_(d_|mom_|reg_|borrar)"))
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_"))
-
+        app_bot.add_handler(CallbackQueryHandler(callback_gestion_solicitud_medico, pattern="^medico_(aceptar|rechazar)_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_perfil, pattern="^(edit_perfil_|set_ritmo_|set_ocup_|set_lang_)"))
 
         # =================================MESSAGE HANDLERS===========================================
+
+        app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, procesar_texto_nota_informe), group=0)
+        app_bot.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
         app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
         app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
         app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
+        app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, procesar_cambio_valor_clinico), group=0)
+        
         print("Nutrition Bot successfully started on Telegram with scheduled tasks...")
         app_bot.run_polling(drop_pending_updates=True)
 
