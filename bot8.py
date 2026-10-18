@@ -4329,25 +4329,44 @@ async def analizar_imagen_con_groq(base64_image: str, user_id=None):
 #                  INICIO               INTERFAZ Y RENDER DE CONFIRMACIÓN                      INICIO
 # ======================================================================================================================================
 
-
 async def render_confirmation_screen(msg_or_query, context):
-    user_id = msg_or_query.from_user.id if hasattr(msg_or_query, 'from_user') and msg_or_query.from_user else (msg_or_query.message.from_user.id if hasattr(msg_or_query, 'message') and msg_or_query.message and hasattr(msg_or_query.message, 'from_user') and msg_or_query.message.from_user else None)
-    lang = obtener_idioma_usuario(user_id) if user_id and 'obtener_idioma_usuario' in globals() else 'en'
+    # 1. Extracción segura del chat_id y user_id
+    chat_id = None
+    user_id = None
+    
+    if hasattr(msg_or_query, 'chat') and msg_or_query.chat:
+        chat_id = msg_or_query.chat.id
+    elif hasattr(msg_or_query, 'message') and msg_or_query.message and msg_or_query.message.chat:
+        chat_id = msg_or_query.message.chat.id
+
+    if hasattr(msg_or_query, 'from_user') and msg_or_query.from_user and not msg_or_query.from_user.is_bot:
+        user_id = msg_or_query.from_user.id
+    elif hasattr(msg_or_query, 'message') and msg_or_query.message and msg_or_query.message.from_user and not msg_or_query.message.from_user.is_bot:
+        user_id = msg_or_query.message.from_user.id
+    else:
+        user_id = chat_id # Fallback de emergencia
+
+    if not chat_id:
+        logger.error("No se pudo extraer chat_id en render_confirmation_screen")
+        return
+
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     items = context.user_data.get('pending_items', [])
     fecha = context.user_data.get('pending_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
     momento = context.user_data.get('pending_momento', 'Comida')
 
+    # 2. Formato HTML puro (sin markdown que rompa la pantalla)
     if momento == 'Actividad':
         t_reg_act = traducciones.get('06_bot_reg_actividad', "📝 <b>Registro de Actividad:</b>")
         t_fecha = traducciones.get('06_bot_label_fecha', "📅 Fecha")
-        txt = f"{t_reg_act}\n{t_fecha}: `{fecha}`\n\n"
+        txt = f"{t_reg_act}\n{t_fecha}: <code>{fecha}</code>\n\n"
     else:
-        t_conf_ing = traducciones.get('06_bot_conf_ingesta', "📝 *Confirmación de Ingesta:*")
+        t_conf_ing = traducciones.get('06_bot_conf_ingesta', "📝 <b>Confirmación de Ingesta:</b>")
         t_fecha = traducciones.get('06_bot_label_fecha', "📅 Fecha")
         t_momento = traducciones.get('06_bot_label_momento', "Momento")
-        txt = f"{t_conf_ing}\n{t_fecha}: `{fecha}` | {t_momento}: `{momento}`\n\n"
+        txt = f"{t_conf_ing}\n{t_fecha}: <code>{fecha}</code> | {t_momento}: <code>{momento}</code>\n\n"
 
     for idx, item in enumerate(items, start=1):
         peso_total = item.get('peso', 0)
@@ -4357,10 +4376,10 @@ async def render_confirmation_screen(msg_or_query, context):
         fibras_total = item.get('fibras', 0)
         
         alimento_str = item.get('alimento_display') or item.get('alimento', item.get('nombre', ''))
-        alimento_limpio = alimento_str.replace('§', '').strip()
+        alimento_limpio = alimento_str.replace('§', '').replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;').strip()
 
         if momento == 'Actividad':
-            txt += f"<b>{idx}. {alimento_limpio}</b>: `{cal_total:.1f} kcal`\n"
+            txt += f"<b>{idx}. {alimento_limpio}</b>: <code>{cal_total:.1f} kcal</code>\n"
         else:
             t_calorias = traducciones.get('06_bot_macro_calorias', "Calorías")
             t_proteinas = traducciones.get('06_bot_macro_proteinas', "Proteínas")
@@ -4368,10 +4387,10 @@ async def render_confirmation_screen(msg_or_query, context):
             t_fibras = traducciones.get('06_bot_macro_fibras', "Fibras")
 
             txt += f"<b>{idx}. {alimento_limpio}</b> ({peso_total:.1f}g):\n"
-            txt += f"   • {t_calorias}: `{cal_total:.1f} kcal`\n"
-            txt += f"   • {t_proteinas}: `{prot_total:.1f} g`\n"
-            txt += f"   • {t_grasas}: `{grasas_total:.1f} g`\n"
-            txt += f"   • {t_fibras}: `{fibras_total:.1f} g`\n\n"
+            txt += f"   • {t_calorias}: <code>{cal_total:.1f} kcal</code>\n"
+            txt += f"   • {t_proteinas}: <code>{prot_total:.1f} g</code>\n"
+            txt += f"   • {t_grasas}: <code>{grasas_total:.1f} g</code>\n"
+            txt += f"   • {t_fibras}: <code>{fibras_total:.1f} g</code>\n\n"
 
     keyboard = []
     
@@ -4382,10 +4401,8 @@ async def render_confirmation_screen(msg_or_query, context):
             ("Merienda", "☕ 16-20"),
             ("Cena", "🌙 20-00")
         ]
-        
         m_buttons = []
         for nombre_momento, etiqueta_visual in momentos_config:
-            # Estado al final para no romper el ancho de la botonera
             estado = "✅" if nombre_momento.lower() == momento.lower() else "⏰"
             m_buttons.append(InlineKeyboardButton(f"{etiqueta_visual} {estado}", callback_data=f"set_m_{nombre_momento}"))
         keyboard.append(m_buttons)
@@ -4394,15 +4411,16 @@ async def render_confirmation_screen(msg_or_query, context):
         nombre_corto = item.get('alimento', item.get('nombre', ''))[:10]
         keyboard.append([
             InlineKeyboardButton(f"#{idx} {nombre_corto}", callback_data=f"noop_{idx}"),
-            InlineKeyboardButton("📝", callback_data=f"edit_item_{idx}"),  # Cambiado a anotador
+            InlineKeyboardButton("📝", callback_data=f"edit_item_{idx}"),
             InlineKeyboardButton("❌", callback_data=f"del_item_{idx}")
         ])
 
-    hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
-    ayer_str = (obtener_ahora_arg() - timedelta(days=1)).strftime("%Y-%m-%d")
+    ahora_arg = obtener_ahora_arg() if 'obtener_ahora_arg' in globals() else datetime.now()
+    hoy_str = ahora_arg.strftime("%Y-%m-%d")
+    ayer_str = (ahora_arg - timedelta(days=1)).strftime("%Y-%m-%d")
     
-    hoy_label = obtener_ahora_arg().strftime("%d/%m")
-    ayer_label = (obtener_ahora_arg() - timedelta(days=1)).strftime("%d/%m")
+    hoy_label = ahora_arg.strftime("%d/%m")
+    ayer_label = (ahora_arg - timedelta(days=1)).strftime("%d/%m")
     
     mark_hoy = "✅ " if fecha == hoy_str else ""
     mark_ayer = "✅ " if fecha == ayer_str else ""
@@ -4411,7 +4429,7 @@ async def render_confirmation_screen(msg_or_query, context):
     keyboard.append([
         InlineKeyboardButton(f"{mark_hoy}🗓️ {hoy_label}", callback_data="set_d_hoy"),
         InlineKeyboardButton(f"{mark_ayer}🗓️ {ayer_label}", callback_data="set_d_ayer"),
-        InlineKeyboardButton(f"{mark_otro}📅✏️", callback_data="set_d_otro")  # Cambiado a calendario con lápiz
+        InlineKeyboardButton(f"{mark_otro}📅✏️", callback_data="set_d_otro")
     ])
 
     keyboard.append([
@@ -4420,9 +4438,8 @@ async def render_confirmation_screen(msg_or_query, context):
     ])
 
     markup = InlineKeyboardMarkup(keyboard)
-    chat_id = msg_or_query.effective_chat.id if hasattr(msg_or_query, 'effective_chat') else None
 
-    # Detectar si la orden viene de apretar un botón (CallbackQuery)
+    # 3. Despliegue seguro con reporte de errores para que nunca más falle en silencio
     is_callback = hasattr(msg_or_query, 'message') and msg_or_query.message is not None
 
     if is_callback:
@@ -4432,22 +4449,31 @@ async def render_confirmation_screen(msg_or_query, context):
         except Exception:
             pass
 
-    # Si viene de un texto libre, editamos forzosamente el menú guardado en memoria
-    msg_id = context.user_data.get('last_menu_msg_id')
-    editado = False
-    if msg_id and chat_id:
+    if hasattr(msg_or_query, 'edit_text'):
         try:
-            await context.bot.edit_message_text(
-                chat_id=chat_id, message_id=msg_id, text=txt, reply_markup=markup, parse_mode="HTML"
-            )
-            editado = True
-        except Exception:
-            editado = False
+            await msg_or_query.edit_text(txt, reply_markup=markup, parse_mode="HTML")
+            context.user_data['last_menu_msg_id'] = msg_or_query.message_id
+            return
+        except Exception as e:
+            logger.error(f"Fallo edit_text en render_confirmation_screen: {e}")
 
-    if not editado and chat_id:
-        nuevo_msg = await context.bot.send_message(chat_id=chat_id, text=txt, reply_markup=markup, parse_mode="HTML")
-        context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
-        
+    if chat_id:
+        msg_id = context.user_data.get('last_menu_msg_id')
+        if msg_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id, message_id=msg_id, text=txt, reply_markup=markup, parse_mode="HTML"
+                )
+                return
+            except Exception:
+                pass
+
+        try:
+            nuevo_msg = await context.bot.send_message(chat_id=chat_id, text=txt, reply_markup=markup, parse_mode="HTML")
+            context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
+        except Exception as e:
+            logger.error(f"Fallo send_message en render_confirmation_screen: {e}")
+            
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     items = data_json.get("items", [])
     tipo = str(data_json.get("tipo", "Comida")).strip().capitalize()
@@ -4619,9 +4645,10 @@ async def _sub_manejar_texto_actividad(update, context, raw_text, chat_id):
     
     msg_analizando = await update.message.reply_text("🤖 Analizando actividad con IA...")
     try:
-        data = analizar_con_groq(f"Calcula el gasto calórico de esta actividad física: {raw_text}")
+        user_id = update.effective_user.id
+        # --- AHORA ES ASÍNCRONO ---
+        data = await asyncio.to_thread(analizar_con_groq, f"Calcula el gasto calórico de esta actividad física: {raw_text}", user_id)
         
-        # Forzamos que Groq entienda que es actividad
         if str(data.get("tipo", "")).upper() != "ACTIVIDAD":
             data["tipo"] = "Actividad"
             
@@ -4870,9 +4897,15 @@ async def _sub_manejar_voz_actividad(update, context, transcription, msg):
     perfil_biometrico = obtener_perfil_usuario(user_id)
     
     prompt_ia = f"El usuario realizó una actividad física descrita por voz. Transcripción: '{transcription}'. Calcula las calorías gastadas utilizando estrictamente su perfil biométrico: {perfil_biometrico}. Devolvé un JSON con los campos 'alimento' y 'calorias'."
-    resultado_ia = analizar_con_groq(prompt_ia)
-    items_ia = resultado_ia.get('items', [])
     
+    try:
+        # --- AHORA ES ASÍNCRONO ---
+        resultado_ia = await asyncio.to_thread(analizar_con_groq, prompt_ia, user_id)
+    except Exception as e:
+        await msg.edit_text(f"❌ Error al procesar la actividad física: {e}")
+        return
+
+    items_ia = resultado_ia.get('items', [])
     kcal_estimadas = float(items_ia[0].get('calorias', 0)) if items_ia else 0.0
     desc = str(items_ia[0].get('alimento', transcription)) if items_ia else transcription
     
@@ -4880,7 +4913,9 @@ async def _sub_manejar_voz_actividad(update, context, transcription, msg):
     
     context.user_data.update({'pending_items': [item_actividad], 'pending_fecha': obtener_ahora_arg().strftime("%Y-%m-%d"), 'pending_momento': 'Actividad'})
 
-    await msg.delete()
+    try: await msg.delete()
+    except: pass
+
     txt_act_aud = traducciones.get('06_bot_act_audio', "📋 Actividad analizada por audio:")
     msg_menu = await update.message.reply_text(txt_act_aud)
     context.user_data['last_menu_msg_id'] = msg_menu.message_id
@@ -5342,7 +5377,8 @@ async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
     msg_espera = await message_obj.reply_text(msg_analizando)
     
     try:
-        resultado_api = consultar_codigo_barras(barcode_text)
+        # --- ASÍNCRONO PARA NO CONGELAR ---
+        resultado_api = await asyncio.to_thread(consultar_codigo_barras, barcode_text)
         
         if resultado_api:
             item_procesado = {
@@ -5359,7 +5395,9 @@ async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
 
             fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
 
-            await msg_espera.delete()
+            try: await msg_espera.delete()
+            except: pass
+
             msg_prod_encontrado = traducciones.get("07_bot_producto_encontrado", "📋 Producto encontrado (valores calculados cada 100 g):")
             msg_menu = await message_obj.reply_text(msg_prod_encontrado)
             
@@ -5375,8 +5413,7 @@ async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
             
     except Exception as e:
         msg_err_gen = traducciones.get("07_bot_error_consulta_barra", "❌ Error al consultar el código: {e}").format(e=e)
-        await msg_espera.edit_text(msg_err_gen)
-        
+        await msg_espera.edit_text(msg_err_gen)        
 @requiere_registro
 async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -5625,9 +5662,10 @@ async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEF
 
     elif data == "del_salir_pantalla":
         try:
-            await query.message.delete()
+            await query.edit_message_text("❌ Operación de eliminación finalizada.", parse_mode="Markdown")
         except Exception:
-            pass
+            try: await query.message.delete()
+            except: pass
 
     elif data in ["del_cambiar_fecha", "del_volver_momentos"]:
         await mostrar_selector_momento_eliminar(query, context)     
@@ -5913,16 +5951,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     for intento in range(1, max_intentos + 1):
         try:
-            # 1. Descargamos la foto de Telegram
             photo_bytes = await (await update.message.photo[-1].get_file()).download_as_bytearray()
             user_caption = update.message.caption or ""
             
-            # 2. COMPRESIÓN Y REDIMENSIONAMIENTO CON OPENCV
+            # COMPRESIÓN CON OPENCV
             np_arr = np.frombuffer(photo_bytes, np.uint8)
             img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
             
             if img is not None:
-                # Limitamos el lado más largo a 1024 píxeles para aligerar el peso
                 h, w = img.shape[:2]
                 max_dim = 1024
                 if max(h, w) > max_dim:
@@ -5931,21 +5967,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     new_h = int(h * scale)
                     img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
                 
-                # Comprimimos a JPEG con calidad del 80% (reduce el peso a unos pocos KB)
                 success, encoded_img = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
                 if success:
                     photo_bytes = encoded_img.tobytes()
             
-            # 3. Convertimos a base64 la imagen ya optimizada
             base64_image = base64.b64encode(photo_bytes).decode('utf-8')
             
-            # 4. Verificamos si es la foto de un tensiómetro
-            res_presion = analizar_foto_presion_con_groq(base64_image)
+            # --- EVITA EL CONGELAMIENTO AL ENVIAR FOTO ---
+            res_presion = await asyncio.to_thread(analizar_foto_presion_con_groq, base64_image)
             if res_presion.get("es_presion") and float(res_presion.get("alta", 0)) > 0:
                 exito = True
                 return await _sub_manejar_foto_presion(update, context, res_presion, msg)
 
-            # 5. Verificamos si tiene código de barras localmente
             tiene_codigo_local = False
             if img is not None:
                 detector = cv2.barcode.BarcodeDetector()
@@ -5954,16 +5987,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     tiene_codigo_local = True
 
             if tiene_codigo_local:
-                txt_barra_det = traducciones.get("07_bot_barra_detectada", "🔍 Código de barras detectado. Leyendo números del envase...")
+                txt_barra_det = traducciones.get("07_bot_barra_detectada", "🔍 Código de barras detectado. Leyendo números...")
                 await msg.edit_text(txt_barra_det)
-                codigo_leido = detectar_y_leer_codigo_barras_ia(base64_image)
+                
+                # --- EVITA CONGELAMIENTO EN CÓDIGO DE BARRAS ---
+                codigo_leido = await asyncio.to_thread(detectar_y_leer_codigo_barras_ia, base64_image)
                 
                 if codigo_leido and len(codigo_leido.strip()) >= 4:
-                    await msg.delete()
+                    try: await msg.delete()
+                    except: pass
                     exito = True
                     return await procesar_codigo_ingresado(update.message, context, codigo_leido.strip())
 
-            # 6. Procesamiento normal del plato de comida con la IA multimodal
             exito = True
             return await _sub_manejar_foto_plato_ia(update, context, base64_image, user_caption, msg)
 
@@ -5979,8 +6014,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not exito:
         txt_error_timeout = traducciones.get(
             "07_bot_error_timeout_foto", 
-            "⚠ **Error al procesar la imagen.**\n\n"
-            "Por favor, ingresá los datos o la descripción escribiéndola por **texto** o enviando una nota de **voz**."
+            "⚠ **Error al procesar la imagen.**\n\nPor favor, ingresá los datos por **texto** o enviando una nota de **voz**."
         )
         await msg.edit_text(txt_error_timeout, parse_mode="Markdown")
         
@@ -5997,7 +6031,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         audio_file = io.BytesIO(await file.download_as_bytearray())
         audio_file.name = "audio.ogg"
         
-        transcription_res = client_ai.audio.transcriptions.create(
+        # Transcripción limpia asíncrona
+        transcription_res = await asyncio.to_thread(
+            client_ai.audio.transcriptions.create,
             file=(audio_file.name, audio_file.read()),
             model=GROQ_AUDIO,
             response_format="text"
@@ -6010,26 +6046,24 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.edit_text(msg_audio_no_entendido)
             return
 
-        # >>> INTERCEPTOR DE EDICIÓN POR VOZ <<<
-        # Si el usuario mandó un audio habiendo tocado "Editar", el bot entra por acá y corrige el valor.
         if context.user_data.get('awaiting_edit_item_val'):
-            await msg.delete()
+            try: await msg.delete()
+            except: pass
             chat_id = update.effective_chat.id
             await _sub_manejar_edicion_item(update, context, transcription, chat_id)
             return
-        # >>> FIN DEL INTERCEPTOR <<<
 
         if context.user_data.get('awaiting_activity_voice'):
             return await _sub_manejar_voz_actividad(update, context, transcription, msg)
 
-        data = analizar_con_groq(transcription)
+        # Análisis principal asíncrono
+        data = await asyncio.to_thread(analizar_con_groq, transcription, user_id)
         tipo = str(data.get("tipo", "")).strip().upper()
 
         if tipo == "INFORME_MENSUAL":
-            await msg.delete()
+            try: await msg.delete()
+            except: pass
             param = str(data.get("parametro", "")).strip()
-            
-            # Como la IA ya nos devuelve 'YYYY-MM', lo leemos directo
             if param and re.match(r'^20\d{2}-\d{2}', param):
                 mes_target = param[:7]
             else:
@@ -6040,36 +6074,37 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         elif tipo == "INFORME_SEMANAL":
-            await msg.delete()
+            try: await msg.delete()
+            except: pass
             await cmd_mensaje(update, context)
             return
 
         elif tipo == "INFORME_DIARIO":
-            await msg.delete()
+            try: await msg.delete()
+            except: pass
             param = str(data.get("parametro", "")).strip()
-            
-            # Como la IA ya nos devuelve 'YYYY-MM-DD', lo leemos directo
             if param and re.match(r'^20\d{2}-\d{2}-\d{2}', param):
                 fecha_objetivo = param[:10]
             else:
                 fecha_objetivo = obtener_ahora_arg().strftime("%Y-%m-%d")
 
-            # Soporte dual: handle_voice no tiene update.callback_query, usamos update.message
             objetivo_msg = update.message if update.message else update.callback_query
             await mostrar_diario_fecha(objetivo_msg, user_id, fecha_objetivo)
             return
             
         elif tipo == "RECHAZO":
-            await msg.delete()
+            try: await msg.delete()
+            except: pass
             return
 
-        await _sub_manejar_voz_ingesta(update, context, transcription, msg)
+        # Fin del proceso: Mandar los datos limpios a mostrar la pantalla
+        await procesar_y_mostrar_confirmacion(data, msg, context)
 
     except Exception as e:
         logger.error(f"Error al procesar audio: {e}")
         msg_err_audio = traducciones.get("07_bot_error_procesar_audio", "❌ Error al procesar audio: {e}")
         await msg.edit_text(msg_err_audio.format(e=e))
-       
+        
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
@@ -9201,7 +9236,99 @@ async def _sub_manejar_foto_presion(update, context, res_presion, msg):
         "Seleccioná una opción para continuar:"
     ).format(alta=alta, baja=baja, pul_txt=pul_txt)
     await msg.edit_text(mensaje_final.replace('\\n', '\n'), reply_markup=keyboard, parse_mode="Markdown")
-     
+
+def generar_pdf_presion_bytes(mes_str, df_p_mes, user_id):
+    lang = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#1E293B'))
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=9, leading=11, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
+
+    t_titulo = traducciones.get("09_PDF_presi_titulo", f"Reporte de Presión Arterial - {mes_str}")
+    t_usr = traducciones.get("09_PDF_presi_usuario", f"<b>Usuario Telegram ID:</b> {user_id}")
+
+    story = [
+        Paragraph(f"<b>{t_titulo}</b>", title_style),
+        Paragraph(t_usr, body_style),
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
+    ]
+
+    if df_p_mes is None or df_p_mes.empty:
+        msg_vacio = traducciones.get("09_PDF_presi_sin_reg", "No hay registros de presión para este período.")
+        story.append(Paragraph(msg_vacio, body_style))
+    else:
+        th_fecha = traducciones.get("09_PDF_presi_th_fecha", "Fecha/Hora")
+        th_alta = traducciones.get("09_PDF_presi_th_alta", "Alta (SYS)")
+        th_baja = traducciones.get("09_PDF_presi_th_baja", "Baja (DIA)")
+        th_pul = traducciones.get("09_PDF_presi_th_pul", "Pulso (lpm)")
+        th_nota = traducciones.get("09_PDF_presi_th_nota", "Nota")
+
+        table_data = [[
+            Paragraph(th_fecha, header_style),
+            Paragraph(th_alta, header_style),
+            Paragraph(th_baja, header_style),
+            Paragraph(th_pul, header_style),
+            Paragraph(th_nota, header_style)
+        ]]
+
+        alta_sum = 0
+        baja_sum = 0
+        pulso_sum = 0
+        pulso_count = 0
+
+        for _, r in df_p_mes.iterrows():
+            alta = float(r.get('Alta', 0))
+            baja = float(r.get('Baja', 0))
+            pulso = float(r.get('Pulsaciones', 0))
+            
+            alta_sum += alta
+            baja_sum += baja
+            if pulso > 0:
+                pulso_sum += pulso
+                pulso_count += 1
+
+            fecha_hora = str(r.get('Fecha_Hora', r.get('Fecha_Dia', ''))).strip()
+            nota = str(r.get('Nota', '')).strip()
+
+            table_data.append([
+                Paragraph(fecha_hora, body_style),
+                Paragraph(f"{alta:.0f}", body_style),
+                Paragraph(f"{baja:.0f}", body_style),
+                Paragraph(f"{pulso:.0f}" if pulso > 0 else "-", body_style),
+                Paragraph(nota, body_style)
+            ])
+
+        t = Table(table_data, colWidths=[120, 70, 70, 70, 220])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 15))
+
+        total_regs = len(df_p_mes)
+        prom_alta = alta_sum / total_regs
+        prom_baja = baja_sum / total_regs
+        prom_pulso = pulso_sum / pulso_count if pulso_count > 0 else 0
+
+        story.append(Paragraph(f"<b>Promedios del mes:</b>", body_style))
+        story.append(Paragraph(f"• Presión Alta (Sistólica): {prom_alta:.1f} mmHg", body_style))
+        story.append(Paragraph(f"• Presión Baja (Diastólica): {prom_baja:.1f} mmHg", body_style))
+        if prom_pulso > 0:
+            story.append(Paragraph(f"• Pulsaciones: {prom_pulso:.1f} lpm", body_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+    
 async def generar_y_enviar_pdf_presion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -9292,9 +9419,18 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         pul_str = f" | Pulsaciones: `{pulsaciones:.0f}`" if pulsaciones is not None else ""
         nota_str = f"\nNota: `{nota}`" if nota else ""
         
-        txt_reg_ok = traducciones.get('09_presi_registrada_ok', "Presión registrada:\nAlta: `{alta}` | Baja: `{baja}`{pul}{nota}").format(
-            alta=f"{alta:.0f}", baja=f"{baja:.0f}", pul=pul_str, nota=nota_str
-        )
+        # --- EL FIX DEL CARTEL ESTÁ ACÁ ---
+        msg_bruto = traducciones.get('09_presi_registrada_ok', "✅ Presión registrada:\nAlta: `{alta} mmHg` | Baja: `{baja} mmHg`{pul}{nota}")
+        # Limpiamos formatos restrictivos por si el traductor metió :.0f para que no crashee
+        msg_limpio = msg_bruto.replace("{alta:.0f}", "{alta}").replace("{baja:.0f}", "{baja}")
+        
+        txt_reg_ok = msg_limpio.format(
+            alta=f"{alta:.0f}", 
+            baja=f"{baja:.0f}", 
+            pul=pul_str, 
+            nota=nota_str
+        ).replace('\\n', '\n')
+        
         await update.message.reply_text(txt_reg_ok, parse_mode="Markdown")
         return
 
@@ -10491,8 +10627,8 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(callback_btn_anular_item, pattern="^del_item_"))
         app_bot.add_handler(CallbackQueryHandler(callback_btn_cancelar_registro, pattern="^cancel_entry$"))
         app_bot.add_handler(CallbackQueryHandler(callback_btn_guardar_registro, pattern="^confirm_save$"))        
-       
-        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_(d_|mom_|reg_|borrar)"))
+
+        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_(d_|mom_|reg_|borrar|salir)"))
         app_bot.add_handler(CallbackQueryHandler(callback_gestion_solicitud_medico, pattern="^medico_(aceptar|rechazar)_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_perfil, pattern="^(edit_perfil_|set_ritmo_|set_ocup_|set_lang_)"))
 
