@@ -6025,7 +6025,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data = analizar_con_groq(transcription)
         tipo = str(data.get("tipo", "")).strip().upper()
 
-if tipo == "INFORME_MENSUAL":
+        if tipo == "INFORME_MENSUAL":
             await msg.delete()
             param = str(data.get("parametro", "")).strip()
             
