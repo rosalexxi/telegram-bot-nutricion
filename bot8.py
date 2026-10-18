@@ -8164,7 +8164,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
-🇪🇸	🇺🇸	🇮🇹	🇩🇪	🇫🇷	🇵🇹
     msg = traducciones.get('09_start_mensaje_bienvenida', 
         "👋 *¡Bienvenido a tu Bot Nutricional Personalizado!*\n\n"
         "Guía rápida de comandos e ingresos disponibles:\n\n"
