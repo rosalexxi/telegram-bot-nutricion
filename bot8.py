@@ -4419,7 +4419,7 @@ async def render_confirmation_screen(msg_or_query, context):
         InlineKeyboardButton("💾", callback_data="confirm_save")
     ])
 
-markup = InlineKeyboardMarkup(keyboard)
+    markup = InlineKeyboardMarkup(keyboard)
     chat_id = msg_or_query.effective_chat.id if hasattr(msg_or_query, 'effective_chat') else None
 
     # Detectar si la orden viene de apretar un botón (CallbackQuery)
