@@ -5098,6 +5098,7 @@ async def callback_btn_guardar_registro(update: Update, context: ContextTypes.DE
 #                FINAL                                     COMANDOS CONFIRMACION FUNCIONES BOTONES                        FINAL
 # ======================================================================================================================================
 
+
 # ==================================================================================================================================
 #                    INICIO                 COMANDOS COMIDAS Y COMANDOS ACTIVIDAD                                   INCIO  DB OK
 # ==================================================================================================================================
@@ -5816,7 +5817,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not raw_text: 
         return
 
-    # --- INTERCEPTOR DE NOTAS MÉDICAS (Evita que la IA las procese como comidas) ---
+    # --- 1. INTERCEPTOR EDICIÓN VALORES CLÍNICOS (Médicos) ---
+    if context.user_data.get('campo_clinico_a_editar'):
+        if await procesar_cambio_valor_clinico(update, context):
+            return
+
+    # --- 2. INTERCEPTOR DE NOTAS MÉDICAS (Médicos) ---
     if context.user_data.get('esperando_texto_nota_para') or context.user_data.get('esperando_nota_informe_para'):
         if 'esperando_nota_informe_para' in context.user_data:
             if await procesar_texto_nota_informe(update, context):
@@ -5825,6 +5831,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if await procesar_texto_nota_medica(update, context):
                 return
                 
+    # --- 3. EDICIÓN DE PERFIL (Usuarios) ---
     estados_perfil = [
         'awaiting_edit_perfil_peso', 'awaiting_edit_perfil_altura', 
         'awaiting_edit_perfil_cintura', 'awaiting_edit_perfil_cuello', 
@@ -5836,6 +5843,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
         return
         
+    # --- 4. PRESIÓN ARTERIAL ---
     if context.user_data.get('awaiting_presion_nota'):
         context.user_data.pop('awaiting_presion_nota', None)
         datos_presion = context.user_data.pop('pending_presion_foto', None)
@@ -5868,6 +5876,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(txt_exp_presion)
         return
 
+    # --- 5. EDICIÓN DE FECHAS, ÍTEMS Y ACTIVIDADES ---
     if context.user_data.get('awaiting_custom_date'):
         await _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id)
         return
@@ -5887,6 +5896,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _sub_manejar_plantilla_comida(update, context, raw_text, user_id)
         return
 
+    # --- 6. ANÁLISIS DE TEXTO LIBRE CON GROQ ---
     msg_analizando_ia = traducciones.get("07_bot_analizando_texto_ia", "🤖 Analizando texto con Inteligencia Artificial...")
     msg = await update.message.reply_text(msg_analizando_ia)
     try:
@@ -5897,7 +5907,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.delete()
             param = str(data.get("parametro", "")).strip()
             
-            # Como la IA ya nos devuelve 'YYYY-MM', lo leemos directo
             if param and re.match(r'^20\d{2}-\d{2}', param):
                 mes_target = param[:7]
             else:
@@ -5916,13 +5925,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.delete()
             param = str(data.get("parametro", "")).strip()
             
-            # Como la IA ya nos devuelve 'YYYY-MM-DD', lo leemos directo
             if param and re.match(r'^20\d{2}-\d{2}-\d{2}', param):
                 fecha_objetivo = param[:10]
             else:
                 fecha_objetivo = obtener_ahora_arg().strftime("%Y-%m-%d")
 
-            # Soporte dual: handle_voice no tiene update.callback_query, usamos update.message
             objetivo_msg = update.message if update.message else update.callback_query
             await mostrar_diario_fecha(objetivo_msg, user_id, fecha_objetivo)
             return
@@ -5935,8 +5942,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         msg_err_proc = traducciones.get("07_bot_error_procesar_texto", "❌ Error al procesar el texto: {e}")
-        await msg.edit_text(msg_err_proc.format(e=e))
-        
+        await msg.edit_text(msg_err_proc.format(e=e))        
+
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -10592,6 +10599,7 @@ def main():
         app_bot.add_handler(CommandHandler(["semana", "s", "w", "week"], cmd_mensaje))
         app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
         app_bot.add_handler(CommandHandler(["cancelar", "exit", "x"], cmd_cancelar_conversacion))
+        
         # =================================FACTURACIÓN Y PAGOS (TELEGRAM STARS)======================
         app_bot.add_handler(CommandHandler(["pagar", "pay"], cmd_pagar))
         app_bot.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
@@ -10612,8 +10620,6 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_editar_valor_clinico_menu, pattern="^(edit_val_calorias|edit_val_proteinas|edit_val_peso|edit_val_volver)$"))
-
-
         
         # Enrutadores para el módulo profesional (listados, informes y edición por botones)
         app_bot.add_handler(CallbackQueryHandler(callback_enviar_informe_paciente, pattern="^enviar_inf_"))
@@ -10634,12 +10640,12 @@ def main():
 
         # =================================MESSAGE HANDLERS===========================================
 
-        app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, procesar_texto_nota_informe), group=0)
         app_bot.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
         app_bot.add_handler(MessageHandler(filters.VOICE, handle_voice))
         app_bot.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+        
+        # ÚNICO HANDLER DE TEXTO: El jefe absoluto que rutea todo internamente en handle_message
         app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, procesar_cambio_valor_clinico), group=0)
         
         print("Nutrition Bot successfully started on Telegram with scheduled tasks...")
         app_bot.run_polling(drop_pending_updates=True)
@@ -10654,5 +10660,3 @@ if __name__ == "__main__":
 # =============================================================================================================================================
 #                                               FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
-
-
