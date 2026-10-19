@@ -5817,19 +5817,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not raw_text: 
         return
 
-    # --- 1. INTERCEPTOR EDICIÓN VALORES CLÍNICOS (Médicos) ---
-    if context.user_data.get('campo_clinico_a_editar'):
-        if await procesar_cambio_valor_clinico(update, context):
-            return
+   # --- 1. INTERCEPTOR EDICIÓN VALORES CLÍNICOS (Médicos) ---
+   #if context.user_data.get('campo_clinico_a_editar'):
+   #    if await procesar_cambio_valor_clinico(update, context):
+   #        return
 
-    # --- 2. INTERCEPTOR DE NOTAS MÉDICAS (Médicos) ---
-    if context.user_data.get('esperando_texto_nota_para') or context.user_data.get('esperando_nota_informe_para'):
-        if 'esperando_nota_informe_para' in context.user_data:
-            if await procesar_texto_nota_informe(update, context):
-                return
-        else:
-            if await procesar_texto_nota_medica(update, context):
-                return
+   # --- 2. INTERCEPTOR DE NOTAS MÉDICAS (Médicos) ---
+   #if context.user_data.get('esperando_texto_nota_para') or context.user_data.get('esperando_nota_informe_para'):
+   #     if 'esperando_nota_informe_para' in context.user_data:
+   #         if await procesar_texto_nota_informe(update, context):
+   #             return
+   #     else:
+   #         if await procesar_texto_nota_medica(update, context):
+   #             return
                 
     # --- 3. EDICIÓN DE PERFIL (Usuarios) ---
     estados_perfil = [
