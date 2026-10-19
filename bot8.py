@@ -3647,11 +3647,30 @@ def obtener_traducciones_db(lang):
     except Exception as e:
         logger.error(f"Error al obtener traducciones de Supabase para el idioma {lang}: {e}")
     return traducciones
-    
+   
+async def limpiar_teclado_anterior(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Elimina los botones del menú anterior si el usuario inicia una nueva acción."""
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    if not chat_id:
+        return
+        
+    last_msg_id = context.user_data.pop('last_menu_msg_id', None)
+    if last_msg_id:
+        try:
+            # Editamos el mensaje pasándole reply_markup=None para borrar solo los botones
+            await context.bot.edit_message_reply_markup(
+                chat_id=chat_id,
+                message_id=last_msg_id,
+                reply_markup=None
+            )
+        except Exception:
+            pass # Falla silenciosa si el mensaje fue borrado a mano por el usuario o es muy viejo
+   
 def requiere_registro(func):
     """Decorador que verifica registro y bloquea usuarios en Estado 3 ofreciendo reactivación prorrateada."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        await limpiar_teclado_anterior(update, context)
         user_id = str(update.effective_user.id).strip()
         encontrado = False
         esta_activo = True
@@ -5790,7 +5809,7 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
         except Exception as e:
             logger.error(f"Error recalculando métricas en vivo para {user_id}: {e}")
             await update.message.reply_text(mensaje_exito.replace('\\n', '\n'), parse_mode="Markdown")
-                                                    
+
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, chat_id = update.effective_user.id, update.effective_chat.id
