@@ -4731,15 +4731,16 @@ async def _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, ch
         context.user_data['msg_solicitud_fecha_id'] = msg_err.message_id
 
 async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
-    idx = context.user_data.get('edit_item_idx')
+    # Obtenemos el índice correcto que guardó bot8A.py (que ya viene restado en -1, es decir, arranca en 0)
+    item_index = context.user_data.get('editing_item_idx')
     items = context.user_data.get('pending_items', [])
     
-    if not items or idx is None or idx < 1 or idx > len(items):
+    # Validamos que el índice exista y esté dentro del rango de la lista
+    if not items or item_index is None or item_index < 0 or item_index >= len(items):
         context.user_data.pop('awaiting_edit_item_val', None)
-        context.user_data.pop('edit_item_idx', None)
+        context.user_data.pop('editing_item_idx', None)
         return
 
-    item_index = idx - 1
     item_actual = items[item_index]
     
     # 1. Determinar si ingresó solo un número o si ingresó texto/descripción
@@ -4769,7 +4770,7 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
         
         context.user_data['pending_items'][item_index] = item_actual
         context.user_data.pop('awaiting_edit_item_val', None)
-        context.user_data.pop('edit_item_idx', None)
+        context.user_data.pop('editing_item_idx', None)
         
         await render_confirmation_screen(update, context)
     else:
@@ -4793,7 +4794,7 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
                 context.user_data['pending_items'][item_index] = item_actual
             
             context.user_data.pop('awaiting_edit_item_val', None)
-            context.user_data.pop('edit_item_idx', None)
+            context.user_data.pop('editing_item_idx', None)
             
             try: await msg_analizando.delete()
             except: pass
@@ -4803,8 +4804,8 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
         except Exception as e:
             await msg_analizando.edit_text(f"❌ Error al re-analizar: {e}")
             context.user_data.pop('awaiting_edit_item_val', None)
-            context.user_data.pop('edit_item_idx', None)
-            
+            context.user_data.pop('editing_item_idx', None)            
+
 async def _sub_manejar_plantilla_comida(update: Update, context: ContextTypes.DEFAULT_TYPE, raw_text, user_id):
     lang = obtener_idioma_usuario(user_id) or '$1'
     traducciones = obtener_traducciones_db(lang) or {}
