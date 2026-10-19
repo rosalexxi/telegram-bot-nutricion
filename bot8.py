@@ -4639,22 +4639,24 @@ async def callback_handler_reportes_pdf(update: Update, context: ContextTypes.DE
 
 async def _sub_manejar_texto_actividad(update, context, raw_text, chat_id):
     context.user_data.pop('awaiting_activity_text', None)
-    
     try: await update.message.delete()
     except: pass
     
-    msg_analizando = await update.message.reply_text("🤖 Analizando actividad con IA...")
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+    
+    txt_analizando = traducciones.get("bot_analizando_actividad_ia", "🤖 Analizando actividad con IA...")
+    msg_analizando = await update.message.reply_text(txt_analizando)
+    
     try:
-        user_id = update.effective_user.id
-        # --- AHORA ES ASÍNCRONO ---
         data = await asyncio.to_thread(analizar_con_groq, f"Calcula el gasto calórico de esta actividad física: {raw_text}", user_id)
-        
         if str(data.get("tipo", "")).upper() != "ACTIVIDAD":
             data["tipo"] = "Actividad"
-            
         await procesar_y_mostrar_confirmacion(data, msg_analizando, context)
     except Exception as e:
-        await msg_analizando.edit_text(f"❌ Error al procesar actividad: {e}")
+        txt_err = traducciones.get("bot_err_procesar_actividad", "❌ Error al procesar actividad: {e}").format(e=e)
+        await msg_analizando.edit_text(txt_err)
         
 async def _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id):
     user_id = update.effective_user.id
@@ -4731,19 +4733,15 @@ async def _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, ch
         context.user_data['msg_solicitud_fecha_id'] = msg_err.message_id
 
 async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
-    # Obtenemos el índice correcto que guardó bot8A.py (que ya viene restado en -1, es decir, arranca en 0)
     item_index = context.user_data.get('editing_item_idx')
     items = context.user_data.get('pending_items', [])
     
-    # Validamos que el índice exista y esté dentro del rango de la lista
     if not items or item_index is None or item_index < 0 or item_index >= len(items):
         context.user_data.pop('awaiting_edit_item_val', None)
         context.user_data.pop('editing_item_idx', None)
         return
 
     item_actual = items[item_index]
-    
-    # 1. Determinar si ingresó solo un número o si ingresó texto/descripción
     es_solo_numero = False
     try:
         nuevo_peso = float(raw_text.replace(',', '.').strip())
@@ -4751,15 +4749,16 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
     except ValueError:
         pass
 
-    # Borramos el mensaje del usuario para mantener el chat limpio
     try: await update.message.delete()
     except: pass
 
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
     if es_solo_numero:
-        # SOLO NÚMERO: Hacemos matemática pura
         peso_anterior = float(item_actual.get('peso', 1))
         if peso_anterior <= 0: peso_anterior = 1.0
-            
         factor = nuevo_peso / peso_anterior
         item_actual['peso'] = nuevo_peso
         item_actual['calorias'] = float(item_actual.get('calorias', 0)) * factor
@@ -4771,15 +4770,13 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
         context.user_data['pending_items'][item_index] = item_actual
         context.user_data.pop('awaiting_edit_item_val', None)
         context.user_data.pop('editing_item_idx', None)
-        
         await render_confirmation_screen(update, context)
     else:
-        # CONTIENE TEXTO: Pasamos por la IA
-        msg_analizando = await update.message.reply_text("🤖 Re-analizando descripción con IA...")
+        txt_reanalizando = traducciones.get("bot_reanalizando_desc_ia", "🤖 Re-analizando descripción con IA...")
+        msg_analizando = await update.message.reply_text(txt_reanalizando)
         try:
             data = analizar_con_groq(raw_text)
             nuevos_items = data.get("items", [])
-            
             if nuevos_items:
                 nuevo_item = nuevos_items[0]
                 item_actual['alimento'] = nuevo_item.get('alimento', raw_text)
@@ -4790,19 +4787,17 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
                 item_actual['grasas'] = float(nuevo_item.get('grasas', 0))
                 item_actual['carbohidratos'] = float(nuevo_item.get('carbohidratos', 0))
                 item_actual['fibras'] = float(nuevo_item.get('fibras', 0))
-                
                 context.user_data['pending_items'][item_index] = item_actual
             
             context.user_data.pop('awaiting_edit_item_val', None)
             context.user_data.pop('editing_item_idx', None)
-            
             try: await msg_analizando.delete()
             except: pass
-            
             await render_confirmation_screen(update, context)
             
         except Exception as e:
-            await msg_analizando.edit_text(f"❌ Error al re-analizar: {e}")
+            txt_err = traducciones.get("bot_err_reanalizar", "❌ Error al re-analizar: {e}").format(e=e)
+            await msg_analizando.edit_text(txt_err)
             context.user_data.pop('awaiting_edit_item_val', None)
             context.user_data.pop('editing_item_idx', None)            
 
@@ -4900,10 +4895,10 @@ async def _sub_manejar_voz_actividad(update, context, transcription, msg):
     prompt_ia = f"El usuario realizó una actividad física descrita por voz. Transcripción: '{transcription}'. Calcula las calorías gastadas utilizando estrictamente su perfil biométrico: {perfil_biometrico}. Devolvé un JSON con los campos 'alimento' y 'calorias'."
     
     try:
-        # --- AHORA ES ASÍNCRONO ---
         resultado_ia = await asyncio.to_thread(analizar_con_groq, prompt_ia, user_id)
     except Exception as e:
-        await msg.edit_text(f"❌ Error al procesar la actividad física: {e}")
+        txt_err = traducciones.get("bot_err_procesar_act_fisica", "❌ Error al procesar la actividad física: {e}").format(e=e)
+        await msg.edit_text(txt_err)
         return
 
     items_ia = resultado_ia.get('items', [])
@@ -4911,7 +4906,6 @@ async def _sub_manejar_voz_actividad(update, context, transcription, msg):
     desc = str(items_ia[0].get('alimento', transcription)) if items_ia else transcription
     
     item_actividad = {"alimento": desc, "peso": 0, "calorias": -abs(kcal_estimadas), "proteinas": 0, "grasas": 0, "carbohidratos": 0, "fibras": 0}
-    
     context.user_data.update({'pending_items': [item_actividad], 'pending_fecha': obtener_ahora_arg().strftime("%Y-%m-%d"), 'pending_momento': 'Actividad'})
 
     try: await msg.delete()
@@ -5107,7 +5101,7 @@ async def callback_btn_guardar_registro(update: Update, context: ContextTypes.DE
 #              INICIO                     FUNCIONES COMIDAS                   INICIO
 # =============================================================================================================================================
 
-def consultar_codigo_barras(barcode: str) -> dict | bool:
+def consultar_codigo_barras(barcode: str, txt_desconocido="Producto desconocido") -> dict | bool:
     url = f"https://world.openfoodfacts.org/api/v2/product/{barcode.strip()}.json"
     headers = {"User-Agent": "BotNutricionTelegram/1.0 (contacto@tudominio.com)"}
     try:
@@ -5122,20 +5116,18 @@ def consultar_codigo_barras(barcode: str) -> dict | bool:
         product = data.get("product", {})
         nutriments = product.get("nutriments", {})
         
-        # 1. Extraemos los valores principales primero
         calorias = float(nutriments.get("energy-kcal_100g", nutriments.get("energy-kcal", 0.0) or 0.0))
         proteinas = float(nutriments.get("proteins_100g", 0.0) or 0.0)
         
-        # 2. FILTRO ANTI-TABLAS VACÍAS: Si calorías y proteínas son cero, lo descartamos
         if calorias == 0.0 and proteinas == 0.0:
             return False
             
-        # Si pasa el filtro, seguimos extrayendo el resto
         grasas = float(nutriments.get("fat_100g", 0.0) or 0.0)
         carbohidratos = float(nutriments.get("carbohydrates_100g", 0.0) or 0.0)
         fibras = float(nutriments.get("fiber_100g", 0.0) or 0.0)
         
-        nombre_alimento = product.get("product_name_es") or product.get("product_name") or "Producto desconocido"
+        # AQUÍ APLICAMOS LA VARIABLE TRADUCIDA
+        nombre_alimento = product.get("product_name_es") or product.get("product_name") or txt_desconocido
         marca = product.get("brands", "")
         if marca:
             nombre_alimento = f"{nombre_alimento} ({marca})"
@@ -5153,7 +5145,7 @@ def consultar_codigo_barras(barcode: str) -> dict | bool:
     except Exception as e:
         logger.error(f"⚠️ Error al consultar el código de barras {barcode}: {e}")
         return False
-
+        
 def construir_texto_listado_comidas(user_id, comidas, traducciones=None):
     if traducciones is None:
         traducciones = {}
@@ -5379,8 +5371,11 @@ async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
     msg_espera = await message_obj.reply_text(msg_analizando)
     
     try:
-        # --- ASÍNCRONO PARA NO CONGELAR ---
-        resultado_api = await asyncio.to_thread(consultar_codigo_barras, barcode_text)
+        # Extraemos el texto de producto desconocido en el idioma del usuario
+        txt_desconocido = traducciones.get("07_bot_producto_desconocido", "Producto desconocido")
+        
+        # Pasamos el texto traducido a la función
+        resultado_api = await asyncio.to_thread(consultar_codigo_barras, barcode_text, txt_desconocido)
         
         if resultado_api:
             item_procesado = {
@@ -5552,6 +5547,9 @@ async def mostrar_selector_momento_eliminar(query_or_msg, context):
         await query_or_msg.message.reply_text(txt, reply_markup=keyboard, parse_mode="Markdown")
                 
 async def render_pantalla_items_eliminar(query, user_id, context):
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
     fecha = context.user_data.get('del_fecha', obtener_ahora_arg().strftime("%Y-%m-%d"))
     momento = context.user_data.get('del_momento', 'Desayuno')
 
@@ -5561,41 +5559,29 @@ async def render_pantalla_items_eliminar(query, user_id, context):
     else:
         df['Fecha_clean'] = df['Fecha'].astype(str).str.strip()
         df['Momento_clean'] = df['Momento'].astype(str).str.strip().str.lower()
-        
         momento_busqueda = momento.strip().lower()
-        
         if momento_busqueda == 'actividad':
             df_sub = df[(df['Fecha_clean'] == str(fecha).strip()) & (df['Momento_clean'].isin(['actividad', 'actividad física', 'ejercicio']))]
         else:
             df_sub = df[(df['Fecha_clean'] == str(fecha).strip()) & (df['Momento_clean'] == momento_busqueda)]
-            
         items_momento = df_sub.to_dict(orient='records')
 
     if not items_momento:
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌", callback_data="del_salir_pantalla")]
-        ])
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("❌", callback_data="del_salir_pantalla")]])
+        txt_vacio = traducciones.get("del_no_registros_momento", "⚠️ No se encontraron registros para este momento en la fecha `{fecha}`.").format(fecha=fecha)
         try:
-            await query.edit_message_text(
-                f"⚠️ No se encontraron registros para este momento en la fecha `{fecha}`.",
-                reply_markup=keyboard,
-                parse_mode="Markdown"
-            )
+            await query.edit_message_text(txt_vacio, reply_markup=keyboard, parse_mode="Markdown")
         except Exception:
-            await query.message.reply_text(
-                f"⚠️ No se encontraron registros para este momento en la fecha `{fecha}`.",
-                reply_markup=keyboard,
-                parse_mode="Markdown"
-            )
+            await query.message.reply_text(txt_vacio, reply_markup=keyboard, parse_mode="Markdown")
         return
 
-    txt = f"🗑️ **Eliminar Registros**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\n\n"
+    txt_titulo = traducciones.get("del_titulo_eliminar_registros", "🗑️ **Eliminar Registros**\n📅 Fecha: `{fecha}` | Momento: `{momento}`\n\n").format(fecha=fecha, momento=momento)
+    txt = txt_titulo.replace('\\n', '\n')
     
     for idx, item in enumerate(items_momento, start=1):
         alimento = str(item.get('Alimento', 'Desconocido'))
         peso = float(item.get('Peso', 0))
         calorias = float(item.get('Calorias', 0))
-        
         if momento.lower() == 'actividad':
             txt += f"**{idx}. {alimento}**: `{calorias:.1f} kcal`\n"
         else:
@@ -5606,15 +5592,11 @@ async def render_pantalla_items_eliminar(query, user_id, context):
         item_id = item.get('id_registro')
         nombre_corto = str(item.get('Alimento', ''))[:18]
         if item_id is not None:
-            # 🟢 Actualizado con el tacho de basura (🗑️) para el borrado individual
-            keyboard.append([
-                InlineKeyboardButton(f"🗑️ {nombre_corto}", callback_data=f"del_reg_{item_id}")
-            ])
+            keyboard.append([InlineKeyboardButton(f"🗑️ {nombre_corto}", callback_data=f"del_reg_{item_id}")])
 
-    # 🟢 Botón de la cruz ahora envía "del_salir_pantalla" en lugar de "del_borrar"
     keyboard.append([InlineKeyboardButton("❌", callback_data="del_salir_pantalla")])
-
     markup = InlineKeyboardMarkup(keyboard)
+    
     try:
         await query.edit_message_text(txt, reply_markup=markup, parse_mode="Markdown")
     except Exception:
@@ -5663,11 +5645,12 @@ async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEF
         await render_pantalla_items_eliminar(query, user_id, context)
 
     elif data == "del_salir_pantalla":
+        txt_canc = traducciones.get("del_operacion_finalizada", "❌ Operación de eliminación finalizada.")
         try:
-            await query.edit_message_text("❌ Operación de eliminación finalizada.", parse_mode="Markdown")
+            await query.edit_message_text(txt_canc, parse_mode="Markdown")
         except Exception:
             try: await query.message.delete()
-            except: pass
+            except: pass 
 
     elif data in ["del_cambiar_fecha", "del_volver_momentos"]:
         await mostrar_selector_momento_eliminar(query, context)     
@@ -5818,19 +5801,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not raw_text: 
         return
 
-   # --- 1. INTERCEPTOR EDICIÓN VALORES CLÍNICOS (Médicos) ---
-   #if context.user_data.get('campo_clinico_a_editar'):
-   #    if await procesar_cambio_valor_clinico(update, context):
-   #        return
+    --- 1. INTERCEPTOR EDICIÓN VALORES CLÍNICOS (Médicos) ---
+   if context.user_data.get('campo_clinico_a_editar'):
+       if await procesar_cambio_valor_clinico(update, context):
+           return
 
-   # --- 2. INTERCEPTOR DE NOTAS MÉDICAS (Médicos) ---
-   #if context.user_data.get('esperando_texto_nota_para') or context.user_data.get('esperando_nota_informe_para'):
-   #     if 'esperando_nota_informe_para' in context.user_data:
-   #         if await procesar_texto_nota_informe(update, context):
-   #             return
-   #     else:
-   #         if await procesar_texto_nota_medica(update, context):
-   #             return
+    --- 2. INTERCEPTOR DE NOTAS MÉDICAS (Médicos) ---
+   if context.user_data.get('esperando_texto_nota_para') or context.user_data.get('esperando_nota_informe_para'):
+        if 'esperando_nota_informe_para' in context.user_data:
+            if await procesar_texto_nota_informe(update, context):
+                return
+        else:
+            if await procesar_texto_nota_medica(update, context):
+                return
                 
     # --- 3. EDICIÓN DE PERFIL (Usuarios) ---
     estados_perfil = [
@@ -6837,22 +6820,27 @@ def generar_pdf_diario_bytes(fecha_str, df_diario, user_id):
     
 async def generar_y_enviar_pdf_diario_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer("Generando PDF del día... ⏳")
     user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    txt_alerta = traducciones.get("08_pdf_diario_generando_alerta", "Generando PDF del día... ⏳")
+    await query.answer(txt_alerta)
     
     cb_data = query.data
     fecha_str = cb_data.replace("descargar_pdf_diario_", "").strip()
     
     df = obtener_datos_usuario(user_id)
     df_diario = df[df['Fecha'].astype(str).str.strip() == str(fecha_str).strip()] if not df.empty and 'Fecha' in df.columns else pd.DataFrame()
-    
     pdf_buffer = generar_pdf_diario_bytes(fecha_str, df_diario, user_id)
+    
+    txt_caption = traducciones.get("08_pdf_diario_caption", "📄 Detalle Diario de Ingestas - {fecha_str}").format(fecha_str=fecha_str)
     
     await context.bot.send_document(
         chat_id=query.message.chat_id,
         document=pdf_buffer,
         filename=f"Diario_{fecha_str}.pdf",
-        caption=f"📄 Detalle Diario de Ingestas - {fecha_str}",
+        caption=txt_caption,
         parse_mode="Markdown"
     )
     
@@ -8158,22 +8146,38 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
                     comidas_hoy.add(momento_reg)
 
             faltantes = []
+            
+            # Textos para los días
+            txt_de_anteayer = traducciones.get("08_notif_de_anteayer", "de anteayer")
+            txt_de_ayer = traducciones.get("08_notif_de_ayer", "de ayer")
+            txt_de_hoy = traducciones.get("08_notif_de_hoy", "de hoy")
+            
+            # Función para traducir el nombre del momento (Desayuno, Almuerzo, etc)
+            def traducir_momento(m):
+                mapa = {
+                    "Desayuno": traducciones.get("08_inf_diario_momento_desayuno", "Desayuno"),
+                    "Almuerzo": traducciones.get("08_inf_diario_momento_almuerzo", "Almuerzo"),
+                    "Merienda": traducciones.get("08_inf_diario_momento_merienda", "Merienda"),
+                    "Cena": traducciones.get("08_inf_diario_momento_cena", "Cena")
+                }
+                return mapa.get(m, m)
+
             if momento == 'manana':
                 for c in todas_comidas:
                     if c not in comidas_anteayer:
-                        faltantes.append(f"{c} de anteayer ({str_anteayer})")
+                        faltantes.append(f"{traducir_momento(c)} {txt_de_anteayer} ({str_anteayer})")
                 for c in todas_comidas:
                     if c not in comidas_ayer:
-                        faltantes.append(f"{c} de ayer ({str_ayer})")
+                        faltantes.append(f"{traducir_momento(c)} {txt_de_ayer} ({str_ayer})")
 
             elif momento == 'tarde':
                 for c in todas_comidas:
                     if c not in comidas_ayer:
-                        faltantes.append(f"{c} de ayer ({str_ayer})")
+                        faltantes.append(f"{traducir_momento(c)} {txt_de_ayer} ({str_ayer})")
                 if "Desayuno" not in comidas_hoy:
-                    faltantes.append("Desayuno de hoy")
+                    faltantes.append(f"{traducir_momento('Desayuno')} {txt_de_hoy}")
                 if "Almuerzo" not in comidas_hoy:
-                    faltantes.append("Almuerzo de hoy")
+                    faltantes.append(f"{traducir_momento('Almuerzo')} {txt_de_hoy}")
 
             if faltantes:
                 lista_formateada = "\n• " + "\n• ".join(faltantes)
@@ -8190,7 +8194,6 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
 
         except Exception as e:
             logger.error(f"Error procesando usuario {user_id}: {e}")
-            
               
 # ======================================================================================================================================
 #                   FINAL                                    COMANDOS INFORMES                                   FINAL
@@ -8257,30 +8260,34 @@ async def callback_descargar_manual_usuario(update: Update, context: ContextType
     query = update.callback_query
     await query.answer()
     
-    # Extraemos el código de idioma del botón (ej: "es", "en")
+    user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
     lang_code = query.data.replace("descargar_manual_user_", "").strip().upper()
     pdf_filename = f"{lang_code}.pdf"
     
-    # Si no existe el PDF en ese idioma, usamos ES.pdf por defecto
     if not os.path.exists(pdf_filename):
         pdf_filename = "ES.pdf"
         
     try:
         if os.path.exists(pdf_filename):
+            txt_caption = traducciones.get("09_manual_usuario_caption", "📄 **Manual de Usuario**")
             await context.bot.send_document(
                 chat_id=query.message.chat_id,
                 document=open(pdf_filename, 'rb'),
                 filename=pdf_filename,
-                caption="📄 **Manual de Usuario**",
+                caption=txt_caption,
                 parse_mode="Markdown"
             )
         else:
-            await query.message.reply_text(f"⚠️ El archivo `{pdf_filename}` no se encuentra en el servidor.", parse_mode="Markdown")
+            txt_err = traducciones.get("09_manual_err_no_encontrado", "⚠️ El archivo `{pdf_filename}` no se encuentra en el servidor.").format(pdf_filename=pdf_filename)
+            await query.message.reply_text(txt_err, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error enviando el manual de usuario en PDF: {e}")
-        await query.message.reply_text("❌ Ocurrió un error al intentar enviar el manual.")
+        txt_envio = traducciones.get("09_manual_err_envio", "❌ Ocurrió un error al intentar enviar el manual.")
+        await query.message.reply_text(txt_envio)
         
-
 #                       COMANDO ALTA Y FLUJO DE USUARIO CON INFORME IA
 # =========================================================================================================================================
 
@@ -8353,43 +8360,54 @@ async def ing_recibir_ritmo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     context.user_data['ing_ritmo'] = query.data.replace("ritmo_", "")
+    
+    user_id = query.from_user.id
+    lang = context.user_data.get('ing_idioma', 'es')
+    traducciones = obtener_traducciones_db(lang) or {}
 
     idiomas_disp = await obtener_idiomas_disponibles_db()
     b_list = [[InlineKeyboardButton(f"{item['bandera']} {item['nombre']}", callback_data=f"set_lang_{item['codigo']}")] for item in idiomas_disp]
     
-    await query.edit_message_text("🌐 Seleccioná tu **idioma preferido**:", reply_markup=InlineKeyboardMarkup(b_list), parse_mode="Markdown")
+    txt_idioma = traducciones.get("09_ing_selecciona_idioma", "🌐 Seleccioná tu **idioma preferido**:")
+    await query.edit_message_text(txt_idioma, reply_markup=InlineKeyboardMarkup(b_list), parse_mode="Markdown")
     return ING_IDIOMA
 
 async def ing_recibir_cadera(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = context.user_data.get('ing_idioma', 'es')
+    traducciones = obtener_traducciones_db(lang) or {}
+    
     txt = update.message.text.strip().replace(',', '.')
     try:
         cadera = float(txt)
         if not (60 <= cadera <= 200): raise ValueError()
     except ValueError:
-        await update.message.reply_text("⚠️ Ingresá un perímetro de cadera válido en cm (ejemplo: `100`).", parse_mode="Markdown")
+        txt_err = traducciones.get("09_ing_err_cadera_valida", "⚠️ Ingresá un perímetro de cadera válido en cm (ejemplo: `100`).")
+        await update.message.reply_text(txt_err, parse_mode="Markdown")
         return ING_CADERA
 
     context.user_data['ing_cadera'] = cadera
 
+    btn_r1 = traducciones.get('09_btn_ritmo_tranquilo', "🟢 Tranquilo / Lento")
+    btn_r2 = traducciones.get('09_btn_ritmo_moderado', "🟡 Moderado")
+    btn_r3 = traducciones.get('09_btn_ritmo_intenso', "🔴 Intenso / Rápido")
+    
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🟢 Tranquilo / Lento", callback_data="ritmo_tranquilo")],
-        [InlineKeyboardButton("🟡 Moderado", callback_data="ritmo_moderado")],
-        [InlineKeyboardButton("🔴 Intenso / Rápido", callback_data="ritmo_intenso")]
+        [InlineKeyboardButton(btn_r1, callback_data="ritmo_tranquilo")],
+        [InlineKeyboardButton(btn_r2, callback_data="ritmo_moderado")],
+        [InlineKeyboardButton(btn_r3, callback_data="ritmo_intenso")]
     ])
-    await update.message.reply_text(
-        "Seleccioná el **ritmo para tu plan**. Esto define el déficit/superávit de tus calorías:\n"
-        "• *🟢 Tranquilo (Cambios muy graduales, súper fácil de sostener).*\n"
-        "• *🟡 Moderado (Equilibrio ideal entre resultados y adherencia).*\n"
-        "• *🔴 Intenso (Exigente, para resultados más rápidos).*\n\n"
-        "🎯 Seleccioná tu ritmo deseado:", 
-        reply_markup=keyboard, parse_mode="Markdown"
-    )
+    
+    txt_ritmo = traducciones.get("09_ing_selecciona_ritmo", "Seleccioná el **ritmo para tu plan**. Esto define el déficit/superávit de tus calorías:\n• *🟢 Tranquilo (Cambios muy graduales, súper fácil de sostener).*\n• *🟡 Moderado (Equilibrio ideal entre resultados y adherencia).*\n• *🔴 Intenso (Exigente, para resultados más rápidos).*\n\n🎯 Seleccioná tu ritmo deseado:").replace('\\n', '\n')
+    await update.message.reply_text(txt_ritmo, reply_markup=keyboard, parse_mode="Markdown")
     return ING_RITMO
 
 async def ing_recibir_idioma(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    context.user_data['ing_idioma'] = query.data.replace("set_lang_", "")
+    
+    nuevo_idioma = query.data.replace("set_lang_", "")
+    context.user_data['ing_idioma'] = nuevo_idioma
+    traducciones = obtener_traducciones_db(nuevo_idioma) or {}
 
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🪑 Nivel 1 (Ligero)", callback_data="ocup_1.375")],
@@ -8397,12 +8415,7 @@ async def ing_recibir_idioma(update: Update, context: ContextTypes.DEFAULT_TYPE)
         [InlineKeyboardButton("🏃 Nivel 3 (Intenso)", callback_data="ocup_1.725")]
     ])
     
-    texto_ocupacion = (
-        "Seleccioná tu **nivel de movimiento diario** (el ejercicio deportivo se registra aparte):\n"
-        "• *🪑 Ligero (Trabajo de oficina / Mayormente sentado).*\n"
-        "• *🚶 Moderado (De pie muchas horas, ej: docentes, vendedores).*\n"
-        "• *🏃 Intenso (Trabajo físico pesado, ej: albañilería, carga).*"
-    )
+    texto_ocupacion = traducciones.get("09_ing_selecciona_movimiento", "Seleccioná tu **nivel de movimiento diario** (el ejercicio deportivo se registra aparte):\n• *🪑 Ligero (Trabajo de oficina / Mayormente sentado).*\n• *🚶 Moderado (De pie muchas horas, ej: docentes, vendedores).*\n• *🏃 Intenso (Trabajo físico pesado, ej: albañilería, carga).*").replace('\\n', '\n')
     
     await query.edit_message_text(texto_ocupacion, reply_markup=keyboard, parse_mode="Markdown")
     return ING_OCUPACION
@@ -8410,17 +8423,21 @@ async def ing_recibir_idioma(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def ing_recibir_ocupacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    lang = context.user_data.get('ing_idioma', 'es')
+    traducciones = obtener_traducciones_db(lang) or {}
+    
     try: 
         context.user_data['ing_ocupacion'] = float(query.data.replace("ocup_", ""))
     except ValueError: 
         context.user_data['ing_ocupacion'] = 1.375
         
-    await query.edit_message_text("Ingresá tu **peso actual en kg** (ejemplo: `82.5`):", parse_mode="Markdown")
+    txt_peso = traducciones.get("09_ing_ingresa_peso", "Ingresá tu **peso actual en kg** (ejemplo: `82.5`):")
+    await query.edit_message_text(txt_peso, parse_mode="Markdown")
     return ING_PESO
 
 async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    idioma_detectado = 'es'
+    idioma_detectado = obtener_idioma_usuario(user_id) or 'es'
     context.user_data['ing_idioma'] = idioma_detectado
     traducciones = obtener_traducciones_db(idioma_detectado) or {}
 
@@ -8428,16 +8445,10 @@ async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if estado_usr is not None:
         estado_lower = estado_usr.lower()
-        
         if estado_lower == '3':
-            mensaje_bloqueo = (
-                "⚠️ **Tu período de prueba gratuito ha finalizado.**\n\n"
-                "Para seguir usando todas las funciones del asistente, podés activar tu cuenta abonando los días que restan hasta fin de mes.\n\n"
-                "Una vez abonado, volverás a tener acceso total y tu ciclo de facturación se alineará al día 1 del mes próximo."
-            )
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("⭐ Activar mes en curso", callback_data="rescate_mensual")]
-            ])
+            mensaje_bloqueo = traducciones.get("09_ing_prueba_finalizada", "⚠️ **Tu período de prueba gratuito ha finalizado.**\n\nPara seguir usando todas las funciones del asistente, podés activar tu cuenta abonando los días que restan hasta fin de mes.\n\nUna vez abonado, volverás a tener acceso total y tu ciclo de facturación se alineará al día 1 del mes próximo.").replace('\\n', '\n')
+            txt_btn_act = traducciones.get("09_ing_btn_activar_mes", "⭐ Activar mes en curso")
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(txt_btn_act, callback_data="rescate_mensual")]])
             await update.message.reply_text(mensaje_bloqueo, reply_markup=keyboard, parse_mode="Markdown")
             return ConversationHandler.END
             
@@ -8449,46 +8460,35 @@ async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             perfil_existente = obtener_perfil_usuario(user_id) or {}
             nombre_usr = perfil_existente.get('nombre', 'Usuario') if perfil_existente else 'Usuario'
             txt_activo = traducciones.get('09_ing_cuenta_activa_aviso', 
-                "ℹ **¡Ya tenés una cuenta activa, {nombre_usr}!**\n\n"
-                "Tu ficha ya está registrada en el sistema con el ID `{user_id}`.\n"
-                "Podés consultar o actualizar tu información en cualquier momento con el comando `/perfil`."
+                "ℹ **¡Ya tenés una cuenta activa, {nombre_usr}!**\n\nTu ficha ya está registrada en el sistema con el ID `{user_id}`.\nPodés consultar o actualizar tu información en cualquier momento con el comando `/perfil`."
             ).format(nombre_usr=nombre_usr, user_id=user_id)
             await update.message.reply_text(txt_activo.replace('\\n', '\n'), parse_mode="Markdown")
             return ConversationHandler.END
 
     texto_advertencia = traducciones.get('09_ing_advertencia_legal', 
-        "⚖️ **ADVERTENCIA LEGAL Y CONDICIONES DE USO**\n\n"
-        "Este asistente es una herramienta de cálculo automatizado orientada a sumar y restar calorías, "
-        "registrar ingestas y macronutrientes de forma práctica. **No posee un valor médico ni científico:** "
-        "las recomendaciones emitidas son generadas de forma generalizada.\n\n"
-        "👉 *Para continuar con la apertura de tu cuenta y aceptar los términos, por favor presioná el botón de abajo:*"
+        "⚖️ **ADVERTENCIA LEGAL Y CONDICIONES DE USO**\n\nEste asistente es una herramienta de cálculo automatizado orientada a sumar y restar calorías, registrar ingestas y macronutrientes de forma práctica. **No posee un valor médico ni científico:** las recomendaciones emitidas son generadas de forma generalizada.\n\n👉 *Para continuar con la apertura de tu cuenta y aceptar los términos, por favor presioná el botón de abajo:*"
     )
-
     btn_terminos_text = traducciones.get('09_btn_aceptar_terminos', "✅ He leído y acepto los términos")
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(btn_terminos_text, callback_data="aceptar_terminos_ok")]
-    ])
-
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(btn_terminos_text, callback_data="aceptar_terminos_ok")]])
     await update.message.reply_text(texto_advertencia.replace('\\n', '\n'), reply_markup=keyboard, parse_mode="Markdown")
     return ING_TERMINOS
 
 async def ing_aceptar_terminos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    lang = context.user_data.get('ing_idioma', 'es')
+    traducciones = obtener_traducciones_db(lang) or {}
 
     if query.data == "aceptar_terminos_ok":
-        txt_terminos_ok = (
-            "✅ **Términos aceptados correctamente.**\n\n"
-            "🔑 **Apertura de Ficha - Validación de Profesional**\n\n"
-            "Para comenzar el registro, por favor ingresá el **ID de Telegram del profesional**.\n"
-            "*(Si no tenés un profesional asignado y querés usar el asistente de forma independiente, ingresá 123456789)*:"
-        )
+        txt_terminos_ok = traducciones.get("09_ing_terminos_ok", "✅ **Términos aceptados correctamente.**\n\n🔑 **Apertura de Ficha - Validación de Profesional**\n\nPara comenzar el registro, por favor ingresá el **ID de Telegram del profesional**.\n*(Si no tenés un profesional asignado y querés usar el asistente de forma independiente, ingresá 123456789)*:").replace('\\n', '\n')
         await query.edit_message_text(txt_terminos_ok, parse_mode="Markdown")
         return ING_PROFESIONAL
     return ING_TERMINOS
 
 async def ing_recibir_profesional(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prof_id = update.message.text.strip()
+    lang = context.user_data.get('ing_idioma', 'es')
+    traducciones = obtener_traducciones_db(lang) or {}
     
     es_valido = False
     if prof_id == "123456789":
@@ -8499,33 +8499,28 @@ async def ing_recibir_profesional(update: Update, context: ContextTypes.DEFAULT_
         loop = asyncio.get_running_loop()
         es_valido = await loop.run_in_executor(None, _verificar_profesional_valido, prof_id)
         if es_valido:
-            # Si el profesional existe, lo guardamos como pendiente y asignamos el genérico provisionalmente
             context.user_data['ing_profesional_oficial'] = "123456789"
             context.user_data['ing_profesional_pendiente'] = prof_id
     
     if not es_valido:
-        txt_err_prof = (
-            "⚠️ **ID de profesional no válido**\n\n"
-            "El número ingresado no figura en la lista de profesionales autorizados. "
-            "Por favor, verificá el ID con tu profesional e intentalo nuevamente o escribí `/cancelar`."
-        )
+        txt_err_prof = traducciones.get("09_ing_err_prof_invalido", "⚠️ **ID de profesional no válido**\n\nEl número ingresado no figura en la lista de profesionales autorizados. Por favor, verificá el ID con tu profesional e intentalo nuevamente o escribí `/cancelar`.").replace('\\n', '\n')
         await update.message.reply_text(txt_err_prof, parse_mode="Markdown")
         return ING_PROFESIONAL
 
-    txt_solic_nombre = (
-        "✅ **Profesional verificado correctamente.**\n\n"
-        "📝 **Apertura de Ficha Nutricional**\n"
-        "Por favor, indicá tu **Nombre y Apellido / Apodo**:"
-    )
+    txt_solic_nombre = traducciones.get("09_ing_solicita_nombre", "✅ **Profesional verificado correctamente.**\n\n📝 **Apertura de Ficha Nutricional**\nPor favor, indicá tu **Nombre y Apellido / Apodo**:").replace('\\n', '\n')
     await update.message.reply_text(txt_solic_nombre, parse_mode="Markdown")
     return ING_NOMBRE
     
 async def ing_recibir_cumple(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cumple_str = update.message.text.strip()
+    lang = context.user_data.get('ing_idioma', 'es')
+    traducciones = obtener_traducciones_db(lang) or {}
+
     try:
         datetime.strptime(cumple_str, "%Y-%m-%d")
     except ValueError:
-        await update.message.reply_text("⚠️ Formato de fecha inválido. Usá el formato `AAAA-MM-DD` (ejemplo: `1990-08-25`).", parse_mode="Markdown")
+        txt_err_fec = traducciones.get("09_ing_err_fecha_cumple", "⚠️ Formato de fecha inválido. Usá el formato `AAAA-MM-DD` (ejemplo: `1990-08-25`).")
+        await update.message.reply_text(txt_err_fec, parse_mode="Markdown")
         return ING_CUMPLE
 
     context.user_data['ing_cumple'] = cumple_str
@@ -8536,22 +8531,18 @@ async def ing_recibir_cumple(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data['ing_cuello'] = 0.0
         context.user_data['ing_cadera'] = 0.0
 
+        btn_r1 = traducciones.get('09_btn_ritmo_tranquilo', "🟢 Tranquilo / Lento")
+        btn_r2 = traducciones.get('09_btn_ritmo_moderado', "🟡 Moderado")
+        btn_r3 = traducciones.get('09_btn_ritmo_intenso', "🔴 Intenso / Rápido")
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🟢 Tranquilo / Lento", callback_data="ritmo_tranquilo")],
-            [InlineKeyboardButton("🟡 Moderado", callback_data="ritmo_moderado")],
-            [InlineKeyboardButton("🔴 Intenso / Rápido", callback_data="ritmo_intenso")]
+            [InlineKeyboardButton(btn_r1, callback_data="ritmo_tranquilo")],
+            [InlineKeyboardButton(btn_r2, callback_data="ritmo_moderado")],
+            [InlineKeyboardButton(btn_r3, callback_data="ritmo_intenso")]
         ])
-        await update.message.reply_text(
-            f"👶 **Perfil pediátrico/juvenil detectado ({edad_calculada} años).**\n"
-            "Se adaptarán los cálculos a los estándares pediátricos de la OMS sin requerir medidas corporales.\n\n"
-            "Seleccioná el **ritmo para tu plan**. Esto define el déficit/superávit de tus calorías:\n"
-            "• *🟢 Tranquilo (Cambios muy graduales, súper fácil de sostener).*\n"
-            "• *🟡 Moderado (Equilibrio ideal entre resultados y adherencia).*\n"
-            "• *🔴 Intenso (Exigente, para resultados más rápidos).*\n\n"
-            "🎯 Seleccioná tu ritmo deseado:", 
-            reply_markup=keyboard, 
-            parse_mode="Markdown"
-        )
+        
+        txt_ped_tpl = traducciones.get("09_ing_perfil_pediatrico_ritmo", "👶 **Perfil pediátrico/juvenil detectado ({edad_calculada} años).**\nSe adaptarán los cálculos a los estándares pediátricos de la OMS sin requerir medidas corporales.\n\nSeleccioná el **ritmo para tu plan**. Esto define el déficit/superávit de tus calorías:\n• *🟢 Tranquilo (Cambios muy graduales, súper fácil de sostener).*\n• *🟡 Moderado (Equilibrio ideal entre resultados y adherencia).*\n• *🔴 Intenso (Exigente, para resultados más rápidos).*\n\n🎯 Seleccioná tu ritmo deseado:")
+        txt_ped = txt_ped_tpl.format(edad_calculada=edad_calculada).replace('\\n', '\n')
+        await update.message.reply_text(txt_ped, reply_markup=keyboard, parse_mode="Markdown")
         return ING_RITMO
 
     es_mujer = context.user_data.get('ing_sexo', 'M') == 'F'
@@ -8561,94 +8552,119 @@ async def ing_recibir_cumple(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "📏 *Tip de medición: Pasá la cinta métrica exactamente a la altura del ombligo, asegurándote de que esté horizontal y sin hundir el estómago.*"
     )
     
-    await update.message.reply_text(f"Ingresá el **perímetro de tu cintura en cm** (ejemplo: `85`):\n\n{tip_cintura}", parse_mode="Markdown")
+    txt_cint_tpl = traducciones.get("09_ing_ingresa_cintura", "Ingresá el **perímetro de tu cintura en cm** (ejemplo: `85`):\n\n{tip_cintura}")
+    await update.message.reply_text(txt_cint_tpl.format(tip_cintura=tip_cintura).replace('\\n', '\n'), parse_mode="Markdown")
     return ING_MUNECA
 
 async def ing_recibir_muneca(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = update.message.text.strip().replace(',', '.')
+    lang = context.user_data.get('ing_idioma', 'es')
+    traducciones = obtener_traducciones_db(lang) or {}
+    
     try:
         cintura = float(txt)
         if not (50 <= cintura <= 200): raise ValueError()
     except ValueError:
-        await update.message.reply_text("⚠️ Ingresá un perímetro de cintura válido en cm (ejemplo: `85`).", parse_mode="Markdown")
+        txt_err_cin = traducciones.get("09_ing_err_cintura_valida", "⚠️ Ingresá un perímetro de cintura válido en cm (ejemplo: `85`).")
+        await update.message.reply_text(txt_err_cin, parse_mode="Markdown")
         return ING_MUNECA
 
     context.user_data['ing_cintura'] = cintura
-    
     tip_cuello = "📐 *Tip de medición: Mirá al frente con los hombros relajados (no levantes ni bajes la cabeza). Colocá la cinta justo debajo de la nuez de Adán, lo más horizontal posible.*"
-    await update.message.reply_text(f"Ingresá el **perímetro de tu cuello en cm** (ejemplo: `38`):\n\n{tip_cuello}", parse_mode="Markdown")
+    
+    txt_cue_tpl = traducciones.get("09_ing_ingresa_cuello", "Ingresá el **perímetro de tu cuello en cm** (ejemplo: `38`):\n\n{tip_cuello}")
+    await update.message.reply_text(txt_cue_tpl.format(tip_cuello=tip_cuello).replace('\\n', '\n'), parse_mode="Markdown")
     return ING_CUELLO
 
 async def ing_recibir_cuello(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = update.message.text.strip().replace(',', '.')
+    lang = context.user_data.get('ing_idioma', 'es')
+    traducciones = obtener_traducciones_db(lang) or {}
+
     try:
         cuello = float(txt)
         if not (20 <= cuello <= 60): raise ValueError()
     except ValueError:
-        await update.message.reply_text("⚠️ Ingresá un perímetro de cuello válido en cm (ejemplo: `38`).", parse_mode="Markdown")
+        txt_err_cue = traducciones.get("09_ing_err_cuello_valido", "⚠️ Ingresá un perímetro de cuello válido en cm (ejemplo: `38`).")
+        await update.message.reply_text(txt_err_cue, parse_mode="Markdown")
         return ING_CUELLO
 
     context.user_data['ing_cuello'] = cuello
 
     if context.user_data.get('ing_sexo', 'M') == 'F':
         tip_cadera = "📏 *Tip de medición: Juntá los pies y pasá la cinta por la parte más ancha de los glúteos y caderas, manteniéndola paralela al piso.*"
-        await update.message.reply_text(f"Ingresá el **perímetro de tu cadera en cm** (ejemplo: `100`):\n\n{tip_cadera}", parse_mode="Markdown")
+        txt_cad_tpl = traducciones.get("09_ing_ingresa_cadera", "Ingresá el **perímetro de tu cadera en cm** (ejemplo: `100`):\n\n{tip_cadera}")
+        await update.message.reply_text(txt_cad_tpl.format(tip_cadera=tip_cadera).replace('\\n', '\n'), parse_mode="Markdown")
         return ING_CADERA
 
+    btn_r1 = traducciones.get('09_btn_ritmo_tranquilo', "🟢 Tranquilo / Lento")
+    btn_r2 = traducciones.get('09_btn_ritmo_moderado', "🟡 Moderado")
+    btn_r3 = traducciones.get('09_btn_ritmo_intenso', "🔴 Intenso / Rápido")
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🟢 Tranquilo / Lento", callback_data="ritmo_tranquilo")],
-        [InlineKeyboardButton("🟡 Moderado", callback_data="ritmo_moderado")],
-        [InlineKeyboardButton("🔴 Intenso / Rápido", callback_data="ritmo_intenso")]
+        [InlineKeyboardButton(btn_r1, callback_data="ritmo_tranquilo")],
+        [InlineKeyboardButton(btn_r2, callback_data="ritmo_moderado")],
+        [InlineKeyboardButton(btn_r3, callback_data="ritmo_intenso")]
     ])
-    await update.message.reply_text(
-        "Seleccioná el **ritmo para tu plan**. Esto define el déficit/superávit de tus calorías:\n"
-        "• *🟢 Tranquilo (Cambios muy graduales, súper fácil de sostener).*\n"
-        "• *🟡 Moderado (Equilibrio ideal entre resultados y adherencia).*\n"
-        "• *🔴 Intenso (Exigente, para resultados más rápidos).*\n\n"
-        "🎯 Seleccioná tu ritmo deseado:", 
-        reply_markup=keyboard, parse_mode="Markdown"
-    )
+    
+    txt_ritmo = traducciones.get("09_ing_selecciona_ritmo", "Seleccioná el **ritmo para tu plan**. Esto define el déficit/superávit de tus calorías:\n• *🟢 Tranquilo (Cambios muy graduales, súper fácil de sostener).*\n• *🟡 Moderado (Equilibrio ideal entre resultados y adherencia).*\n• *🔴 Intenso (Exigente, para resultados más rápidos).*\n\n🎯 Seleccioná tu ritmo deseado:").replace('\\n', '\n')
+    await update.message.reply_text(txt_ritmo, reply_markup=keyboard, parse_mode="Markdown")
     return ING_RITMO
 
 async def ing_recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nombre = update.message.text.strip()
+    lang = context.user_data.get('ing_idioma', 'es')
+    traducciones = obtener_traducciones_db(lang) or {}
+
     if len(nombre) < 2:
-        await update.message.reply_text("⚠️ Por favor, ingresá un nombre válido.")
+        txt_err_nom = traducciones.get("09_ing_err_nombre_valido", "⚠️ Por favor, ingresá un nombre válido.")
+        await update.message.reply_text(txt_err_nom)
         return ING_NOMBRE
     
     context.user_data['ing_nombre'] = nombre
     
-    btn_masc = "Masculino 👨"
-    btn_fem = "Femenino 👩"
+    btn_masc = traducciones.get("09_ing_btn_masculino", "Masculino 👨")
+    btn_fem = traducciones.get("09_ing_btn_femenino", "Femenino 👩")
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(btn_masc, callback_data="sexo_M"),
          InlineKeyboardButton(btn_fem, callback_data="sexo_F")]
     ])
-    await update.message.reply_text("Seleccioná tu **sexo biológico**:", reply_markup=keyboard, parse_mode="Markdown")
+    
+    txt_sex = traducciones.get("09_ing_selecciona_sexo", "Seleccioná tu **sexo biológico**:")
+    await update.message.reply_text(txt_sex, reply_markup=keyboard, parse_mode="Markdown")
     return ING_SEXO
 
 async def ing_recibir_sexo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    lang = context.user_data.get('ing_idioma', 'es')
+    traducciones = obtener_traducciones_db(lang) or {}
+
     sexo = "M" if query.data == "sexo_M" else "F"
     context.user_data['ing_sexo'] = sexo
     
-    await query.edit_message_text("Ahora ingresá tu **fecha de nacimiento** en formato `AAAA-MM-DD` (ejemplo: `1985-04-12`):", parse_mode="Markdown")
+    txt_fec = traducciones.get("09_ing_ingresa_cumple", "Ahora ingresá tu **fecha de nacimiento** en formato `AAAA-MM-DD` (ejemplo: `1985-04-12`):")
+    await query.edit_message_text(txt_fec, parse_mode="Markdown")
     return ING_CUMPLE
     
 async def ing_recibir_peso(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = update.message.text.strip().replace(',', '.')
+    lang = context.user_data.get('ing_idioma', 'es')
+    traducciones = obtener_traducciones_db(lang) or {}
+
     try:
         peso = float(txt)
         if not (30 <= peso <= 300): raise ValueError()
     except ValueError:
-        await update.message.reply_text("⚠️ Ingresá un peso válido en kg (ejemplo: `75.4`).", parse_mode="Markdown")
+        txt_err_peso = traducciones.get("09_ing_err_peso_valido", "⚠️ Ingresá un peso válido en kg (ejemplo: `75.4`).")
+        await update.message.reply_text(txt_err_peso, parse_mode="Markdown")
         return ING_PESO
 
     context.user_data['ing_peso'] = peso
-    await update.message.reply_text("Ingresá tu **altura en centímetros** (ejemplo: `175` para 1,75 m):", parse_mode="Markdown")
+    
+    txt_alt = traducciones.get("09_ing_ingresa_altura", "Ingresá tu **altura en centímetros** (ejemplo: `175` para 1,75 m):")
+    await update.message.reply_text(txt_alt, parse_mode="Markdown")
     return ING_ALTURA
-
+    
 async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = update.message.text.strip().replace(',', '.')
     lang = context.user_data.get('ing_idioma', 'es')
@@ -8994,13 +9010,20 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
 async def cmd_cancelar_conversacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
+    
+    user_id = update.effective_user.id if update.effective_user else None
+    lang = obtener_idioma_usuario(user_id) if user_id else 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+    
+    txt_cancelada = traducciones.get("bot_operacion_cancelada", "❌ Operación cancelada.")
+
     if update.message:
-        await update.message.reply_text("❌ Operación cancelada.", parse_mode="Markdown")
+        await update.message.reply_text(txt_cancelada, parse_mode="Markdown")
     elif update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text("❌ Operación cancelada.", parse_mode="Markdown")
+        await update.callback_query.edit_message_text(txt_cancelada, parse_mode="Markdown")
     return ConversationHandler.END
-
+    
 def actualizar_ritmo_usuario(user_id, nuevo_ritmo):
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
@@ -9451,9 +9474,6 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = obtener_idioma_usuario(user_id) or '$1'
     traducciones = obtener_traducciones_db(lang) or {}
 
-    # =========================================================================
-    # PUERTA DE SEGURIDAD: VERIFICAR SI TIENE PROFESIONAL ASIGNADO
-    # =========================================================================
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
         cur.execute('SELECT "profesional" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
@@ -9463,133 +9483,106 @@ async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         if resultado:
             prof_val = str(resultado[0]).strip().lower() if resultado[0] else ""
-            
-            # Si el campo tiene texto y NO es "ninguno", "no" o "none", lo bloqueamos
             if prof_val and prof_val not in ['none', 'no', 'ninguno', 'null', 'nan', '0']:
-                msg_bloqueo = traducciones.get(
-                    "09_get_bloqueo_medico", 
-                    "👨‍⚕️ <b>Acción denegada:</b> Tenés un profesional asignado. Por favor, contactalo directamente para realizar modificaciones en tu plan."
-                )
+                msg_bloqueo = traducciones.get("09_get_bloqueo_medico", "👨‍⚕️ <b>Acción denegada:</b> Tenés un profesional asignado. Por favor, contactalo directamente para realizar modificaciones en tu plan.")
                 await update.message.reply_text(msg_bloqueo, parse_mode="HTML")
-                return  # ¡Guillotina! Sale de la función sin actualizar ni mostrar nada más
+                return
     except Exception as e:
         logger.error(f"Error consultando profesional en /get para {user_id}: {e}")
-    # =========================================================================
 
     ahora = obtener_ahora_arg()
     
-    # --- RESTRICCIÓN TEMPORAL: Solo habilitado a partir del día 15 ---
     if ahora.day < 15:
-        await update.message.reply_text(
-            "⏳ **Calibración no disponible:** Para mantener la estabilidad de los cálculos, la calibración de gasto con reloj inteligente se habilita únicamente a partir del **día 15** de cada mes.",
-            parse_mode="Markdown"
-        )
+        txt_nodisp = traducciones.get("09_get_calibracion_no_disp", "⏳ **Calibración no disponible:** Para mantener la estabilidad de los cálculos, la calibración de gasto con reloj inteligente se habilita únicamente a partir del **día 15** de cada mes.")
+        await update.message.reply_text(txt_nodisp, parse_mode="Markdown")
         return
 
     mes_actual = ahora.strftime("%Y-%m")
     info_usuario = obtener_datos_usuario_general(user_id) if 'obtener_datos_usuario_general' in globals() else obtener_perfil_usuario(user_id, mes_target=mes_actual)
     
-    # --- RESTRICCIÓN DE USO ÚNICO MENSUAL ---
     if info_usuario:
         mes_ultimo_cambio = str(info_usuario.get('reloj_actualizado_mes', '')).strip()
         if mes_ultimo_cambio == mes_actual:
-            txt_limite_alcanzado = traducciones.get('09_get_error_limite_mensual', 
-                "⏳ **Límite mensual alcanzado:**\n\n"
-                "Ya utilizaste el reloj inteligente para calibrar tu gasto este mes. "
-                "Para mantener la estabilidad del plan, solo se permite un ajuste por período."
-            )
-            await update.message.reply_text(txt_limite_alcanzado, parse_mode="Markdown")
+            txt_limite_alcanzado = traducciones.get('09_get_error_limite_mensual', "⏳ **Límite mensual alcanzado:**\n\nYa utilizaste el reloj inteligente para calibrar tu gasto este mes. Para mantener la estabilidad del plan, solo se permite un ajuste por período.")
+            await update.message.reply_text(txt_limite_alcanzado.replace('\\n', '\n'), parse_mode="Markdown")
             return
 
     raw_text = re.sub(r'^/(factor|fac|get)\w*(@\w+)?', '', update.message.text, flags=re.IGNORECASE).strip()
 
     if not raw_text:
-        txt_ayuda_get = traducciones.get('09_get_ayuda_formato', 
-            "Ingresá las calorías totales que registró tu reloj en 24 horas. Ejemplo:\n\n• `/GET 2150`"
-        )
-        await update.message.reply_text(txt_ayuda_get, parse_mode="Markdown")
+        txt_ayuda_get = traducciones.get('09_get_ayuda_formato', "Ingresá las calorías totales que registró tu reloj en 24 horas. Ejemplo:\n\n• `/GET 2150`")
+        await update.message.reply_text(txt_ayuda_get.replace('\\n', '\n'), parse_mode="Markdown")
         return
 
     try:
         calorias_reloj = float(raw_text.replace(',', '.'))
-        
-        # --- FILTRO DE SEGURIDAD ACOTADO (1000 a 4000 kcal) ---
         if not (1000 <= calorias_reloj <= 4000):
-            await update.message.reply_text("⚠️ Ingresá un valor de calorías realista (entre 1000 y 4000 kcal).", parse_mode="Markdown")
+            txt_err_real = traducciones.get("09_get_err_calorias_realistas", "⚠️ Ingresá un valor de calorías realista (entre 1000 y 4000 kcal).")
+            await update.message.reply_text(txt_err_real, parse_mode="Markdown")
             return
 
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
         if not perfil:
-            await update.message.reply_text("❌ No se encontró tu perfil activo para este mes. Registrá tu peso primero con `/peso`.", parse_mode="Markdown")
+            txt_err_perfil = traducciones.get("09_get_err_perfil_inactivo", "❌ No se encontró tu perfil activo para este mes. Registrá tu peso primero con `/peso`.")
+            await update.message.reply_text(txt_err_perfil, parse_mode="Markdown")
             return
 
         peso = parse_raw_val(perfil.get('PESO', perfil.get('Peso', 70)))
         altura = parse_raw_val(perfil.get('ALTURA', perfil.get('Altura', 170)))
         edad = parse_raw_val(perfil.get('EDAD', perfil.get('Edad', 40)))
         genero = str(perfil.get('GENERO', perfil.get('Genero', 'masculino')))
-
         factor_anterior = parse_raw_val(perfil.get('OCUPACION', perfil.get('Ocupacion', 1.375)))
         if factor_anterior <= 0: factor_anterior = 1.375
 
         tmb, get_anterior = calcular_tmb_y_get(peso, altura, edad, genero, actividad=factor_anterior)
-        
         if tmb <= 0:
-            await update.message.reply_text("❌ Error al calcular la TMB base.", parse_mode="Markdown")
+            txt_err_tmb = traducciones.get("09_get_err_tmb_base", "❌ Error al calcular la TMB base.")
+            await update.message.reply_text(txt_err_tmb, parse_mode="Markdown")
             return
 
-        # --- APLICAR TOLERANCIA MÁXIMA DEL 20% (0.20) ---
-        nuevo_factor = aplicar_calibracion_reloj(
-            factor_previo=factor_anterior, 
-            get_reloj=calorias_reloj, 
-            tmb=tmb, 
-            max_variacion_pct=0.20
-        )
-
+        nuevo_factor = aplicar_calibracion_reloj(factor_previo=factor_anterior, get_reloj=calorias_reloj, tmb=tmb, max_variacion_pct=0.20)
         _, get_nuevo = calcular_tmb_y_get(peso, altura, edad, genero, actividad=nuevo_factor)
 
         aviso_tope = ""
         factor_crudo_reloj = round(calorias_reloj / tmb, 3)
         if abs(nuevo_factor - factor_crudo_reloj) > 0.005:
-            aviso_tope = "\n⚠️ *Nota de seguridad:* El valor del reloj superaba el 20% de variación respecto a tu tendencia habitual. Se aplicó el tope máximo permitido del 20%.\n"
+            aviso_tope = traducciones.get("09_get_nota_seguridad_tope", "\n⚠️ *Nota de seguridad:* El valor del reloj superaba el 20% de variación respecto a tu tendencia habitual. Se aplicó el tope máximo permitido del 20%.\n").replace('\\n', '\n')
 
         context.user_data['temp_nuevo_factor'] = nuevo_factor
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅", callback_data="confirmar_factor_si"), InlineKeyboardButton("❌", callback_data="confirmar_factor_no")]])
 
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅", callback_data="confirmar_factor_si"), InlineKeyboardButton("❌", callback_data="confirmar_factor_no")]
-        ])
-
-        msg_texto = (
-            f"📊 **Calibración de Gasto Energético (Reloj):**\n\n"
-            f"• Calorías reportadas por el reloj: `{calorias_reloj:.0f} kcal`\n"
-            f"• TMB Base estimada: `{tmb:.0f} kcal`\n\n"
-            f"• **Gasto Diario Anterior:** `{get_anterior:.0f} kcal`\n"
-            f"• **Nuevo Gasto Diario Ajustado:** `{get_nuevo:.0f} kcal`\n\n"
-            f"{aviso_tope}"
-            f"¿Deseás actualizar tu gasto diario con este valor?"
-        )
-        await update.message.reply_text(msg_texto, reply_markup=keyboard, parse_mode="Markdown")
+        msg_texto_tpl = traducciones.get("09_get_resumen_calibracion", "📊 **Calibración de Gasto Energético (Reloj):**\n\n• Calorías reportadas por el reloj: `{calorias_reloj:.0f} kcal`\n• TMB Base estimada: `{tmb:.0f} kcal`\n\n• **Gasto Diario Anterior:** `{get_anterior:.0f} kcal`\n• **Nuevo Gasto Diario Ajustado:** `{get_nuevo:.0f} kcal`\n\n{aviso_tope}¿Deseás actualizar tu gasto diario con este valor?")
+        msg_texto = msg_texto_tpl.replace("{calorias_reloj:.0f}", "{calorias_reloj}").replace("{tmb:.0f}", "{tmb}").replace("{get_anterior:.0f}", "{get_anterior}").replace("{get_nuevo:.0f}", "{get_nuevo}")
+        
+        await update.message.reply_text(msg_texto.format(calorias_reloj=f"{calorias_reloj:.0f}", tmb=f"{tmb:.0f}", get_anterior=f"{get_anterior:.0f}", get_nuevo=f"{get_nuevo:.0f}", aviso_tope=aviso_tope).replace('\\n', '\n'), reply_markup=keyboard, parse_mode="Markdown")
 
     except ValueError:
-        await update.message.reply_text("❌ Formato incorrecto. Ingresá un número válido. Ejemplo: `/GET 2150`", parse_mode="Markdown")
+        txt_formato = traducciones.get("09_get_err_formato", "❌ Formato incorrecto. Ingresá un número válido. Ejemplo: `/GET 2150`")
+        await update.message.reply_text(txt_formato, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Error al previsualizar /factor para {user_id}: {e}")
-        await update.message.reply_text(f"⚠️ Ocurrió un error al procesar la solicitud: {e}", parse_mode="Markdown")
-        
+        txt_proc = traducciones.get("09_get_err_procesar", "⚠️ Ocurrió un error al procesar la solicitud: {e}").format(e=e)
+        await update.message.reply_text(txt_proc, parse_mode="Markdown")
+
 async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
     data = query.data
 
     if data == "confirmar_factor_no":
         context.user_data.pop('temp_nuevo_factor', None)
-        await query.edit_message_text("🚫 Operación cancelada. No se modificó tu gasto energético.", parse_mode="Markdown")
+        txt_canc = traducciones.get("09_get_operacion_cancelada", "🚫 Operación cancelada. No se modificó tu gasto energético.")
+        await query.edit_message_text(txt_canc, parse_mode="Markdown")
         return
 
     if data == "confirmar_factor_si":
         nuevo_factor_val = context.user_data.get('temp_nuevo_factor')
         if not nuevo_factor_val:
-            await query.edit_message_text("⚠️ Los datos temporales expiraron. Por favor, volvé a enviar el comando `/factor`.", parse_mode="Markdown")
+            txt_exp = traducciones.get("09_get_datos_expirados", "⚠️ Los datos temporales expiraron. Por favor, volvé a enviar el comando `/factor`.")
+            await query.edit_message_text(txt_exp, parse_mode="Markdown")
             return
 
         ahora = obtener_ahora_arg()
@@ -9605,19 +9598,17 @@ async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAUL
             
             _, get_final = calcular_tmb_y_get(peso, altura, edad, genero, actividad=nuevo_factor_val)
 
-            txt_exito_get = (
-                f"✅ **¡Gasto energético actualizado con éxito!**\n\n"
-                f"• Nuevo Gasto Diario asignado: `{get_final:.0f} kcal`\n"
-                f"• Período actualizado: `{mes_actual}`\n"
-                f"• Estado: Calibración mensual registrada."
-            )
-            await query.edit_message_text(txt_exito_get, parse_mode="Markdown")
+            txt_exito_tpl = traducciones.get("09_get_exito_actualizado", "✅ **¡Gasto energético actualizado con éxito!**\n\n• Nuevo Gasto Diario asignado: `{get_final:.0f} kcal`\n• Período actualizado: `{mes_actual}`\n• Estado: Calibración mensual registrada.")
+            txt_exito = txt_exito_tpl.replace("{get_final:.0f}", "{get_final}").format(get_final=f"{get_final:.0f}", mes_actual=mes_actual).replace('\\n', '\n')
+            
+            await query.edit_message_text(txt_exito, parse_mode="Markdown")
         except Exception as e:
             logger.error(f"Error al guardar el factor confirmado para {user_id}: {e}")
-            await query.edit_message_text(f"⚠ Ocurrió un error al guardar en la base de datos: {e}", parse_mode="Markdown")
+            txt_err_db = traducciones.get("09_get_err_guardar_db", "⚠ Ocurrió un error al guardar en la base de datos: {e}").format(e=e)
+            await query.edit_message_text(txt_err_db, parse_mode="Markdown")
         
         context.user_data.pop('temp_nuevo_factor', None)
-
+        
 # ======================================================================================================================================
 #                       FINAL                        COMANDOS INGRESOS                                      FINAL
 # ======================================================================================================================================
