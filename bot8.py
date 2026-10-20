@@ -2697,8 +2697,6 @@ async def cmd_hablar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     if not es_administrador(user_id):
-        msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
-        await update.message.reply_text(msg_no_perm)
         return
 
     if not context.args or len(context.args) < 2:
@@ -2757,8 +2755,6 @@ async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = update.effective_user.id
 
     if not es_administrador(user_id):
-        msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
-        await update.message.reply_text(msg_no_perm)
         return
 
     nombre_tabla = "multi"
@@ -2861,8 +2857,6 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     if not es_administrador(user_id):
-        msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
-        await update.message.reply_text(msg_no_perm)
         return
 
     nombre_tabla = "multi"
@@ -2980,8 +2974,6 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     if not es_administrador(user_id):
-        msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
-        await update.message.reply_text(msg_no_perm)
         return
     
     if not context.args or len(context.args) == 0:
@@ -3055,8 +3047,6 @@ async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     if not es_administrador(user_id):
-        msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
-        await update.message.reply_text(msg_no_perm)
         return
     
     if not context.args or len(context.args) == 0:
@@ -3106,7 +3096,7 @@ async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_err = traducciones.get("03_bot_descargar_err", "❌ No se pudo descargar la tabla `{nombre_tabla}`.\nError: `{e}`").format(nombre_tabla=nombre_tabla, e=e)
         await mensaje_espera.edit_text(msg_err, parse_mode="Markdown")   
 
-async def cmd_videos(update, context):
+def cmd_videos(update, context):
 
 #=============================================================================
 # SCRIPT DE PROCESAMIENTO AUTOMÁTICO DE REELS (IA NutriBot)
@@ -3137,12 +3127,10 @@ async def cmd_videos(update, context):
 #     Con autolimpieza de textos procesados.
 #=============================================================================
 
-    user_id = update.effective_user.id
+#    user_id = update.effective_user.id
 
-    if not es_administrador(user_id):
-        msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
-        await update.message.reply_text(msg_no_perm)
-        return
+#    if not es_administrador(user_id):
+#        return
 
     duracion_total = 10
     if context.args and len(context.args) > 0:
