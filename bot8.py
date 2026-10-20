@@ -3141,7 +3141,7 @@ async def cmd_videos(update, context):
 
     mitad_duracion = duracion_total / 2
     carpeta_trabajo = "lote_videos"
-    max_por_tanda = 4
+    max_por_tanda = 1
     
     os.makedirs(carpeta_trabajo, exist_ok=True)
 
