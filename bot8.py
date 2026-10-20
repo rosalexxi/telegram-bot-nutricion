@@ -3137,7 +3137,7 @@ async def cmd_videos(update, context):
         try:
             duracion_total = int(context.args[0])
         except ValueError:
-            pass
+	            pass
 
     mitad_duracion = duracion_total / 2
     carpeta_trabajo = "lote_videos"
@@ -3160,7 +3160,7 @@ async def cmd_videos(update, context):
         if numeros:
             i = int(numeros[0])
             video_path = os.path.join(carpeta_trabajo, f"video{i}.mp4")
-            audio_path = os.path.join(carpeta_trabajo, f"musica{i}.mp3")
+            audio_path = os.path.join(carpeta_trabajo, f"audio{i}.mp3")
             
             if os.path.exists(video_path) and os.path.exists(audio_path):
                 archivos_detectados.append(i)
