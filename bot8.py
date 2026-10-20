@@ -3096,7 +3096,7 @@ async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_err = traducciones.get("03_bot_descargar_err", "❌ No se pudo descargar la tabla `{nombre_tabla}`.\nError: `{e}`").format(nombre_tabla=nombre_tabla, e=e)
         await mensaje_espera.edit_text(msg_err, parse_mode="Markdown")   
 
-def cmd_videos(update, context):
+async def cmd_videos(update, context):
 
 #=============================================================================
 # SCRIPT DE PROCESAMIENTO AUTOMÁTICO DE REELS (IA NutriBot)
@@ -3171,7 +3171,7 @@ def cmd_videos(update, context):
     if total_encontrados == 0:
         print(f"⚠️ No se encontró ningún texto pendiente en la carpeta '{carpeta_trabajo}'.")
         if update and update.message:
-            update.message.reply_text("⚠️ ¡Excelente! No quedan textos pendientes para procesar.")
+            await update.message.reply_text("⚠️ ¡Excelente! No quedan textos pendientes para procesar.")
         return
 
     print(f"📁 Se detectaron {total_encontrados} juegos pendientes con los índices: {archivos_detectados}")
@@ -3276,12 +3276,12 @@ def cmd_videos(update, context):
 
     print(f"\n🎉 ¡Tanda finalizada! Se procesaron {procesados_exitosos} videos correctamente.")
     if update and update.message:
-        update.message.reply_text(f"🎉 ¡Tanda finalizada! Se procesaron {procesados_exitosos} reels correctamente.")
+        await update.message.reply_text(f"🎉 ¡Tanda finalizada! Se procesaron {procesados_exitosos} reels correctamente.")
         
             
-# =============================================================================================================================================
+# =========================================================================================================================================
 #              FINAL                            FUNCIONES SUPABASE                 FINAL
-# =============================================================================================================================================
+# ==========================================================================================================================================
 
 # =============================================================================================================================================
 #              INICIO                         FUNCIONES AUXILIARES INTERNAS                  INICIO
