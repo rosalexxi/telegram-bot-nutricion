@@ -3106,7 +3106,7 @@ async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_err = traducciones.get("03_bot_descargar_err", "❌ No se pudo descargar la tabla `{nombre_tabla}`.\nError: `{e}`").format(nombre_tabla=nombre_tabla, e=e)
         await mensaje_espera.edit_text(msg_err, parse_mode="Markdown")   
 
-def cmd_videos(update, context):
+async def cmd_videos(update, context):
 
 #=============================================================================
 # SCRIPT DE PROCESAMIENTO AUTOMÁTICO DE REELS (IA NutriBot)
