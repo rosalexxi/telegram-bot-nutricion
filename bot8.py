@@ -3108,40 +3108,35 @@ async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def cmd_videos(update, context):
 
-"""
-=============================================================================
- SCRIPT DE PROCESAMIENTO AUTOMÁTICO DE REELS (IA NutriBot)
-=============================================================================
- OBJETIVO: 
- Procesar lotes de videos verticales (1080x1920) aplicando:
-   - Fondo difuminado (gblur) y centrado de video original.
-   - Pista de música sincronizada.
-   - Textos adaptativos centrados en la "zona segura" de redes (evitando
-     el 15% superior y el 30% inferior para que no los tapen las interfaces).
-   - Tiempos: 0s a 1s (fondo solo), 1s a 5s (Pregunta), 5s a 10s (Respuesta).
+#=============================================================================
+# SCRIPT DE PROCESAMIENTO AUTOMÁTICO DE REELS (IA NutriBot)
+#=============================================================================
+# OBJETIVO: 
+# Procesar lotes de videos verticales (1080x1920) aplicando:
+#   - Fondo difuminado (gblur) y centrado de video original.
+#   - Pista de música sincronizada.
+#   - Textos adaptativos centrados en la "zona segura" de redes (evitando
+#     el 15% superior y el 30% inferior para que no los tapen las interfaces).
+#   - Tiempos: 0s a 1s (fondo solo), 1s a 5s (Pregunta), 5s a 10s (Respuesta).
+# MEDIDAS Y LÍMITES DE TEXTO RECOMENDADOS:
+#   - PREGUNTA: 
+#     * Tamaño ideal: fontsize=48 (o 38 si el renglón supera los 25 caracteres).
+#     * Máximo recomendado: 1 a 2 líneas cortas (20-25 caracteres por línea).
+#   - RESPUESTA:
+#     * Tamaño ideal: fontsize=36 (o 28 si el renglón supera los 35 caracteres).
+#     * Máximo recomendado: 3 a 4 líneas (30-35 caracteres por línea).
+#
+# ESTRUCTURA DE LOS ARCHIVOS .TXT:
+#   Cada archivo debe llamarse textoN.txt y estar separado por tres rayitas:
+#   [Pregunta]
+#   ---
+#   [Respuesta con los saltos de línea que prefieras]
+#=============================================================================
+#     COMANDO DE BOT: PROCESAMIENTO AUTOMÁTICO DE REELS (IA NutriBot)
+#     Uso: /videos (usa 10s) o /videos 12 (duración de 12s)
+#     Con autolimpieza de textos procesados.
+#=============================================================================
 
- MEDIDAS Y LÍMITES DE TEXTO RECOMENDADOS:
-   - PREGUNTA: 
-     * Tamaño ideal: fontsize=48 (o 38 si el renglón supera los 25 caracteres).
-     * Máximo recomendado: 1 a 2 líneas cortas (20-25 caracteres por línea).
-   - RESPUESTA:
-     * Tamaño ideal: fontsize=36 (o 28 si el renglón supera los 35 caracteres).
-     * Máximo recomendado: 3 a 4 líneas (30-35 caracteres por línea).
-
- ESTRUCTURA DE LOS ARCHIVOS .TXT:
-   Cada archivo debe llamarse textoN.txt y estar separado por tres rayitas:
-   [Pregunta]
-   ---
-   [Respuesta con los saltos de línea que prefieras]
-=============================================================================
-"""
-    """
-    =============================================================================
-     COMANDO DE BOT: PROCESAMIENTO AUTOMÁTICO DE REELS (IA NutriBot)
-     Uso: /videos (usa 10s) o /videos 12 (duración de 12s)
-     Con autolimpieza de textos procesados.
-    =============================================================================
-    """
     user_id = update.effective_user.id
 
     if not es_administrador(user_id):
