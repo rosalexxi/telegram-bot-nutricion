@@ -3185,7 +3185,7 @@ async def cmd_videos(update, context):
     procesados_exitosos = 0
     for i in archivos_a_procesar:
         video_path = os.path.join(carpeta_trabajo, f"video{i}.mp4")
-        audio_path = os.path.join(carpeta_trabajo, f"musica{i}.mp3")
+        audio_path = os.path.join(carpeta_trabajo, f"audio{i}.mp3")
         texto_path = os.path.join(carpeta_trabajo, f"texto{i}.txt")
         salida_path = os.path.join(carpeta_trabajo, f"resultado_reel_{i}.mp4")
         
