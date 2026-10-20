@@ -1,0 +1,7 @@
+inicio:1
+¿Te da fiaca escribir
+tus comidas de hoy?
+---
+Mandale un audio de voz
+Contale lo que almorzaste
+IA NutriBot hace el resto

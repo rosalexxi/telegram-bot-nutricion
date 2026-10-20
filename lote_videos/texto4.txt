@@ -1,0 +1,7 @@
+inicio:10
+¿Te acordás qué comiste
+la semana pasada?
+---
+IA NutriBot lo hace por vos
+Registra cada plato tuyo
+Sin que anotes nada

@@ -1,0 +1,7 @@
+inicio:8
+¿Querés registrar
+lo que comiste hoy?
+---
+Manda una foto por Telegram
+Sin escribir recetas
+IA Nutribot lo calcula al toque

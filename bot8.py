@@ -4,8 +4,10 @@
 #                                  https://dashboard.render.com/web/srv-d9lcifijnfac73a8q1eg/events
 #                                  https://supabase.com/dashboard/project/xsheilmjewqcvhmyqlnx/editor/17944?schema=public
 #                                  https://dashboard.uptimerobot.com/monitors
+#                                  https://ttsmaker.com/
 # ==============================================================================================================================================
 
+import glob
 import os
 import re
 import io
@@ -29,6 +31,7 @@ import math
 import urllib.request
 import urllib.parse
 import calendar
+import subprocess
 
 from openai import OpenAI
 from typing import Dict, Tuple, List, Optional, Any            
@@ -2692,8 +2695,6 @@ def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
 async def cmd_hablar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
-    traducciones = obtener_traducciones_db(lang) or {}
 
     if not es_administrador(user_id):
         msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
@@ -2754,8 +2755,6 @@ async def cmd_hablar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
-    traducciones = obtener_traducciones_db(lang) or {}
 
     if not es_administrador(user_id):
         msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
@@ -2860,8 +2859,6 @@ async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
-    traducciones = obtener_traducciones_db(lang) or {}
 
     if not es_administrador(user_id):
         msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
@@ -2981,8 +2978,6 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
-    traducciones = obtener_traducciones_db(lang) or {}
 
     if not es_administrador(user_id):
         msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
@@ -3058,8 +3053,6 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
-    traducciones = obtener_traducciones_db(lang) or {}
 
     if not es_administrador(user_id):
         msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
@@ -3112,6 +3105,196 @@ async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error al descargar la tabla {nombre_tabla} para el usuario {user_id}: {e}", exc_info=True)
         msg_err = traducciones.get("03_bot_descargar_err", "❌ No se pudo descargar la tabla `{nombre_tabla}`.\nError: `{e}`").format(nombre_tabla=nombre_tabla, e=e)
         await mensaje_espera.edit_text(msg_err, parse_mode="Markdown")   
+
+def cmd_videos(update, context):
+
+"""
+=============================================================================
+ SCRIPT DE PROCESAMIENTO AUTOMÁTICO DE REELS (IA NutriBot)
+=============================================================================
+ OBJETIVO: 
+ Procesar lotes de videos verticales (1080x1920) aplicando:
+   - Fondo difuminado (gblur) y centrado de video original.
+   - Pista de música sincronizada.
+   - Textos adaptativos centrados en la "zona segura" de redes (evitando
+     el 15% superior y el 30% inferior para que no los tapen las interfaces).
+   - Tiempos: 0s a 1s (fondo solo), 1s a 5s (Pregunta), 5s a 10s (Respuesta).
+
+ MEDIDAS Y LÍMITES DE TEXTO RECOMENDADOS:
+   - PREGUNTA: 
+     * Tamaño ideal: fontsize=48 (o 38 si el renglón supera los 25 caracteres).
+     * Máximo recomendado: 1 a 2 líneas cortas (20-25 caracteres por línea).
+   - RESPUESTA:
+     * Tamaño ideal: fontsize=36 (o 28 si el renglón supera los 35 caracteres).
+     * Máximo recomendado: 3 a 4 líneas (30-35 caracteres por línea).
+
+ ESTRUCTURA DE LOS ARCHIVOS .TXT:
+   Cada archivo debe llamarse textoN.txt y estar separado por tres rayitas:
+   [Pregunta]
+   ---
+   [Respuesta con los saltos de línea que prefieras]
+=============================================================================
+"""
+    """
+    =============================================================================
+     COMANDO DE BOT: PROCESAMIENTO AUTOMÁTICO DE REELS (IA NutriBot)
+     Uso: /videos (usa 10s) o /videos 12 (duración de 12s)
+     Con autolimpieza de textos procesados.
+    =============================================================================
+    """
+    user_id = update.effective_user.id
+
+    if not es_administrador(user_id):
+        msg_no_perm = traducciones.get("03_bot_cmd_no_perm", "❌ No tenés permisos para ejecutar este comando.")
+        await update.message.reply_text(msg_no_perm)
+        return
+
+    duracion_total = 10
+    if context.args and len(context.args) > 0:
+        try:
+            duracion_total = int(context.args[0])
+        except ValueError:
+            pass
+
+    mitad_duracion = duracion_total / 2
+    carpeta_trabajo = "lote_videos"
+    max_por_tanda = 4
+    
+    os.makedirs(carpeta_trabajo, exist_ok=True)
+
+    # Ruta de la fuente dentro de la subcarpeta 'fonts'
+    fontfile = os.path.join("fonts", "DejaVuSans-Bold.ttf")
+
+    print(f"🔍 Escaneando textos pendientes en '{carpeta_trabajo}' (Duración: {duracion_total}s)...")
+    
+    # Búsqueda basada en los textos pendientes
+    archivos_detectados = []
+    patron_textos = os.path.join(carpeta_trabajo, "texto*.txt")
+    
+    for texto_path in glob.glob(patron_textos):
+        base_name = os.path.basename(texto_path)
+        numeros = re.findall(r'\d+', base_name)
+        if numeros:
+            i = int(numeros[0])
+            video_path = os.path.join(carpeta_trabajo, f"video{i}.mp4")
+            audio_path = os.path.join(carpeta_trabajo, f"musica{i}.mp3")
+            
+            if os.path.exists(video_path) and os.path.exists(audio_path):
+                archivos_detectados.append(i)
+
+    archivos_detectados.sort()
+    total_encontrados = len(archivos_detectados)
+    
+    if total_encontrados == 0:
+        print(f"⚠️ No se encontró ningún texto pendiente en la carpeta '{carpeta_trabajo}'.")
+        if update and update.message:
+            update.message.reply_text("⚠️ ¡Excelente! No quedan textos pendientes para procesar.")
+        return
+
+    print(f"📁 Se detectaron {total_encontrados} juegos pendientes con los índices: {archivos_detectados}")
+
+    # Control de seguridad de cantidad máxima por tanda
+    if total_encontrados > max_por_tanda:
+        archivos_a_procesar = archivos_detectados[:max_por_tanda]
+    else:
+        archivos_a_procesar = archivos_detectados
+
+    procesados_exitosos = 0
+    for i in archivos_a_procesar:
+        video_path = os.path.join(carpeta_trabajo, f"video{i}.mp4")
+        audio_path = os.path.join(carpeta_trabajo, f"musica{i}.mp3")
+        texto_path = os.path.join(carpeta_trabajo, f"texto{i}.txt")
+        salida_path = os.path.join(carpeta_trabajo, f"resultado_reel_{i}.mp4")
+        
+        with open(texto_path, "r", encoding="utf-8") as f:
+            contenido_total = f.read().strip()
+            
+        tiempo_inicio = "0"
+        if "inicio:" in contenido_total:
+            lineas_txt = contenido_total.split("\n")
+            for linea in lineas_txt:
+                if linea.lower().startswith("inicio:"):
+                    tiempo_inicio = linea.split(":")[1].strip()
+                    contenido_total = contenido_total.replace(linea, "").strip()
+
+        if "---" in contenido_total:
+            partes = contenido_total.split("---")
+            texto_pregunta = partes[0].strip().replace("\n", "\\n").replace("'", "")
+            texto_respuesta = partes[1].strip().replace("\n", "\\n").replace("'", "")
+        else:
+            texto_pregunta = "¿Pregunta?"
+            texto_respuesta = contenido_total.replace("\n", "\\n").replace("'", "")
+        
+        # Análisis dinámico de caracteres
+        lineas_preg = texto_pregunta.split("\\n")
+        max_len_preg = max(len(l) for l in lineas_preg) if lineas_preg else 0
+        fontsize_preg = 38 if max_len_preg > 25 else 48
+
+        lineas_resp = texto_respuesta.split("\\n")
+        max_len_resp = max(len(l) for l in lineas_resp) if lineas_resp else 0
+        fontsize_resp = 28 if max_len_resp > 35 else 36
+
+        print(f"🚀 Procesando Reel {i} ({duracion_total}s | Inicia en {tiempo_inicio}s)...")
+        
+        fin_pregunta = str(mitad_duracion)
+        inicio_respuesta = str(mitad_duracion)
+        fin_video = str(duracion_total)
+
+        filtro_video = (
+            f"[0:v]split=2[bg][fg];"
+            f"[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=30[bg_blurred];"
+            f"[fg]scale=1080:1920:force_original_aspect_ratio=decrease[fg_scaled];"
+            f"[bg_blurred][fg_scaled]overlay=(W-w)/2:(H-h)/2[v0];"
+            
+            f"[v0]drawtext=fontfile='{fontfile}':text='{texto_pregunta}':fontcolor=white:fontsize={fontsize_preg}:"
+            f"box=1:boxcolor=black@0.65:boxborderw=20:x=(w-text_w)/2:y=(h-text_h)/2 - 180:"
+            f"shadowcolor=black@0.9:shadowx=3:shadowy=3:enable='between(t,1,{fin_pregunta})'[v1];"
+            
+            f"[v1]drawtext=fontfile='{fontfile}':text='{texto_respuesta}':fontcolor=yellow:fontsize={fontsize_resp}:"
+            f"box=1:boxcolor=black@0.75:boxborderw=25:x=(w-text_w)/2:y=(h-text_h)/2 + 20:"
+            f"line_spacing=12:"
+            f"shadowcolor=black@0.9:shadowx=3:shadowy=3:enable='between(t,{inicio_respuesta},{fin_video})'[v]"
+        )
+
+        filtro_audio = f"[1:a]volume='0.3 + 0.7*abs(sin(PI*t/{mitad_duracion / 1.5}))':eval=frame[a_out]"
+
+        comando = [
+            "ffmpeg", "-y",
+            "-ss", tiempo_inicio,
+            "-i", video_path,
+            "-i", audio_path,
+            "-t", str(duracion_total),
+            "-filter_complex", f"{filtro_video};{filtro_audio}",
+            "-map", "[v]",
+            "-map", "[a_out]",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            salida_path
+        ]
+        
+        resultado = subprocess.run(comando, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        if resultado.returncode == 0:
+            print(f"✅ ¡Reel {i} generado con éxito!")
+            procesados_exitosos += 1
+            
+            # --- AUTOLIMPIEZA DEL TEXTO PROCESADO ---
+            try:
+                os.remove(texto_path)
+                print(f"🗑️ Archivo '{os.path.basename(texto_path)}' eliminado automáticamente.")
+            except Exception as e:
+                print(f"⚠️ No se pudo borrar el texto {i}: {e}")
+            # ----------------------------------------
+        else:
+            print(f"❌ Error en el Reel {i}:")
+            print(resultado.stderr.decode("utf-8", errors="ignore")[:300])
+
+    print(f"\n🎉 ¡Tanda finalizada! Se procesaron {procesados_exitosos} videos correctamente.")
+    if update and update.message:
+        update.message.reply_text(f"🎉 ¡Tanda finalizada! Se procesaron {procesados_exitosos} reels correctamente.")
+        
             
 # =============================================================================================================================================
 #              FINAL                            FUNCIONES SUPABASE                 FINAL
@@ -10622,6 +10805,7 @@ def main():
         app_bot.add_handler(CommandHandler("desarmar", cmd_desarmar_excel))
         app_bot.add_handler(CommandHandler("armar", cmd_armar_excel))
         app_bot.add_handler(CommandHandler("hablar", cmd_hablar))
+        app_bot.add_handler(CommandHandler("videos", cmd_videos))
 
         # =================================CALLBACK QUERY HANDLERS====================================
         app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^presion_"))
