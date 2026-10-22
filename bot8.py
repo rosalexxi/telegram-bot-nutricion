@@ -3740,7 +3740,8 @@ def obtener_nombre_lenguaje_ia(user_id=None):
         return "Español"
     try:
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        cur.execute('SELECT "lenguajes" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
+        # Se corrigió la consulta de la columna "lenguajes" a "Idioma"
+        cur.execute('SELECT "Idioma" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
         row = cur.fetchone()
         cur.close()
         conn.close()
@@ -3749,7 +3750,7 @@ def obtener_nombre_lenguaje_ia(user_id=None):
     except Exception as e:
         logger.error(f"Error obteniendo lenguaje IA para {user_id}: {e}")
     return "Español"
-
+    
 def analizar_con_groq(prompt_text, user_id=None):
     nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
     ahora = obtener_ahora_arg()
@@ -3779,7 +3780,9 @@ def analizar_con_groq(prompt_text, user_id=None):
             prompt_text,
             generation_config={"response_mime_type": "application/json", "temperature": 0.1}
         )
-        return json.loads(response.text)
+        # Limpieza de Markdown antes de leer el JSON
+        texto_limpio = response.text.replace('```json', '').replace('```', '').strip()
+        return json.loads(texto_limpio)
         
     except Exception as e_principal:
         logger.warning(f"⚠️ Falla en modelo principal Flash, activando respaldo Pro: {e_principal}")
@@ -3791,11 +3794,12 @@ def analizar_con_groq(prompt_text, user_id=None):
                 prompt_text,
                 generation_config={"response_mime_type": "application/json", "temperature": 0.1}
             )
-            return json.loads(response_respaldo.text)
+            # Limpieza de Markdown antes de leer el JSON
+            texto_limpio = response_respaldo.text.replace('```json', '').replace('```', '').strip()
+            return json.loads(texto_limpio)
             
         except Exception as e_respaldo:
             logger.error(f"❌ Error crítico: Ambos modelos de IA fallaron. {e_respaldo}")
-            # Devolvemos un JSON de rechazo seguro para que el bot no crashee
             return {"items": [], "tipo": "Rechazo"}
             
 async def generar_recomendacion_semanal_ia(m: dict, etiqueta_periodo: str, user_id=None):
@@ -4106,37 +4110,38 @@ async def analizar_imagen_con_groq(base64_image: str, user_id=None):
         "{\"items\": [{\"alimento\": \"...\", \"peso\": 0.0, \"calorias\": 0.0, \"proteinas\": 0.0, \"grasas\": 0.0, \"carbohidratos\": 0.0, \"fibras\": 0.0}], \"tipo\": \"Comida\" o \"Rechazo\"}"
     )
 
-    # Gemini requiere el prefijo del mime_type junto con los bytes decodificados
     imagen_data = {"mime_type": "image/jpeg", "data": base64.b64decode(base64_image)}
+    texto_instruccion = "Analiza esta imagen y desglosa los alimentos en el formato JSON indicado."
 
     try:
         # Intento 1: Modelo principal (Flash)
-        model = genai.GenerativeModel(MODELO_FOTO)
+        model = genai.GenerativeModel(MODELO_FOTO, system_instruction=system_prompt)
         response = await asyncio.to_thread(
             model.generate_content,
-            [system_prompt, imagen_data],
+            [texto_instruccion, imagen_data],
             generation_config={"response_mime_type": "application/json", "temperature": 0.1}
         )
-        return json.loads(response.text.strip())
+        texto_limpio = response.text.replace('```json', '').replace('```', '').strip()
+        return json.loads(texto_limpio)
         
     except Exception as e_prin:
         logger.warning(f"⚠️ Falla en modelo principal Flash (Imagen), activando respaldo: {e_prin}")
         try:
             # Intento 2: Modelo de contingencia (Pro)
             MODELO_RESPALDO = os.getenv("MODELO_RESPALDO", "gemini-1.5-pro")
-            model_resp = genai.GenerativeModel(MODELO_RESPALDO)
+            model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=system_prompt)
             response_resp = await asyncio.to_thread(
                 model_resp.generate_content,
-                [system_prompt, imagen_data],
+                [texto_instruccion, imagen_data],
                 generation_config={"response_mime_type": "application/json", "temperature": 0.1}
             )
-            return json.loads(response_resp.text.strip())
+            texto_limpio = response_resp.text.replace('```json', '').replace('```', '').strip()
+            return json.loads(texto_limpio)
             
         except Exception as e_resp:
             logger.error(f"❌ Error crítico en visión: Ambos modelos fallaron. {e_resp}")
-            # Retorno seguro para evitar que el bot se cuelgue
-            return {"items": [], "tipo": "Rechazo"}            
-
+            return {"items": [], "tipo": "Rechazo"}
+            
 # =====================================================================================================================================
 #                FINAL                          FUNCIONES IA GROQ                                     FINAL
 # =====================================================================================================================================
@@ -5828,6 +5833,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Transcripción nativa con Gemini (Reemplaza a Whisper)
         model = genai.GenerativeModel(MODELO_AUDIO)
+        # Se envuelve la variable en bytes() para evitar el error de bytearray
         audio_data = {"mime_type": "audio/ogg", "data": bytes(audio_bytes)}
         
         transcription_res = await asyncio.to_thread(
@@ -5898,8 +5904,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error al procesar audio: {e}")
         msg_err_audio = traducciones.get("07_bot_error_procesar_audio", "❌ Error al procesar audio: {e}")
-        await msg.edit_text(msg_err_audio.format(e=e))
-        
+        await msg.edit_text(msg_err_audio.format(e=e))        
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
