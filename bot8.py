@@ -4911,6 +4911,7 @@ async def callback_btn_guardar_registro(update: Update, context: ContextTypes.DE
 #                FINAL                                     COMANDOS CONFIRMACION FUNCIONES BOTONES                        FINAL
 # ======================================================================================================================================
 
+
 # ==================================================================================================================================
 #                    INICIO                 COMANDOS COMIDAS Y COMANDOS ACTIVIDAD                                   INCIO  DB OK
 # ==================================================================================================================================
@@ -5827,7 +5828,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Transcripción nativa con Gemini (Reemplaza a Whisper)
         model = genai.GenerativeModel(MODELO_AUDIO)
-        audio_data = {"mime_type": "audio/ogg", "data": audio_bytes}
+        audio_data = {"mime_type": "audio/ogg", "data": bytes(audio_bytes)}
         
         transcription_res = await asyncio.to_thread(
             model.generate_content,
@@ -10235,6 +10236,9 @@ async def cmd_generar_manual_pdf(update: Update, context: ContextTypes.DEFAULT_T
         story.append(t_func)
         
         story.append(PageBreak())
+
+
+
 
         # PÁGINA 3
         story.append(Paragraph("<b>3. Base de Datos: Valores_Clinicos_Profesional</b>", h1_style))
