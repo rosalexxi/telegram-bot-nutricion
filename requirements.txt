@@ -13,4 +13,4 @@ opencv-python-headless
 numpy
 deep-translator>=1.11.0
 supabase
-google-generativeai
+google-generativeai>=0.5.2
