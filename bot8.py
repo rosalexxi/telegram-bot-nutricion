@@ -88,10 +88,12 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-MODELO_TEXTO = os.getenv("MODELO_TEXTO", "gemini-1.5-flash")
-MODELO_FOTO  = os.getenv("MODELO_FOTO", "gemini-1.5-flash")
-MODELO_AUDIO = os.getenv("MODELO_AUDIO", "gemini-1.5-flash")
-MODELO_RESPALDO = os.getenv("MODELO_RESPALDO", "gemini-1.5-pro")
+# Usamos los sufijos "-latest" que evitan el error 404 en la API v1beta
+MODELO_TEXTO = os.getenv("MODELO_TEXTO", "gemini-1.5-flash-latest")
+MODELO_FOTO  = os.getenv("MODELO_FOTO", "gemini-1.5-flash-latest")
+MODELO_AUDIO = os.getenv("MODELO_AUDIO", "gemini-1.5-flash-latest")
+MODELO_RESPALDO = os.getenv("MODELO_RESPALDO", "gemini-1.5-pro-latest")
+MODELO_EMERGENCIA = "gemini-1.0-pro" # Tercer modelo de rescate
 
 # ==========================================
 # ÚNICA INSTANCIA DE FLASK PARA TODO EL BOT
@@ -3774,34 +3776,43 @@ def analizar_con_groq(prompt_text, user_id=None):
     )
 
     try:
-        # Intento 1: Modelo principal (rápido y económico)
+        # Intento 1: Flash Latest
         model = genai.GenerativeModel(MODELO_TEXTO, system_instruction=system_prompt)
         response = model.generate_content(
             prompt_text,
             generation_config={"response_mime_type": "application/json", "temperature": 0.1}
         )
-        # Limpieza de Markdown antes de leer el JSON
         texto_limpio = response.text.replace('```json', '').replace('```', '').strip()
         return json.loads(texto_limpio)
         
     except Exception as e_principal:
-        logger.warning(f"⚠️ Falla en modelo principal Flash, activando respaldo Pro: {e_principal}")
+        logger.warning(f"⚠️ Falla en Intento 1 (Flash): {e_principal}")
         try:
-            # Intento 2: Modelo de rescate
-            MODELO_RESPALDO = os.getenv("MODELO_RESPALDO", "gemini-1.5-pro")
+            # Intento 2: Pro Latest
             model_respaldo = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=system_prompt)
             response_respaldo = model_respaldo.generate_content(
                 prompt_text,
                 generation_config={"response_mime_type": "application/json", "temperature": 0.1}
             )
-            # Limpieza de Markdown antes de leer el JSON
             texto_limpio = response_respaldo.text.replace('```json', '').replace('```', '').strip()
             return json.loads(texto_limpio)
             
         except Exception as e_respaldo:
-            logger.error(f"❌ Error crítico: Ambos modelos de IA fallaron. {e_respaldo}")
-            return {"items": [], "tipo": "Rechazo"}
-            
+            logger.warning(f"⚠️ Falla en Intento 2 (Pro): {e_respaldo}")
+            try:
+                # Intento 3: Modelo Clásico
+                model_emerg = genai.GenerativeModel(MODELO_EMERGENCIA, system_instruction=system_prompt)
+                response_emerg = model_emerg.generate_content(
+                    prompt_text,
+                    generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+                )
+                texto_limpio = response_emerg.text.replace('```json', '').replace('```', '').strip()
+                return json.loads(texto_limpio)
+                
+            except Exception as e_emergencia:
+                logger.error(f"❌ Error crítico: Los tres modelos fallaron. {e_emergencia}")
+                return {"items": [], "tipo": "Rechazo"}
+                
 async def generar_recomendacion_semanal_ia(m: dict, etiqueta_periodo: str, user_id=None):
     nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
 
@@ -4111,11 +4122,11 @@ async def analizar_imagen_con_groq(base64_image: str, user_id=None):
     )
 
     imagen_data = {"mime_type": "image/jpeg", "data": base64.b64decode(base64_image)}
-    texto_instruccion = "Analiza esta imagen y desglosa los alimentos en el formato JSON indicado."
+    texto_instruccion = f"Analiza esta imagen y desglosa los alimentos en el formato JSON indicado. {system_prompt}"
 
     try:
-        # Intento 1: Modelo principal (Flash)
-        model = genai.GenerativeModel(MODELO_FOTO, system_instruction=system_prompt)
+        # Intento 1: Flash Latest
+        model = genai.GenerativeModel(MODELO_FOTO)
         response = await asyncio.to_thread(
             model.generate_content,
             [texto_instruccion, imagen_data],
@@ -4125,11 +4136,10 @@ async def analizar_imagen_con_groq(base64_image: str, user_id=None):
         return json.loads(texto_limpio)
         
     except Exception as e_prin:
-        logger.warning(f"⚠️ Falla en modelo principal Flash (Imagen), activando respaldo: {e_prin}")
+        logger.warning(f"⚠️ Falla en Intento 1 (Flash Foto): {e_prin}")
         try:
-            # Intento 2: Modelo de contingencia (Pro)
-            MODELO_RESPALDO = os.getenv("MODELO_RESPALDO", "gemini-1.5-pro")
-            model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=system_prompt)
+            # Intento 2: Pro Latest
+            model_resp = genai.GenerativeModel(MODELO_RESPALDO)
             response_resp = await asyncio.to_thread(
                 model_resp.generate_content,
                 [texto_instruccion, imagen_data],
@@ -4139,9 +4149,21 @@ async def analizar_imagen_con_groq(base64_image: str, user_id=None):
             return json.loads(texto_limpio)
             
         except Exception as e_resp:
-            logger.error(f"❌ Error crítico en visión: Ambos modelos fallaron. {e_resp}")
-            return {"items": [], "tipo": "Rechazo"}
-            
+            logger.warning(f"⚠️ Falla en Intento 2 (Pro Foto): {e_resp}")
+            try:
+                # Intento 3: Vision clásico
+                model_emerg = genai.GenerativeModel(MODELO_FOTO_EMERGENCIA)
+                response_emerg = await asyncio.to_thread(
+                    model_emerg.generate_content,
+                    [texto_instruccion, imagen_data]
+                )
+                texto_limpio = response_emerg.text.replace('```json', '').replace('```', '').strip()
+                return json.loads(texto_limpio)
+                
+            except Exception as e_emergencia:
+                logger.error(f"❌ Error crítico en visión: Todos los modelos fallaron. {e_emergencia}")
+                return {"items": [], "tipo": "Rechazo"}
+                
 # =====================================================================================================================================
 #                FINAL                          FUNCIONES IA GROQ                                     FINAL
 # =====================================================================================================================================
@@ -5833,7 +5855,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Transcripción nativa con Gemini (Reemplaza a Whisper)
         model = genai.GenerativeModel(MODELO_AUDIO)
-        # Se envuelve la variable en bytes() para evitar el error de bytearray
+        
+        # EL ARREGLO DEL AUDIO ESTÁ EN ESTA LÍNEA (bytes):
         audio_data = {"mime_type": "audio/ogg", "data": bytes(audio_bytes)}
         
         transcription_res = await asyncio.to_thread(
@@ -5904,7 +5927,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error al procesar audio: {e}")
         msg_err_audio = traducciones.get("07_bot_error_procesar_audio", "❌ Error al procesar audio: {e}")
-        await msg.edit_text(msg_err_audio.format(e=e))        
+        await msg.edit_text(msg_err_audio.format(e=e))
+        
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
