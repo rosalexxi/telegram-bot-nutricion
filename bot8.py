@@ -1,5 +1,6 @@
 
-#                                 INICIO                                   CABECERA 2026 09 05                                    INICIO
+# ==============================================================================================================================================
+#                                 INICIO                                   CABECERA 2026 09 05                                     INICIO
 #                                  https://github.com/rosalexxi/telegram-bot-nutricion
 #                                  https://dashboard.render.com/web/srv-d9lcifijnfac73a8q1eg/events
 #                                  https://supabase.com/dashboard/project/xsheilmjewqcvhmyqlnx/editor/17944?schema=public
@@ -22,7 +23,6 @@ import psycopg2
 import sys
 import pytz
 import pandas as pd
-import gspread
 import html  
 import cv2
 import numpy as np
@@ -32,13 +32,11 @@ import urllib.request
 import urllib.parse
 import calendar
 import subprocess
+import google.generativeai as genai
 
-from openai import OpenAI
 from typing import Dict, Tuple, List, Optional, Any            
 from urllib.parse import urlparse 
 from datetime import datetime, date, timedelta, time
-from google.oauth2.service_account import Credentials
-from groq import Groq
 from dateutil.relativedelta import relativedelta
 from flask import Flask, request, jsonify, render_template_string, send_from_directory, url_for
 from functools import wraps
@@ -63,9 +61,6 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Inicialización segura de OpenAI luego de cargar las variables de entorno
-client = OpenAI() if os.getenv("OPENAI_API_KEY") else None
-
 # Definición de franjas horarias (sin tildes)
 FRANJAS_COMIDAS = {
     "Desayuno": (8, 11),
@@ -77,31 +72,26 @@ FRANJAS_COMIDAS = {
 # Estados de conversación para Perfil y Fecha personalizada
 AWAITING_PROFILE_DATA, AWAITING_CUSTOM_DATE, AWAITING_RESUMEN_MES, AWAITING_EDIT_ITEM = range(4)
 
-GROQ_TEXTO      = "openai/gpt-oss-120b"   # Generación principal
-GROQ_FOTO       = "qwen/qwen3.8-27b"
-GROQ_AUDIO      = "whisper-large-v3"
-
-GROQ_REVISION_2 = "openai/gpt-oss-20b"    # Revisión principal
-GROQ_REVISOR    = "qwen/qwen3.8-27b"      # Respaldo
-
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GOOGLE_SHEETS_KEY_PATH = os.getenv("GOOGLE_SHEETS_KEY_PATH", "credentials.json")
-SPREADSHEET_NAME = os.getenv("SPREADSHEET_NAME", "Registro_Nutricional_Bot")
-ARG_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
-
-# Patrón para detectar variables entre llaves
-PATTERN_VARS = re.compile(r'\{[^}]+\}')
-
-ADMIN_USER_ID = "7363062724"  # Reemplazá esto por tu número de ID de Telegram real
-
 # 1. ESTADOS DE CONVERSACIÓN ACTUALIZADOS
 ING_TERMINOS, ING_IDIOMA, ING_PROFESIONAL, ING_NOMBRE, ING_EDAD, ING_SEXO, ING_ALTURA, ING_PESO, ING_MUNECA, ING_CUELLO, ING_CADERA, ING_OCUPACION, ING_CUMPLE, ING_RITMO = range(10, 24)
 
-if GROQ_API_KEY:
-    client_ai = Groq(api_key=GROQ_API_KEY)
-else:
-    client_ai = None
+# Configuración de Entorno
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+ARG_TZ = pytz.timezone('America/Argentina/Buenos_Aires')
+PATTERN_VARS = re.compile(r'\{[^}]+\}')
+ADMIN_USER_ID = "7363062724"  # Reemplazá esto por tu número de ID de Telegram real
+
+# ==========================================
+# INICIALIZACIÓN DE GEMINI Y MODELOS
+# ==========================================
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+
+MODELO_TEXTO = os.getenv("MODELO_TEXTO", "gemini-1.5-flash")
+MODELO_FOTO  = os.getenv("MODELO_FOTO", "gemini-1.5-flash")
+MODELO_AUDIO = os.getenv("MODELO_AUDIO", "gemini-1.5-flash")
+MODELO_RESPALDO = os.getenv("MODELO_RESPALDO", "gemini-1.5-pro")
 
 # ==========================================
 # ÚNICA INSTANCIA DE FLASK PARA TODO EL BOT
@@ -1009,7 +999,6 @@ def api_usuario_idioma():
             pass
     return jsonify({"lang": lang}), 200
 
-
 @app.route('/api/calcular-receta', methods=['POST'])
 def api_calcular_receta():
     try:
@@ -1021,69 +1010,59 @@ def api_calcular_receta():
         porciones = int(data.get('porciones', 1))
         lang = data.get('lang', 'es')
 
-        client_ai = globals().get('client_ai')
-        if not client_ai:
-            return jsonify({"error": "El cliente de IA no está configurado."}), 500
-
         prompt_ia = (
             f"Analiza la siguiente receta o listado de ingredientes: '{receta}'. "
-            f"Desglósalo estrictamente **ítem por ítem** (ingrediente por ingrediente o componente por componente). "
-            f"Para cada ítem, calcula de forma independiente y precisa:\n"
-            f"- El nombre del alimento o ingrediente ('alimento'), escrito en el idioma correspondiente al código '{lang}'\n"
+            f"Desglósalo estrictamente **ítem por ítem**. Para cada ítem, calcula:\n"
+            f"- El nombre del alimento ('alimento'), escrito en el idioma '{lang}'\n"
             f"- El peso estimado en gramos ('peso')\n"
             f"- Las calorías ('calorias')\n"
             f"- Las proteínas en gramos ('proteinas')\n"
             f"- Las grasas en gramos ('grasas')\n"
             f"- Los carbohidratos en gramos ('carbohidratos')\n"
             f"- Las fibras en gramos ('fibras')\n\n"
-            f"REGLA ESTRICTA: Responde ÚNICAMENTE con un objeto JSON válido, sin textos adicionales, saludos ni explicaciones. "
-            f"El JSON debe tener exactamente esta estructura:\n"
-            "{\n"
-            '  "items": [\n'
-            '    {"alimento": "nombre del ingrediente", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
-            "  ]\n"
-            "}"
+            f"REGLA MATEMÁTICA: Las calorías deben coincidir con la suma aproximada de (Proteínas*4) + (Carbohidratos*4) + (Grasas*9).\n"
+            f"Devuelve ÚNICAMENTE un JSON con esta estructura exacta:\n"
+            "{\"items\": [{\"alimento\": \"...\", \"peso\": 0.0, \"calorias\": 0.0, \"proteinas\": 0.0, \"grasas\": 0.0, \"carbohidratos\": 0.0, \"fibras\": 0.0}]}"
         )
 
-        response = client_ai.chat.completions.create(
-            model=globals().get('GROQ_TEXTO', "llama-3.3-70b-versatile"),
-            messages=[
-                {"role": "system", "content": "Eres un nutricionista clínico experto en análisis de recetas y desglose de macronutrientes."},
-                {"role": "user", "content": prompt_ia}
-            ],
-            temperature=0.1,
-            response_format={"type": "json_object"}
-        )
+        instruccion = "Eres un nutricionista clínico experto en análisis de recetas y desglose de macronutrientes."
+        
+        try:
+            # Intento 1: Modelo principal (Flash)
+            model = genai.GenerativeModel(MODELO_TEXTO, system_instruction=instruccion)
+            response = model.generate_content(
+                prompt_ia,
+                generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+            )
+            resultado_json = json.loads(response.text)
+            
+        except Exception as e_prin:
+            logger.warning(f"⚠️ Falla en modelo principal Flash (Receta), activando respaldo: {e_prin}")
+            # Intento 2: Modelo de contingencia (Pro)
+            MODELO_RESPALDO = os.getenv("MODELO_RESPALDO", "gemini-1.5-pro")
+            model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=instruccion)
+            response_resp = model_resp.generate_content(
+                prompt_ia,
+                generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+            )
+            resultado_json = json.loads(response_resp.text)
 
-        resultado_json = json.loads(response.choices[0].message.content)
         items = resultado_json.get("items", [])
 
+        # Cálculos de porciones/gramos intactos
         if tipo_calculo == 'porciones' and porciones > 1:
             for item in items:
-                item['peso'] = round(float(item.get('peso', 0)) / porciones, 2)
-                item['calorias'] = round(float(item.get('calorias', 0)) / porciones, 2)
-                item['proteinas'] = round(float(item.get('proteinas', 0)) / porciones, 2)
-                item['grasas'] = round(float(item.get('grasas', 0)) / porciones, 2)
-                item['carbohidratos'] = round(float(item.get('carbohidratos', 0)) / porciones, 2)
-                item['fibras'] = round(float(item.get('fibras', 0)) / porciones, 2)
-        # --- AQUÍ ESTÁ LA MAGIA PARA ESTANDARIZAR A 100 GRAMOS ---
+                for k in ['peso', 'calorias', 'proteinas', 'grasas', 'carbohidratos', 'fibras']:
+                    item[k] = round(float(item.get(k, 0)) / porciones, 2)
         elif tipo_calculo == 'gramos':
             total_peso = sum(float(i.get('peso', 0)) for i in items)
             if total_peso > 0:
                 factor = 100.0 / total_peso
                 for item in items:
-                    item['peso'] = round(float(item.get('peso', 0)) * factor, 2)
-                    item['calorias'] = round(float(item.get('calorias', 0)) * factor, 2)
-                    item['proteinas'] = round(float(item.get('proteinas', 0)) * factor, 2)
-                    item['grasas'] = round(float(item.get('grasas', 0)) * factor, 2)
-                    item['carbohidratos'] = round(float(item.get('carbohidratos', 0)) * factor, 2)
-                    item['fibras'] = round(float(item.get('fibras', 0)) * factor, 2)
+                    for k in ['peso', 'calorias', 'proteinas', 'grasas', 'carbohidratos', 'fibras']:
+                        item[k] = round(float(item.get(k, 0)) * factor, 2)
 
-        return jsonify({
-            "nombre": codigo,
-            "descripcion": descripcion,
-            "items": items
-        }), 200
+        return jsonify({"nombre": codigo, "descripcion": descripcion, "items": items}), 200
 
     except Exception as e:
         logger.error(f"Error en api_calcular_receta: {e}", exc_info=True)
@@ -1118,49 +1097,6 @@ def api_guardar_comida():
 # =============================================================================================================================================
 #              INICIO                                   FUNCIONES SUPABASE                           INICIO
 # =============================================================================================================================================
-
-#                 INICIO                                     1  GOOGLE SHEETS                       INICIO
-# =============================================================================================================================================
-
-def to_sheet_int(val):
-    num = parse_raw_val(val)
-    return int(round(num * 1000))
-                
-def get_gspread_client():
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    if os.path.exists(GOOGLE_SHEETS_KEY_PATH):
-        creds = Credentials.from_service_account_file(GOOGLE_SHEETS_KEY_PATH, scopes=scopes)
-    else:
-        creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
-        if creds_json:
-            info = json.loads(creds_json)
-            creds = Credentials.from_service_account_info(info, scopes=scopes)
-        else:
-            raise Exception("No se encontraron credenciales de Google Sheets.")
-    return gspread.authorize(creds)
-
-def get_or_create_worksheet(spreadsheet, title):
-    try:
-        return spreadsheet.worksheet(title)
-    except gspread.WorksheetNotFound:
-        if title.startswith("User_"):
-            ws = spreadsheet.add_worksheet(title=title, rows="1000", cols="10")
-            ws.append_row(["Fecha", "Momento/Actividad", "Alimento/Detalle", "Peso (g)", "Calorías (kcal)", "Proteínas (g)", "Grasas (g)", "Hidratos (g)", "Fibras (g)"])
-            return ws
-        elif title.startswith("Presion_"):
-            ws = spreadsheet.add_worksheet(title=title, rows="500", cols="6")
-            ws.append_row(["Fecha_Hora", "Fecha_Dia", "Alta", "Baja", "Pulsaciones", "Nota"])
-            return ws
-        elif title.startswith("Perfil_"):
-            ws = spreadsheet.add_worksheet(title=title, rows="100", cols="7")
-            ws.append_row(["EDAD", "PESO", "ALTURA", "GENERO", "OCUPACION", "MES", "Fecha_Actualizacion"])
-            return ws
-        elif title == "Plantillas_Comidas":
-            ws = spreadsheet.add_worksheet(title=title, rows="100", cols="8")
-            ws.append_row(["Nombre", "Descripcion", "Peso", "Calorias", "Proteinas", "Grasas", "Carbohidratos", "Fibras"])
-            return ws
-        else:
-            return spreadsheet.add_worksheet(title=title, rows="200", cols="10")
 
 #              INICIO                           2  FUNCIONES CONEXIONES                            INICIO
 # =============================================================================================================================================
@@ -2287,32 +2223,8 @@ def obtener_datos_usuario_general(user_id):
 #              INICIO                                  8 FUNCIONES GUARDAR                        INICIO
 # =============================================================================================================================================
 
-def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
-    """Guarda los registros de ingesta alimentaria de forma dual en Google Sheets (multiplicado por 1000) y Supabase."""
-    try:
-        gc = get_gspread_client()
-        sh = gc.open(SPREADSHEET_NAME)
-        ws = get_or_create_worksheet(sh, f"User_{user_id}")
-
-        rows = []
-        for item in items:
-            rows.append([
-                str(fecha),
-                str(momento),
-                item.get("alimento", item.get("Alimento/Detalle", "Desconocido")),
-                to_sheet_int(item.get("peso", item.get("Peso (g)", 0))),
-                to_sheet_int(item.get("calorias", item.get("Calorías (kcal)", 0))),
-                to_sheet_int(item.get("proteinas", item.get("Proteínas (g)", 0))),
-                to_sheet_int(item.get("grasas", item.get("Grasas (g)", 0))),
-                to_sheet_int(item.get("carbohidratos", item.get("hidratos", item.get("Hidratos (g)", 0)))),
-                to_sheet_int(item.get("fibras", item.get("Fibras (g)", 0)))
-            ])
-        if rows:
-            ws.append_rows(rows)
-    except Exception as e:
-        print(f"⚠️ Error al guardar en Google Sheets para el usuario {user_id}: {e}")
-        logger.error(f"Error al guardar en Google Sheets (User_{user_id}): {e}")
-
+def guardar_ingesta_db(user_id, items, fecha, momento, tipo="Comida"):
+    """Guarda los registros de ingesta alimentaria exclusivamente en Supabase."""
     conn = None
     cur = None
     try:
@@ -2340,8 +2252,7 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
         conn.commit()
     except Exception as e:
         if conn: conn.rollback()
-        print(f"🚨 ERROR REAL EN SUPABASE: {e}")
-        logger.error(f"Error interno al duplicar ingesta en Supabase (User_{user_id}): {e}")
+        logger.error(f"Error interno al guardar ingesta en Supabase (User_{user_id}): {e}")
     finally:
         if cur:
             try: cur.close()
@@ -2349,7 +2260,7 @@ def guardar_en_sheets(user_id, items, fecha, momento, tipo="Comida"):
         if conn:
             try: conn.close()
             except: pass
-                
+            
 def guardar_comida_precargada_db(user_id, fila):
     """Guarda en Supabase adaptándose a las mayúsculas/minúsculas de la tabla existente."""
     codigo_original = fila.get('Nombre', fila.get('nombre', ''))
@@ -2685,62 +2596,6 @@ def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
     return conn, cur
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------
-# COMANDO DE TELEGRAM: /hablar (Generador de audios de voz con OpenAI)
-# CÓMO SE USA EN TELEGRAM: 
-#   /hablar M Hola, bienvenidos a IA NutriBot   (Para voz de Mujer - "nova")
-#   /hablar H Hola, bienvenidos a IA NutriBot   (Para voz de Hombre - "alloy")
-# ¿QUÉ HACE?: Convierte el texto que le escribas en un archivo de audio MP3 hablado con inteligencia artificial
-#             y te lo envía al chat de Telegram como una nota de voz.
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-async def cmd_hablar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    user_id = update.effective_user.id
-
-    if not es_administrador(user_id):
-        return
-
-    if not context.args or len(context.args) < 2:
-        msg_formato = traducciones.get("03_bot_hablar_formato", "⚠ Formato incorrecto. Usa:\n/hablar M [tu texto para voz de mujer]\n/hablar H [tu texto para voz de hombre]")
-        await update.message.reply_text(msg_formato)
-        return
-
-    genero = context.args[0].upper()
-    texto_usuario = " ".join(context.args[1:])
-
-    voz_mujer_defecto = os.getenv("VOZ_MUJER", "nova")
-    voz_hombre_defecto = os.getenv("VOZ_HOMBRE", "alloy")
-
-    if genero == "M":
-        voz_elegida = voz_mujer_defecto
-    elif genero == "H":
-        voz_elegida = voz_hombre_defecto
-    else:
-        msg_especifica = traducciones.get("03_bot_hablar_especifica", "⚠️ Especifica 'M' para mujer o 'H' para hombre.")
-        await update.message.reply_text(msg_especifica)
-        return
-
-    output_path = "voz_temporal.mp3"
-
-    try:
-        response = client.audio.speech.create(
-            model="tts-1",
-            voice=voz_elegida,
-            input=texto_usuario
-        )
-        response.stream_to_file(output_path)
-
-        with open(output_path, "rb") as audio_file:
-            await update.message.reply_voice(voice=audio_file)
-
-    except Exception as e:
-        msg_err = traducciones.get("03_bot_hablar_err", "Hubo un error al generar la voz: {e}").format(e=str(e))
-        await update.message.reply_text(msg_err)
-
-    finally:
-        if os.path.exists(output_path):
-            os.remove(output_path)
-
-# ---------------------------------------------------------------------------------------------------------------------------------------------
 # COMANDO DE TELEGRAM: /desarmar (PASO 1 para traducir el Excel afuera sin romper variables)
 # CÓMO SE USA EN TELEGRAM: /desarmar
 # ¿QUÉ HACE?:
@@ -2851,7 +2706,6 @@ async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
 #   3. Reemplaza todos los códigos __VAR_XXXX__ por sus llaves {variable} o corchetes [variable] original.
 #   4. Borra y vuelve a crear la tabla 'multi' en Supabase con la información limpia y traducida.
 # ---------------------------------------------------------------------------------------------------------------------------------------------
-
 async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
@@ -3096,189 +2950,6 @@ async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_err = traducciones.get("03_bot_descargar_err", "❌ No se pudo descargar la tabla `{nombre_tabla}`.\nError: `{e}`").format(nombre_tabla=nombre_tabla, e=e)
         await mensaje_espera.edit_text(msg_err, parse_mode="Markdown")   
 
-async def cmd_videos(update, context):
-
-#=============================================================================
-# SCRIPT DE PROCESAMIENTO AUTOMÁTICO DE REELS (IA NutriBot)
-#=============================================================================
-# OBJETIVO: 
-# Procesar lotes de videos verticales (1080x1920) aplicando:
-#   - Fondo difuminado (gblur) y centrado de video original.
-#   - Pista de música sincronizada.
-#   - Textos adaptativos centrados en la "zona segura" de redes (evitando
-#     el 15% superior y el 30% inferior para que no los tapen las interfaces).
-#   - Tiempos: 0s a 1s (fondo solo), 1s a 5s (Pregunta), 5s a 10s (Respuesta).
-# MEDIDAS Y LÍMITES DE TEXTO RECOMENDADOS:
-#   - PREGUNTA: 
-#     * Tamaño ideal: fontsize=48 (o 38 si el renglón supera los 25 caracteres).
-#     * Máximo recomendado: 1 a 2 líneas cortas (20-25 caracteres por línea).
-#   - RESPUESTA:
-#     * Tamaño ideal: fontsize=36 (o 28 si el renglón supera los 35 caracteres).
-#     * Máximo recomendado: 3 a 4 líneas (30-35 caracteres por línea).
-#
-# ESTRUCTURA DE LOS ARCHIVOS .TXT:
-#   Cada archivo debe llamarse textoN.txt y estar separado por tres rayitas:
-#   [Pregunta]
-#   ---
-#   [Respuesta con los saltos de línea que prefieras]
-#=============================================================================
-#     COMANDO DE BOT: PROCESAMIENTO AUTOMÁTICO DE REELS (IA NutriBot)
-#     Uso: /videos (usa 10s) o /videos 12 (duración de 12s)
-#     Con autolimpieza de textos procesados.
-#=============================================================================
-
-#    user_id = update.effective_user.id
-
-#    if not es_administrador(user_id):
-#        return
-
-    duracion_total = 10
-    if context.args and len(context.args) > 0:
-        try:
-            duracion_total = int(context.args[0])
-        except ValueError:
-	            pass
-
-    mitad_duracion = duracion_total / 2
-    carpeta_trabajo = "lote_videos"
-    max_por_tanda = 1
-    
-    os.makedirs(carpeta_trabajo, exist_ok=True)
-
-    # Ruta de la fuente dentro de la subcarpeta 'fonts'
-    fontfile = os.path.join("fonts", "DejaVuSans-Bold.ttf")
-
-    print(f"🔍 Escaneando textos pendientes en '{carpeta_trabajo}' (Duración: {duracion_total}s)...")
-    
-    # Búsqueda basada en los textos pendientes
-    archivos_detectados = []
-    patron_textos = os.path.join(carpeta_trabajo, "texto*.txt")
-    
-    for texto_path in glob.glob(patron_textos):
-        base_name = os.path.basename(texto_path)
-        numeros = re.findall(r'\d+', base_name)
-        if numeros:
-            i = int(numeros[0])
-            video_path = os.path.join(carpeta_trabajo, f"video{i}.mp4")
-            audio_path = os.path.join(carpeta_trabajo, f"audio{i}.mp3")
-            
-            if os.path.exists(video_path) and os.path.exists(audio_path):
-                archivos_detectados.append(i)
-
-    archivos_detectados.sort()
-    total_encontrados = len(archivos_detectados)
-    
-    if total_encontrados == 0:
-        print(f"⚠️ No se encontró ningún texto pendiente en la carpeta '{carpeta_trabajo}'.")
-        if update and update.message:
-            await update.message.reply_text("⚠️ ¡Excelente! No quedan textos pendientes para procesar.")
-        return
-
-    print(f"📁 Se detectaron {total_encontrados} juegos pendientes con los índices: {archivos_detectados}")
-
-    # Control de seguridad de cantidad máxima por tanda
-    if total_encontrados > max_por_tanda:
-        archivos_a_procesar = archivos_detectados[:max_por_tanda]
-    else:
-        archivos_a_procesar = archivos_detectados
-
-    procesados_exitosos = 0
-    for i in archivos_a_procesar:
-        video_path = os.path.join(carpeta_trabajo, f"video{i}.mp4")
-        audio_path = os.path.join(carpeta_trabajo, f"audio{i}.mp3")
-        texto_path = os.path.join(carpeta_trabajo, f"texto{i}.txt")
-        salida_path = os.path.join(carpeta_trabajo, f"resultado_reel_{i}.mp4")
-        
-        with open(texto_path, "r", encoding="utf-8") as f:
-            contenido_total = f.read().strip()
-            
-        tiempo_inicio = "0"
-        if "inicio:" in contenido_total:
-            lineas_txt = contenido_total.split("\n")
-            for linea in lineas_txt:
-                if linea.lower().startswith("inicio:"):
-                    tiempo_inicio = linea.split(":")[1].strip()
-                    contenido_total = contenido_total.replace(linea, "").strip()
-
-        if "---" in contenido_total:
-            partes = contenido_total.split("---")
-            texto_pregunta = partes[0].strip().replace("\n", "\\n").replace("'", "")
-            texto_respuesta = partes[1].strip().replace("\n", "\\n").replace("'", "")
-        else:
-            texto_pregunta = "¿Pregunta?"
-            texto_respuesta = contenido_total.replace("\n", "\\n").replace("'", "")
-        
-        # Análisis dinámico de caracteres
-        lineas_preg = texto_pregunta.split("\\n")
-        max_len_preg = max(len(l) for l in lineas_preg) if lineas_preg else 0
-        fontsize_preg = 38 if max_len_preg > 25 else 48
-
-        lineas_resp = texto_respuesta.split("\\n")
-        max_len_resp = max(len(l) for l in lineas_resp) if lineas_resp else 0
-        fontsize_resp = 28 if max_len_resp > 35 else 36
-
-        print(f"🚀 Procesando Reel {i} ({duracion_total}s | Inicia en {tiempo_inicio}s)...")
-        
-        fin_pregunta = str(mitad_duracion)
-        inicio_respuesta = str(mitad_duracion)
-        fin_video = str(duracion_total)
-
-        filtro_video = (
-            f"[0:v]split=2[bg][fg];"
-            f"[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=30[bg_blurred];"
-            f"[fg]scale=1080:1920:force_original_aspect_ratio=decrease[fg_scaled];"
-            f"[bg_blurred][fg_scaled]overlay=(W-w)/2:(H-h)/2[v0];"
-            
-            f"[v0]drawtext=fontfile='{fontfile}':text='{texto_pregunta}':fontcolor=white:fontsize={fontsize_preg}:"
-            f"box=1:boxcolor=black@0.65:boxborderw=20:x=(w-text_w)/2:y=(h-text_h)/2 - 180:"
-            f"shadowcolor=black@0.9:shadowx=3:shadowy=3:enable='between(t,1,{fin_pregunta})'[v1];"
-            
-            f"[v1]drawtext=fontfile='{fontfile}':text='{texto_respuesta}':fontcolor=yellow:fontsize={fontsize_resp}:"
-            f"box=1:boxcolor=black@0.75:boxborderw=25:x=(w-text_w)/2:y=(h-text_h)/2 + 20:"
-            f"line_spacing=12:"
-            f"shadowcolor=black@0.9:shadowx=3:shadowy=3:enable='between(t,{inicio_respuesta},{fin_video})'[v]"
-        )
-
-        filtro_audio = f"[1:a]volume='0.3 + 0.7*abs(sin(PI*t/{mitad_duracion / 1.5}))':eval=frame[a_out]"
-
-        comando = [
-            "ffmpeg", "-y",
-            "-ss", tiempo_inicio,
-            "-i", video_path,
-            "-i", audio_path,
-            "-t", str(duracion_total),
-            "-filter_complex", f"{filtro_video};{filtro_audio}",
-            "-map", "[v]",
-            "-map", "[a_out]",
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            salida_path
-        ]
-        
-        resultado = subprocess.run(comando, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        
-        if resultado.returncode == 0:
-            print(f"✅ ¡Reel {i} generado con éxito!")
-            procesados_exitosos += 1
-            
-            # --- AUTOLIMPIEZA DEL TEXTO PROCESADO ---
-            try:
-                os.remove(texto_path)
-                print(f"🗑️ Archivo '{os.path.basename(texto_path)}' eliminado automáticamente.")
-            except Exception as e:
-                print(f"⚠️ No se pudo borrar el texto {i}: {e}")
-            # ----------------------------------------
-        else:
-            print(f"❌ Error en el Reel {i}:")
-            print(resultado.stderr.decode("utf-8", errors="ignore")[:300])
-
-    print(f"\n🎉 ¡Tanda finalizada! Se procesaron {procesados_exitosos} videos correctamente.")
-    if update and update.message:
-        await update.message.reply_text(f"🎉 ¡Tanda finalizada! Se procesaron {procesados_exitosos} reels correctamente.")
-        
-            
 # =========================================================================================================================================
 #              FINAL                            FUNCIONES SUPABASE                 FINAL
 # ==========================================================================================================================================
@@ -4002,18 +3673,23 @@ def calcular_porcentajes_harinas(frecuencias):
     return porc_int, porc_ref
 
 def analizar_foto_presion_con_groq(base64_image: str) -> dict:
-    client_ai = globals().get('client_ai')
-    if not client_ai: return {"es_presion": False}
-    prompt = "Analiza esta imagen. ¿Es la pantalla de un tensiómetro digital que muestra valores de presión arterial? Si es así, extrae los valores numéricos de la presión sistólica (Alta), diastólica (Baja) y las pulsaciones. Responde ÚNICAMENTE en formato JSON: {\"es_presion\": true/false, \"alta\": 0.0, \"baja\": 0.0, \"pulsaciones\": 0.0}"
+    prompt = (
+        "Analiza esta imagen. ¿Es la pantalla de un tensiómetro digital que muestra valores de presión arterial? "
+        "Si es así, extrae los valores numéricos de la presión sistólica (Alta), diastólica (Baja) y las pulsaciones. "
+        "Responde ÚNICAMENTE en formato JSON: {\"es_presion\": true/false, \"alta\": 0.0, \"baja\": 0.0, \"pulsaciones\": 0.0}"
+    )
     try:
-        response = client_ai.chat.completions.create(
-            model=globals().get('GROQ_FOTO', "qwen/qwen3.8-27b"),
-            messages=[{"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
-            temperature=0.0, response_format={"type": "json_object"}
+        model = genai.GenerativeModel(MODELO_FOTO)
+        imagen_data = {"mime_type": "image/jpeg", "data": base64.b64decode(base64_image)}
+        
+        response = model.generate_content(
+            [prompt, imagen_data],
+            generation_config={"response_mime_type": "application/json", "temperature": 0.0}
         )
-        return json.loads(response.choices[0].message.content)
-    except Exception: return {"es_presion": False}
-    
+        return json.loads(response.text)
+    except Exception: 
+        return {"es_presion": False}
+        
 def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
     if peso_referencia and peso_referencia > 0:
         dif_relativa = (peso_actual - peso_referencia) / peso_referencia
@@ -4048,37 +3724,16 @@ def obtener_prompt_segun_objetivo_peso(peso_actual, peso_referencia):
 
 def ejecutar_consulta_ia(prompt: str, max_tokens: int = 300, temperature: float = 0.4, system_prompt: str = None, modelo_override: str = None):
     try:
-        client = globals().get('client_ai') or globals().get('groq_client')
-        if not client:
-            api_key = globals().get('GROQ_API_KEY') or os.getenv("GROQ_API_KEY")
-            if not api_key:
-                logger.error("⚠️ GROQ_API_KEY no configurada.")
-                return ""
-            client = Groq(api_key=api_key)
-
-        modelo = modelo_override or globals().get('GROQ_TEXTO', "openai/gpt-oss-120b")
-        
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-
-        response = client.chat.completions.create(
-            model=modelo,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens
+        model = genai.GenerativeModel(modelo_override or MODELO_TEXTO, system_instruction=system_prompt)
+        response = model.generate_content(
+            prompt,
+            generation_config={"temperature": temperature, "max_output_tokens": max_tokens}
         )
-        
-        if response and response.choices:
-            content = response.choices[0].message.content
-            return content.strip() if content else ""
-            
+        return response.text.strip() if response.text else ""
     except Exception as e:
         logger.error(f"⚠️ Error en ejecución de IA: {e}")
+        return ""
         
-    return ""
-
 def obtener_nombre_lenguaje_ia(user_id=None):
     """Obtiene el nombre completo del lenguaje para la IA desde la tabla Usuarios."""
     if not user_id:
@@ -4096,58 +3751,53 @@ def obtener_nombre_lenguaje_ia(user_id=None):
     return "Español"
 
 def analizar_con_groq(prompt_text, user_id=None):
-    client_ai = globals().get('client_ai')
-    if not client_ai:
-        raise Exception("GROQ_API_KEY is not properly configured.")
-    
     nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
     ahora = obtener_ahora_arg()
     fecha_hoy = ahora.strftime("%Y-%m-%d")
     mes_actual = ahora.strftime("%Y-%m")
     
-    logger.info(f"🤖 IA analizando texto entrante (Idioma: {nombre_lenguaje}): '{prompt_text}'")
-
     system_prompt = (
         f"Sos un asistente inteligente de salud. El usuario se comunica en su idioma ({nombre_lenguaje}). "
-        f"IMPORTANTE: La fecha de HOY es {fecha_hoy} y el mes actual es {mes_actual}. "
-        f"Analizá el texto ingresado y clasificalo estrictamente en una de estas categorías:\n"
-        "1. COMIDA: Si el usuario menciona alimentos, platos o bebidas.\n"
-        "2. ACTIVIDAD: Si el usuario menciona ejercicio físico.\n"
-        "3. INFORME_MENSUAL: Si pide resumen o balance de un mes. Extrae el mes mencionado y colócalo en 'parametro' SIEMPRE en formato ISO 'YYYY-MM' (ej: '2026-08'). Si pide 'mes pasado', calcula el anterior a hoy. Si no especifica, deja vacío.\n"
-        "4. INFORME_SEMANAL: Si pide el resumen de la semana.\n"
-        "5. INFORME_DIARIO: Si pide el resumen del día. Extrae la fecha y colócala en 'parametro' SIEMPRE en formato ISO 'YYYY-MM-DD'. Si dice 'hoy', usa la fecha de hoy. Si dice 'ayer', calcula la fecha de ayer. Si dice 'día 5', devuelve '{mes_actual}-05'. Si no especifica, deja vacío.\n"
-        "6. RECHAZO: Si no tiene que ver con esto.\n\n"
-        "REGLAS:\n"
-        "- Si es COMIDA, desglósalo con pesos y calorías positivas.\n"
-        "- Si el usuario menciona el momento (desayuno, almuerzo, merienda, cena), indícalo en 'momento', sino null.\n"
-        "- Si menciona el día (hoy, ayer, etc.), devuélvelo en 'dia' SIEMPRE como 'YYYY-MM-DD', o poné null.\n"
-        "- Si es ACTIVIDAD: calorias gastadas positivas, peso 0.0.\n"
-        "- Si es INFORME, el campo 'items' debe ir vacío ([ ]).\n"
+        f"La fecha de HOY es {fecha_hoy} y el mes actual es {mes_actual}. "
+        f"Clasificá el texto en:\n"
+        "1. COMIDA (alimentos/bebidas)\n"
+        "2. ACTIVIDAD (ejercicio)\n"
+        "3. INFORME_MENSUAL (extrae YYYY-MM en 'parametro')\n"
+        "4. INFORME_SEMANAL\n"
+        "5. INFORME_DIARIO (extrae YYYY-MM-DD en 'parametro')\n"
+        "6. RECHAZO\n\n"
+        "REGLA MATEMÁTICA PARA COMIDAS: Las calorías deben coincidir con la suma aproximada de (Proteínas*4) + (Carbohidratos*4) + (Grasas*9).\n"
         "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
-        "{\n"
-        '  "items": [{"alimento": "...", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}],\n'
-        '  "tipo": "Comida" o "Actividad" o "INFORME_MENSUAL" o "INFORME_SEMANAL" o "INFORME_DIARIO" o "Rechazo",\n'
-        '  "parametro": "YYYY-MM o YYYY-MM-DD o vacío",\n'
-        '  "momento": "desayuno" o "almuerzo" o "merienda" o "cena" o null,\n'
-        '  "dia": "YYYY-MM-DD" o null\n'
-        "}"
+        "{\"items\": [{\"alimento\": \"...\", \"peso\": 0.0, \"calorias\": 0.0, \"proteinas\": 0.0, \"grasas\": 0.0, \"carbohidratos\": 0.0, \"fibras\": 0.0}], "
+        "\"tipo\": \"...\", \"parametro\": \"...\", \"momento\": \"...\", \"dia\": \"...\"}"
     )
 
-    response = client_ai.chat.completions.create(
-        model=globals().get('GROQ_TEXTO', "openai/gpt-oss-120b"),
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt_text}
-        ],
-        temperature=0.1,
-        response_format={"type": "json_object"}
-    )
-    
-    resultado_json = json.loads(response.choices[0].message.content)
-    logger.info(f"🤖 IA respondió resultado: {resultado_json}")
-    
-    return resultado_json
-    
+    try:
+        # Intento 1: Modelo principal (rápido y económico)
+        model = genai.GenerativeModel(MODELO_TEXTO, system_instruction=system_prompt)
+        response = model.generate_content(
+            prompt_text,
+            generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+        )
+        return json.loads(response.text)
+        
+    except Exception as e_principal:
+        logger.warning(f"⚠️ Falla en modelo principal Flash, activando respaldo Pro: {e_principal}")
+        try:
+            # Intento 2: Modelo de rescate
+            MODELO_RESPALDO = os.getenv("MODELO_RESPALDO", "gemini-1.5-pro")
+            model_respaldo = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=system_prompt)
+            response_respaldo = model_respaldo.generate_content(
+                prompt_text,
+                generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+            )
+            return json.loads(response_respaldo.text)
+            
+        except Exception as e_respaldo:
+            logger.error(f"❌ Error crítico: Ambos modelos de IA fallaron. {e_respaldo}")
+            # Devolvemos un JSON de rechazo seguro para que el bot no crashee
+            return {"items": [], "tipo": "Rechazo"}
+            
 async def generar_recomendacion_semanal_ia(m: dict, etiqueta_periodo: str, user_id=None):
     nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
 
@@ -4444,65 +4094,49 @@ async def obtener_recomendacion_ia(prompt: str, es_semanal: bool = False, user_i
         return ""
 
 async def analizar_imagen_con_groq(base64_image: str, user_id=None):
-    """Analiza una imagen general usando el modelo multimodal global con filtro de rechazo."""
-    client = globals().get('client_ai') or globals().get('groq_client')
-    if not client:
-        api_key = globals().get('GROQ_API_KEY') or os.getenv("GROQ_API_KEY")
-        if not api_key:
-            logger.error("⚠️ GROQ_API_KEY no configurada para análisis de imagen.")
-            return {"items": [], "tipo": "Rechazo"}
-        client = Groq(api_key=api_key)
-
     nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
-    modelo_foto = globals().get('GROQ_FOTO', "qwen/qwen3.8-27b")
 
     system_prompt = (
-        f"Sos un asistente inteligente de nutrición y salud. El usuario se comunica en su idioma ({nombre_lenguaje}). "
-        f"Analizá la imagen provista. Tu tarea es determinar si la imagen corresponde claramente a un plato de comida, bebida, menú o producto alimenticio individual para registrar una ingesta.\n\n"
-        f"REGLAS DE CLASIFICACIÓN:\n"
-        f"1. Si es comida, bebida o producto comestible, desglósalo ítem por ítem en el JSON con sus macronutrientes estimados y poné 'tipo': 'Comida'.\n"
-        f"2. Si la imagen muestra paisajes, objetos inanimados, personas, animales, ropa, facturas de servicios o escenarios generales (como una parrilla gigante de restaurante, buffets masivos donde no se distingue un plato, o fotos borrosas/irrelevantes), debés clasificarla obligatoriamente como 'Rechazo' y dejar la lista de 'items' vacía ([]).\n\n"
-        f"Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
-        "{\n"
-        '  "items": [\n'
-        '    {"alimento": "nombre del alimento en ' + nombre_lenguaje + '", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}\n'
-        "  ],\n"
-        '  "tipo": "Comida" o "Rechazo"\n'
-        "}"
+        f"Sos un asistente inteligente de nutrición. El usuario se comunica en su idioma ({nombre_lenguaje}). "
+        f"Determiná si la imagen corresponde claramente a un plato de comida o bebida.\n"
+        f"REGLAS:\n"
+        f"1. Si es comida, desglosá ítem por ítem en el JSON. Asumí porciones estándar si no hay referencia. Las calorías deben cuadrar matemáticamente con los macros.\n"
+        f"2. Si es un paisaje, animal, objeto, factura, o escenario general borroso, clasificá como 'Rechazo' con 'items': [].\n"
+        f"Devolvé EXCLUSIVAMENTE este JSON:\n"
+        "{\"items\": [{\"alimento\": \"...\", \"peso\": 0.0, \"calorias\": 0.0, \"proteinas\": 0.0, \"grasas\": 0.0, \"carbohidratos\": 0.0, \"fibras\": 0.0}], \"tipo\": \"Comida\" o \"Rechazo\"}"
     )
 
+    # Gemini requiere el prefijo del mime_type junto con los bytes decodificados
+    imagen_data = {"mime_type": "image/jpeg", "data": base64.b64decode(base64_image)}
+
     try:
+        # Intento 1: Modelo principal (Flash)
+        model = genai.GenerativeModel(MODELO_FOTO)
         response = await asyncio.to_thread(
-            client.chat.completions.create,
-            model=modelo_foto,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": system_prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
-                        }
-                    ]
-                }
-            ],
-            temperature=0.1,
-            response_format={"type": "json_object"}
+            model.generate_content,
+            [system_prompt, imagen_data],
+            generation_config={"response_mime_type": "application/json", "temperature": 0.1}
         )
-
-        if response and response.choices:
-            content = response.choices[0].message.content
-            if content:
-                return json.loads(content.strip())
-
-    except Exception as e:
-        logger.error(f"⚠️ Error analizando imagen con Groq: {e}")
-
-    return {"items": [], "tipo": "Rechazo"}
+        return json.loads(response.text.strip())
+        
+    except Exception as e_prin:
+        logger.warning(f"⚠️ Falla en modelo principal Flash (Imagen), activando respaldo: {e_prin}")
+        try:
+            # Intento 2: Modelo de contingencia (Pro)
+            MODELO_RESPALDO = os.getenv("MODELO_RESPALDO", "gemini-1.5-pro")
+            model_resp = genai.GenerativeModel(MODELO_RESPALDO)
+            response_resp = await asyncio.to_thread(
+                model_resp.generate_content,
+                [system_prompt, imagen_data],
+                generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+            )
+            return json.loads(response_resp.text.strip())
             
+        except Exception as e_resp:
+            logger.error(f"❌ Error crítico en visión: Ambos modelos fallaron. {e_resp}")
+            # Retorno seguro para evitar que el bot se cuelgue
+            return {"items": [], "tipo": "Rechazo"}            
+
 # =====================================================================================================================================
 #                FINAL                          FUNCIONES IA GROQ                                     FINAL
 # =====================================================================================================================================
@@ -5260,8 +4894,7 @@ async def callback_btn_guardar_registro(update: Update, context: ContextTypes.DE
 
     if items and fecha and momento:
         tipo_registro = "Actividad" if momento == "Actividad" else "Comida"
-        guardar_en_sheets(user_id, items, fecha, momento, tipo=tipo_registro)
-        
+        guardar_ingesta_db(user_id, items, fecha, momento, tipo=tipo_registro)
         if momento == "Actividad":
             txt_conf = traducciones.get('06_bot_save_act_exito', f"✅ **¡Actividad guardada exitosamente!**\n📅 `{fecha}`")
         else:
@@ -5277,7 +4910,6 @@ async def callback_btn_guardar_registro(update: Update, context: ContextTypes.DE
 # ======================================================================================================================================
 #                FINAL                                     COMANDOS CONFIRMACION FUNCIONES BOTONES                        FINAL
 # ======================================================================================================================================
-
 
 # ==================================================================================================================================
 #                    INICIO                 COMANDOS COMIDAS Y COMANDOS ACTIVIDAD                                   INCIO  DB OK
@@ -5513,39 +5145,26 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ========================================================================================================================================
 
 def detectar_y_leer_codigo_barras_ia(base64_image: str) -> str:
-    client_ai = globals().get('client_ai')
-    if not client_ai:
-        return ""
-    
     prompt = (
-        "Analiza esta imagen de un producto comercial. Busca el código de barras y lee atentamente "
-        "los números impresos justo debajo de él. "
-        "Responde ÚNICAMENTE en formato JSON con la siguiente estructura exacta:\n"
-        "{\n"
-        '  "tiene_numeros": true/false,\n'
-        '  "codigo_numerico": "escribe_aqui_solo_los_numeros_o_vacio"\n'
-        "}"
+        "Analiza esta imagen de un producto comercial. Busca el código de barras y lee atentamente los números impresos debajo. "
+        "Responde ÚNICAMENTE en formato JSON:\n"
+        "{\"tiene_numeros\": true/false, \"codigo_numerico\": \"escribe_aqui_solo_los_numeros_o_vacio\"}"
     )
     try:
-        response = client_ai.chat.completions.create(
-            model=globals().get('GROQ_FOTO', "qwen/qwen3.8-27b"),
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                ]
-            }],
-            temperature=0.0,
-            response_format={"type": "json_object"}
+        model = genai.GenerativeModel(MODELO_FOTO)
+        imagen_data = {"mime_type": "image/jpeg", "data": base64.b64decode(base64_image)}
+        
+        response = model.generate_content(
+            [prompt, imagen_data],
+            generation_config={"response_mime_type": "application/json", "temperature": 0.0}
         )
-        resultado = json.loads(response.choices[0].message.content)
+        resultado = json.loads(response.text)
         if resultado.get("tiene_numeros"):
             return str(resultado.get("codigo_numerico", "")).strip()
     except Exception as e:
-        logger.error(f"Error en lectura IA de números de código de barras: {e}")    
+        logger.error(f"Error en lectura IA de código de barras: {e}")    
     return ""
-
+    
 async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
     user_id = message_obj.from_user.id
     
@@ -6204,18 +5823,18 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_text(msg_procesando_audio)
     try:
         file = await context.bot.get_file(update.message.voice.file_id)
-        audio_file = io.BytesIO(await file.download_as_bytearray())
-        audio_file.name = "audio.ogg"
+        audio_bytes = await file.download_as_bytearray()
         
-        # Transcripción limpia asíncrona
+        # Transcripción nativa con Gemini (Reemplaza a Whisper)
+        model = genai.GenerativeModel(MODELO_AUDIO)
+        audio_data = {"mime_type": "audio/ogg", "data": audio_bytes}
+        
         transcription_res = await asyncio.to_thread(
-            client_ai.audio.transcriptions.create,
-            file=(audio_file.name, audio_file.read()),
-            model=GROQ_AUDIO,
-            response_format="text"
+            model.generate_content,
+            ["Transcribe exactamente el siguiente audio en su idioma original, sin agregar comentarios.", audio_data]
         )
         
-        transcription = str(transcription_res).strip() if transcription_res else ""
+        transcription = str(transcription_res.text).strip() if transcription_res.text else ""
         
         if not transcription:
             msg_audio_no_entendido = traducciones.get("07_bot_audio_no_entendido", "⚠️ No se pudo entender el audio.")
@@ -6273,7 +5892,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except: pass
             return
 
-        # Fin del proceso: Mandar los datos limpios a mostrar la pantalla
         await procesar_y_mostrar_confirmacion(data, msg, context)
 
     except Exception as e:
@@ -10787,8 +10405,6 @@ def main():
         app_bot.add_handler(CommandHandler(["cargar","subir"], cmd_subir))
         app_bot.add_handler(CommandHandler("desarmar", cmd_desarmar_excel))
         app_bot.add_handler(CommandHandler("armar", cmd_armar_excel))
-        app_bot.add_handler(CommandHandler("hablar", cmd_hablar))
-        app_bot.add_handler(CommandHandler("videos", cmd_videos))
 
         # =================================CALLBACK QUERY HANDLERS====================================
         app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^presion_"))
