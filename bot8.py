@@ -4412,7 +4412,7 @@ async def _sub_manejar_texto_actividad(update, context, raw_text, chat_id):
     msg_analizando = await update.message.reply_text(txt_analizando)
     
     try:
-        data = await asyncio.to_thread(analizar_con_ia, f"Calcula el gasto calórico de esta actividad física: {raw_text}", user_id)
+        data = await analizar_con_ia, f"Calcula el gasto calórico de esta actividad física: {raw_text}", user_id
         if str(data.get("tipo", "")).upper() != "ACTIVIDAD":
             data["tipo"] = "Actividad"
         await procesar_y_mostrar_confirmacion(data, msg_analizando, context)
@@ -4657,7 +4657,7 @@ async def _sub_manejar_voz_actividad(update, context, transcription, msg):
     prompt_ia = f"El usuario realizó una actividad física descrita por voz. Transcripción: '{transcription}'. Calcula las calorías gastadas utilizando estrictamente su perfil biométrico: {perfil_biometrico}. Devolvé un JSON con los campos 'alimento' y 'calorias'."
     
     try:
-        resultado_ia = await asyncio.to_thread(analizar_con_ia, prompt_ia, user_id)
+        resultado_ia = await analizar_con_ia, prompt_ia, user_id
     except Exception as e:
         txt_err = traducciones.get("bot_err_procesar_act_fisica", "❌ Error al procesar la actividad física: {e}").format(e=e)
         await msg.edit_text(txt_err)
@@ -5190,7 +5190,7 @@ async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
         txt_desconocido = traducciones.get("07_bot_producto_desconocido", "Producto desconocido")
         
         # Pasamos el texto traducido a la función
-        resultado_api = await asyncio.to_thread(consultar_codigo_barras, barcode_text, txt_desconocido)
+        resultado_api = await consultar_codigo_barras, barcode_text, txt_desconocido
         
         if resultado_api:
             item_procesado = {
@@ -5735,7 +5735,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
   msg = await update.message.reply_text(msg_analizando_ia)
   try:
     # Nota: mantiene el nombre de la función de análisis que uses en tu script (ej. analizar_con_groq o analizar_con_ia)
-    data = await asyncio.to_thread(analizar_con_ia, raw_text, user_id)
+    data = await analizar_con_ia, raw_text, user_id
     tipo = str(data.get("tipo", "")).strip().upper()
 
     if tipo == "INFORME_MENSUAL":
@@ -5845,9 +5845,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
       base64_image = base64.b64encode(photo_bytes).decode("utf-8")
 
       # --- 1. ANÁLISIS DE PRESIÓN ARTERIAL ---
-      res_presion = await asyncio.to_thread(
-          analizar_foto_presion_con_ia, base64_image
-      )
+      res_presion = await analizar_foto_presion_con_ia, base64_image
+      
       if res_presion.get("es_presion") and float(
           res_presion.get("alta", 0)
       ) > 0:
@@ -5874,10 +5873,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
           pass
 
-        codigo_leido = await asyncio.to_thread(
-            detectar_y_leer_codigo_barras_ia, base64_image
-        )
-
+        codigo_leido = await detectar_y_leer_codigo_barras_ia, base64_image
+        
         if codigo_leido and len(codigo_leido.strip()) >= 4:
           try:
             await msg.delete()
@@ -6032,7 +6029,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
       return await _sub_manejar_voz_actividad(update, context, transcription, msg)
 
     # Análisis principal asíncrono (mantiene la función analizadora de tu script)
-    data = await asyncio.to_thread(analizar_con_ia, transcription, user_id)
+    data = await analizar_con_ia, transcription, user_id
     tipo = str(data.get("tipo", "")).strip().upper()
 
     if tipo == "INFORME_MENSUAL":
