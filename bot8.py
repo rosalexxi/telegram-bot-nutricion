@@ -22,7 +22,6 @@ import psycopg2
 import sys
 import pytz
 import pandas as pd
-import gspread
 import html  
 import cv2
 import numpy as np
@@ -38,7 +37,6 @@ from typing import Dict, Tuple, List, Optional, Any
 from urllib.parse import urlparse 
 from datetime import datetime, date, timedelta, time
 from google.oauth2.service_account import Credentials
-from groq import Groq
 from dateutil.relativedelta import relativedelta
 from flask import Flask, request, jsonify, render_template_string, send_from_directory, url_for
 from functools import wraps
