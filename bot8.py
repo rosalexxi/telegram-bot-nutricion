@@ -32,8 +32,8 @@ import urllib.request
 import urllib.parse
 import calendar
 import subprocess
-import google.generativeai as genai
 
+from google import genai
 from typing import Dict, Tuple, List, Optional, Any            
 from urllib.parse import urlparse 
 from datetime import datetime, date, timedelta, time
@@ -86,15 +86,17 @@ ADMIN_USER_ID = "7363062724"  # Reemplazá esto por tu número de ID de Telegram
 # ==========================================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+cliente_gemini = None
 
-# Modelos actuales de Gemini API
+if GEMINI_API_KEY:
+    cliente_gemini = genai.Client(api_key=GEMINI_API_KEY)
+else:
+    logging.warning("No se encontró GEMINI_API_KEY")
+
+# Modelos de Gemini
 MODELO_TEXTO = os.getenv("MODELO_TEXTO", "gemini-3.8-flash")
 MODELO_FOTO = os.getenv("MODELO_FOTO", "gemini-3.8-flash")
 MODELO_AUDIO = os.getenv("MODELO_AUDIO", "gemini-3.8-flash")
-
-# Respaldo y emergencia
 MODELO_RESPALDO = os.getenv("MODELO_RESPALDO", "gemini-3.6-flash")
 MODELO_EMERGENCIA = "gemini-3.5-flash-lite"
 
