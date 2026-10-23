@@ -5810,19 +5810,23 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
       if img is not None:
         h, w = img.shape[:2]
-        max_dim = 1024
+        max_dim = 800 # <-- Límite bajado a 800px
+        
+        # 1. Redimensionar solo si supera los 800px
         if max(h, w) > max_dim:
           scale = max_dim / float(max(h, w))
           new_w = int(w * scale)
           new_h = int(h * scale)
-          img_resized = cv2.resize(
+          img = cv2.resize(
               img, (new_w, new_h), interpolation=cv2.INTER_AREA
           )
-          success, encoded_img = cv2.imencode(
-              ".jpg", img_resized, [int(cv2.IMWRITE_JPEG_QUALITY), 95]
-          )
-          if success:
-            photo_bytes = encoded_img.tobytes()
+          
+        # 2. Comprimir SIEMPRE al 70% (sea grande o chica originalmente)
+        success, encoded_img = cv2.imencode(
+            ".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 70]
+        )
+        if success:
+          photo_bytes = encoded_img.tobytes()
 
       base64_image = base64.b64encode(photo_bytes).decode("utf-8")
 
@@ -10721,4 +10725,6 @@ if __name__ == "__main__":
 # =============================================================================================================================================
 #                                               FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
+
+
 
