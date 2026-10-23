@@ -10582,12 +10582,13 @@ def main():
                 name="rutina_nocturna_revision"
             )
 
-	job_queue.run_monthly(
-	    callback=proceso_masivo_cobros,
-	    when=time(hour=0, minute=5, second=0, tzinfo=tz),
-	    day=1,
-	    name="facturacion_masiva_dia_1"
-	)        else:
+            job_queue.run_monthly(
+	callback=proceso_masivo_cobros,
+	when=time(hour=0, minute=5, second=0, tzinfo=tz),
+	day=1,
+	name="facturacion_masiva_dia_1"
+	)        
+        else:
             print("⚠️ Warning: job_queue is not available.")
        
         app_bot.add_handler(conv_handler_ingreso)
