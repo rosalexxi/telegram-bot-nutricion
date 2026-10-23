@@ -3682,6 +3682,8 @@ def requiere_registro(func):
 #                INICIO                       14 FUNCIONES IA                                      INICIO
 # ======================================================================================================================================
 
+#--------------------HUERFANA------------------------
+
 async def analizar_foto_presion_con_ia(base64_image: str) -> dict:
   prompt = (
       "Analiza esta imagen. ¿Es la pantalla de un tensiómetro digital que"
@@ -3941,29 +3943,26 @@ async def analizar_con_ia(prompt_text, user_id=None):
   
 async def analizar_imagen_con_ia(base64_image: str, user_id=None):
   nombre_lenguaje = obtener_idioma_usuario(user_id) or "es"
+  ahora = obtener_ahora_arg()
+  fecha_hoy = ahora.strftime("%Y-%m-%d")
+  mes_actual = ahora.strftime("%Y-%m")
 
   system_prompt = (
-      f"Sos un software analítico de composición nutricional y bromatología clínica. "
-      f"El usuario se comunica en ({nombre_lenguaje}).\n\n"
-      f"DIRECTRICES DE PRECISIÓN CIENTÍFICA:\n"
-      f"1. CERO INVENCIÓN: Identificá los alimentos con rigor absoluto basándote en tablas oficiales (ej. USDA). Estimá el peso en gramos usando proporciones visuales estándar. No inventes ingredientes ni infieras alimentos que no son claramente visibles.\n"
-      f"2. REGLA MATEMÁTICA ESTRICTA: La energía proviene exclusivamente de los macronutrientes. La fórmula obligatoria e inquebrantable es:\n"
-      f"   Calorías Totales = (Proteínas * 4) + (Carbohidratos * 4) + (Grasas * 9)\n"
-      f"3. VERIFICACIÓN DE COHERENCIA OBLIGATORIA: Antes de devolver la respuesta, debes realizar el cálculo matemático internamente. Si las proteínas, carbohidratos y grasas que estimaste no suman exactamente las calorías declaradas según la fórmula del punto 2, ajustá los valores en silencio hasta que la ecuación sea matemáticamente perfecta.\n"
-      f"4. FIBRAS: Recordá que la fibra dietaria no suma 4 kcal adicionales si ya la incluiste dentro de los carbohidratos totales.\n"
-      f"5. RECHAZO: Si la imagen es un paisaje, animal, u objeto ajeno a la alimentación, clasifica como 'Rechazo' con 'items': [].\n\n"
+      f"Sos un software analítico clínico y bromatológico. El usuario se comunica en ({nombre_lenguaje}).\n"
+      f"La fecha de HOY es {fecha_hoy} y el mes actual es {mes_actual}.\n"
+      f"Analizá la imagen y determiná si corresponde a un TENSIÓMETRO DIGITAL, a un PLATO DE COMIDA/BEBIDA, o a NINGUNO, y actuá según estas reglas:\n\n"
+      f"1. SI ES UN TENSIÓMETRO: Extraé la presión sistólica (alta), diastólica (baja) y las pulsaciones. El campo 'tipo' debe ser 'Presion'.\n"
+      f"2. SI ES COMIDA: Aplicá CERO INVENCIÓN. Identificá los alimentos basándote en tablas oficiales (ej. USDA). REGLA MATEMÁTICA ESTRICTA: Las calorías deben coincidir exactamente con la fórmula (Proteínas * 4) + (Carbohidratos * 4) + (Grasas * 9). Ajustá los valores en silencio hasta que la ecuación sea matemáticamente perfecta. El campo 'tipo' debe ser 'Comida'.\n"
+      f"3. SI ES OTRA COSA (paisajes, animales, personas u objetos ajenos): El campo 'tipo' debe ser 'Rechazo'.\n\n"
       f"Devolvé EXCLUSIVAMENTE un JSON con esta estructura exacta y sin formato Markdown (sin ```json):\n"
-      '{"items": [{"alimento": "...", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}], "tipo": "Comida"}'
+      '{"tipo": "...", "alta": 0.0, "baja": 0.0, "pulsaciones": 0.0, "items": [{"alimento": "...", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}]}'
   )
 
   imagen_data = {
       "mime_type": "image/jpeg",
       "data": base64.b64decode(base64_image),
   }
-  prompt_usuario = (
-      "Realiza el desglose nutricional científico de esta imagen según las"
-      " directrices establecidas."
-  )
+  prompt_usuario = "Realiza el desglose científico de esta imagen según las directrices establecidas."
 
   configuracion_gen = {
       "response_mime_type": "application/json",
@@ -3972,75 +3971,44 @@ async def analizar_imagen_con_ia(base64_image: str, user_id=None):
 
   for intento in range(1, 3):
     try:
-      model = genai.GenerativeModel(
-          MODELO_FOTO, system_instruction=system_prompt
-      )
+      model = genai.GenerativeModel(MODELO_FOTO, system_instruction=system_prompt)
       response = await asyncio.to_thread(
-          model.generate_content,
-          [prompt_usuario, imagen_data],
-          generation_config=configuracion_gen,
+          model.generate_content, [prompt_usuario, imagen_data], generation_config=configuracion_gen
       )
       if response and response.text:
-        texto_limpio = (
-            response.text.replace("```json", "").replace("```", "").strip()
-        )
+        texto_limpio = response.text.replace("```json", "").replace("```", "").strip()
         return json.loads(texto_limpio)
     except Exception as e_prin:
-      logger.warning(
-          f"⚠️ Intento {intento} fallido con Flash Foto ({MODELO_FOTO}):"
-          f" {e_prin}"
-      )
+      logger.warning(f"⚠️ Intento {intento} fallido con Flash Foto ({MODELO_FOTO}): {e_prin}")
       if intento < 2:
         await asyncio.sleep(1)
 
   try:
-    logger.info(
-        f"🔄 Activando respaldo Pro para análisis de imagen: {MODELO_RESPALDO}"
-    )
-    model_resp = genai.GenerativeModel(
-        MODELO_RESPALDO, system_instruction=system_prompt
-    )
+    logger.info(f"🔄 Activando respaldo Pro para análisis de imagen: {MODELO_RESPALDO}")
+    model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=system_prompt)
     response_resp = await asyncio.to_thread(
-        model_resp.generate_content,
-        [prompt_usuario, imagen_data],
-        generation_config=configuracion_gen,
+        model_resp.generate_content, [prompt_usuario, imagen_data], generation_config=configuracion_gen
     )
     if response_resp and response_resp.text:
-      texto_limpio = (
-          response_resp.text.replace("```json", "").replace("```", "").strip()
-      )
+      texto_limpio = response_resp.text.replace("```json", "").replace("```", "").strip()
       return json.loads(texto_limpio)
   except Exception as e_resp:
-    logger.warning(
-        f"⚠️ Falla en respaldo Pro para imagen ({MODELO_RESPALDO}):"
-        f" {e_resp}"
-    )
+    logger.warning(f"⚠️ Falla en respaldo Pro para imagen ({MODELO_RESPALDO}): {e_resp}")
 
   try:
-    logger.info(
-        f"🚨 Activando emergencia para imagen: {MODELO_FOTO_EMERGENCIA}"
-    )
-    model_emerg = genai.GenerativeModel(
-        MODELO_FOTO_EMERGENCIA, system_instruction=system_prompt
-    )
+    logger.info(f"🚨 Activando emergencia para imagen: {MODELO_FOTO_EMERGENCIA}")
+    model_emerg = genai.GenerativeModel(MODELO_FOTO_EMERGENCIA, system_instruction=system_prompt)
     response_emerg = await asyncio.to_thread(
-        model_emerg.generate_content,
-        [prompt_usuario, imagen_data],
-        generation_config=configuracion_gen,
+        model_emerg.generate_content, [prompt_usuario, imagen_data], generation_config=configuracion_gen
     )
     if response_emerg and response_emerg.text:
-      texto_limpio = (
-          response_emerg.text.replace("```json", "").replace("```", "").strip()
-      )
+      texto_limpio = response_emerg.text.replace("```json", "").replace("```", "").strip()
       return json.loads(texto_limpio)
   except Exception as e_emergencia:
-    logger.error(
-        f"❌ Error crítico en visión científica: Todos los modelos fallaron."
-        f" {e_emergencia}"
-    )
+    logger.error(f"❌ Error crítico en visión científica: Todos los modelos fallaron. {e_emergencia}")
 
   return {"items": [], "tipo": "Error_IA"}
-
+  
 # =====================================================================================================================================
 #                FINAL                          FUNCIONES IA                                     FINAL
 # =====================================================================================================================================
@@ -4657,7 +4625,9 @@ async def _sub_manejar_voz_actividad(update, context, transcription, msg):
     msg_menu = await update.message.reply_text(txt_act_aud)
     context.user_data['last_menu_msg_id'] = msg_menu.message_id
     await render_confirmation_screen(msg_menu, context)
-    
+
+#------------------HUERFANA--------------------------
+
 async def _sub_manejar_foto_plato_ia(update, context, base64_image, user_caption, msg):
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) or '$1'
@@ -4869,15 +4839,14 @@ def consultar_codigo_barras(barcode: str, txt_desconocido="Producto desconocido"
         
         calorias = float(nutriments.get("energy-kcal_100g", nutriments.get("energy-kcal", 0.0) or 0.0))
         proteinas = float(nutriments.get("proteins_100g", 0.0) or 0.0)
-        
-        if calorias == 0.0 and proteinas == 0.0:
-            return False
-            
         grasas = float(nutriments.get("fat_100g", 0.0) or 0.0)
         carbohidratos = float(nutriments.get("carbohydrates_100g", 0.0) or 0.0)
         fibras = float(nutriments.get("fiber_100g", 0.0) or 0.0)
         
-        # AQUÍ APLICAMOS LA VARIABLE TRADUCIDA
+        # Validación estricta de coherencia: Si falta la caloría o los macros principales, se rechaza
+        if calorias <= 0.0 or (proteinas == 0.0 and grasas == 0.0 and carbohidratos == 0.0):
+            return False
+            
         nombre_alimento = product.get("product_name_es") or product.get("product_name") or txt_desconocido
         marca = product.get("brands", "")
         if marca:
@@ -5790,123 +5759,104 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
   lang = obtener_idioma_usuario(user_id) or "$1"
   traducciones = obtener_traducciones_db(lang) or {}
 
-  txt_analizando_img = traducciones.get(
-      "07_bot_analizando_imagen", "📸 Analizando imagen..."
-  )
+  txt_analizando_img = traducciones.get("07_bot_analizando_imagen", "📸 Analizando imagen...")
   msg = await update.message.reply_text(txt_analizando_img)
 
-  max_intentos = 2
-  exito = False
+  try:
+    photo_bytes_originales = await (await update.message.photo[-1].get_file()).download_as_bytearray()
+    np_arr = np.frombuffer(photo_bytes_originales, np.uint8)
+    img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-  for intento in range(1, max_intentos + 1):
-    try:
-      photo_bytes = await (
-          await update.message.photo[-1].get_file()
-      ).download_as_bytearray()
-      user_caption = update.message.caption or ""
+    # --- 1. DETECCIÓN LOCAL DE CÓDIGO DE BARRAS (Con la imagen en máxima resolución) ---
+    tiene_codigo_local = False
+    if img is not None:
+      detector = cv2.barcode.BarcodeDetector()
+      retval, points = detector.detect(img)
+      if retval:
+        tiene_codigo_local = True
 
-      np_arr = np.frombuffer(photo_bytes, np.uint8)
-      img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-
-      if img is not None:
-        h, w = img.shape[:2]
-        max_dim = 800 # <-- Límite bajado a 800px
+    # --- 2. ACHICAR Y COMPRIMIR LA FOTO (Para enviarla por internet) ---
+    if img is not None:
+      h, w = img.shape[:2]
+      max_dim = 800
+      if max(h, w) > max_dim:
+        scale = max_dim / float(max(h, w))
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
         
-        # 1. Redimensionar solo si supera los 800px
-        if max(h, w) > max_dim:
-          scale = max_dim / float(max(h, w))
-          new_w = int(w * scale)
-          new_h = int(h * scale)
-          img = cv2.resize(
-              img, (new_w, new_h), interpolation=cv2.INTER_AREA
-          )
-          
-        # 2. Comprimir SIEMPRE al 70% (sea grande o chica originalmente)
-        success, encoded_img = cv2.imencode(
-            ".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 70]
-        )
-        if success:
-          photo_bytes = encoded_img.tobytes()
-
-      base64_image = base64.b64encode(photo_bytes).decode("utf-8")
-
-      # --- 1. ANÁLISIS DE PRESIÓN ARTERIAL ---
-      res_presion = await analizar_foto_presion_con_ia(base64_image)
-      
-      if res_presion.get("es_presion") and float(
-          res_presion.get("alta", 0)
-      ) > 0:
-        exito = True
-        return await _sub_manejar_foto_presion(
-            update, context, res_presion, msg
-        )
-
-      # --- 2. DETECCIÓN LOCAL DE CÓDIGO DE BARRAS ---
-      tiene_codigo_local = False
-      if img is not None:
-        detector = cv2.barcode.BarcodeDetector()
-        retval, points = detector.detect(img)
-        if retval:
-          tiene_codigo_local = True
-
-      if tiene_codigo_local:
-        txt_barra_det = traducciones.get(
-            "07_bot_barra_detectada",
-            "🔍 Código de barras detectado. Leyendo números...",
-        )
-        try:
-          await msg.edit_text(txt_barra_det)
-        except Exception:
-          pass
-
-        codigo_leido = await asyncio.to_thread(detectar_y_leer_codigo_barras_ia, base64_image)
-        
-        if codigo_leido and len(codigo_leido.strip()) >= 4:
-          try:
-            await msg.delete()
-          except Exception:
-            pass
-          exito = True
-          return await procesar_codigo_ingresado(
-              update.message, context, codigo_leido.strip()
-          )
-
-      # --- 3. ANÁLISIS CIENTÍFICO DE PLATO DE COMIDA ---
-      exito = True
-      return await _sub_manejar_foto_plato_ia(
-          update, context, base64_image, user_caption, msg
-      )
-
-    except Exception as e:
-      logger.warning(
-          f"⚠ Intento {intento}/{max_intentos} fallido al procesar imagen para"
-          f" usuario {user_id}: {e}"
-      )
-      if intento < max_intentos:
-        txt_reintento_tpl = traducciones.get(
-            "07_bot_reintento_foto",
-            "⏳ Demora en el servidor (Intento {intento}), reintentando"
-            " automáticamente...",
-        )
-        try:
-          await msg.edit_text(txt_reintento_tpl.format(intento=intento))
-        except Exception:
-          pass
-        await asyncio.sleep(2)
+      success, encoded_img = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+      if success:
+        photo_bytes_comprimidos = encoded_img.tobytes()
       else:
-        break
+        photo_bytes_comprimidos = photo_bytes_originales
+    else:
+      photo_bytes_comprimidos = photo_bytes_originales
+      
+    base64_image = base64.b64encode(photo_bytes_comprimidos).decode("utf-8")
 
-  if not exito:
+    # --- 3. BIFURCACIÓN DEL FLUJO ---
+    
+    # RAMA A: FLUJO DE CÓDIGO DE BARRAS
+    if tiene_codigo_local:
+      txt_barra_det = traducciones.get("07_bot_barra_detectada", "🔍 Código de barras detectado. Leyendo números...")
+      try: await msg.edit_text(txt_barra_det)
+      except Exception: pass
+
+      codigo_leido = await asyncio.to_thread(detectar_y_leer_codigo_barras_ia, base64_image)
+      
+      if codigo_leido and len(codigo_leido.strip()) >= 4:
+        try: await msg.delete()
+        except Exception: pass
+        return await procesar_codigo_ingresado(update.message, context, codigo_leido.strip())
+      else:
+        txt_err_barra = traducciones.get("07_bot_error_barra_ilegible", "⚠️ No se pudieron leer los números del código de barras. Por favor, ingresalo como texto usando el comando /barra.")
+        try: await msg.edit_text(txt_err_barra)
+        except Exception: pass
+        return
+
+    # RAMA B: ANÁLISIS UNIFICADO CON IA (COMIDA / PRESIÓN / RECHAZO)
+    txt_analizando_ia = traducciones.get('06_bot_analizando_plato', "🤖 Analizando imagen con Inteligencia Artificial...")
+    try: await msg.edit_text(txt_analizando_ia)
+    except Exception: pass
+    
+    data = await analizar_imagen_con_ia(base64_image, user_id)
+    tipo = str(data.get("tipo", "")).strip().upper()
+
+    if tipo == "ERROR_IA":
+        txt_error_ia = traducciones.get(
+            '06_bot_error_imagen_fallida', 
+            "⚠️ No se pudo conectar con la Inteligencia Artificial para analizar la imagen.\n\n"
+            "Por favor, intentá de nuevo en unos segundos o ingresá la descripción por **texto** o **voz**."
+        )
+        await msg.edit_text(txt_error_ia, parse_mode="Markdown")
+        return
+        
+    elif tipo == "RECHAZO" or not tipo:
+        txt_rechazo = traducciones.get(
+            '06_bot_foto_rechazada',
+            "⚠️ **Imagen no reconocida**\n\n"
+            "La foto enviada no parece corresponder a un plato de comida o bebida, ni a la pantalla de un tensiómetro. "
+            "Por favor, envianos una foto clara o escribí la descripción por texto."
+        )
+        await msg.edit_text(txt_rechazo, parse_mode="Markdown")
+        return
+        
+    elif tipo == "PRESION" or tipo == "PRESIÓN":
+        return await _sub_manejar_foto_presion(update, context, data, msg)
+        
+    else:
+        return await procesar_y_mostrar_confirmacion(data, msg, context)
+
+  except Exception as e:
+    logger.warning(f"⚠️ Falla crítica procesando imagen para usuario {user_id}: {e}")
     txt_error_timeout = traducciones.get(
         "07_bot_error_timeout_foto",
-        "⚠ **Error al procesar la imagen.**\n\nPor favor, ingresá los datos por"
-        " **texto** o enviando una nota de **voz**.",
+        "⚠️ **Error al procesar la imagen.**\n\nPor favor, ingresá los datos por **texto** o enviando una nota de **voz**."
     )
-    try:
-      await msg.edit_text(txt_error_timeout, parse_mode="Markdown")
-    except Exception:
-      pass
-        
+    try: await msg.edit_text(txt_error_timeout, parse_mode="Markdown")
+    except Exception: pass
+    
 @requiere_registro
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
   user_id = update.effective_user.id
