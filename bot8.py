@@ -85,11 +85,11 @@ ADMIN_USER_ID = "7363062724"  # Reemplazá esto por tu número de ID de Telegram
 # ==========================================
 # INICIALIZACIÓN DE GEMINI Y MODELOS
 # ==========================================
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-
-
+    genai.configure(api_key=GEMINI_API_KEY, transport="rest")
+    
 MODELO_TEXTO="gemini-3.1-flash-lite"
 MODELO_FOTO="gemini-3.1-flash-lite"
 MODELO_AUDIO="gemini-3.1-flash-lite"
