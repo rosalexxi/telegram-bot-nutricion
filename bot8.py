@@ -90,13 +90,13 @@ if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY, transport="rest")
 
 # Modelo principal para texto, audios transcritos y análisis de fotos (comidas y códigos)
-MODELO_TEXTO = os.getenv("MODELO_TEXTO", "gemini-2.5-flash")
-MODELO_FOTO = os.getenv("MODELO_FOTO", "gemini-2.5-flash")
-MODELO_AUDIO = os.getenv("MODELO_AUDIO", "gemini-2.5-flash")
+MODELO_TEXTO = os.getenv("MODELO_TEXTO", "gemini-3.5-flash-lite")
+MODELO_FOTO = os.getenv("MODELO_FOTO", "gemini-3.8-flash")
+MODELO_AUDIO = os.getenv("MODELO_AUDIO", "gemini-3.8-flash")
 
 # Modelos de respaldo y emergencia estables
-MODELO_RESPALDO = os.getenv("MODELO_RESPALDO", "gemini-2.5-pro")
-MODELO_EMERGENCIA = "gemini-2.0-flash"
+MODELO_RESPALDO = os.getenv("MODELO_RESPALDO", "gemini-3.8-flash-lite")
+MODELO_EMERGENCIA = "gemini-3.8-live"
 MODELO_FOTO_EMERGENCIA = "gemini-2.0-flash"
 
 
