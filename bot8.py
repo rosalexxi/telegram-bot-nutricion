@@ -3811,7 +3811,7 @@ def analizar_con_groq(prompt_text, user_id=None):
             except Exception as e_emergencia:
                 logger.error(f"❌ Error crítico: Los tres modelos fallaron. {e_emergencia}")
                 return {"items": [], "tipo": "Rechazo"}
-                      "MODELO_RESPALDO", "gemini-1.5-pro"
+                      
 async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.BytesIO]:
     user_id = datos_usuario.get('user_id')
     lang = obtener_idioma_usuario(user_id) or '$1'
