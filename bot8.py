@@ -90,11 +90,11 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY, transport="rest")
     
-MODELO_TEXTO="gemini-3.1-flash-lite"
-MODELO_FOTO="gemini-3.1-flash-lite"
-MODELO_AUDIO="gemini-3.1-flash-lite"
-MODELO_RESPALDO="gemini-3.8-flash"
-
+    
+MODELO_TEXTO = "gemini-3.1-flash-lite"
+MODELO_FOTO = "gemini-3.8-flash"  
+MODELO_AUDIO = "gemini-3.1-flash-lite"
+MODELO_RESPALDO = "gemini-3.8-flash"
 MODELO_EMERGENCIA = "gemini-3-flash-preview"
 MODELO_FOTO_EMERGENCIA = "gemini-3.1-pro-preview"
 
@@ -1006,154 +1006,77 @@ def api_usuario_idioma():
 
 @app.route('/api/calcular-receta', methods=['POST'])
 def api_calcular_receta():
-  try:
-    data = request.json
-    codigo = data.get("codigo")
-    descripcion = data.get("descripcion")
-    receta = data.get("receta")
-    tipo_calculo = data.get("tipoCalculo")
-    porciones = int(data.get("porciones", 1))
-    lang = data.get("lang", "es")
+    try:
+        data = request.json
+        codigo = data.get("codigo")
+        descripcion = data.get("descripcion")
+        receta = data.get("receta")
+        tipo_calculo = data.get("tipoCalculo")
+        porciones = int(data.get("porciones", 1))
+        lang = data.get("lang", "es")
 
-    prompt_ia = (
-        f"Analiza la siguiente receta o listado de ingredientes: '{receta}'. "
-        f"Desglósalo estrictamente **ítem por ítem**. Para cada ítem, calcula:\n"
-        f"- El nombre del alimento ('alimento'), escrito en el idioma"
-        f" '{lang}'\n"
-        f"- El peso estimado en gramos ('peso')\n"
-        f"- Las calorías ('calorias')\n"
-        f"- Las proteínas en gramos ('proteinas')\n"
-        f"- Las grasas en gramos ('grasas')\n"
-        f"- Los carbohidratos en gramos ('carbohidratos')\n"
-        f"- Las fibras en gramos ('fibras')\n\n"
-        "REGLA MATEMÁTICA: Las calorías deben coincidir con la suma aproximada"
-        " de (Proteínas*4) + (Carbohidratos*4) + (Grasas*9).\n"
-        "Devuelve ÚNICAMENTE un JSON con esta estructura exacta:\n"
-        '{"items": [{"alimento": "...", "peso": 0.0, "calorias": 0.0,'
-        ' "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras":'
-        " 0.0}]}"
-    )
-
-    instruccion = (
-        "Eres un nutricionista clínico experto en análisis de recetas y"
-        " desglose de macronutrientes."
-    )
-
-    resultado_json = None
-    exito = False
-
-    # ----------------------------------------------------
-    # INTENTO 1 y 2: Modelo Principal (con reintento ante timeout/falla)
-    # ----------------------------------------------------
-    for intento in range(1, 3):
-      try:
-        model = genai.GenerativeModel(
-            MODELO_TEXTO, system_instruction=instruccion
-        )
-        response = model.generate_content(
-            prompt_ia,
-            generation_config={
-                "response_mime_type": "application/json",
-                "temperature": 0.1,
-            },
-        )
-        resultado_json = json.loads(response.text)
-        exito = True
-        break
-      except Exception as e_prin:
-        logger.warning(
-            f"⚠️ Intento {intento} fallido con modelo principal"
-            f" ({MODELO_TEXTO}): {e_prin}"
-        )
-        if intento < 2:
-          time_mod.sleep(2)
-
-    # ----------------------------------------------------
-    # INTENTO 3: Si falló el principal, usamos el Respaldo (Pro)
-    # ----------------------------------------------------
-    if not exito:
-      try:
-        logger.info(f"Activando modelo de respaldo: {MODELO_RESPALDO}")
-        model_resp = genai.GenerativeModel(
-            MODELO_RESPALDO, system_instruction=instruccion
-        )
-        response_resp = model_resp.generate_content(
-            prompt_ia,
-            generation_config={
-                "response_mime_type": "application/json",
-                "temperature": 0.1,
-            },
-        )
-        resultado_json = json.loads(response_resp.text)
-        exito = True
-      except Exception as e_resp:
-        logger.warning(
-            f"⚠️ Falla en modelo de respaldo ({MODELO_RESPALDO}): {e_resp}"
+        prompt_ia = (
+            f"Analiza la siguiente receta o listado de ingredientes: '{receta}'. "
+            f"Desglósalo estrictamente **ítem por ítem**. Para cada ítem, calcula:\n"
+            f"- El nombre del alimento ('alimento'), escrito en el idioma '{lang}'\n"
+            f"- El peso estimado en gramos ('peso')\n"
+            f"- Las calorías ('calorias')\n"
+            f"- Las proteínas en gramos ('proteinas')\n"
+            f"- Las grasas en gramos ('grasas')\n"
+            f"- Los carbohidratos en gramos ('carbohidratos')\n"
+            f"- Las fibras en gramos ('fibras')\n\n"
+            "REGLA MATEMÁTICA: Las calorías deben coincidir con la suma aproximada de (Proteínas*4) + (Carbohidratos*4) + (Grasas*9).\n"
+            "Devuelve ÚNICAMENTE un JSON con esta estructura exacta:\n"
+            '{"items": [{"alimento": "...", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}]}'
         )
 
-    # ----------------------------------------------------
-    # INTENTO 4: Último recurso, Modelo de Emergencia
-    # ----------------------------------------------------
-    if not exito:
-      try:
-        logger.info(f"Activando modelo de emergencia: {MODELO_EMERGENCIA}")
-        model_emer = genai.GenerativeModel(
-            MODELO_EMERGENCIA, system_instruction=instruccion
-        )
-        response_emer = model_emer.generate_content(
-            prompt_ia,
-            generation_config={
-                "response_mime_type": "application/json",
-                "temperature": 0.1,
-            },
-        )
-        resultado_json = json.loads(response_emer.text)
-        exito = True
-      except Exception as e_emer:
-        logger.error(
-            f"❌ Fallaron todos los modelos (Principal, Respaldo y Emergencia):"
-            f" {e_emer}"
-        )
-        raise e_emer
+        instruccion = "Eres un nutricionista clínico experto en análisis de recetas y desglose de macronutrientes."
+        config_gen = {"response_mime_type": "application/json", "temperature": 0.1}
 
-    items = resultado_json.get("items", [])
+        resultado_json = None
 
-    if tipo_calculo == "porciones" and porciones > 1:
-      for item in items:
-        for k in [
-            "peso",
-            "calorias",
-            "proteinas",
-            "grasas",
-            "carbohidratos",
-            "fibras",
-        ]:
-          item[k] = round(float(item.get(k, 0)) / porciones, 2)
-    elif tipo_calculo == "gramos":
-      total_peso = sum(float(i.get("peso", 0)) for i in items)
-      if total_peso > 0:
-        factor = 100.0 / total_peso
-        for item in items:
-          for k in [
-              "peso",
-              "calorias",
-              "proteinas",
-              "grasas",
-              "carbohidratos",
-              "fibras",
-          ]:
-            item[k] = round(float(item.get(k, 0)) * factor, 2)
+        try:
+            model = genai.GenerativeModel(MODELO_TEXTO, system_instruction=instruccion)
+            response = model.generate_content(prompt_ia, generation_config=config_gen)
+            resultado_json = json.loads(response.text)
+            
+        except Exception as e_prin:
+            logger.warning(f"⚠️ Falla Principal Web ({MODELO_TEXTO}): {e_prin}. Pasando a Respaldo...")
+            try:
+                model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=instruccion)
+                response_resp = model_resp.generate_content(prompt_ia, generation_config=config_gen)
+                resultado_json = json.loads(response_resp.text)
+                
+            except Exception as e_resp:
+                logger.warning(f"⚠️ Falla Respaldo Web ({MODELO_RESPALDO}): {e_resp}. Pasando a Emergencia...")
+                try:
+                    model_emer = genai.GenerativeModel(MODELO_EMERGENCIA, system_instruction=instruccion)
+                    response_emer = model_emer.generate_content(prompt_ia, generation_config=config_gen)
+                    resultado_json = json.loads(response_emer.text)
+                    
+                except Exception as e_emer:
+                    logger.error(f"❌ Fallaron todos los modelos web: {e_emer}")
+                    return jsonify({"error": "No se pudo conectar con los servidores de Inteligencia Artificial."}), 500
 
-    return (
-        jsonify(
-            {"nombre": codigo, "descripcion": descripcion, "items": items}
-        ),
-        200,
-    )
+        items = resultado_json.get("items", [])
 
-  except Exception as e:
-    logger.error(f"Error crítico en api_calcular_receta: {e}", exc_info=True)
-    return jsonify({"error": str(e)}), 500
+        if tipo_calculo == "porciones" and porciones > 1:
+            for item in items:
+                for k in ["peso", "calorias", "proteinas", "grasas", "carbohidratos", "fibras"]:
+                    item[k] = round(float(item.get(k, 0)) / porciones, 2)
+        elif tipo_calculo == "gramos":
+            total_peso = sum(float(i.get("peso", 0)) for i in items)
+            if total_peso > 0:
+                factor = 100.0 / total_peso
+                for item in items:
+                    for k in ["peso", "calorias", "proteinas", "grasas", "carbohidratos", "fibras"]:
+                        item[k] = round(float(item.get(k, 0)) * factor, 2)
+
+        return jsonify({"nombre": codigo, "descripcion": descripcion, "items": items}), 200
+
+    except Exception as e:
+        logger.error(f"Error crítico en api_calcular_receta: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
             
 @app.route('/api/guardar-comida', methods=['POST'])
 def api_guardar_comida():
@@ -3682,87 +3605,6 @@ def requiere_registro(func):
 #                INICIO                       14 FUNCIONES IA                                      INICIO
 # ======================================================================================================================================
 
-#--------------------HUERFANA------------------------
-
-async def analizar_foto_presion_con_ia(base64_image: str) -> dict:
-  prompt = (
-      "Analiza esta imagen. ¿Es la pantalla de un tensiómetro digital que"
-      " muestra valores de presión arterial? Si es así, extrae los valores"
-      " numéricos de la presión sistólica (Alta), diastólica (Baja) y las"
-      " pulsaciones. Responde ÚNICAMENTE en formato JSON: {\"es_presion\":"
-      ' true/false, "alta": 0.0, "baja": 0.0, "pulsaciones": 0.0}'
-  )
-
-  imagen_data = {
-      "mime_type": "image/jpeg",
-      "data": base64.b64decode(base64_image),
-  }
-
-  configuracion_gen = {
-      "response_mime_type": "application/json",
-      "temperature": 0.0,
-  }
-
-  for intento in range(1, 3):
-    try:
-      model = genai.GenerativeModel(MODELO_FOTO)
-      response = await asyncio.to_thread(
-          model.generate_content, [prompt, imagen_data], generation_config=configuracion_gen
-      )
-      if response and response.text:
-        texto_limpio = response.text.replace("```json", "").replace("```", "").strip()
-        resultado = json.loads(texto_limpio)
-        if isinstance(resultado, dict):
-          return resultado
-    except Exception as e_prin:
-      logger.warning(
-          f"⚠️ Intento {intento} fallido con Modelo de Foto Principal"
-          f" ({MODELO_FOTO}) para presión: {e_prin}"
-      )
-      if intento < 2:
-        await asyncio.sleep(1)
-
-  try:
-    logger.info(
-        f"🔄 Activando modelo de respaldo para foto de presión:"
-        f" {MODELO_RESPALDO}"
-    )
-    model_respaldo = genai.GenerativeModel(MODELO_RESPALDO)
-    response_respaldo = await asyncio.to_thread(
-        model_respaldo.generate_content, [prompt, imagen_data], generation_config=configuracion_gen
-    )
-    if response_respaldo and response_respaldo.text:
-      texto_limpio = response_respaldo.text.replace("```json", "").replace("```", "").strip()
-      resultado = json.loads(texto_limpio)
-      if isinstance(resultado, dict):
-        return resultado
-  except Exception as e_respaldo:
-    logger.warning(
-        f"⚠️ Falla en modelo de respaldo para foto de presión"
-        f" ({MODELO_RESPALDO}): {e_respaldo}"
-    )
-
-  try:
-    logger.info(
-        f"🚨 Activando modelo de emergencia para foto de presión:"
-        f" {MODELO_FOTO_EMERGENCIA}"
-    )
-    model_emerg = genai.GenerativeModel(MODELO_FOTO_EMERGENCIA)
-    response_emerg = await asyncio.to_thread(
-        model_emerg.generate_content, [prompt, imagen_data], generation_config=configuracion_gen
-    )
-    if response_emerg and response_emerg.text:
-      texto_limpio = response_emerg.text.replace("```json", "").replace("```", "").strip()
-      resultado = json.loads(texto_limpio)
-      if isinstance(resultado, dict):
-        return resultado
-  except Exception as e_emergencia:
-    logger.error(
-        f"❌ Error crítico en análisis de foto de presión: Todos los modelos"
-        f" fallaron. {e_emergencia}"
-    )
-
-  return {"es_presion": False}
 
 async def ejecutar_consulta_ia(
     prompt: str,
@@ -3845,170 +3687,117 @@ def obtener_nombre_lenguaje_ia(user_id=None):
         logger.error(f"Error obteniendo lenguaje IA para {user_id}: {e}")
     return "Español"
     
-async def analizar_con_ia(prompt_text, user_id=None):
-  nombre_lenguaje = obtener_idioma_usuario(user_id) or "es"
-  ahora = obtener_ahora_arg()
-  fecha_hoy = ahora.strftime("%Y-%m-%d")
-  mes_actual = ahora.strftime("%Y-%m")
+async def analizar_con_ia(prompt_text, user_id=None, msg_obj=None):
+    nombre_lenguaje = obtener_idioma_usuario(user_id) or "es"
+    ahora = obtener_ahora_arg()
+    fecha_hoy = ahora.strftime("%Y-%m-%d")
+    mes_actual = ahora.strftime("%Y-%m")
 
-  system_prompt = (
-      f"Sos un asistente inteligente de salud. El usuario se comunica en su idioma ({nombre_lenguaje}). "
-      f"La fecha de HOY es {fecha_hoy} y el mes actual es {mes_actual}. "
-      f"Clasificá el texto en:\n"
-      "1. COMIDA (alimentos/bebidas)\n"
-      "2. ACTIVIDAD (ejercicio)\n"
-      "3. INFORME_MENSUAL (extrae YYYY-MM en 'parametro')\n"
-      "4. INFORME_SEMANAL\n"
-      "5. INFORME_DIARIO (extrae YYYY-MM-DD en 'parametro')\n"
-      "6. RECHAZO\n\n"
-      "REGLA MATEMÁTICA PARA COMIDAS: Las calorías deben coincidir con la suma aproximada de (Proteínas*4) + (Carbohidratos*4) + (Grasas*9).\n"
-      "Devolvé EXCLUSIVAMENTE un JSON con este formato exacto:\n"
-      '{"items": [{"alimento": "...", "peso": 0.0, "calorias": 0.0,'
-      ' "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras":'
-      ' 0.0}], "tipo": "...", "parametro": "...", "momento": "...", "dia":'
-      ' "..."}'
-  )
+    system_prompt = (
+        f"Sos un asistente inteligente de salud. Idioma: {nombre_lenguaje}. "
+        f"La fecha de HOY es {fecha_hoy} y el mes actual es {mes_actual}.\n"
+        f"Clasificá el texto ingresado en SOLO TRES opciones:\n"
+        "1. COMIDA (alimentos/bebidas)\n"
+        "2. ACTIVIDAD (ejercicio)\n"
+        "3. RECHAZO (cualquier otra cosa ajena al registro)\n\n"
+        "REGLA MATEMÁTICA PARA COMIDAS: Calorías = (Proteínas*4) + (Carbohidratos*4) + (Grasas*9). Ajustá los valores para que la ecuación sea perfecta.\n"
+        "Devolvé EXCLUSIVAMENTE un JSON estricto según estas reglas:\n"
+        "SI ES COMIDA: {\"tipo\": \"Comida\", \"items\": [{\"alimento\": \"...\", \"peso\": 0, \"calorias\": 0, \"proteinas\": 0, \"grasas\": 0, \"carbohidratos\": 0, \"fibras\": 0}]}\n"
+        "SI ES ACTIVIDAD: {\"tipo\": \"Actividad\", \"items\": [{\"alimento\": \"...\", \"peso\": 0, \"calorias\": -0, \"proteinas\": 0, \"grasas\": 0, \"carbohidratos\": 0, \"fibras\": 0}]}\n"
+        "SI ES RECHAZO: {\"tipo\": \"Rechazo\"}"
+    )
 
-  configuracion_gen = {
-      "response_mime_type": "application/json",
-      "temperature": 0.1,
-  }
+    configuracion_gen = {"response_mime_type": "application/json", "temperature": 0.1}
 
-  for intento in range(1, 3):
     try:
-      model = genai.GenerativeModel(MODELO_TEXTO, system_instruction=system_prompt)
-      response = await asyncio.to_thread(
-          model.generate_content, prompt_text, generation_config=configuracion_gen
-      )
-      if response and response.text:
-        texto_limpio = (
-            response.text.replace("```json", "").replace("```", "").strip()
-        )
-        return json.loads(texto_limpio)
-    except Exception as e_prin:
-      logger.warning(
-          f"⚠️ Intento {intento} fallido con Modelo Principal ({MODELO_TEXTO}):"
-          f" {e_prin}"
-      )
-      if intento < 2:
-        await asyncio.sleep(1)
-
-  try:
-    logger.info(f"🔄 Activando modelo de respaldo: {MODELO_RESPALDO}")
-    model_respaldo = genai.GenerativeModel(
-        MODELO_RESPALDO, system_instruction=system_prompt
-    )
-    response_respaldo = await asyncio.to_thread(
-        model_respaldo.generate_content,
-        prompt_text,
-        generation_config=configuracion_gen,
-    )
-    if response_respaldo and response_respaldo.text:
-      texto_limpio = (
-          response_respaldo.text.replace("```json", "")
-          .replace("```", "")
-          .strip()
-      )
-      return json.loads(texto_limpio)
-  except Exception as e_respaldo:
-    logger.warning(
-        f"⚠️ Falla en modelo de respaldo ({MODELO_RESPALDO}): {e_respaldo}"
-    )
-
-  try:
-    logger.info(f"🚨 Activando modelo de emergencia: {MODELO_EMERGENCIA}")
-    model_emerg = genai.GenerativeModel(
-        MODELO_EMERGENCIA, system_instruction=system_prompt
-    )
-    response_emerg = await asyncio.to_thread(
-        model_emerg.generate_content,
-        prompt_text,
-        generation_config=configuracion_gen,
-    )
-    if response_emerg and response_emerg.text:
-      texto_limpio = (
-          response_emerg.text.replace("```json", "")
-          .replace("```", "")
-          .strip()
-      )
-      return json.loads(texto_limpio)
-  except Exception as e_emergencia:
-    logger.error(
-        f"❌ Error crítico: Los tres modelos fallaron en analizar_con_ia:"
-        f" {e_emergencia}"
-    )
-
-  # Diferenciamos Error_IA de Rechazo para que no se borre el mensaje en silencio
-  return {"items": [], "tipo": "Error_IA"}
-  
-async def analizar_imagen_con_ia(base64_image: str, user_id=None):
-  nombre_lenguaje = obtener_idioma_usuario(user_id) or "es"
-  ahora = obtener_ahora_arg()
-  fecha_hoy = ahora.strftime("%Y-%m-%d")
-  mes_actual = ahora.strftime("%Y-%m")
-
-  system_prompt = (
-      f"Sos un software analítico clínico y bromatológico. El usuario se comunica en ({nombre_lenguaje}).\n"
-      f"La fecha de HOY es {fecha_hoy} y el mes actual es {mes_actual}.\n"
-      f"Analizá la imagen y determiná si corresponde a un TENSIÓMETRO DIGITAL, a un PLATO DE COMIDA/BEBIDA, o a NINGUNO, y actuá según estas reglas:\n\n"
-      f"1. SI ES UN TENSIÓMETRO: Extraé la presión sistólica (alta), diastólica (baja) y las pulsaciones. El campo 'tipo' debe ser 'Presion'.\n"
-      f"2. SI ES COMIDA: Aplicá CERO INVENCIÓN. Identificá los alimentos basándote en tablas oficiales (ej. USDA). REGLA MATEMÁTICA ESTRICTA: Las calorías deben coincidir exactamente con la fórmula (Proteínas * 4) + (Carbohidratos * 4) + (Grasas * 9). Ajustá los valores en silencio hasta que la ecuación sea matemáticamente perfecta. El campo 'tipo' debe ser 'Comida'.\n"
-      f"3. SI ES OTRA COSA (paisajes, animales, personas u objetos ajenos): El campo 'tipo' debe ser 'Rechazo'.\n\n"
-      f"Devolvé EXCLUSIVAMENTE un JSON con esta estructura exacta y sin formato Markdown (sin ```json):\n"
-      '{"tipo": "...", "alta": 0.0, "baja": 0.0, "pulsaciones": 0.0, "items": [{"alimento": "...", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}]}'
-  )
-
-  imagen_data = {
-      "mime_type": "image/jpeg",
-      "data": base64.b64decode(base64_image),
-  }
-  prompt_usuario = "Realiza el desglose científico de esta imagen según las directrices establecidas."
-
-  configuracion_gen = {
-      "response_mime_type": "application/json",
-      "temperature": 0.0,
-  }
-
-  for intento in range(1, 3):
-    try:
-      model = genai.GenerativeModel(MODELO_FOTO, system_instruction=system_prompt)
-      response = await asyncio.to_thread(
-          model.generate_content, [prompt_usuario, imagen_data], generation_config=configuracion_gen
-      )
-      if response and response.text:
+        model = genai.GenerativeModel(MODELO_TEXTO, system_instruction=system_prompt)
+        response = await model.generate_content_async(prompt_text, generation_config=configuracion_gen)
         texto_limpio = response.text.replace("```json", "").replace("```", "").strip()
         return json.loads(texto_limpio)
+        
     except Exception as e_prin:
-      logger.warning(f"⚠️ Intento {intento} fallido con Flash Foto ({MODELO_FOTO}): {e_prin}")
-      if intento < 2:
-        await asyncio.sleep(1)
-
-  try:
-    logger.info(f"🔄 Activando respaldo Pro para análisis de imagen: {MODELO_RESPALDO}")
-    model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=system_prompt)
-    response_resp = await asyncio.to_thread(
-        model_resp.generate_content, [prompt_usuario, imagen_data], generation_config=configuracion_gen
-    )
-    if response_resp and response_resp.text:
-      texto_limpio = response_resp.text.replace("```json", "").replace("```", "").strip()
-      return json.loads(texto_limpio)
-  except Exception as e_resp:
-    logger.warning(f"⚠️ Falla en respaldo Pro para imagen ({MODELO_RESPALDO}): {e_resp}")
-
-  try:
-    logger.info(f"🚨 Activando emergencia para imagen: {MODELO_FOTO_EMERGENCIA}")
-    model_emerg = genai.GenerativeModel(MODELO_FOTO_EMERGENCIA, system_instruction=system_prompt)
-    response_emerg = await asyncio.to_thread(
-        model_emerg.generate_content, [prompt_usuario, imagen_data], generation_config=configuracion_gen
-    )
-    if response_emerg and response_emerg.text:
-      texto_limpio = response_emerg.text.replace("```json", "").replace("```", "").strip()
-      return json.loads(texto_limpio)
-  except Exception as e_emergencia:
-    logger.error(f"❌ Error crítico en visión científica: Todos los modelos fallaron. {e_emergencia}")
-
-  return {"items": [], "tipo": "Error_IA"}
+        logger.warning(f"⚠️ Falla Principal ({MODELO_TEXTO}): {e_prin}. Pasando a Respaldo...")
+        if msg_obj:
+            try: await msg_obj.edit_text("⚠️ Servidor principal ocupado. Cambiando a servidor de respaldo...")
+            except Exception: pass
+        
+        try:
+            model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=system_prompt)
+            response_resp = await model_resp.generate_content_async(prompt_text, generation_config=configuracion_gen)
+            texto_limpio = response_resp.text.replace("```json", "").replace("```", "").strip()
+            return json.loads(texto_limpio)
+            
+        except Exception as e_resp:
+            logger.warning(f"⚠️ Falla Respaldo ({MODELO_RESPALDO}): {e_resp}. Pasando a Emergencia...")
+            if msg_obj:
+                try: await msg_obj.edit_text("⚠️ Reintentando conexión con servidor de emergencia...")
+                except Exception: pass
+            
+            try:
+                model_emer = genai.GenerativeModel(MODELO_EMERGENCIA, system_instruction=system_prompt)
+                response_emer = await model_emer.generate_content_async(prompt_text, generation_config=configuracion_gen)
+                texto_limpio = response_emer.text.replace("```json", "").replace("```", "").strip()
+                return json.loads(texto_limpio)
+                
+            except Exception as e_emer:
+                logger.error(f"❌ Fallaron todos los modelos de texto: {e_emer}")
+                return {"items": [], "tipo": "Error_IA"}
   
+async def analizar_imagen_con_ia(base64_image: str, user_id=None, msg_obj=None):
+    nombre_lenguaje = obtener_idioma_usuario(user_id) or "es"
+    ahora = obtener_ahora_arg()
+    fecha_hoy = ahora.strftime("%Y-%m-%d")
+    mes_actual = ahora.strftime("%Y-%m")
+
+    system_prompt = (
+        f"Sos un software analítico clínico y bromatológico. Idioma: ({nombre_lenguaje}).\n"
+        f"La fecha de HOY es {fecha_hoy} y el mes actual es {mes_actual}.\n"
+        f"Analizá la imagen y determiná si corresponde a un TENSIÓMETRO DIGITAL, a un PLATO DE COMIDA/BEBIDA, o a NINGUNO, y actuá según estas reglas:\n\n"
+        f"1. SI ES UN TENSIÓMETRO: Extraé la presión sistólica (alta), diastólica (baja) y las pulsaciones. El campo 'tipo' debe ser 'Presion'.\n"
+        f"2. SI ES COMIDA: Aplicá CERO INVENCIÓN. Identificá los alimentos basándote en tablas oficiales (ej. USDA). REGLA MATEMÁTICA ESTRICTA: Las calorías deben coincidir exactamente con la fórmula (Proteínas * 4) + (Carbohidratos * 4) + (Grasas * 9). Ajustá los valores en silencio hasta que la ecuación sea matemáticamente perfecta. El campo 'tipo' debe ser 'Comida'.\n"
+        f"3. SI ES OTRA COSA (paisajes, animales, personas u objetos ajenos): El campo 'tipo' debe ser 'Rechazo'.\n\n"
+        f"Devolvé EXCLUSIVAMENTE un JSON con esta estructura exacta:\n"
+        '{"tipo": "...", "alta": 0.0, "baja": 0.0, "pulsaciones": 0.0, "items": [{"alimento": "...", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}]}'
+    )
+
+    imagen_data = {"mime_type": "image/jpeg", "data": base64.b64decode(base64_image)}
+    prompt_usuario = "Realiza el desglose científico de esta imagen según las directrices establecidas."
+    configuracion_gen = {"response_mime_type": "application/json", "temperature": 0.0}
+
+    try:
+        model = genai.GenerativeModel(MODELO_FOTO, system_instruction=system_prompt)
+        response = await model.generate_content_async([prompt_usuario, imagen_data], generation_config=configuracion_gen)
+        texto_limpio = response.text.replace("```json", "").replace("```", "").strip()
+        return json.loads(texto_limpio)
+        
+    except Exception as e_prin:
+        logger.warning(f"⚠️ Falla Principal Foto ({MODELO_FOTO}): {e_prin}. Pasando a Respaldo...")
+        if msg_obj:
+            try: await msg_obj.edit_text("⚠️ Analizador visual principal ocupado. Cambiando a servidor de respaldo...")
+            except Exception: pass
+        
+        try:
+            model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=system_prompt)
+            response_resp = await model_resp.generate_content_async([prompt_usuario, imagen_data], generation_config=configuracion_gen)
+            texto_limpio = response_resp.text.replace("```json", "").replace("```", "").strip()
+            return json.loads(texto_limpio)
+            
+        except Exception as e_resp:
+            logger.warning(f"⚠️ Falla Respaldo Foto ({MODELO_RESPALDO}): {e_resp}. Pasando a Emergencia...")
+            if msg_obj:
+                try: await msg_obj.edit_text("⚠️ Reintentando conexión con servidor visual de emergencia...")
+                except Exception: pass
+            
+            try:
+                model_emerg = genai.GenerativeModel(MODELO_FOTO_EMERGENCIA, system_instruction=system_prompt)
+                response_emerg = await model_emerg.generate_content_async([prompt_usuario, imagen_data], generation_config=configuracion_gen)
+                texto_limpio = response_emerg.text.replace("```json", "").replace("```", "").strip()
+                return json.loads(texto_limpio)
+                
+            except Exception as e_emer:
+                logger.error(f"❌ Fallaron todos los modelos de foto: {e_emer}")
+                return {"items": [], "tipo": "Error_IA"}
+                
 # =====================================================================================================================================
 #                FINAL                          FUNCIONES IA                                     FINAL
 # =====================================================================================================================================
@@ -5048,86 +4837,45 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ========================================================================================================================================
 
 def detectar_y_leer_codigo_barras_ia(base64_image: str) -> str:
-  prompt = (
-      "Analiza esta imagen de un producto comercial. Busca el código de barras"
-      " y lee atentamente los números impresos debajo. Responde ÚNICAMENTE en"
-      ' formato JSON:\n{"tiene_numeros": true/false, "codigo_numerico":'
-      ' "escribe_aqui_solo_los_numeros_o_vacio"}'
-  )
+    prompt = (
+        "Analiza esta imagen de un producto comercial. Busca el código de barras"
+        " y lee atentamente los números impresos debajo. Responde ÚNICAMENTE en"
+        ' formato JSON:\n{"tiene_numeros": true/false, "codigo_numerico":'
+        ' "escribe_aqui_solo_los_numeros_o_vacio"}'
+    )
 
-  imagen_data = {
-      "mime_type": "image/jpeg",
-      "data": base64.b64decode(base64_image),
-  }
+    imagen_data = {"mime_type": "image/jpeg", "data": base64.b64decode(base64_image)}
+    configuracion_gen = {"response_mime_type": "application/json", "temperature": 0.0}
 
-  for intento in range(1, 3):
     try:
-      model = genai.GenerativeModel(MODELO_FOTO)
-      response = model.generate_content(
-          [prompt, imagen_data],
-          generation_config={
-              "response_mime_type": "application/json",
-              "temperature": 0.0,
-          },
-      )
-      texto_limpio = response.text.replace("```json", "").replace("```", "").strip()
-      resultado = json.loads(texto_limpio)
-      if resultado.get("tiene_numeros"):
-        return str(resultado.get("codigo_numerico", "")).strip()
-      else:
+        model = genai.GenerativeModel(MODELO_FOTO)
+        response = model.generate_content([prompt, imagen_data], generation_config=configuracion_gen)
+        texto_limpio = response.text.replace("```json", "").replace("```", "").strip()
+        resultado = json.loads(texto_limpio)
+        if resultado.get("tiene_numeros"): return str(resultado.get("codigo_numerico", "")).strip()
         return ""
     except Exception as e_prin:
-      logger.warning(
-          f"⚠️ Intento {intento} fallido con Modelo de Foto Principal"
-          f" ({MODELO_FOTO}): {e_prin}"
-      )
-      if intento < 2:
-        time_mod.sleep(1)
+        logger.warning(f"⚠️ Falla Principal Código Barras ({MODELO_FOTO}): {e_prin}")
 
-  try:
-    logger.info(f"🔄 Activando modelo de respaldo para fotos: {MODELO_RESPALDO}")
-    model_respaldo = genai.GenerativeModel(MODELO_RESPALDO)
-    response_respaldo = model_respaldo.generate_content(
-        [prompt, imagen_data],
-        generation_config={
-            "response_mime_type": "application/json",
-            "temperature": 0.0,
-        },
-    )
-    texto_limpio = response_respaldo.text.replace("```json", "").replace("```", "").strip()
-    resultado = json.loads(texto_limpio)
-    if resultado.get("tiene_numeros"):
-      return str(resultado.get("codigo_numerico", "")).strip()
-  except Exception as e_respaldo:
-    logger.warning(
-        f"⚠️ Falla en modelo de respaldo para fotos ({MODELO_RESPALDO}):"
-        f" {e_respaldo}"
-    )
+    try:
+        model_respaldo = genai.GenerativeModel(MODELO_RESPALDO)
+        response_respaldo = model_respaldo.generate_content([prompt, imagen_data], generation_config=configuracion_gen)
+        texto_limpio = response_respaldo.text.replace("```json", "").replace("```", "").strip()
+        resultado = json.loads(texto_limpio)
+        if resultado.get("tiene_numeros"): return str(resultado.get("codigo_numerico", "")).strip()
+    except Exception as e_respaldo:
+        logger.warning(f"⚠️ Falla Respaldo Código Barras ({MODELO_RESPALDO}): {e_respaldo}")
 
-  try:
-    logger.info(
-        f"🚨 Activando modelo de emergencia para fotos:"
-        f" {MODELO_FOTO_EMERGENCIA}"
-    )
-    model_emerg = genai.GenerativeModel(MODELO_FOTO_EMERGENCIA)
-    response_emerg = model_emerg.generate_content(
-        [prompt, imagen_data],
-        generation_config={
-            "response_mime_type": "application/json",
-            "temperature": 0.0,
-        },
-    )
-    texto_limpio = response_emerg.text.replace("```json", "").replace("```", "").strip()
-    resultado = json.loads(texto_limpio)
-    if resultado.get("tiene_numeros"):
-      return str(resultado.get("codigo_numerico", "")).strip()
-  except Exception as e_emergencia:
-    logger.error(
-        f"❌ Error crítico en lectura de código de barras: Todos los modelos"
-        f" fallaron. {e_emergencia}"
-    )
+    try:
+        model_emerg = genai.GenerativeModel(MODELO_FOTO_EMERGENCIA)
+        response_emerg = model_emerg.generate_content([prompt, imagen_data], generation_config=configuracion_gen)
+        texto_limpio = response_emerg.text.replace("```json", "").replace("```", "").strip()
+        resultado = json.loads(texto_limpio)
+        if resultado.get("tiene_numeros"): return str(resultado.get("codigo_numerico", "")).strip()
+    except Exception as e_emergencia:
+        logger.error(f"❌ Error crítico en código de barras. Fallaron todos: {e_emergencia}")
 
-  return ""
+    return ""
   
 async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
     user_id = message_obj.from_user.id
@@ -5560,467 +5308,293 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
 
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  user_id, chat_id = update.effective_user.id, update.effective_chat.id
-  lang = obtener_idioma_usuario(user_id) or "$1"
-  traducciones = obtener_traducciones_db(lang) or {}
+    user_id, chat_id = update.effective_user.id, update.effective_chat.id
+    lang = obtener_idioma_usuario(user_id) or "$1"
+    traducciones = obtener_traducciones_db(lang) or {}
 
-  raw_text = (
-      update.message.text.strip()
-      if update.message and update.message.text
-      else ""
-  )
-  if not raw_text:
-    return
-
-  # --- 1. INTERCEPTOR EDICIÓN VALORES CLÍNICOS (Médicos) ---
-  if context.user_data.get("campo_clinico_a_editar"):
-    if await procesar_cambio_valor_clinico(update, context):
-      return
-
-  # --- 2. INTERCEPTOR DE NOTAS MÉDICAS (Médicos) ---
-  if context.user_data.get(
-      "esperando_texto_nota_para"
-  ) or context.user_data.get("esperando_nota_informe_para"):
-    if "esperando_nota_informe_para" in context.user_data:
-      if await procesar_texto_nota_informe(update, context):
-        return
-    else:
-      if await procesar_texto_nota_medica(update, context):
+    raw_text = update.message.text.strip() if update.message and update.message.text else ""
+    if not raw_text:
         return
 
-  # --- 3. EDICIÓN DE PERFIL (Usuarios) ---
-  estados_perfil = [
-      "awaiting_edit_perfil_peso",
-      "awaiting_edit_perfil_altura",
-      "awaiting_edit_perfil_cintura",
-      "awaiting_edit_perfil_cuello",
-      "awaiting_edit_perfil_cadera",
-      "awaiting_edit_perfil_nombre",
-      "awaiting_edit_perfil_prof",
-  ]
+    # --- 1. INTERCEPTOR EDICIÓN VALORES CLÍNICOS (Médicos) ---
+    if context.user_data.get("campo_clinico_a_editar"):
+        if await procesar_cambio_valor_clinico(update, context): return
 
-  if any(context.user_data.get(st) for st in estados_perfil):
-    await _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
-    return
+    # --- 2. INTERCEPTOR DE NOTAS MÉDICAS (Médicos) ---
+    if context.user_data.get("esperando_texto_nota_para") or context.user_data.get("esperando_nota_informe_para"):
+        if "esperando_nota_informe_para" in context.user_data:
+            if await procesar_texto_nota_informe(update, context): return
+        else:
+            if await procesar_texto_nota_medica(update, context): return
 
-  # --- 4. PRESIÓN ARTERIAL ---
-  if context.user_data.get("awaiting_presion_nota"):
-    context.user_data.pop("awaiting_presion_nota", None)
-    datos_presion = context.user_data.pop("pending_presion_foto", None)
+    # --- 3. EDICIÓN DE PERFIL (Usuarios) ---
+    estados_perfil = [
+        "awaiting_edit_perfil_peso", "awaiting_edit_perfil_altura",
+        "awaiting_edit_perfil_cintura", "awaiting_edit_perfil_cuello",
+        "awaiting_edit_perfil_cadera", "awaiting_edit_perfil_nombre",
+        "awaiting_edit_perfil_prof"
+    ]
+    if any(context.user_data.get(st) for st in estados_perfil):
+        await _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
+        return
 
-    if raw_text.lower() == "cancelar":
-      txt_canc_presion = traducciones.get(
-          "07_bot_presion_cancelada", "❌ Registro de presión cancelado."
-      )
-      await update.message.reply_text(txt_canc_presion)
-      return
+    # --- 4. PRESIÓN ARTERIAL ---
+    if context.user_data.get("awaiting_presion_nota"):
+        context.user_data.pop("awaiting_presion_nota", None)
+        datos_presion = context.user_data.pop("pending_presion_foto", None)
+        
+        if raw_text.lower() == "cancelar":
+            await update.message.reply_text(traducciones.get("07_bot_presion_cancelada", "❌ Registro de presión cancelado."))
+            return
+            
+        if datos_presion:
+            alta, baja, pulsaciones = datos_presion.get("alta"), datos_presion.get("baja"), datos_presion.get("pulsaciones")
+            await asyncio.to_thread(guardar_presion_db, user_id, alta, baja, pulsaciones, nota=raw_text)
+            
+            lbl_pul = traducciones.get("09_presi_lbl_pulsaciones", "Pulsaciones")
+            pul_txt = f" | {lbl_pul}: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
+            msg_presion_ok = traducciones.get("07_bot_presion_registrada_ok", "✅ *¡Presión arterial registrada con éxito!*\n\n• Presión Alta: `{alta:.0f} mmHg`\n• Presión Baja: `{baja:.0f} mmHg`{pul_txt}\n📝 Nota: `{nota}`").replace("\\n", "\n")
+            await update.message.reply_text(msg_presion_ok.format(alta=alta, baja=baja, pul_txt=pul_txt, nota=raw_text), parse_mode="Markdown")
+        else:
+            await update.message.reply_text(traducciones.get("07_bot_presion_expirada", "⚠️ Los datos temporales expiraron."))
+        return
 
-    if datos_presion:
-      alta = datos_presion.get("alta")
-      baja = datos_presion.get("baja")
-      pulsaciones = datos_presion.get("pulsaciones")
-      nota = raw_text
+    # --- 5. EDICIÓN DE FECHAS, ÍTEMS Y ACTIVIDADES ---
+    if context.user_data.get("awaiting_custom_date"):
+        await _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id)
+        return
+    if context.user_data.get("awaiting_activity_text"):
+        await _sub_manejar_texto_actividad(update, context, raw_text, chat_id)
+        return
+    if context.user_data.get("awaiting_del_custom_date"):
+        await _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id)
+        return
+    if context.user_data.get("awaiting_diario_custom_date"):
+        await _sub_manejar_fecha_diario(update, context, raw_text, chat_id)
+        return
+    if context.user_data.get("awaiting_edit_item_val"):
+        await _sub_manejar_edicion_item(update, context, raw_text, chat_id)
+        return
+    if raw_text.startswith("*"):
+        await _sub_manejar_plantilla_comida(update, context, raw_text, user_id)
+        return
+    if context.user_data.get("awaiting_barcode_input"):
+        context.user_data.pop("awaiting_barcode_input", None)
+        msg_solic = context.user_data.pop("msg_solicitud_barcode_id", None)
+        if msg_solic:
+            try: await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
+            except Exception: pass
+        await procesar_codigo_ingresado(update.message, context, raw_text)
+        return
 
-      await asyncio.to_thread(
-          guardar_presion_db, user_id, alta, baja, pulsaciones, nota=nota
-      )
-
-      lbl_pul = traducciones.get("09_presi_lbl_pulsaciones", "Pulsaciones")
-      pul_txt = f" | {lbl_pul}: `{pulsaciones:.0f} lpm`" if pulsaciones > 0 else ""
-      msg_presion_ok = traducciones.get(
-          "07_bot_presion_registrada_ok",
-          "✅ *¡Presión arterial registrada con éxito!*\n\n• Presión Alta:"
-          " `{alta:.0f} mmHg`\n• Presión Baja:"
-          " `{baja:.0f} mmHg`{pul_txt}\n📝 Nota: `{nota}`",
-      ).replace("\\n", "\n")
-      await update.message.reply_text(
-          msg_presion_ok.format(
-              alta=alta, baja=baja, pul_txt=pul_txt, nota=nota
-          ),
-          parse_mode="Markdown",
-      )
-    else:
-      txt_exp_presion = traducciones.get(
-          "07_bot_presion_expirada",
-          "⚠️ Los datos temporales de la presión expiraron.",
-      )
-      await update.message.reply_text(txt_exp_presion)
-    return
-
-  # --- 5. EDICIÓN DE FECHAS, ÍTEMS Y ACTIVIDADES ---
-  if context.user_data.get("awaiting_custom_date"):
-    await _sub_manejar_fecha_personalizada_ingesta(
-        update, context, raw_text, chat_id
-    )
-    return
-  if context.user_data.get("awaiting_activity_text"):
-    await _sub_manejar_texto_actividad(update, context, raw_text, chat_id)
-    return
-  if context.user_data.get("awaiting_del_custom_date"):
-    await _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id)
-    return
-  if context.user_data.get("awaiting_diario_custom_date"):
-    await _sub_manejar_fecha_diario(update, context, raw_text, chat_id)
-    return
-  if context.user_data.get("awaiting_edit_item_val"):
-    await _sub_manejar_edicion_item(update, context, raw_text, chat_id)
-    return
-  if raw_text.startswith("*"):
-    await _sub_manejar_plantilla_comida(update, context, raw_text, user_id)
-    return
-
-  if context.user_data.get("awaiting_barcode_input"):
-    context.user_data.pop("awaiting_barcode_input", None)
-    msg_solic = context.user_data.pop("msg_solicitud_barcode_id", None)
-    if msg_solic:
-      try:
-        await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
-      except Exception:
-        pass
-    await procesar_codigo_ingresado(update.message, context, raw_text)
-    return
-
-  # --- 6. ANÁLISIS DE TEXTO LIBRE CON IA ---
-  msg_analizando_ia = traducciones.get(
-      "07_bot_analizando_texto_ia", "🤖 Analizando texto con Inteligencia Artificial..."
-  )
-  msg = await update.message.reply_text(msg_analizando_ia)
-  try:
-    data = await analizar_con_ia(raw_text, user_id)
-    tipo = str(data.get("tipo", "")).strip().upper()
-
-    if tipo == "ERROR_IA":
-      await msg.edit_text("⚠️ No se pudo conectar con la Inteligencia Artificial en este momento. Por favor, intentá de nuevo en unos segundos.")
-      return
-
-    if tipo == "INFORME_MENSUAL":
-      try:
-        await msg.delete()
-      except Exception:
-        pass
-      param = str(data.get("parametro", "")).strip()
-
-      if param and re.match(r"^20\d{2}-\d{2}", param):
-        mes_target = param[:7]
-      else:
-        mes_target = obtener_ahora_arg().strftime("%Y-%m")
-
-      context.args = [mes_target]
-      await mostrar_resumen_mes(update, context)
-      return
-
-    elif tipo == "INFORME_SEMANAL":
-      try:
-        await msg.delete()
-      except Exception:
-        pass
-      await cmd_mensaje(update, context)
-      return
-
-    elif tipo == "INFORME_DIARIO":
-      try:
-        await msg.delete()
-      except Exception:
-        pass
-      param = str(data.get("parametro", "")).strip()
-
-      if param and re.match(r"^20\d{2}-\d{2}-\d{2}", param):
-        fecha_objetivo = param[:10]
-      else:
-        fecha_objetivo = obtener_ahora_arg().strftime("%Y-%m-%d")
-
-      objetivo_msg = (
-          update.message if update.message else update.callback_query
-      )
-      await mostrar_diario_fecha(objetivo_msg, user_id, fecha_objetivo)
-      return
-
-    elif tipo == "RECHAZO":
-      try:
-        await msg.delete()
-      except Exception:
-        pass
-      return
-
-    await procesar_y_mostrar_confirmacion(data, msg, context)
-
-  except Exception as e:
-    msg_err_proc = traducciones.get(
-        "07_bot_error_procesar_texto", "❌ Error al procesar el texto: {e}"
-    )
+    # --- 6. ANÁLISIS DE TEXTO LIBRE CON IA ---
+    msg_analizando_ia = traducciones.get("07_bot_analizando_texto_ia", "🤖 Analizando texto con Inteligencia Artificial...")
+    msg = await update.message.reply_text(msg_analizando_ia)
+    
     try:
-      await msg.edit_text(msg_err_proc.format(e=e))
-    except Exception:
-      pass
+        data = await analizar_con_ia(raw_text, user_id, msg_obj=msg)
+        tipo = str(data.get("tipo", "")).strip().upper()
+
+        if tipo == "ERROR_IA":
+            await msg.edit_text("⚠️ No se pudo conectar con la Inteligencia Artificial. Por favor, reintentá en unos segundos.")
+            return
+
+        if tipo == "RECHAZO":
+            try: await msg.delete()
+            except Exception: pass
+            return
+
+        await procesar_y_mostrar_confirmacion(data, msg, context)
+
+    except Exception as e:
+        msg_err_proc = traducciones.get("07_bot_error_procesar_texto", "❌ Error al procesar el texto: {e}")
+        try: await msg.edit_text(msg_err_proc.format(e=e))
+        except Exception: pass
 
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  user_id = update.effective_user.id
-  lang = obtener_idioma_usuario(user_id) or "$1"
-  traducciones = obtener_traducciones_db(lang) or {}
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) or "es"
+    traducciones = obtener_traducciones_db(lang) or {}
 
-  txt_analizando_img = traducciones.get("07_bot_analizando_imagen", "📸 Analizando imagen...")
-  msg = await update.message.reply_text(txt_analizando_img)
+    txt_analizando_img = traducciones.get("07_bot_analizando_imagen", "📸 Analizando imagen...")
+    msg = await update.message.reply_text(txt_analizando_img)
 
-  try:
-    photo_bytes_originales = await (await update.message.photo[-1].get_file()).download_as_bytearray()
-    np_arr = np.frombuffer(photo_bytes_originales, np.uint8)
-    img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    try:
+        photo_bytes_originales = await (await update.message.photo[-1].get_file()).download_as_bytearray()
+        np_arr = np.frombuffer(photo_bytes_originales, np.uint8)
+        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-    # --- 1. DETECCIÓN LOCAL DE CÓDIGO DE BARRAS (Con la imagen en máxima resolución) ---
-    tiene_codigo_local = False
-    if img is not None:
-      detector = cv2.barcode.BarcodeDetector()
-      retval, points = detector.detect(img)
-      if retval:
-        tiene_codigo_local = True
+        tiene_codigo_local = False
+        if img is not None:
+            detector = cv2.barcode.BarcodeDetector()
+            retval, points = detector.detect(img)
+            if retval: tiene_codigo_local = True
 
-    # --- 2. ACHICAR Y COMPRIMIR LA FOTO (Para enviarla por internet) ---
-    if img is not None:
-      h, w = img.shape[:2]
-      max_dim = 800
-      if max(h, w) > max_dim:
-        scale = max_dim / float(max(h, w))
-        new_w = int(w * scale)
-        new_h = int(h * scale)
-        img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        # COMPRESIÓN MEJORADA PARA IA
+        if img is not None:
+            h, w = img.shape[:2]
+            max_dim = 1280
+            if max(h, w) > max_dim:
+                scale = max_dim / float(max(h, w))
+                img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+            
+            success, encoded_img = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+            photo_bytes_comprimidos = encoded_img.tobytes() if success else photo_bytes_originales
+        else:
+            photo_bytes_comprimidos = photo_bytes_originales
         
-      success, encoded_img = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
-      if success:
-        photo_bytes_comprimidos = encoded_img.tobytes()
-      else:
-        photo_bytes_comprimidos = photo_bytes_originales
-    else:
-      photo_bytes_comprimidos = photo_bytes_originales
-      
-    base64_image = base64.b64encode(photo_bytes_comprimidos).decode("utf-8")
+        base64_image = base64.b64encode(photo_bytes_comprimidos).decode("utf-8")
 
-    # --- 3. BIFURCACIÓN DEL FLUJO ---
-    
-    # RAMA A: FLUJO DE CÓDIGO DE BARRAS
-    if tiene_codigo_local:
-      txt_barra_det = traducciones.get("07_bot_barra_detectada", "🔍 Código de barras detectado. Leyendo números...")
-      try: await msg.edit_text(txt_barra_det)
-      except Exception: pass
+        if tiene_codigo_local:
+            try: await msg.edit_text(traducciones.get("07_bot_barra_detectada", "🔍 Código de barras detectado. Leyendo números..."))
+            except Exception: pass
+            
+            codigo_leido = await asyncio.to_thread(detectar_y_leer_codigo_barras_ia, base64_image)
+            if codigo_leido and len(codigo_leido.strip()) >= 4:
+                try: await msg.delete()
+                except Exception: pass
+                return await procesar_codigo_ingresado(update.message, context, codigo_leido.strip())
+            else:
+                try: await msg.edit_text(traducciones.get("07_bot_error_barra_ilegible", "⚠️ No se pudieron leer los números del código de barras. Por favor, ingresalo como texto."))
+                except Exception: pass
+                return
 
-      codigo_leido = await asyncio.to_thread(detectar_y_leer_codigo_barras_ia, base64_image)
-      
-      if codigo_leido and len(codigo_leido.strip()) >= 4:
-        try: await msg.delete()
+        try: await msg.edit_text(traducciones.get('06_bot_analizando_plato', "🤖 Analizando imagen con Inteligencia Artificial..."))
         except Exception: pass
-        return await procesar_codigo_ingresado(update.message, context, codigo_leido.strip())
-      else:
-        txt_err_barra = traducciones.get("07_bot_error_barra_ilegible", "⚠️ No se pudieron leer los números del código de barras. Por favor, ingresalo como texto usando el comando /barra.")
-        try: await msg.edit_text(txt_err_barra)
+        
+        # SIN RELOJES DE ESPERA
+        data = await analizar_imagen_con_ia(base64_image, user_id, msg_obj=msg)
+        tipo = str(data.get("tipo", "")).strip().upper()
+
+        if tipo == "ERROR_IA":
+            await msg.edit_text(traducciones.get('06_bot_error_imagen_fallida', "⚠️ No se pudo conectar con la Inteligencia Artificial. Reintentá en unos segundos."), parse_mode="Markdown")
+            return
+            
+        elif tipo == "RECHAZO" or not tipo:
+            await msg.edit_text(traducciones.get('06_bot_foto_rechazada', "⚠️ **Imagen no reconocida**\nLa foto no corresponde a un plato de comida o tensiómetro."), parse_mode="Markdown")
+            return
+            
+        elif tipo == "PRESION" or tipo == "PRESIÓN":
+            return await _sub_manejar_foto_presion(update, context, data, msg)
+            
+        else:
+            return await procesar_y_mostrar_confirmacion(data, msg, context)
+
+    except Exception as e:
+        logger.warning(f"⚠️ Falla crítica procesando imagen para usuario {user_id}: {e}")
+        try: await msg.edit_text(traducciones.get("07_bot_error_timeout_foto", "⚠️ **Error al procesar la imagen.** Por favor, ingresá los datos por texto o voz."), parse_mode="Markdown")
         except Exception: pass
-        return
-
-    # RAMA B: ANÁLISIS UNIFICADO CON IA (COMIDA / PRESIÓN / RECHAZO)
-    txt_analizando_ia = traducciones.get('06_bot_analizando_plato', "🤖 Analizando imagen con Inteligencia Artificial...")
-    try: await msg.edit_text(txt_analizando_ia)
-    except Exception: pass
-    
-    data = await analizar_imagen_con_ia(base64_image, user_id)
-    tipo = str(data.get("tipo", "")).strip().upper()
-
-    if tipo == "ERROR_IA":
-        txt_error_ia = traducciones.get(
-            '06_bot_error_imagen_fallida', 
-            "⚠️ No se pudo conectar con la Inteligencia Artificial para analizar la imagen.\n\n"
-            "Por favor, intentá de nuevo en unos segundos o ingresá la descripción por **texto** o **voz**."
-        )
-        await msg.edit_text(txt_error_ia, parse_mode="Markdown")
-        return
         
-    elif tipo == "RECHAZO" or not tipo:
-        txt_rechazo = traducciones.get(
-            '06_bot_foto_rechazada',
-            "⚠️ **Imagen no reconocida**\n\n"
-            "La foto enviada no parece corresponder a un plato de comida o bebida, ni a la pantalla de un tensiómetro. "
-            "Por favor, envianos una foto clara o escribí la descripción por texto."
-        )
-        await msg.edit_text(txt_rechazo, parse_mode="Markdown")
-        return
-        
-    elif tipo == "PRESION" or tipo == "PRESIÓN":
-        return await _sub_manejar_foto_presion(update, context, data, msg)
-        
-    else:
-        return await procesar_y_mostrar_confirmacion(data, msg, context)
-
-  except Exception as e:
-    logger.warning(f"⚠️ Falla crítica procesando imagen para usuario {user_id}: {e}")
-    txt_error_timeout = traducciones.get(
-        "07_bot_error_timeout_foto",
-        "⚠️ **Error al procesar la imagen.**\n\nPor favor, ingresá los datos por **texto** o enviando una nota de **voz**."
-    )
-    try: await msg.edit_text(txt_error_timeout, parse_mode="Markdown")
-    except Exception: pass
-    
 @requiere_registro
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-  user_id = update.effective_user.id
-  lang = obtener_idioma_usuario(user_id) or "$1"
-  traducciones = obtener_traducciones_db(lang) or {}
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) or "es"
+    traducciones = obtener_traducciones_db(lang) or {}
 
-  msg_procesando_audio = traducciones.get(
-      "07_bot_procesando_audio_ia", "🎙️ Procesando audio con IA..."
-  )
-  msg = await update.message.reply_text(msg_procesando_audio)
-  try:
-    file = await context.bot.get_file(update.message.voice.file_id)
-    audio_bytes = await file.download_as_bytearray()
-
-    audio_data = {"mime_type": "audio/ogg", "data": bytes(audio_bytes)}
-    prompt_transcripcion = [
-        (
-            "Transcribe exactamente el siguiente audio en su idioma original,"
-            " sin agregar comentarios."
-        ),
-        audio_data,
-    ]
-
-    transcription = ""
-
-    for intento in range(1, 3):
-      try:
-        model = genai.GenerativeModel(MODELO_AUDIO)
-        transcription_res = await asyncio.to_thread(
-            model.generate_content, prompt_transcripcion
-        )
-        if transcription_res and transcription_res.text:
-          transcription = str(transcription_res.text).strip()
-          break
-      except Exception as e_prin:
-        logger.warning(
-            f"⚠️ Intento {intento} fallido con Modelo de Audio Principal"
-            f" ({MODELO_AUDIO}): {e_prin}"
-        )
-        if intento < 2:
-          await asyncio.sleep(1)
-
-    if not transcription:
-      try:
-        logger.info(
-            f"🔄 Activando modelo de respaldo para audio: {MODELO_RESPALDO}"
-        )
-        model_resp = genai.GenerativeModel(MODELO_RESPALDO)
-        transcription_res = await asyncio.to_thread(
-            model_resp.generate_content, prompt_transcripcion
-        )
-        if transcription_res and transcription_res.text:
-          transcription = str(transcription_res.text).strip()
-      except Exception as e_resp:
-        logger.warning(
-            f"⚠️ Falla en modelo de respaldo para audio ({MODELO_RESPALDO}):"
-            f" {e_resp}"
-        )
-
-    if not transcription:
-      try:
-        logger.info(
-            f"🚨 Activando modelo de emergencia para audio: {MODELO_EMERGENCIA}"
-        )
-        model_emerg = genai.GenerativeModel(MODELO_EMERGENCIA)
-        transcription_res = await asyncio.to_thread(
-            model_emerg.generate_content, prompt_transcripcion
-        )
-        if transcription_res and transcription_res.text:
-          transcription = str(transcription_res.text).strip()
-      except Exception as e_emerg:
-        logger.error(
-            f"❌ Error crítico en transcripción de audio: Todos los modelos"
-            f" fallaron. {e_emerg}"
-        )
-
-    if not transcription:
-      msg_audio_no_entendido = traducciones.get(
-          "07_bot_audio_no_entendido", "⚠️ No se pudo entender el audio."
-      )
-      try:
-        await msg.edit_text(msg_audio_no_entendido)
-      except Exception:
-        pass
-      return
-
-    if context.user_data.get("awaiting_edit_item_val"):
-      try:
-        await msg.delete()
-      except Exception:
-        pass
-      chat_id = update.effective_chat.id
-      await _sub_manejar_edicion_item(update, context, transcription, chat_id)
-      return
-
-    if context.user_data.get("awaiting_activity_voice"):
-      return await _sub_manejar_voz_actividad(update, context, transcription, msg)
-
-    data = await analizar_con_ia(transcription, user_id)
-    tipo = str(data.get("tipo", "")).strip().upper()
-
-    if tipo == "ERROR_IA":
-      await msg.edit_text("⚠️ No se pudo conectar con la Inteligencia Artificial para analizar el audio. Por favor, intentá de nuevo en unos segundos.")
-      return
-
-    if tipo == "INFORME_MENSUAL":
-      try:
-        await msg.delete()
-      except Exception:
-        pass
-      param = str(data.get("parametro", "")).strip()
-      if param and re.match(r"^20\d{2}-\d{2}", param):
-        mes_target = param[:7]
-      else:
-        mes_target = obtener_ahora_arg().strftime("%Y-%m")
-
-      context.args = [mes_target]
-      await mostrar_resumen_mes(update, context)
-      return
-
-    elif tipo == "INFORME_SEMANAL":
-      try:
-        await msg.delete()
-      except Exception:
-        pass
-      await cmd_mensaje(update, context)
-      return
-
-    elif tipo == "INFORME_DIARIO":
-      try:
-        await msg.delete()
-      except Exception:
-        pass
-      param = str(data.get("parametro", "")).strip()
-      if param and re.match(r"^20\d{2}-\d{2}-\d{2}", param):
-        fecha_objetivo = param[:10]
-      else:
-        fecha_objetivo = obtener_ahora_arg().strftime("%Y-%m-%d")
-
-      objetivo_msg = (
-          update.message if update.message else update.callback_query
-      )
-      await mostrar_diario_fecha(objetivo_msg, user_id, fecha_objetivo)
-      return
-
-    elif tipo == "RECHAZO":
-      try:
-        await msg.delete()
-      except Exception:
-        pass
-      return
-
-    await procesar_y_mostrar_confirmacion(data, msg, context)
-
-  except Exception as e:
-    logger.error(f"Error al procesar audio: {e}")
-    msg_err_audio = traducciones.get(
-        "07_bot_error_procesar_audio", "❌ Error al procesar audio: {e}"
-    )
+    msg = await update.message.reply_text("🎙️ Escuchando y procesando audio...")
+    
     try:
-      await msg.edit_text(msg_err_audio.format(e=e))
-    except Exception:
-      pass
-          
+        file = await context.bot.get_file(update.message.voice.file_id)
+        audio_bytes = await file.download_as_bytearray()
+        ahora = obtener_ahora_arg()
+        
+        system_prompt = (
+            f"Sos un asistente nutricional inteligente. Idioma: {lang}.\n"
+            f"La fecha de HOY es {ahora.strftime('%Y-%m-%d')} y el mes actual es {ahora.strftime('%Y-%m')}.\n"
+            f"Escuchá el audio y realizá DOS tareas simultáneas:\n"
+            f"1. Transcribí exactamente lo que dijo el usuario en el campo 'transcripcion'. ¡Este campo es obligatorio SIEMPRE!\n"
+            f"2. Clasificá la intención y generá un JSON estricto según estas reglas:\n\n"
+            f"SI ES COMIDA: {{\"transcripcion\": \"...\", \"tipo\": \"Comida\", \"items\": [{{\"alimento\": \"...\", \"peso\": 0, \"calorias\": 0, \"proteinas\": 0, \"grasas\": 0, \"carbohidratos\": 0, \"fibras\": 0}}]}} (Ajustá calorías = Prot*4 + Carb*4 + Grasas*9)\n"
+            f"SI ES ACTIVIDAD FISICA: {{\"transcripcion\": \"...\", \"tipo\": \"Actividad\", \"items\": [{{\"alimento\": \"...\", \"peso\": 0, \"calorias\": -0}}]}}\n"
+            f"SI ES RESUMEN MENSUAL: {{\"transcripcion\": \"...\", \"tipo\": \"INFORME_MENSUAL\", \"parametro\": \"YYYY-MM\"}}\n"
+            f"SI ES RESUMEN DIARIO: {{\"transcripcion\": \"...\", \"tipo\": \"INFORME_DIARIO\", \"parametro\": \"YYYY-MM-DD\"}}\n"
+            f"SI ES RESUMEN SEMANAL: {{\"transcripcion\": \"...\", \"tipo\": \"INFORME_SEMANAL\"}}\n"
+            f"SI ES RECHAZO: {{\"transcripcion\": \"...\", \"tipo\": \"RECHAZO\"}}"
+        )
+
+        audio_data = {"mime_type": "audio/ogg", "data": bytes(audio_bytes)}
+        configuracion_gen = {"response_mime_type": "application/json", "temperature": 0.1}
+        payload_ia = ["Procesá este audio:", audio_data]
+
+        try:
+            model = genai.GenerativeModel(MODELO_AUDIO, system_instruction=system_prompt)
+            resp = await model.generate_content_async(payload_ia, generation_config=configuracion_gen)
+            data = json.loads(resp.text.replace("```json", "").replace("```", "").strip())
+        except Exception as e_prin:
+            logger.warning(f"⚠️ Falla Principal Audio ({MODELO_AUDIO}): {e_prin}. Pasando a Respaldo...")
+            try: await msg.edit_text("⚠️ Servidor de audio ocupado. Cambiando a servidor de respaldo...")
+            except Exception: pass
+            
+            try:
+                model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=system_prompt)
+                resp_resp = await model_resp.generate_content_async(payload_ia, generation_config=configuracion_gen)
+                data = json.loads(resp_resp.text.replace("```json", "").replace("```", "").strip())
+            except Exception as e_resp:
+                logger.warning(f"⚠️ Falla Respaldo Audio ({MODELO_RESPALDO}): {e_resp}. Pasando a Emergencia...")
+                try: await msg.edit_text("⚠️ Reintentando conexión con servidor de emergencia...")
+                except Exception: pass
+                
+                try:
+                    model_emer = genai.GenerativeModel(MODELO_EMERGENCIA, system_instruction=system_prompt)
+                    resp_emer = await model_emer.generate_content_async(payload_ia, generation_config=configuracion_gen)
+                    data = json.loads(resp_emer.text.replace("```json", "").replace("```", "").strip())
+                except Exception as e_emer:
+                    logger.error(f"❌ Fallaron todos los modelos de audio: {e_emer}")
+                    await msg.edit_text("⚠️ **Error de conexión.** Todos los servidores fallaron. Por favor, reintentá más tarde.", parse_mode="Markdown")
+                    return
+
+        transcription = data.get("transcripcion", "")
+        tipo = str(data.get("tipo", "")).strip().upper()
+
+        if context.user_data.get("awaiting_edit_item_val"):
+            try: await msg.delete()
+            except Exception: pass
+            await _sub_manejar_edicion_item(update, context, transcription, update.effective_chat.id)
+            return
+
+        if context.user_data.get("awaiting_activity_voice"):
+            return await _sub_manejar_voz_actividad(update, context, transcription, msg)
+
+        if tipo == "ERROR_IA" or not transcription:
+            await msg.edit_text("⚠️ No se pudo entender el audio o procesar la solicitud.")
+            return
+
+        if tipo == "INFORME_MENSUAL":
+            try: await msg.delete()
+            except Exception: pass
+            param = str(data.get("parametro", "")).strip()
+            mes_target = param[:7] if param and re.match(r"^20\d{2}-\d{2}", param) else ahora.strftime("%Y-%m")
+            context.args = [mes_target]
+            await mostrar_resumen_mes(update, context)
+            return
+
+        elif tipo == "INFORME_SEMANAL":
+            try: await msg.delete()
+            except Exception: pass
+            await cmd_mensaje(update, context)
+            return
+
+        elif tipo == "INFORME_DIARIO":
+            try: await msg.delete()
+            except Exception: pass
+            param = str(data.get("parametro", "")).strip()
+            fecha_objetivo = param[:10] if param and re.match(r"^20\d{2}-\d{2}-\d{2}", param) else ahora.strftime("%Y-%m-%d")
+            await mostrar_diario_fecha(update.message if update.message else update.callback_query, user_id, fecha_objetivo)
+            return
+
+        elif tipo == "RECHAZO":
+            await msg.edit_text("⚠️ El audio no corresponde a un registro nutricional o comando válido.")
+            return
+
+        await procesar_y_mostrar_confirmacion(data, msg, context)
+
+    except Exception as e:
+        logger.error(f"Error al procesar audio: {e}")
+        txt_err = traducciones.get("07_bot_error_procesar_audio", "❌ Error al procesar audio: {e}").format(e=e)
+        try: await msg.edit_text(txt_err)
+        except Exception: pass
+        
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
