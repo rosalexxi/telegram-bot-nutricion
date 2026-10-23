@@ -32,6 +32,7 @@ import urllib.parse
 import calendar
 import subprocess
 import time as time_mod
+import google.generativeai as genai
 
 from typing import Dict, Tuple, List, Optional, Any            
 from urllib.parse import urlparse 
