@@ -32,8 +32,8 @@ import urllib.request
 import urllib.parse
 import calendar
 import subprocess
+import google.generativeai as genai
 
-from google import genai
 from typing import Dict, Tuple, List, Optional, Any            
 from urllib.parse import urlparse 
 from datetime import datetime, date, timedelta, time
@@ -85,20 +85,15 @@ ADMIN_USER_ID = "7363062724"  # Reemplazá esto por tu número de ID de Telegram
 # INICIALIZACIÓN DE GEMINI Y MODELOS
 # ==========================================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-cliente_gemini = None
-
 if GEMINI_API_KEY:
-    cliente_gemini = genai.Client(api_key=GEMINI_API_KEY)
-else:
-    logging.warning("No se encontró GEMINI_API_KEY")
+    genai.configure(api_key=GEMINI_API_KEY)
 
-# Modelos de Gemini
-MODELO_TEXTO = os.getenv("MODELO_TEXTO", "gemini-3.8-flash")
-MODELO_FOTO = os.getenv("MODELO_FOTO", "gemini-3.8-flash")
-MODELO_AUDIO = os.getenv("MODELO_AUDIO", "gemini-3.8-flash")
-MODELO_RESPALDO = os.getenv("MODELO_RESPALDO", "gemini-3.6-flash")
-MODELO_EMERGENCIA = "gemini-3.5-flash-lite"
+MODELO_TEXTO = os.getenv("MODELO_TEXTO", "gemini-2.5-flash")
+MODELO_FOTO  = os.getenv("MODELO_FOTO", "gemini-2.5-flash")
+MODELO_AUDIO = os.getenv("MODELO_AUDIO", "gemini-2.5-flash")
+MODELO_RESPALDO = os.getenv("MODELO_RESPALDO", "gemini-2.5-pro")
+MODELO_EMERGENCIA = "gemini-2.0-flash"
+MODELO_FOTO_EMERGENCIA = "gemini-2.0-flash"
 
 # ==========================================
 # ÚNICA INSTANCIA DE FLASK PARA TODO EL BOT
@@ -1046,7 +1041,6 @@ def api_calcular_receta():
         except Exception as e_prin:
             logger.warning(f"⚠️ Falla en modelo principal Flash (Receta), activando respaldo: {e_prin}")
             # Intento 2: Modelo de contingencia (Pro)
-            MODELO_RESPALDO = os.getenv("MODELO_RESPALDO", "gemini-1.5-pro")
             model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=instruccion)
             response_resp = model_resp.generate_content(
                 prompt_ia,
@@ -3817,188 +3811,7 @@ def analizar_con_groq(prompt_text, user_id=None):
             except Exception as e_emergencia:
                 logger.error(f"❌ Error crítico: Los tres modelos fallaron. {e_emergencia}")
                 return {"items": [], "tipo": "Rechazo"}
-                
-async def generar_recomendacion_semanal_ia(m: dict, etiqueta_periodo: str, user_id=None):
-    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
-
-    prompt_semana = (
-        f"Actúa como un nutricionista clínico experto, constructivo y equilibrado. "
-        f"Analiza la evolución nutricional de la {etiqueta_periodo} basándote en los promedios reales frente a los rangos saludables:\n\n"
-        f"DATOS DEL PERÍODO:\n"
-        f"- Días evaluados: {m.get('dias_registrados', 0)}\n"
-        f"- Calorías consumidas: {m.get('prom_cal', 0)} kcal/día (Rango saludable: {m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal)\n"
-        f"- Proteínas: {m.get('prom_prot', 0)} g/día (Rango saludable: {m.get('prot_min', 0)} - {m.get('prot_max', 0)} g)\n"
-        f"- Grasas: {m.get('prom_gras', 0)} g/día (Rango saludable: {m.get('gras_min', 0)} - {m.get('gras_max', 0)} g)\n"
-        f"- Carbohidratos: {m.get('prom_carb', 0)} g/día (Rango saludable: {m.get('carb_min', 0)} - {m.get('carb_max', 0)} g)\n"
-        f"- Fibra: {m.get('prom_fibr', 0)} g/día (Mínimo recomendado: {m.get('fibr_min', 0)} g)\n\n"
-        f"INSTRUCCIONES CLAVE:\n"
-        f"1. Si un valor se encuentra dentro del rango saludable, considéralo un comportamiento correcto y equilibrado; no lo señales como un error ni exijas correcciones drásticas en ese aspecto.\n"
-        f"2. Concéntrate exclusivamente en desvíos significativos fuera de los rangos (por ejemplo, si la fibra o algún nutriente clave está muy por debajo del mínimo).\n"
-        f"3. Proporciona una devolución clara, motivadora y recomendaciones breves y prácticas para optimizar los hábitos en la semana entrante.\n"
-        f"IMPORTANTE: Redacta y responde toda la devolución final dirigida al usuario estrictamente en el idioma {nombre_lenguaje}."
-    )
-    
-    try:
-        recomendacion = await obtener_recomendacion_ia(prompt_semana, es_semanal=True, user_id=user_id)
-        if recomendacion and recomendacion.strip():
-            return recomendacion
-    except Exception as e:
-        logger.error(f"Error al generar recomendación semanal con IA: {e}")
-        
-    lang = obtener_idioma_usuario(user_id) or '$1'
-    traducciones = obtener_traducciones_db(lang) or {}
-    return traducciones.get("05_bot_err_analisis_nutricional", "El análisis nutricional no está disponible temporalmente.")
-    
-async def generar_recomendacion_mensual_para_pdf(user_id: int, mes_str: str, df_mes, perfil: dict, m: dict, context=None) -> str:
-    lang = obtener_idioma_usuario(user_id) or '$1'
-    traducciones = obtener_traducciones_db(lang) or {}
-
-    msg_error_inf = traducciones.get("05_bot_err_generar_inf", "No se pudo generar el reporte auditado por la IA.")
-    msg_error_comp = traducciones.get("05_bot_err_compilar_inf", "Error al compilar la recomendación de la IA para el reporte.")
-
-    try:
-        conteo_frecuencias = analizar_frecuencia_alimentos_mes(user_id, mes_str) or {}
-
-        peso_actual_eval = float(m.get('peso_actual', 0))
-        peso_referencia_eval = float(m.get('peso_referencia', 0))
-        prompt_condicional = obtener_prompt_segun_objetivo_peso(peso_actual_eval, peso_referencia_eval) if 'obtener_prompt_segun_objetivo_peso' in globals() else None
-
-        informe_ia = await generar_informe_mensual_auditado(
-            context=context, 
-            user_id=user_id, 
-            mes_str=mes_str, 
-            m=m, 
-            frecuencias=conteo_frecuencias, 
-            prompt_condicional=prompt_condicional
-        )
-        
-        if not informe_ia:
-            informe_ia = f"<b>{msg_error_inf}</b>"
-
-        return (
-            informe_ia
-            .replace("<br>", "<br/>")
-            .replace("<BR>", "<br/>")
-        )
-    except Exception as e:
-        logger.error(f"Error en generar_recomendacion_mensual_para_pdf para {user_id}: {e}")
-        return f"<b>{msg_error_comp}</b>"
-        
-async def generar_informe_mensual_auditado(context, user_id, mes_str, m, frecuencias=None, prompt_condicional=None):
-    if frecuencias is None:
-        frecuencias = {}
-
-    nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
-    porc_int, porc_ref = calcular_porcentajes_harinas(frecuencias) if 'calcular_porcentajes_harinas' in globals() else (0, 0)
-
-    key_int = next((k for k in frecuencias.keys() if 'integral' in k), None)
-    key_ref = next((k for k in frecuencias.keys() if 'refinada' in k or 'blanca' in k), None)
-    total_integrales = frecuencias.get(key_int, 0) if key_int else 0
-    total_refinadas = frecuencias.get(key_ref, 0) if key_ref else 0
-    total_harinas = total_integrales + total_refinadas
-
-    if total_harinas > 0:
-        contexto_harinas_str = f"- Balance analítico de harinas del período: {porc_int}% de fuentes integrales ({total_integrales} registros) y {porc_ref}% de fuentes refinadas ({total_refinadas} registros). Ten muy en cuenta esta proporción exacta para tu evaluación."
-    else:
-        contexto_harinas_str = "- No se registran datos suficientes de harinas en este período."
-
-    condicion_clinica = prompt_condicional if prompt_condicional else "Evalúa el informe priorizando la calidad de los nutrientes y hábitos saludables."
-    frec_str = "\n".join([f"- {cat}: {cant} ingestas" for cat, cant in frecuencias.items()]) if frecuencias else "- No hay frecuencias registradas."
-
-    prompt_1 = (
-        f"Actúa como un nutricionista clínico experto y empático. Contexto clínico del paciente:\n{condicion_clinica}\n"
-        f"{contexto_harinas_str}\n"
-        f"Redacta un diagnóstico y análisis nutricional global puramente cualitativo del mes {mes_str}.\n"
-        f"Frecuencia de consumo por grupos alimentarios:\n{frec_str}\n\n"
-        f"INSTRUCCIONES ESTRICTAS:\n"
-        f"1. PROHIBIDO incluir números, métricas, porcentajes, gramos, calorías, cálculos matemáticos o fórmulas (ni IMC, ni calorías consumidas, ni déficits, ni 'kcal', ni 'g').\n"
-        f"2. Céntrate exclusivamente en consejos de hábitos, interpretación de patrones de conducta alimentaria y orientaciones prácticas sobre cómo mejorar la calidad de las ingestas de forma sencilla.\n"
-        f"3. Mantén un tono sumamente humano, profesional, constructivo y directo (ni saludos ni introducciones).\n"
-        f"4. IMPORTANTE: Redacta toda la respuesta estrictamente en el idioma {nombre_lenguaje}.\n"
-        f"Cierra obligatoriamente con un punto final y completa todas las ideas sin cortar el texto."
-    )
-
-    prompt_2 = (
-        f"Siguiendo con el caso anterior, redacta una lista numerada exactamente del 1 al 5 con alimentos o grupos de alimentos específicos que el paciente debería incorporar.\n"
-        f"REQUISITO ESTRICTO: Escribí únicamente el nombre del alimento o categoría de forma directa (máximo 3 o 4 palabras por ítem), sin explicaciones, sin porciones en gramos, sin calorías y sin descripciones largas.\n"
-        f"IMPORTANTE: Redacta los elementos estrictamente en el idioma {nombre_lenguaje}.\n"
-        f"Cierra con un punto final."
-    )
-
-    prompt_3 = (
-        f"Finalmente, redacta una lista numerada exactamente del 1 al 5 con alimentos o hábitos alimentarios a reducir o evitar.\n"
-        f"REQUISITO ESTRICTO: Escribí únicamente el concepto de forma directa, sin explicaciones numéricas ni porcentajes, acompañado al final de un párrafo breve sobre estrategia de hidratación y hábitos sostenibles.\n"
-        f"IMPORTANTE: Redacta todo estrictamente en el idioma {nombre_lenguaje}.\n"
-        f"Cierra estrictamente con un punto final; no dejes ninguna oración inconclusa."
-    )
-
-    prompt_auditor_base = (
-        f"Actúa como un médico supervisor estricto y auditor de calidad. "
-        f"Revisa el siguiente informe nutricional:\n\n"
-        f"--- INFORME A EVALUAR ---\n{{informe_completo}}\n-------------------------\n\n"
-        f"Criterios de rechazo obligatorios:\n"
-        f"1. Si incluye consejos ecológicos, de reciclaje, plásticos o electrodomésticos.\n"
-        f"2. Si la sección 1 contiene números, gramos, calorías o fórmulas matemáticas (como IMC).\n"
-        f"3. Si las listas de incorporar o reducir tienen más o menos de 5 elementos, o si hay texto truncado al final.\n"
-        f"Si el informe cumple perfectamente con todo, responde únicamente con la palabra 'OK'."
-    )
-
-    max_intentos = 3 
-    informe_candidato = None
-
-    for intento_actual in range(1, max_intentos + 1):
-        try:
-            logger.info(f"Generando informe mensual auditado para usuario {user_id} (Intento {intento_actual}/{max_intentos})")
-
-            texto_p1 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_1, max_tokens=900, temperature=0.3)
-            await asyncio.sleep(2)
-
-            texto_p2 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_2, max_tokens=400, temperature=0.3)
-            await asyncio.sleep(2)
-
-            texto_p3 = await asyncio.to_thread(ejecutar_consulta_ia, prompt=prompt_3, max_tokens=700, temperature=0.3)
-            await asyncio.sleep(2)
-
-            informe_candidato = (
-                f"<b>1. DIAGNÓSTICO NUTRICIONAL GLOBAL</b><br/>{texto_p1}<br/><br/>"
-                f"<b>2. ALIMENTOS A INCORPORAR</b><br/>{texto_p2}<br/><br/>"
-                f"<b>3. ALIMENTOS A REDUCIR Y HÁBITOS</b><br/>{texto_p3}"
-            )
-
-            prompt_auditor_final = prompt_auditor_base.format(informe_completo=informe_candidato)
-            modelo_rev = globals().get('GROQ_REVISOR', 'qwen/qwen3.8-27b')
-            
-            veredicto = await asyncio.to_thread(
-                ejecutar_consulta_ia, 
-                prompt=prompt_auditor_final, 
-                max_tokens=100, 
-                temperature=0.1, 
-                modelo_override=modelo_rev
-            )
-
-            if not veredicto or veredicto.strip() == "":
-                modelo_rev_2 = globals().get('GROQ_REVISION_2', 'openai/gpt-oss-20b')
-                veredicto = await asyncio.to_thread(
-                    ejecutar_consulta_ia, 
-                    prompt=prompt_auditor_final, 
-                    max_tokens=100, 
-                    temperature=0.1, 
-                    modelo_override=modelo_rev_2
-                )
-
-            veredicto_limpio = veredicto.strip().upper() if veredicto else ""
-
-            if "OK" in veredicto_limpio and "RECHAZ" not in veredicto_limpio:
-                return informe_candidato
-
-        except Exception as e:
-            logger.error(f"Error en intento {intento_actual} para usuario {user_id}: {e}")
-
-        if intento_actual < max_intentos:
-            await asyncio.sleep(5)
-
-    return informe_candidato if informe_candidato else None
-
+                      "MODELO_RESPALDO", "gemini-1.5-pro"
 async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.BytesIO]:
     user_id = datos_usuario.get('user_id')
     lang = obtener_idioma_usuario(user_id) or '$1'
@@ -4085,34 +3898,6 @@ async def procesar_informe_inicial_ia(datos_usuario: dict) -> tuple[str, io.Byte
     
     return texto_orientacion, pdf_buffer
            
-async def obtener_recomendacion_ia(prompt: str, es_semanal: bool = False, user_id=None):
-    """Función auxiliar para obtener recomendaciones de IA utilizando las variables globales de modelos."""
-    try:
-        # Seleccionamos el modelo global correspondiente de forma dinámica
-        modelo = globals().get('GROQ_TEXTO', "openai/gpt-oss-120b")
-        
-        # Si quisieras diferenciar un modelo secundario o específico para semanales, 
-        # puedes usar otra global (ej: GROQ_REVISION_2), pero lo ideal es mantener 
-        # la consistencia con la constante global principal o la que prefieras.
-        
-        system_msg = "Eres un nutricionista clínico experto, empático y constructivo."
-        
-        # Llamamos a nuestra función central robusta que ya maneja clientes y reintentos
-        respuesta = await asyncio.to_thread(
-            ejecutar_consulta_ia,
-            prompt=prompt,
-            max_tokens=500,
-            temperature=0.4,
-            system_prompt=system_msg,
-            modelo_override=modelo
-        )
-        
-        return respuesta if respuesta else ""
-        
-    except Exception as e:
-        logger.error(f"Error en obtener_recomendacion_ia: {e}")
-        return ""
-
 async def analizar_imagen_con_groq(base64_image: str, user_id=None):
     nombre_lenguaje = obtener_nombre_lenguaje_ia(user_id)
 
@@ -5717,6 +5502,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _sub_manejar_plantilla_comida(update, context, raw_text, user_id)
         return
 
+    if context.user_data.get('awaiting_barcode_input'):
+        context.user_data.pop('awaiting_barcode_input', None)
+        msg_solic = context.user_data.pop('msg_solicitud_barcode_id', None)
+        if msg_solic:
+            try: await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
+            except Exception: pass
+        await procesar_codigo_ingresado(update.message, context, raw_text)
+        return
+        
     # --- 6. ANÁLISIS DE TEXTO LIBRE CON GROQ ---
     msg_analizando_ia = traducciones.get("07_bot_analizando_texto_ia", "🤖 Analizando texto con Inteligencia Artificial...")
     msg = await update.message.reply_text(msg_analizando_ia)
@@ -10445,11 +10239,17 @@ def main():
         app_bot.add_handler(CommandHandler("armar", cmd_armar_excel))
 
         # =================================CALLBACK QUERY HANDLERS====================================
+        
+        app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_(mes_|volver_menu)"))
+        app_bot.add_handler(CallbackQueryHandler(boton_elegir_plan, pattern="^(comprar_|rescate_mensual)"))
+        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_(d_|mom_|reg_|borrar|salir|cambiar_fecha|volver_momentos)"))
+        
+        
+        
         app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^presion_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^cancelar_presion_foto$"))
         app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
-        app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_mes_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_editar_valor_clinico_menu, pattern="^(edit_val_calorias|edit_val_proteinas|edit_val_peso|edit_val_volver)$"))
         
@@ -10457,7 +10257,6 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(callback_enviar_informe_paciente, pattern="^enviar_inf_"))
         app_bot.add_handler(CallbackQueryHandler(callback_seleccionar_paciente_clinico, pattern="^edit_clinico_sel_"))
         app_bot.add_handler(CallbackQueryHandler(callback_descargar_manual_usuario, pattern="^descargar_manual_user_"))        
-        app_bot.add_handler(CallbackQueryHandler(boton_elegir_plan, pattern="^comprar_"))
 
         app_bot.add_handler(CallbackQueryHandler(callback_btn_momento, pattern="^set_m_"))
         app_bot.add_handler(CallbackQueryHandler(callback_btn_fechas_diario, pattern="^(set_d_|diario_)"))
@@ -10466,7 +10265,6 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(callback_btn_cancelar_registro, pattern="^cancel_entry$"))
         app_bot.add_handler(CallbackQueryHandler(callback_btn_guardar_registro, pattern="^confirm_save$"))        
 
-        app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_(d_|mom_|reg_|borrar|salir)"))
         app_bot.add_handler(CallbackQueryHandler(callback_gestion_solicitud_medico, pattern="^medico_(aceptar|rechazar)_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_editar_perfil, pattern="^(edit_perfil_|set_ritmo_|set_ocup_|set_lang_)"))
 
