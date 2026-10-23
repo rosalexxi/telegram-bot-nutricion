@@ -3685,7 +3685,7 @@ def requiere_registro(func):
 #                INICIO                       14 FUNCIONES IA                                      INICIO
 # ======================================================================================================================================
 
-def analizar_foto_presion_con_ia(base64_image: str) -> dict:
+async def analizar_foto_presion_con_ia(base64_image: str) -> dict:
   prompt = (
       "Analiza esta imagen. ¿Es la pantalla de un tensiómetro digital que"
       " muestra valores de presión arterial? Si es así, extrae los valores"
@@ -3699,29 +3699,31 @@ def analizar_foto_presion_con_ia(base64_image: str) -> dict:
       "data": base64.b64decode(base64_image),
   }
 
+  configuracion_gen = {
+      "response_mime_type": "application/json",
+      "temperature": 0.0,
+  }
+
   # ----------------------------------------------------
   # INTENTO 1: Modelo Principal de Foto con reintento corto
   # ----------------------------------------------------
   for intento in range(1, 3):
     try:
       model = genai.GenerativeModel(MODELO_FOTO)
-      response = model.generate_content(
-          [prompt, imagen_data],
-          generation_config={
-              "response_mime_type": "application/json",
-              "temperature": 0.0,
-          },
+      response = await asyncio.to_thread(
+          model.generate_content, [prompt, imagen_data], generation_config=configuracion_gen
       )
-      resultado = json.loads(response.text)
-      if isinstance(resultado, dict):
-        return resultado
+      if response and response.text:
+        resultado = json.loads(response.text)
+        if isinstance(resultado, dict):
+          return resultado
     except Exception as e_prin:
       logger.warning(
           f"⚠️ Intento {intento} fallido con Modelo de Foto Principal"
           f" ({MODELO_FOTO}) para presión: {e_prin}"
       )
       if intento < 2:
-        time.sleep(1)
+        await asyncio.sleep(1)
 
   # ----------------------------------------------------
   # INTENTO 2: Modelo de Respaldo (Pro)
@@ -3732,16 +3734,13 @@ def analizar_foto_presion_con_ia(base64_image: str) -> dict:
         f" {MODELO_RESPALDO}"
     )
     model_respaldo = genai.GenerativeModel(MODELO_RESPALDO)
-    response_respaldo = model_respaldo.generate_content(
-        [prompt, imagen_data],
-        generation_config={
-            "response_mime_type": "application/json",
-            "temperature": 0.0,
-        },
+    response_respaldo = await asyncio.to_thread(
+        model_respaldo.generate_content, [prompt, imagen_data], generation_config=configuracion_gen
     )
-    resultado = json.loads(response_respaldo.text)
-    if isinstance(resultado, dict):
-      return resultado
+    if response_respaldo and response_respaldo.text:
+      resultado = json.loads(response_respaldo.text)
+      if isinstance(resultado, dict):
+        return resultado
   except Exception as e_respaldo:
     logger.warning(
         f"⚠️ Falla en modelo de respaldo para foto de presión"
@@ -3757,16 +3756,13 @@ def analizar_foto_presion_con_ia(base64_image: str) -> dict:
         f" {MODELO_FOTO_EMERGENCIA}"
     )
     model_emerg = genai.GenerativeModel(MODELO_FOTO_EMERGENCIA)
-    response_emerg = model_emerg.generate_content(
-        [prompt, imagen_data],
-        generation_config={
-            "response_mime_type": "application/json",
-            "temperature": 0.0,
-        },
+    response_emerg = await asyncio.to_thread(
+        model_emerg.generate_content, [prompt, imagen_data], generation_config=configuracion_gen
     )
-    resultado = json.loads(response_emerg.text)
-    if isinstance(resultado, dict):
-      return resultado
+    if response_emerg and response_emerg.text:
+      resultado = json.loads(response_emerg.text)
+      if isinstance(resultado, dict):
+        return resultado
   except Exception as e_emergencia:
     logger.error(
         f"❌ Error crítico en análisis de foto de presión: Todos los modelos"
@@ -3775,14 +3771,14 @@ def analizar_foto_presion_con_ia(base64_image: str) -> dict:
 
   return {"es_presion": False}
 
-def ejecutar_consulta_ia(
+async def ejecutar_consulta_ia(
     prompt: str,
     max_tokens: int = 1500,
     temperature: float = 0.4,
     system_prompt: str = None,
     modelo_override: str = None,
 ):
-  # Si pasaron un modelo específico a mano, lo respetamos. Si no, usamoS MODELO_TEXTO
+  # Si pasaron un modelo específico a mano, lo respetamos. Si no, usamos MODELO_TEXTO
   modelo_a_usar = modelo_override or MODELO_TEXTO
   configuracion_gen = {
       "temperature": temperature,
@@ -3797,8 +3793,10 @@ def ejecutar_consulta_ia(
       model = genai.GenerativeModel(
           modelo_a_usar, system_instruction=system_prompt
       )
-      response = model.generate_content(prompt, generation_config=configuracion_gen)
-      if response.text:
+      response = await asyncio.to_thread(
+          model.generate_content, prompt, generation_config=configuracion_gen
+      )
+      if response and response.text:
         return response.text.strip()
     except Exception as e_prin:
       logger.warning(
@@ -3806,10 +3804,9 @@ def ejecutar_consulta_ia(
           f" ({modelo_a_usar}): {e_prin}"
       )
       if intento < 2:
-        time.sleep(1)
+        await asyncio.sleep(1)
 
-  # Si se usó un modelo por override explícito y falló, no intentamos respaldos genéricos para no forzar algo que el usuario quería específicamente,
-  # a menos que prefieras que salte igual. Pero para el flujo normal, pasamos a los respaldos:
+  # Si no se usó override, pasamos a los respaldos:
   if not modelo_override:
     # ----------------------------------------------------
     # INTENTO 3: Modelo de Respaldo (Pro)
@@ -3819,10 +3816,10 @@ def ejecutar_consulta_ia(
       model_resp = genai.GenerativeModel(
           MODELO_RESPALDO, system_instruction=system_prompt
       )
-      response_resp = model_resp.generate_content(
-          prompt, generation_config=configuracion_gen
+      response_resp = await asyncio.to_thread(
+          model_resp.generate_content, prompt, generation_config=configuracion_gen
       )
-      if response_resp.text:
+      if response_resp and response_resp.text:
         return response_resp.text.strip()
     except Exception as e_resp:
       logger.warning(
@@ -3837,10 +3834,10 @@ def ejecutar_consulta_ia(
       model_emer = genai.GenerativeModel(
           MODELO_EMERGENCIA, system_instruction=system_prompt
       )
-      response_emer = model_emer.generate_content(
-          prompt, generation_config=configuracion_gen
+      response_emer = await asyncio.to_thread(
+          model_emer.generate_content, prompt, generation_config=configuracion_gen
       )
-      if response_emer.text:
+      if response_emer and response_emer.text:
         return response_emer.text.strip()
     except Exception as e_emer:
       logger.error(
@@ -3867,7 +3864,7 @@ def obtener_nombre_lenguaje_ia(user_id=None):
         logger.error(f"Error obteniendo lenguaje IA para {user_id}: {e}")
     return "Español"
     
-def analizar_con_ia(prompt_text, user_id=None):
+async def analizar_con_ia(prompt_text, user_id=None):
   nombre_lenguaje = obtener_idioma_usuario(user_id) or "es"
   ahora = obtener_ahora_arg()
   fecha_hoy = ahora.strftime("%Y-%m-%d")
@@ -3902,10 +3899,10 @@ def analizar_con_ia(prompt_text, user_id=None):
   for intento in range(1, 3):
     try:
       model = genai.GenerativeModel(MODELO_TEXTO, system_instruction=system_prompt)
-      response = model.generate_content(
-          prompt_text, generation_config=configuracion_gen
+      response = await asyncio.to_thread(
+          model.generate_content, prompt_text, generation_config=configuracion_gen
       )
-      if response.text:
+      if response and response.text:
         texto_limpio = (
             response.text.replace("```json", "").replace("```", "").strip()
         )
@@ -3916,7 +3913,7 @@ def analizar_con_ia(prompt_text, user_id=None):
           f" {e_prin}"
       )
       if intento < 2:
-        time.sleep(1)
+        await asyncio.sleep(1)
 
   # ----------------------------------------------------
   # INTENTO 2: Modelo de Respaldo (Pro)
@@ -3926,10 +3923,12 @@ def analizar_con_ia(prompt_text, user_id=None):
     model_respaldo = genai.GenerativeModel(
         MODELO_RESPALDO, system_instruction=system_prompt
     )
-    response_respaldo = model_respaldo.generate_content(
-        prompt_text, generation_config=configuracion_gen
+    response_respaldo = await asyncio.to_thread(
+        model_respaldo.generate_content,
+        prompt_text,
+        generation_config=configuracion_gen,
     )
-    if response_respaldo.text:
+    if response_respaldo and response_respaldo.text:
       texto_limpio = (
           response_respaldo.text.replace("```json", "")
           .replace("```", "")
@@ -3949,10 +3948,12 @@ def analizar_con_ia(prompt_text, user_id=None):
     model_emerg = genai.GenerativeModel(
         MODELO_EMERGENCIA, system_instruction=system_prompt
     )
-    response_emerg = model_emerg.generate_content(
-        prompt_text, generation_config=configuracion_gen
+    response_emerg = await asyncio.to_thread(
+        model_emerg.generate_content,
+        prompt_text,
+        generation_config=configuracion_gen,
     )
-    if response_emerg.text:
+    if response_emerg and response_emerg.text:
       texto_limpio = (
           response_emerg.text.replace("```json", "")
           .replace("```", "")
@@ -4012,7 +4013,7 @@ async def analizar_imagen_con_ia(base64_image: str, user_id=None):
           [prompt_usuario, imagen_data],
           generation_config=configuracion_gen,
       )
-      if response.text:
+      if response and response.text:
         texto_limpio = (
             response.text.replace("```json", "").replace("```", "").strip()
         )
@@ -4029,7 +4030,9 @@ async def analizar_imagen_con_ia(base64_image: str, user_id=None):
   # INTENTO 2: Modelo de Respaldo (Pro)
   # ----------------------------------------------------
   try:
-    logger.info(f"🔄 Activando respaldo Pro para análisis de imagen: {MODELO_RESPALDO}")
+    logger.info(
+        f"🔄 Activando respaldo Pro para análisis de imagen: {MODELO_RESPALDO}"
+    )
     model_resp = genai.GenerativeModel(
         MODELO_RESPALDO, system_instruction=system_prompt
     )
@@ -4038,7 +4041,7 @@ async def analizar_imagen_con_ia(base64_image: str, user_id=None):
         [prompt_usuario, imagen_data],
         generation_config=configuracion_gen,
     )
-    if response_resp.text:
+    if response_resp and response_resp.text:
       texto_limpio = (
           response_resp.text.replace("```json", "").replace("```", "").strip()
       )
@@ -4060,9 +4063,11 @@ async def analizar_imagen_con_ia(base64_image: str, user_id=None):
         MODELO_FOTO_EMERGENCIA, system_instruction=system_prompt
     )
     response_emerg = await asyncio.to_thread(
-        model_emerg.generate_content, [prompt_usuario, imagen_data]
+        model_emerg.generate_content,
+        [prompt_usuario, imagen_data],
+        generation_config=configuracion_gen,
     )
-    if response_emerg.text:
+    if response_emerg and response_emerg.text:
       texto_limpio = (
           response_emerg.text.replace("```json", "").replace("```", "").strip()
       )
