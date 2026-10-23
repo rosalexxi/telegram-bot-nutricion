@@ -3968,12 +3968,6 @@ def analizar_con_ia(prompt_text, user_id=None):
   # Respuesta de seguridad ante caída total
   return {"items": [], "tipo": "Rechazo"}
   
-import asyncio
-import base64
-import json
-import time
-
-
 async def analizar_imagen_con_ia(base64_image: str, user_id=None):
   nombre_lenguaje = obtener_idioma_usuario(user_id) or "es"
 
