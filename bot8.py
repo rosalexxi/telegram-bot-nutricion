@@ -87,18 +87,16 @@ ADMIN_USER_ID = "7363062724"  # Reemplazá esto por tu número de ID de Telegram
 # ==========================================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY, transport="rest")
+    genai.configure(api_key=GEMINI_API_KEY)
 
-# Modelo principal para texto, audios transcritos y análisis de fotos (comidas y códigos)
-MODELO_TEXTO = os.getenv("MODELO_TEXTO", "gemini-3.5-flash-lite")
-MODELO_FOTO = os.getenv("MODELO_FOTO", "gemini-3.8-flash")
-MODELO_AUDIO = os.getenv("MODELO_AUDIO", "gemini-3.8-flash")
 
-# Modelos de respaldo y emergencia estables
-MODELO_RESPALDO = os.getenv("MODELO_RESPALDO", "gemini-3.8-flash-lite")
-MODELO_EMERGENCIA = "gemini-3.8-live"
-MODELO_FOTO_EMERGENCIA = "gemini-2.0-flash"
+MODELO_TEXTO="gemini-3.1-flash-lite"
+MODELO_FOTO="gemini-3.5-flash-lite"
+MODELO_AUDIO="gemini-3.5-transcribe"
+MODELO_RESPALDO="gemini-3.8-flash"
 
+MODELO_EMERGENCIA = "gemini-3-flash-preview"
+MODELO_FOTO_EMERGENCIA = "gemini-3.1-pro-preview"
 
 # ==========================================
 # ÚNICA INSTANCIA DE FLASK PARA TODO EL BOT
@@ -3946,15 +3944,16 @@ async def analizar_imagen_con_ia(base64_image: str, user_id=None):
 
   system_prompt = (
       f"Sos un software analítico de composición nutricional y bromatología clínica. "
-      f"El usuario se comunica en su idioma ({nombre_lenguaje}). "
-      f"Tu tarea es realizar un análisis cuantitativo estricto y científico de la imagen provista.\n\n"
+      f"El usuario se comunica en ({nombre_lenguaje}).\n\n"
       f"DIRECTRICES DE PRECISIÓN CIENTÍFICA:\n"
-      f"1. Identifica con rigor los alimentos presentes. Si hay dudas sobre el ingrediente exacto, utiliza el estándar genérico más conservador de tablas de composición de alimentos (ej. USDA).\n"
-      f"2. Estima el peso en gramos (peso neto comestible) basándote en proporciones visuales estándar (por ejemplo, tamaño de plato raso de 23cm o cubiertos de referencia).\n"
-      f"3. REGLA MATEMÁTICA INQUEBRANTABLE DE MACROS: Las calorías deben derivarse estrictamente de la sumatoria energética: (Proteínas * 4) + (Carbohidratos * 4) + (Grasas * 9). No inventes valores inconexos.\n"
-      f"4. Si la imagen es un paisaje, animal, objeto ajeno a la alimentación, texto ilegible o escenario borroso donde no se puedan determinar alimentos, clasifica estrictamente como 'Rechazo' con 'items': [].\n\n"
-      f"Devolvé EXCLUSIVAMENTE un JSON con esta estructura exacta y sin texto adicional:\n"
-      '{"items": [{"alimento": "...", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}], "tipo": "Comida" o "Rechazo"}'
+      f"1. CERO INVENCIÓN: Identificá los alimentos con rigor absoluto basándote en tablas oficiales (ej. USDA). Estimá el peso en gramos usando proporciones visuales estándar. No inventes ingredientes ni infieras alimentos que no son claramente visibles.\n"
+      f"2. REGLA MATEMÁTICA ESTRICTA: La energía proviene exclusivamente de los macronutrientes. La fórmula obligatoria e inquebrantable es:\n"
+      f"   Calorías Totales = (Proteínas * 4) + (Carbohidratos * 4) + (Grasas * 9)\n"
+      f"3. VERIFICACIÓN DE COHERENCIA OBLIGATORIA: Antes de devolver la respuesta, debes realizar el cálculo matemático internamente. Si las proteínas, carbohidratos y grasas que estimaste no suman exactamente las calorías declaradas según la fórmula del punto 2, ajustá los valores en silencio hasta que la ecuación sea matemáticamente perfecta.\n"
+      f"4. FIBRAS: Recordá que la fibra dietaria no suma 4 kcal adicionales si ya la incluiste dentro de los carbohidratos totales.\n"
+      f"5. RECHAZO: Si la imagen es un paisaje, animal, u objeto ajeno a la alimentación, clasifica como 'Rechazo' con 'items': [].\n\n"
+      f"Devolvé EXCLUSIVAMENTE un JSON con esta estructura exacta y sin formato Markdown (sin ```json):\n"
+      '{"items": [{"alimento": "...", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}], "tipo": "Comida"}'
   )
 
   imagen_data = {
@@ -5811,7 +5810,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
       if img is not None:
         h, w = img.shape[:2]
-        max_dim = 2048
+        max_dim = 1024
         if max(h, w) > max_dim:
           scale = max_dim / float(max(h, w))
           new_w = int(w * scale)
