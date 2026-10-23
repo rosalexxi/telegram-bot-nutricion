@@ -1,7 +1,44 @@
+
+#                                 INICIO                                   CABECERA 2026 09 05                                    INICIO
+#                                  https://github.com/rosalexxi/telegram-bot-nutricion
+#                                  https://dashboard.render.com/web/srv-d9lcifijnfac73a8q1eg/events
+#                                  https://supabase.com/dashboard/project/xsheilmjewqcvhmyqlnx/editor/17944?schema=public
+#                                  https://dashboard.uptimerobot.com/monitors
+#                                  https://ttsmaker.com/
+# ==============================================================================================================================================
+
+import glob
+import os
+import re
+import io
+import json
+import base64
+import threading
+import inspect
+import logging
+import unicodedata
+import asyncio
+import psycopg2  
+import sys
+import pytz
+import pandas as pd
+import gspread
+import html  
+import cv2
+import numpy as np
+import requests
+import math
+import urllib.request
+import urllib.parse
+import calendar
+import subprocess
 import time as time_mod
+
 from typing import Dict, Tuple, List, Optional, Any            
 from urllib.parse import urlparse 
 from datetime import datetime, date, timedelta, time
+from google.oauth2.service_account import Credentials
+from groq import Groq
 from dateutil.relativedelta import relativedelta
 from flask import Flask, request, jsonify, render_template_string, send_from_directory, url_for
 from functools import wraps
