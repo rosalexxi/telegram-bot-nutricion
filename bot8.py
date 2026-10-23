@@ -91,8 +91,8 @@ if GEMINI_API_KEY:
 
 
 MODELO_TEXTO="gemini-3.1-flash-lite"
-MODELO_FOTO="gemini-3.5-flash-lite"
-MODELO_AUDIO="gemini-3.5-transcribe"
+MODELO_FOTO="gemini-3.1-flash-lite"
+MODELO_AUDIO="gemini-3.1-flash-lite"
 MODELO_RESPALDO="gemini-3.8-flash"
 
 MODELO_EMERGENCIA = "gemini-3-flash-preview"
