@@ -96,7 +96,7 @@ MODELO_FOTO = "gemini-3.8-flash"
 MODELO_AUDIO = "gemini-3.1-flash-lite"
 MODELO_RESPALDO = "gemini-3.8-flash"
 MODELO_EMERGENCIA = "gemini-3-flash-preview"
-MODELO_FOTO_EMERGENCIA = "gemini-3.1-pro-preview"
+MODELO_FOTO_EMERGENCIA = "gemini-3.1-flash-lite"
 
 # ==========================================
 # ÚNICA INSTANCIA DE FLASK PARA TODO EL BOT
@@ -3711,7 +3711,7 @@ async def analizar_con_ia(prompt_text, user_id=None, msg_obj=None):
 
     try:
         model = genai.GenerativeModel(MODELO_TEXTO, system_instruction=system_prompt)
-        response = await model.generate_content_async(prompt_text, generation_config=configuracion_gen)
+        response = await asyncio.to_thread(model.generate_content, prompt_text, generation_config=configuracion_gen)
         texto_limpio = response.text.replace("```json", "").replace("```", "").strip()
         return json.loads(texto_limpio)
         
@@ -3723,7 +3723,7 @@ async def analizar_con_ia(prompt_text, user_id=None, msg_obj=None):
         
         try:
             model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=system_prompt)
-            response_resp = await model_resp.generate_content_async(prompt_text, generation_config=configuracion_gen)
+            response_resp = await asyncio.to_thread(model_resp.generate_content, prompt_text, generation_config=configuracion_gen)
             texto_limpio = response_resp.text.replace("```json", "").replace("```", "").strip()
             return json.loads(texto_limpio)
             
@@ -3735,7 +3735,7 @@ async def analizar_con_ia(prompt_text, user_id=None, msg_obj=None):
             
             try:
                 model_emer = genai.GenerativeModel(MODELO_EMERGENCIA, system_instruction=system_prompt)
-                response_emer = await model_emer.generate_content_async(prompt_text, generation_config=configuracion_gen)
+                response_emer = await asyncio.to_thread(model_emer.generate_content, prompt_text, generation_config=configuracion_gen)
                 texto_limpio = response_emer.text.replace("```json", "").replace("```", "").strip()
                 return json.loads(texto_limpio)
                 
@@ -3766,7 +3766,7 @@ async def analizar_imagen_con_ia(base64_image: str, user_id=None, msg_obj=None):
 
     try:
         model = genai.GenerativeModel(MODELO_FOTO, system_instruction=system_prompt)
-        response = await model.generate_content_async([prompt_usuario, imagen_data], generation_config=configuracion_gen)
+        response = await asyncio.to_thread(model.generate_content, [prompt_usuario, imagen_data], generation_config=configuracion_gen)
         texto_limpio = response.text.replace("```json", "").replace("```", "").strip()
         return json.loads(texto_limpio)
         
@@ -3778,7 +3778,7 @@ async def analizar_imagen_con_ia(base64_image: str, user_id=None, msg_obj=None):
         
         try:
             model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=system_prompt)
-            response_resp = await model_resp.generate_content_async([prompt_usuario, imagen_data], generation_config=configuracion_gen)
+            response_resp = await asyncio.to_thread(model_resp.generate_content, [prompt_usuario, imagen_data], generation_config=configuracion_gen)
             texto_limpio = response_resp.text.replace("```json", "").replace("```", "").strip()
             return json.loads(texto_limpio)
             
@@ -3790,7 +3790,7 @@ async def analizar_imagen_con_ia(base64_image: str, user_id=None, msg_obj=None):
             
             try:
                 model_emerg = genai.GenerativeModel(MODELO_FOTO_EMERGENCIA, system_instruction=system_prompt)
-                response_emerg = await model_emerg.generate_content_async([prompt_usuario, imagen_data], generation_config=configuracion_gen)
+                response_emerg = await asyncio.to_thread(model_emerg.generate_content, [prompt_usuario, imagen_data], generation_config=configuracion_gen)
                 texto_limpio = response_emerg.text.replace("```json", "").replace("```", "").strip()
                 return json.loads(texto_limpio)
                 
@@ -5519,7 +5519,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         try:
             model = genai.GenerativeModel(MODELO_AUDIO, system_instruction=system_prompt)
-            resp = await model.generate_content_async(payload_ia, generation_config=configuracion_gen)
+            resp = await asyncio.to_thread(model.generate_content, payload_ia, generation_config=configuracion_gen)
             data = json.loads(resp.text.replace("```json", "").replace("```", "").strip())
         except Exception as e_prin:
             logger.warning(f"⚠️ Falla Principal Audio ({MODELO_AUDIO}): {e_prin}. Pasando a Respaldo...")
@@ -5528,7 +5528,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             try:
                 model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=system_prompt)
-                resp_resp = await model_resp.generate_content_async(payload_ia, generation_config=configuracion_gen)
+                resp_resp = await asyncio.to_thread(model_resp.generate_content, payload_ia, generation_config=configuracion_gen)
                 data = json.loads(resp_resp.text.replace("```json", "").replace("```", "").strip())
             except Exception as e_resp:
                 logger.warning(f"⚠️ Falla Respaldo Audio ({MODELO_RESPALDO}): {e_resp}. Pasando a Emergencia...")
@@ -5537,7 +5537,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 try:
                     model_emer = genai.GenerativeModel(MODELO_EMERGENCIA, system_instruction=system_prompt)
-                    resp_emer = await model_emer.generate_content_async(payload_ia, generation_config=configuracion_gen)
+                    resp_emer = await asyncio.to_thread(model_emer.generate_content, payload_ia, generation_config=configuracion_gen)
                     data = json.loads(resp_emer.text.replace("```json", "").replace("```", "").strip())
                 except Exception as e_emer:
                     logger.error(f"❌ Fallaron todos los modelos de audio: {e_emer}")
