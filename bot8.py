@@ -90,13 +90,13 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY, transport="rest")
     
-    
+    gemini-gemini-3.1-flash-lite
 MODELO_TEXTO = "gemini-3.1-flash-lite"
-MODELO_FOTO = "gemini-gemini-3.1-flash-lite"  
+MODELO_FOTO = "gemini-3.8-flash"  
 MODELO_AUDIO = "gemini-3.1-flash-lite"
-MODELO_RESPALDO = "gemini-3.8-flash"
-MODELO_EMERGENCIA = "gemini-3-flash-preview"
-MODELO_FOTO_EMERGENCIA = "gemini-3.1-flash-lite"
+MODELO_RESPALDO = "gemini-3-flash-preview"
+MODELO_EMERGENCIA = "gemini-3.5-flash-lite"
+MODELO_FOTO_EMERGENCIA = "gemini-3.5-flash-lite"
 
 # ==========================================
 # ÚNICA INSTANCIA DE FLASK PARA TODO EL BOT
@@ -3795,9 +3795,7 @@ async def analizar_imagen_con_ia(base64_image: str, user_id=None, msg_obj=None):
         
     except Exception as e_prin:
         logger.warning(f"⚠️ Falla Principal Foto ({MODELO_FOTO}): {e_prin}. Pasando a Respaldo...")
-        if msg_obj:
-            try: await msg_obj.edit_text("⚠️ Analizador visual principal ocupado. Cambiando a servidor de respaldo...")
-            except Exception: pass
+        # Eliminamos el msg_obj.edit_text para que no interrumpa la animación visual del usuario
         
         try:
             model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=system_prompt)
@@ -3807,9 +3805,7 @@ async def analizar_imagen_con_ia(base64_image: str, user_id=None, msg_obj=None):
             
         except Exception as e_resp:
             logger.warning(f"⚠️ Falla Respaldo Foto ({MODELO_RESPALDO}): {e_resp}. Pasando a Emergencia...")
-            if msg_obj:
-                try: await msg_obj.edit_text("⚠️ Reintentando conexión con servidor visual de emergencia...")
-                except Exception: pass
+            # Eliminamos el msg_obj.edit_text acá también
             
             try:
                 model_emerg = genai.GenerativeModel(MODELO_FOTO_EMERGENCIA, system_instruction=system_prompt)
@@ -5441,6 +5437,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     traducciones = obtener_traducciones_db(lang) or {}
 
     txt_analizando_img = traducciones.get("07_bot_analizando_imagen", "📸 Analizando imagen...")
+    # Este es el ÚNICO mensaje inicial estático que verá el usuario
     msg = await update.message.reply_text(txt_analizando_img)
 
     try:
@@ -5457,13 +5454,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # COMPRESIÓN MEJORADA (MÁS AGRESIVA) PARA IA
         if img is not None:
             h, w = img.shape[:2]
-            # ACHICAMOS EL TAMAÑO MÁXIMO DE 1280 a 800 para acelerar la subida
             max_dim = 800
             if max(h, w) > max_dim:
                 scale = max_dim / float(max(h, w))
                 img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
             
-            # BAJAMOS LA CALIDAD JPEG DE 85 a 70
             success, encoded_img = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
             photo_bytes_comprimidos = encoded_img.tobytes() if success else photo_bytes_originales
         else:
@@ -5484,9 +5479,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try: await msg.edit_text(traducciones.get("07_bot_error_barra_ilegible", "⚠️ No se pudieron leer los números del código de barras. Por favor, ingresalo como texto."))
                 except Exception: pass
                 return
-
-        try: await msg.edit_text(traducciones.get('06_bot_analizando_plato', "🤖 Analizando imagen con Inteligencia Artificial..."))
-        except Exception: pass
         
         # 1. ARRANCAMOS EL MOTOR DE ANIMACIÓN EN PARALELO
         tarea_animacion = asyncio.create_task(animar_carga(msg))        
@@ -5496,6 +5488,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         finally:
             # 3. APENAS TERMINA LA IA, APAGAMOS LA ANIMACIÓN SÍ O SÍ
             tarea_animacion.cancel()
+            
         tipo = str(data.get("tipo", "")).strip().upper()
 
         if tipo == "ERROR_IA":
@@ -5516,7 +5509,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning(f"⚠️ Falla crítica procesando imagen para usuario {user_id}: {e}")
         try: await msg.edit_text(traducciones.get("07_bot_error_timeout_foto", "⚠️ **Error al procesar la imagen.** Por favor, ingresá los datos por texto o voz."), parse_mode="Markdown")
         except Exception: pass
-
+        
 @requiere_registro
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
