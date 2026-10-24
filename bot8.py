@@ -90,7 +90,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY, transport="rest")
     
-    gemini-gemini-3.1-flash-lite
 MODELO_TEXTO = "gemini-3.1-flash-lite"
 MODELO_FOTO = "gemini-3.8-flash"  
 MODELO_AUDIO = "gemini-3.1-flash-lite"
