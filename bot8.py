@@ -92,7 +92,7 @@ if GEMINI_API_KEY:
     
     
 MODELO_TEXTO = "gemini-3.1-flash-lite"
-MODELO_FOTO = "gemini-gemini-3.5-flash-lite"  
+MODELO_FOTO = "gemini-gemini-3.1-flash-lite"  
 MODELO_AUDIO = "gemini-3.1-flash-lite"
 MODELO_RESPALDO = "gemini-3.8-flash"
 MODELO_EMERGENCIA = "gemini-3-flash-preview"
@@ -2971,6 +2971,29 @@ async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #              INICIO                             FUNCIONES DE PARSING Y FECHAS                  INICIO
 # =============================================================================================================================================
 
+async def animar_carga(msg_obj):
+    textos = [
+        "🔍 Identificando ingredientes y porciones en la imagen...",
+        "⚖️ Separando proteínas, carbohidratos y grasas...",
+        "🧮 Ajustando cálculos matemáticos de calorías...",
+        "⚙️ Generando el informe nutricional...",
+        "📝 Ya casi lo tenemos..."
+    ]
+    i = 0
+    try:
+        while True:
+            # Espera 8 segundos entre cada mensaje
+            await asyncio.sleep(8)
+            try:
+                await msg_obj.edit_text(textos[i])
+            except Exception:
+                pass # Si Telegram chilla por la red, pasa al siguiente
+            # Avanza al siguiente texto (y vuelve a empezar si se acaban)
+            i = (i + 1) % len(textos)
+    except asyncio.CancelledError:
+        # Esto se ejecuta silenciosamente cuando frenamos la animación
+        pass
+
 def es_administrador(user_id) -> bool:
     """Verifica si el ID de usuario corresponde al administrador."""
     if not ADMIN_USER_ID:
@@ -5465,8 +5488,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: await msg.edit_text(traducciones.get('06_bot_analizando_plato', "🤖 Analizando imagen con Inteligencia Artificial..."))
         except Exception: pass
         
-        # SIN RELOJES DE ESPERA
-        data = await analizar_imagen_con_ia(base64_image, user_id, msg_obj=msg)
+        # 1. ARRANCAMOS EL MOTOR DE ANIMACIÓN EN PARALELO
+        tarea_animacion = asyncio.create_task(animar_carga(msg))        
+        try:
+            # 2. LA IA TRABAJA MIENTRAS LA ANIMACIÓN GIRA
+            data = await analizar_imagen_con_ia(base64_image, user_id, msg_obj=msg)
+        finally:
+            # 3. APENAS TERMINA LA IA, APAGAMOS LA ANIMACIÓN SÍ O SÍ
+            tarea_animacion.cancel()
         tipo = str(data.get("tipo", "")).strip().upper()
 
         if tipo == "ERROR_IA":
