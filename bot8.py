@@ -92,7 +92,7 @@ if GEMINI_API_KEY:
     
     
 MODELO_TEXTO = "gemini-3.1-flash-lite"
-MODELO_FOTO = "gemini-3.8-flash"  
+MODELO_FOTO = "gemini-gemini-3.5-flash-lite"  
 MODELO_AUDIO = "gemini-3.1-flash-lite"
 MODELO_RESPALDO = "gemini-3.8-flash"
 MODELO_EMERGENCIA = "gemini-3-flash-preview"
@@ -5431,15 +5431,17 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             retval, points = detector.detect(img)
             if retval: tiene_codigo_local = True
 
-        # COMPRESIÓN MEJORADA PARA IA
+        # COMPRESIÓN MEJORADA (MÁS AGRESIVA) PARA IA
         if img is not None:
             h, w = img.shape[:2]
-            max_dim = 1280
+            # ACHICAMOS EL TAMAÑO MÁXIMO DE 1280 a 800 para acelerar la subida
+            max_dim = 800
             if max(h, w) > max_dim:
                 scale = max_dim / float(max(h, w))
                 img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
             
-            success, encoded_img = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+            # BAJAMOS LA CALIDAD JPEG DE 85 a 70
+            success, encoded_img = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
             photo_bytes_comprimidos = encoded_img.tobytes() if success else photo_bytes_originales
         else:
             photo_bytes_comprimidos = photo_bytes_originales
@@ -5485,7 +5487,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning(f"⚠️ Falla crítica procesando imagen para usuario {user_id}: {e}")
         try: await msg.edit_text(traducciones.get("07_bot_error_timeout_foto", "⚠️ **Error al procesar la imagen.** Por favor, ingresá los datos por texto o voz."), parse_mode="Markdown")
         except Exception: pass
-        
+
 @requiere_registro
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
