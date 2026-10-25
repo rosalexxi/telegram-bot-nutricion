@@ -131,28 +131,17 @@ HTML_CALCULADORA_RECETAS = """
         }
         
         html, body { 
-            min-height: 100dvh; 
-            margin: 0; 
-            padding: 0; 
+            min-height: 100dvh; margin: 0; padding: 0; 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            color: var(--text-color); 
-            display: flex;
-            flex-direction: column;
-            background-size: cover;
-            background-position: center;
-            background-attachment: fixed;
-            background-blend-mode: overlay;
-            background-color: rgba(244, 246, 249, 0.85);
+            color: var(--text-color); display: flex; flex-direction: column;
+            background-size: cover; background-position: center; background-attachment: fixed;
+            background-blend-mode: overlay; background-color: rgba(244, 246, 249, 0.85);
             transition: background-image 1.5s ease-in-out;
         }
         
         header { 
-            background: rgba(255, 255, 255, 0.95); 
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1); 
-            position: sticky;
-            top: 0;
-            z-index: 1000; 
-            padding: 10px 15px;
+            background: rgba(255, 255, 255, 0.95); box-shadow: 0 2px 8px rgba(0,0,0,0.1); 
+            position: sticky; top: 0; z-index: 1000; padding: 10px 15px;
         }
         
         .nav-container { max-width: 1100px; margin: auto; display: flex; flex-direction: column; gap: 8px; }
@@ -246,6 +235,21 @@ HTML_CALCULADORA_RECETAS = """
         .footer-link:hover { background: rgba(255,255,255,0.25); transform: translateY(-2px) scale(1.08); }
         .footer-icon-img { width: 38px; height: 38px; object-fit: contain; display: block; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); }
         .footer-info { opacity: 0.85; font-size: 0.75rem; text-align: left; margin-top: 5px; }
+       
+        @media (max-width: 500px) {
+            .footer-links { 
+                gap: 4px; /* Reduce el espacio entre logos */
+                justify-content: center; 
+            }
+            .footer-link { 
+                padding: 4px; /* Reduce el cuadro transparente de fondo */
+            }
+            .footer-icon-img { 
+                width: 24px;  /* Achica el logo visualmente */
+                height: 24px; 
+            }
+        }        
+    
     </style>
 </head>
 <body>
@@ -265,7 +269,7 @@ HTML_CALCULADORA_RECETAS = """
         <div class="nav-row-2" id="nav-links">
             <a id="nav-inicio" onclick="showSection('inicio')" class="active" data-var="_02_menu_inicio">Inicio</a>
             <a id="nav-ingreso" onclick="showSection('ingreso')" data-var="_02_menu_ingreso">Ingreso</a>
-            <a id="nav-salud" onclick="showSection('salud')" data-var="_02_menu_salud">Salud</a>
+            <a id="nav-salud" onclick="showSection('salud')" data-var="_02_menu_salud">Salud y Perfil</a>
             <a id="nav-informes" onclick="showSection('informes')" data-var="_02_menu_informes">Informes</a>
             <a id="nav-calculadora_info" onclick="showSection('calculadora_info')" data-var="_02_menu_calculadora_info">Precargadas</a>
             <a id="nav-alta" onclick="showSection('alta')" data-var="_02_menu_alta">Alta</a>
@@ -288,11 +292,11 @@ HTML_CALCULADORA_RECETAS = """
             <h2 class="page-title"><b data-var="_02_inicio_tit">BIENVENIDO A IA NUTRIBOT</b></h2>
             <h4 class="page-subtitle" data-var="_02_inicio_sub">La forma más simple, rápida y segura de llevar el control de tu alimentación.</h4>
             <hr class="page-divider">
-            <p class="page-bullet" data-var="_02_inicio_b1"></p>
-            <p class="page-bullet" data-var="_02_inicio_b2"></p>
-            <p class="page-bullet" data-var="_02_inicio_b3"></p>
-            <p class="page-bullet" data-var="_02_inicio_b4"></p>
-            <p class="page-bullet" data-var="_02_inicio_b5"></p>
+            <p class="page-bullet" data-var="_02_inicio_b1">⭐ <b>Facilidad total:</b> Olvidate de instalar apps con permisos para acceder a tus datos personales. IA NutriBot funciona 100% dentro de tu Telegram. No necesitas descargar ni instalar ninguna aplicación extra.</p>
+            <p class="page-bullet" data-var="_02_inicio_b2">⭐ <b>Privacidad y rapidez:</b> Es totalmente anónimo. No te pedimos registros, ni contraseñas para que puedas ingresar. Te das de alta unicamente con tus datos biometricos. Tus datos están completamente seguros.</p>
+            <p class="page-bullet" data-var="_02_inicio_b3">⭐ <b>Carga inteligente:</b> Olvídate de buscar ingredientes a mano. Para ingresar tus comidas solo necesitas enviar foto, audio o texto. IA NutriBot se encarga del resto calcula calorias, fibras, hidratos, grasas, etc.</p>
+            <p class="page-bullet" data-var="_02_inicio_b4">⭐ <b>Registro automático:</b> Toda tu información se guarda de forma segura en una base de datos para llevar tu historial sin que tengas que anotar nada.</p>
+            <p class="page-bullet" data-var="_02_inicio_b5">⭐ <b>Evolución constante:</b> Genera informes automáticos semanales y 2 veces por mes el resumen mensual con la estimación de variación de peso que vas a recibir directamente en tu Telegram.</p>
             <h3 class="page-footer" data-var="_02_inicio_foot">¡Nunca fue tan fácil llevar tu control nutricional!</h3>
         </div>
     </div>
@@ -301,15 +305,15 @@ HTML_CALCULADORA_RECETAS = """
     <div id="section-ingreso" class="section-content">
         <div class="content-box">
             <h2 class="page-title"><b data-var="_02_ingreso_tit">INGRESO DE COMIDAS</b></h2>
-            <h4 class="page-subtitle" data-var="_02_ingreso_sub">Todas las opciones para registrar tu alimentación...</h4>
+            <h4 class="page-subtitle" data-var="_02_ingreso_sub">Todas las opciones para registrar tu alimentación de manera fácil, rápida y a tu medida.</h4>
             <hr class="page-divider">
-            <p class="page-bullet" data-var="_02_ingreso_b1"></p>
-            <p class="page-bullet" data-var="_02_ingreso_b2"></p>
-            <p class="page-bullet" data-var="_02_ingreso_b3"></p>
-            <p class="page-bullet" data-var="_02_ingreso_b4"></p>
-            <p class="page-bullet" data-var="_02_ingreso_b5"></p>
-            <p class="page-bullet" data-var="_02_ingreso_b6"></p>
-            <p class="page-bullet" data-var="_02_ingreso_b7"></p>
+            <p class="page-bullet" data-var="_02_ingreso_b1">⭐ <b>Por Foto:</b> Solo envía una imagen de tu celu o una foto de tu plato y la Inteligencia Artificial hará el cálculo.</p>
+            <p class="page-bullet" data-var="_02_ingreso_b2">⭐ <b>Por Audio:</b> Háblale coloquialmente a IA NutriBot, la inteligencia artificial te va a entender y extraer los valores de tus comidas. Por ejemplo decile "Café con leche con 2 medialunas" ¡El bot lo procesa al instante!</p>
+            <p class="page-bullet" data-var="_02_ingreso_b3">⭐ <b>Por Texto:</b> Simplemente escribe contando qué comiste. El bot te va a presentar un menú interactivo para confirmar, modificar y seleccionar la fecha y el momento de la ingesta.</p>
+            <p class="page-bullet" data-var="_02_ingreso_b4">⭐ <b>Por Código de Barras:</b> Le podes enviar una foto del código del producto que vas a consumir. IA NutriBot calculará automáticamente sus valores nutricionales y te los presenta en pantalla en fracciones de a 100 gramos editables.</p>
+            <p class="page-bullet" data-var="_02_ingreso_b5">⭐ <b>Con Planilla Precargada:</b> Si buscas exactitud en tus calculos nutricionales tenes a tu disposición la calculadora de recetas para calcular los valores exactos ingresando los ingredientes de una comida, y cargarla en tu planilla personalizada.</p>
+            <p class="page-bullet" data-var="_02_ingreso_b6">⭐ <b>Totalmente Editable:</b> ¿Necesitas hacer un ajuste? Cualquier registro que hagas es 100% editable, tanto en la descripción del alimento como en su peso o cantidad.</p>
+            <p class="page-bullet" data-var="_02_ingreso_b7">⭐ <b>Corrección de errores:</b> Si por error cargaste mal una comida el sistema te permite mediante un menu interactivo solucionar el error!</p>
             <h3 class="page-footer" data-var="_02_ingreso_foot">¡Empieza ahora mismo enviando tu primera comida!</h3>
         </div>
     </div>
@@ -318,12 +322,12 @@ HTML_CALCULADORA_RECETAS = """
     <div id="section-salud" class="section-content">
         <div class="content-box">
             <h2 class="page-title"><b data-var="_02_salud_tit">SALUD, ACTIVIDAD Y PERFIL</b></h2>
-            <h4 class="page-subtitle" data-var="_02_salud_sub">Lleva un registro integral...</h4>
+            <h4 class="page-subtitle" data-var="_02_salud_sub">Lleva un registro integral de tu bienestar y mantén tus datos siempre al día.</h4>
             <hr class="page-divider">
-            <p class="page-bullet" data-var="_02_salud_b1"></p>
-            <p class="page-bullet" data-var="_02_salud_b2"></p>
-            <p class="page-bullet" data-var="_02_salud_b3"></p>
-            <p class="page-bullet" data-var="_02_salud_b4"></p>
+            <p class="page-bullet" data-var="_02_salud_b1">⭐ <b>Presión Arterial:</b> Registra tus mediciones escribiendo los valores manualmente o, de forma mucho más directa, enviando una foto de tu tensiómetro digital. ¡La IA leerá los números automáticamente!</p>
+            <p class="page-bullet" data-var="_02_salud_b2">⭐ <b>Actividades Físicas:</b> Olvídate de estructuras y comandos fijos. Solo manda un mensaje de texto o audio contándole qué ejercicio hiciste y por cuánto tiempo. Ia NutrBot lo interpretará y calculará tu gasto calórico al instante teniendo en cuenta tus datos biometricos y se incorporan a tu base de datos.</p>
+            <p class="page-bullet" data-var="_02_salud_b3">⭐ <b>Valores Biométricos:</b> Tu cuerpo cambia y tus datos también. Puedes actualizar tu peso, medidas y cualquier otro parámetro utilizando el menú interactivo.</p>
+            <p class="page-bullet" data-var="_02_salud_b4">⭐ <b>Seguimiento profesional:</b> Ingresando el ID de tu medico, va a poder realizar el seguimiento de tu evolucion al instante.</p>
             <h3 class="page-footer" data-var="_02_salud_foot">¡El control de tu salud ahora la tendrás en la palma de tu mano!</h3>
         </div>
     </div>
@@ -332,14 +336,14 @@ HTML_CALCULADORA_RECETAS = """
     <div id="section-informes" class="section-content">
         <div class="content-box">
             <h2 class="page-title"><b data-var="_02_info_tit">INFORMES, ESTADÍSTICAS Y CONTROL</b></h2>
-            <h4 class="page-subtitle" data-var="_02_info_sub">Visualiza tu progreso...</h4>
+            <h4 class="page-subtitle" data-var="_02_info_sub">Visualiza tu progreso con resúmenes detallados y mantén tu registro siempre al día.</h4>
             <hr class="page-divider">
-            <p class="page-bullet" data-var="_02_info_b1"></p>
-            <p class="page-bullet" data-var="_02_info_b2"></p>
-            <p class="page-bullet" data-var="_02_info_b3"></p>
-            <p class="page-bullet" data-var="_02_info_b4"></p>
-            <p class="page-bullet" data-var="_02_info_b5"></p>
-            <p class="page-bullet" data-var="_02_info_b6"></p>
+            <p class="page-bullet" data-var="_02_info_b1">⭐ <b>Historial Seguro:</b> El bot acumula y guarda automáticamente todos tus datos, creando un historial completo sin que tengas que anotar nada.</p>
+            <p class="page-bullet" data-var="_02_info_b2">⭐ <b>Control de Ingestas Faltantes:</b> Si te olvidas de cargar alguna de las cuatro comidas principales, no hay problema. El bot realiza un relevamiento automático dos veces al día sobre tus últimas 48 horas y te avisa para que mantengas tu registro completo.</p>
+            <p class="page-bullet" data-var="_02_info_b3">⭐ <b>Informes Automáticos:</b> Sin que tengas que pedirlo, el sistema te enviará periódicamente tu resumen de evolución: dos informes mensuales y un informe semanal los dias martes.</p>
+            <p class="page-bullet" data-var="_02_info_b4">⭐ <b>Descargas Manuales a Demanda:</b> ¿Quieres ver tus números en este instante? Puedes solicitar y descargar tus estadísticas de comidas en cualquier momento, eligiendo el formato diario, semanal o mensual.</p>
+            <p class="page-bullet" data-var="_02_info_b5">⭐ <b>Consultas Naturales:</b> Puedes preguntarle a la IA en cualquier momento como si fuera un amigo. Manda un audio diciendo "¿Qué comí hoy?" o "¿Qué cené el 15 de agosto?" y el bot buscará en tu historial al instante.</p>
+            <p class="page-bullet" data-var="_02_info_b6">⭐ <b>Resumen de Presión Arterial:</b> También tienes la opción de acceder de forma manual al reporte mensual de todas tus mediciones de presión, ideal para compartirlo con tu médico.</p>
             <h3 class="page-footer" data-var="_02_info_foot">¡Toda tu evolución nutricional la recibís en tu Telegram en PDF!</h3>
         </div>
     </div>
@@ -348,12 +352,12 @@ HTML_CALCULADORA_RECETAS = """
     <div id="section-calculadora_info" class="section-content">
         <div class="content-box">
             <h2 class="page-title"><b data-var="_02_pre_tit">COMIDAS PRECARGADAS Y CALCULADORA WEB</b></h2>
-            <h4 class="page-subtitle" data-var="_02_pre_sub">Guarda tus recetas favoritas...</h4>
+            <h4 class="page-subtitle" data-var="_02_pre_sub">Guarda tus recetas favoritas y agiliza tus registros diarios con nuestras herramientas avanzadas.</h4>
             <hr class="page-divider">
-            <p class="page-bullet" data-var="_02_pre_b1"></p>
-            <p class="page-bullet" data-var="_02_pre_b2"></p>
-            <p class="page-bullet" data-var="_02_pre_b3"></p>
-            <p class="page-bullet" data-var="_02_pre_b4"></p>
+            <p class="page-bullet" data-var="_02_pre_b1">⭐ <b>Calculadora Nutricional Web:</b> Accede a nuestro módulo web interactivo exclusivo para registrar tus propias recetas caseras (como una pizza o una torta) o tus combinaciones de alimentos habituales.</p>
+            <p class="page-bullet" data-var="_02_pre_b2">⭐ <b>Cálculo Inteligente por Porciones:</b> Desde la calculadora, ingresas todos los ingredientes de tu preparación y le indicas si quieres dividirla por porciones o por fracciones de 100 gramos. IA NutriBot desglosará automáticamente las calorías y macronutrientes.</p>
+            <p class="page-bullet" data-var="_02_pre_b3">⭐ <b>Guardado Directo:</b> Una vez que la calculadora te muestra el desglose, puedes confirmar los valores y guardarlos directamente en tu planilla personal con un código único. ¡Así de fácil quedará indexada para usarla siempre que quieras!</p>
+            <p class="page-bullet" data-var="_02_pre_b4">⭐ <b>Comidas Precargadas:</b> Si ya tienes una receta o combinación guardada en tu base de datos (por ejemplo, tu desayuno habitual), puedes registrarla rápidamente. Solo envíale al bot un asterisco (*) seguido del código de la comida y la cantidad. Luego, podrás confirmar o modificar el momento, el día y las porciones.</p>
             <h3 class="page-footer" data-var="_02_pre_foot">¡Exactitud y rapidez para tu salud!</h3>
         </div>
     </div>
@@ -362,12 +366,12 @@ HTML_CALCULADORA_RECETAS = """
     <div id="section-alta" class="section-content">
         <div class="content-box">
             <h2 class="page-title"><b data-var="_02_alta_tit">ALTA DE USUARIO Y PERFIL BIOMÉTRICO</b></h2>
-            <h4 class="page-subtitle" data-var="_02_alta_sub">Un proceso rapidísimo...</h4>
+            <h4 class="page-subtitle" data-var="_02_alta_sub">Un proceso rapidísimo, 100% anónimo y diseñado exclusivamente para la exactitud de tus resultados.</h4>
             <hr class="page-divider">
-            <p class="page-bullet" data-var="_02_alta_b1"></p>
-            <p class="page-bullet" data-var="_02_alta_b2"></p>
-            <p class="page-bullet" data-var="_02_alta_b3"></p>
-            <p class="page-bullet" data-var="_02_alta_b4"></p>
+            <p class="page-bullet" data-var="_02_alta_b1">⭐ <b>Privacidad Total:</b> No te pedimos documento, ni correo electrónico, ni tarjetas de crédito, ni ningún dato personal sensible. Solo necesitas ingresar un nombre para tu ficha, ¡pero puedes usar un apodo o simplemente poner dos letras si lo prefieres!</p>
+            <p class="page-bullet" data-var="_02_alta_b2">⭐ <b>Datos Estrictamente Biométricos:</b> Las medidas corporales que te solicitamos en el alta (como tu altura, peso, perímetro de cintura y cuello) son esenciales únicamente para comprender tu contextura física real y garantizar la exactitud de tu plan.</p>
+            <p class="page-bullet" data-var="_02_alta_b3">⭐ <b>Cálculos de Precisión:</b> Para procesar tus requerimientos utilizamos fórmulas validadas internacionalmente, como el método de la Marina de los Estados Unidos, asegurando la mayor precisión científica en la estimación de tu masa magra.</p>
+            <p class="page-bullet" data-var="_02_alta_b4">⭐ <b>Tu Peso de Etapa:</b> Gracias a la exactitud de estos datos biométricos iniciales, IA NutriBot calcula de forma correcta tu "peso de etapa": un objetivo saludable, realista y a tu medida que te acompañará en tu evolución.</p>
             <h3 class="page-footer" data-var="_02_alta_foot">¿Ya estas listo para iniciar un camino saludable?</h3>
         </div>
     </div>
@@ -376,24 +380,24 @@ HTML_CALCULADORA_RECETAS = """
     <div id="section-comandos" class="section-content">
         <div class="content-box">
             <h2 class="page-title"><b data-var="_02_cmd_tit">GUÍA COMPLETA DE COMANDOS</b></h2>
-            <h4 class="page-subtitle" data-var="_02_cmd_sub">Accede rápidamente a todas las funciones...</h4>
+            <h4 class="page-subtitle" data-var="_02_cmd_sub">Accede rápidamente a todas las funciones y estadísticas del bot escribiendo estos comandos en el chat.</h4>
             <hr class="page-divider">
-            <p class="page-bullet" data-var="_02_cmd_b1"></p>
-            <p class="page-bullet" data-var="_02_cmd_b2"></p>
-            <p class="page-bullet" data-var="_02_cmd_b3"></p>
-            <p class="page-bullet" data-var="_02_cmd_b4"></p>
-            <p class="page-bullet" data-var="_02_cmd_b5"></p>
-            <p class="page-bullet" data-var="_02_cmd_b6"></p>
-            <p class="page-bullet" data-var="_02_cmd_b7"></p>
-            <p class="page-bullet" data-var="_02_cmd_b8"></p>
-            <p class="page-bullet" data-var="_02_cmd_b9"></p>
-            <p class="page-bullet" data-var="_02_cmd_b10"></p>
-            <p class="page-bullet" data-var="_02_cmd_b11"></p>
-            <p class="page-bullet" data-var="_02_cmd_b12"></p>
-            <p class="page-bullet" data-var="_02_cmd_b13"></p>
-            <p class="page-bullet" data-var="_02_cmd_b14"></p>
-            <p class="page-bullet" data-var="_02_cmd_b15"></p>
-            <p class="page-bullet" data-var="_02_cmd_b16"></p>
+            <p class="page-bullet" data-var="_02_cmd_b1">⭐ <b>/alta:</b> Inicia el proceso de apertura y configuración de tu cuenta ingresando tus datos biométricos iniciales.</p>
+            <p class="page-bullet" data-var="_02_cmd_b2">⭐ <b>/barra:</b> Desglosa la información nutricional de un producto comestible ingresando su código de barras.</p>
+            <p class="page-bullet" data-var="_02_cmd_b3">⭐ <b>/borracomida:</b> Elimina comidas o recetas predeterminadas que hayas guardado previamente en tu planilla personal.</p>
+            <p class="page-bullet" data-var="_02_cmd_b4">⭐ <b>/comidas:</b> Muestra tu planilla de comidas precargadas y te permite descargar la lista completa en formato PDF.</p>
+            <p class="page-bullet" data-var="_02_cmd_b5">⭐ <b>/dia:</b> Presenta tus ingestas de un dia específico mediante un teclado interactivo y genera un reporte específico en PDF.</p>
+            <p class="page-bullet" data-var="_02_cmd_b6">⭐ <b>/eliminar:</b> Te permite borrar registros de ingestas y actividades físicas de fechas pasadas mediante un menu interactivo.</p>
+            <p class="page-bullet" data-var="_02_cmd_b7">⭐ <b>/GET:</b> Calibra y actualiza tu Gasto Energético Total utilizando los datos de tu reloj inteligente.</p>
+            <p class="page-bullet" data-var="_02_cmd_b8">⭐ <b>/inicio:</b> Muestra la guía rápida de uso, el resumen principal de comandos y te da acceso al manual en PDF.</p>
+            <p class="page-bullet" data-var="_02_cmd_b9">⭐ <b>/mes:</b> Genera tu reporte mensual detallado de calorías y macronutrientes, listo para descargar en PDF.</p>
+            <p class="page-bullet" data-var="_02_cmd_b10">⭐ <b>/pago:</b> Te permite elegir tu plan de suscripción y acceder a las promociones de pago vigentes.</p>
+            <p class="page-bullet" data-var="_02_cmd_b11">⭐ <b>/perfil:</b> Abre un menú interactivo para la actualización de tus datos biométricos y ajustes de cuenta.</p>
+            <p class="page-bullet" data-var="_02_cmd_b12">⭐ <b>/peso:</b> Inicia el registro o el control periódico de tu evolución de peso mensual.</p>
+            <p class="page-bullet" data-var="_02_cmd_b13">⭐ <b>/presi:</b> Herramienta para registrar nuevas mediciones y consultar tu historial de presión arterial.</p>
+            <p class="page-bullet" data-var="_02_cmd_b14">⭐ <b>/receta:</b> Abre el acceso a la Calculadora Web interactiva para registrar y guardar tus propias comidas elaboradas.</p>
+            <p class="page-bullet" data-var="_02_cmd_b15">⭐ <b>/semana:</b> Muestra en pantalla tus estadísticas nutricionales semanales (calorías, fibras, proteínas, etc.).</p>
+            <p class="page-bullet" data-var="_02_cmd_b16">⭐ <b>/x:</b> Cancela inmediatamente cualquier comando o proceso que esté en curso.</p>
         </div>
     </div>
 
@@ -401,14 +405,14 @@ HTML_CALCULADORA_RECETAS = """
     <div id="section-faq" class="section-content">
         <div class="content-box">
             <h2 class="page-title"><b data-var="_02_faq_tit">PREGUNTAS FRECUENTES (FAQ)</b></h2>
-            <h4 class="page-subtitle" data-var="_02_faq_sub">Respuestas rápidas a las dudas...</h4>
+            <h4 class="page-subtitle" data-var="_02_faq_sub">Respuestas rápidas a las dudas más comunes sobre el uso de IA NutriBot.</h4>
             <hr class="page-divider">
-            <p class="page-bullet" data-var="_02_faq_b1"></p>
-            <p class="page-bullet" data-var="_02_faq_b2"></p>
-            <p class="page-bullet" data-var="_02_faq_b3"></p>
-            <p class="page-bullet" data-var="_02_faq_b4"></p>
-            <p class="page-bullet" data-var="_02_faq_b5"></p>
-            <p class="page-bullet" data-var="_02_faq_b6"></p>
+            <p class="page-bullet" data-var="_02_faq_b1">⭐ <b>¿Necesito instalar alguna aplicación nueva?</b><br>No, IA NutriBot funciona 100% dentro de tu Telegram. No requieres descargar otras aplicaciones pesadas, ni crear cuentas con contraseñas o correos electrónicos.</p>
+            <p class="page-bullet" data-var="_02_faq_b2">⭐ <b>¿Cómo calculo una receta casera?</b><br>Desde el menú /receta podés ingresar todos los ingredientes de tu preparación, dividirla por porciones o gramos, y guardarla con un código único para registrarla rápidamente en el futuro.</p>
+            <p class="page-bullet" data-var="_02_faq_b3">⭐ <b>¿Qué pasa si me olvido de registrar una comida?</b><br>¡No te preocupes! IA NutriBot hace un relevamiento automático dos veces al día revisando tus últimas 48 horas, y te enviará un recordatorio amigable si nota que te falta cargar alguna ingesta principal.</p>
+            <p class="page-bullet" data-var="_02_faq_b4">⭐ <b>¿Están seguros mis datos personales?</b><br>Absolutamente. El uso del bot es totalmente anónimo. No te pedimos documento de identidad ni tarjetas de crédito para operar. Los únicos datos que importan son tus medidas biométricas para asegurar la precisión de tu plan.</p>
+            <p class="page-bullet" data-var="_02_faq_b5">⭐ <b>¿Puedo corregir una comida que aparece en la pantalla?</b><br>Sí, es 100% editable. El sistema te permite modificar tanto la descripción de lo que comiste como el peso o la cantidad de las porciones.</p>
+            <p class="page-bullet" data-var="_02_faq_b6">⭐ <b>¿El bot me puede generar un plan de dieta?</b><br>Absolutamente NO. Los profesionales de la salud son los únicos autorizados a realizar planes alimenticios. IA NutriBot es un asistente nutricional que extrae los datos de tus comidas, los guarda en forma ordenada y te brinda los informes para que tu medico los pueda evaluar.</p>
         </div>
     </div>
 
@@ -416,12 +420,12 @@ HTML_CALCULADORA_RECETAS = """
     <div id="section-terminos" class="section-content">
         <div class="content-box">
             <h2 class="page-title"><b data-var="_02_leg_tit">TÉRMINOS Y CONDICIONES</b></h2>
-            <h4 class="page-subtitle" data-var="_02_leg_sub">Información importante sobre el uso...</h4>
+            <h4 class="page-subtitle" data-var="_02_leg_sub">Información importante sobre el uso de IA NutriBot y el manejo de tus datos.</h4>
             <hr class="page-divider">
-            <p class="page-bullet" data-var="_02_leg_b1"></p>
-            <p class="page-bullet" data-var="_02_leg_b2"></p>
-            <p class="page-bullet" data-var="_02_leg_b3"></p>
-            <p class="page-bullet" data-var="_02_leg_b4"></p>
+            <p class="page-bullet" data-var="_02_leg_b1">⭐ <b>Naturaleza de la Herramienta:</b> IA NutriBot es exclusivamente una herramienta de cálculo automatizado orientada a sumar y restar calorías, así como a registrar ingestas y macronutrientes de forma práctica.</p>
+            <p class="page-bullet" data-var="_02_leg_b2">⭐ <b>Ausencia de Valor Médico:</b> Este asistente no posee un valor médico ni científico. Las recomendaciones y cálculos emitidos son generados de forma generalizada y probabilística. En ningún caso, el uso de este bot sustituye la consulta, diagnóstico o tratamiento de un profesional de la salud o nutricionista matriculado.</p>
+            <p class="page-bullet" data-var="_02_leg_b3">⭐ <b>Privacidad y Datos Personales:</b> El uso de IA NutriBot es totalmente anónimo. No se requiere, ni se almacena, información de identidad personal como número de documento, correo electrónico o datos financieros. Solo se conservan tus datos biométricos (edad, altura, peso, medidas corporales) con el único fin de realizar los cálculos nutricionales.</p>
+            <p class="page-bullet" data-var="_02_leg_b4">⭐ <b>Responsabilidad del Usuario:</b> Al presionar "Aceptar" al inicio del alta, el usuario comprende y acepta que la información cargada y las decisiones tomadas en base a los resúmenes del bot son bajo su propia responsabilidad. La herramienta se provee "tal cual es", para asistir en la organización diaria, sin garantías expresas sobre resultados físicos o de salud.</p>
         </div>
     </div>
 
@@ -505,31 +509,30 @@ HTML_CALCULADORA_RECETAS = """
 </div>
 
 <footer>
-    <!-- Footer con imágenes PNG grandes alineadas a la izquierda -->
     <div class="footer-links">
         <a onclick="reproducirAudioguia()" class="footer-link" data-title="_02_title_audioguia" title="Audioguía">
-            <img src="{{ url_for('static', filename='audioguia.png') }}" alt="Audioguía" class="footer-icon-img">
+            <img src="{{ url_for('static', filename='audioguia.png') }}" alt="Audioguía" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px; line-height:1;\'>🎧</span>'">
         </a>
         <a id="linkManual" href="#" target="_blank" class="footer-link" data-title="_02_title_manual" title="Manual (PDF)">
-            <img src="{{ url_for('static', filename='manual.png') }}" alt="Manual" class="footer-icon-img">
+            <img src="{{ url_for('static', filename='manual.png') }}" alt="Manual" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px; line-height:1;\'>📖</span>'">
         </a>
         <a href="https://instagram.com/ianutribot" target="_blank" class="footer-link" title="Instagram">
-            <img src="{{ url_for('static', filename='instagram.png') }}" alt="Instagram" class="footer-icon-img">
+            <img src="{{ url_for('static', filename='instagram.png') }}" alt="Instagram" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px; line-height:1;\'>📷</span>'">
         </a>
         <a href="https://twitter.com/ianutribot" target="_blank" class="footer-link" title="X (Twitter)">
-            <img src="{{ url_for('static', filename='x.png') }}" alt="X" class="footer-icon-img">
+            <img src="{{ url_for('static', filename='x.png') }}" alt="X" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px; line-height:1;\'>✖️</span>'">
         </a>
         <a href="https://tiktok.com/@ianutribot" target="_blank" class="footer-link" title="TikTok">
-            <img src="{{ url_for('static', filename='tiktok.png') }}" alt="TikTok" class="footer-icon-img">
+            <img src="{{ url_for('static', filename='tiktok.png') }}" alt="TikTok" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px; line-height:1;\'>🎵</span>'">
         </a>
         <a href="https://facebook.com/ianutribot" target="_blank" class="footer-link" title="Facebook">
-            <img src="{{ url_for('static', filename='facebook.png') }}" alt="Facebook" class="footer-icon-img">
+            <img src="{{ url_for('static', filename='facebook.png') }}" alt="Facebook" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px; line-height:1;\'>📘</span>'">
         </a>
         <a href="https://youtube.com/@ianutribot" target="_blank" class="footer-link" title="YouTube">
-            <img src="{{ url_for('static', filename='youtube.png') }}" alt="YouTube" class="footer-icon-img">
+            <img src="{{ url_for('static', filename='youtube.png') }}" alt="YouTube" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px; line-height:1;\'>▶️</span>'">
         </a>
         <a href="mailto:ianutribot@gmail.com" class="footer-link" title="Mail">
-            <img src="{{ url_for('static', filename='mail.png') }}" alt="Mail" class="footer-icon-img">
+            <img src="{{ url_for('static', filename='mail.png') }}" alt="Mail" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px; line-height:1;\'>✉️</span>'">
         </a>
     </div>
     <div class="footer-info" data-var="_02_footer_rights">© 2026 IA NutriBot - Todos los derechos reservados.</div>
@@ -557,7 +560,6 @@ HTML_CALCULADORA_RECETAS = """
     const currentUserId = "{{ user_id }}";
     let itemsDesglosadosGlobal = [];
 
-    // Función auxiliar para traducir alertas y mensajes en JS con respaldo (fallback)
     function t(clave, fallback) {
         return (traduccionesGlobal && traduccionesGlobal[clave] !== undefined) ? traduccionesGlobal[clave] : fallback;
     }
