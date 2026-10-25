@@ -33,7 +33,9 @@ import urllib.parse
 import calendar
 import subprocess
 import time as time_mod
+import google.generativeai as genai
 
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, WebAppInfo
 from typing import Dict, Tuple, List, Optional, Any            
 from urllib.parse import urlparse 
 from datetime import datetime, date, timedelta, time
@@ -894,6 +896,10 @@ HTML_CALCULADORA_RECETAS = """
         });
     }
 </script>
+</body>
+</html>
+"""
+
 #              INICIO                                  PÁGINA DE TÉRMINOS Y ALTA (WEB APP TRADUCIBLE)                   INICIO
 # =====================================================================================================================================
 
@@ -1075,6 +1081,7 @@ HTML_TERMINOS_ALTA = """
             document.getElementById('loading').style.display = 'none';
         }
     }
+    
 </script>
 </body>
 </html>
@@ -1132,10 +1139,6 @@ def api_guardar_terminos():
 
 #              FINAL                                   PÁGINA DE TÉRMINOS Y ALTA (WEB APP TRADUCIBLE)                   FINAL
 # =====================================================================================================================================
-
-</body>
-</html>
-"""
 
 @app.route('/', methods=['GET'])
 def vista_calculadora():
@@ -4815,6 +4818,7 @@ async def callback_btn_guardar_registro(update: Update, context: ContextTypes.DE
 #                    FINAL                 COMANDOS CONFIRMACION FUNCIONES BOTONES                     FINAL
 # ======================================================================================================================================
 
+
 # ==================================================================================================================================
 #                  INICIO                 COMANDOS COMIDAS Y COMANDOS ACTIVIDAD                       INICIO  
 # ==================================================================================================================================
@@ -5821,6 +5825,471 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
+
+# =============================================================================================================================================
+#                INICIO                            COMANDOS FACTURACION                             INICIO 
+# =============================================================================================================================================
+
+async def facturar_saldo_del_mes(context: ContextTypes.DEFAULT_TYPE, user_id: int, dias_restantes: int, estrellas_prorrateadas: int):
+    """
+    Emite una factura prorrateada el día 20 para los usuarios que no cumplieron 
+    con el mínimo de registros y pasaron a Estado 3.
+    """
+    try:
+        lang = obtener_idioma_usuario(user_id) or 'es'
+        traducciones = obtener_traducciones_db(lang) or {}
+
+        titulo_factura = traducciones.get("10_factura_rescate_titulo", "Regularización de Cuenta")
+        desc_tpl = traducciones.get("10_factura_rescate_desc", "Abono proporcional correspondiente a los {dias_restantes} días restantes del mes en curso.")
+        item_desc_tpl = traducciones.get("10_factura_rescate_item", "Activación prorrateada ({dias_restantes} días)")
+
+        descripcion_item = item_desc_tpl.format(dias_restantes=dias_restantes)
+        precios = [LabeledPrice(descripcion_item, estrellas_prorrateadas)]
+        
+        payload_transaccion = f"rescate_mensual_{user_id}"
+
+        await context.bot.send_invoice(
+            chat_id=int(user_id),
+            title=titulo_factura,
+            description=desc_tpl.format(dias_restantes=dias_restantes),
+            payload=payload_transaccion,
+            provider_token="",
+            currency="XTR",
+            prices=precios,
+            start_parameter="rescate_prorrateo"
+        )
+        logger.info(f"Factura prorrateada del día 20 enviada con éxito al usuario {user_id} por {estrellas_prorrateadas} estrellas.")
+    except Exception as e:
+        logger.error(f"Error al enviar la factura prorrateada al usuario {user_id}: {e}")
+        
+async def rutina_nocturna_revision(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Se ejecuta de madrugada. Revisa inactividad (strikes) y manda avisos de pesaje.
+    """
+    ahora = obtener_ahora_arg()
+    hoy_str = ahora.strftime("%Y-%m-%d")
+    dia_actual = ahora.day
+
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur.execute('SELECT "User ID", "Estado", "dias_inactivo" FROM "Usuarios" WHERE "Estado" NOT IN (\'3\', \'inactivo\', \'baja\')')
+        usuarios_activos = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        for usr in usuarios_activos:
+            user_id = str(usr[0]).split('.')[0].strip()
+            estado_actual = str(usr[1])
+            dias_inact = int(usr[2] if usr[2] is not None else 0)
+
+            u_lang = obtener_idioma_usuario(int(user_id)) or 'es'
+            u_trad = obtener_traducciones_db(u_lang) or {}
+
+            # 1. VERIFICACIÓN DE CARGAS (Sistema de Strikes) en la tabla real de ingestas
+            cargo_hoy = False
+            try:
+                conn_u, cur_u = _asegurar_tabla_y_conectar(f"User_{user_id}", tipo_tabla="comida")
+                cur_u.execute(f'SELECT COUNT(*) FROM "User_{user_id}" WHERE "Fecha" = %s', (hoy_str,))
+                if cur_u.fetchone()[0] > 0:
+                    cargo_hoy = True
+                cur_u.close()
+                conn_u.close()
+            except Exception:
+                pass 
+
+            conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+            if cargo_hoy:
+                cur_u.execute('UPDATE "Usuarios" SET "dias_inactivo" = 0 WHERE "User ID" = %s', (user_id,))
+            else:
+                dias_inact += 1
+                cur_u.execute('UPDATE "Usuarios" SET "dias_inactivo" = %s WHERE "User ID" = %s', (dias_inact, user_id))
+                
+                # Strike 1
+                if dias_inact == 1:
+                    msg_s1 = u_trad.get("10_strike_1", "⚠️ **Aviso de sistema:** Notamos que hoy no registraste comidas. Recordá que el plan requiere carga diaria para mantener la cuenta activa.")
+                    await context.bot.send_message(chat_id=int(user_id), text=msg_s1, parse_mode="Markdown")
+                # Strike 2
+                elif dias_inact == 2:
+                    msg_s2 = u_trad.get("10_strike_2", "⏳ **Último aviso:** Llevás 2 días sin registrar. Si mañana no se detecta actividad, tu cuenta pasará a estado suspendido.")
+                    await context.bot.send_message(chat_id=int(user_id), text=msg_s2, parse_mode="Markdown")
+
+                # Strike 3 (Guillotina)
+                elif dias_inact >= 3:
+                    cur_u.execute('UPDATE "Usuarios" SET "Estado" = %s WHERE "User ID" = %s', ('3', user_id))
+                    msg_s3 = u_trad.get("10_strike_3", "❌ **Cuenta suspendida** por falta de registro consecutivo.\n\nEscribí cualquier comando (ej: `/dia`) para ver las opciones de reactivación.").replace('\\n', '\n')
+                    await context.bot.send_message(chat_id=int(user_id), text=msg_s3, parse_mode="Markdown")
+
+            conn_u.commit()
+            cur_u.close()
+            conn_u.close()
+
+            # 2. RECORDATORIOS DE PESAJE (Regla de las 3 Ventanas)
+            if dia_actual == 15 and estado_actual != '3':
+                msg_peso_15 = u_trad.get("10_aviso_peso_15", "⚖️ **Control Quincenal Habilitado**\n\nYa podés ingresar tu control de peso de mitad de mes para calibrar tu metabolismo.\n👉 Escribí `/peso [tu_peso]` (ej: `/peso 85`).").replace('\\n', '\n')
+                await context.bot.send_message(chat_id=int(user_id), text=msg_peso_15, parse_mode="Markdown")
+            
+            elif dia_actual == 26 and estado_actual != '3':
+                msg_peso_26 = u_trad.get("10_aviso_peso_26", "⚖️ **Cierre de Mes Habilitado**\n\nSe habilitó el ingreso de tu peso final para cerrar el balance mensual y preparar tu próxima rutina.\n👉 Escribí `/peso [tu_peso]`.").replace('\\n', '\n')
+                await context.bot.send_message(chat_id=int(user_id), text=msg_peso_26, parse_mode="Markdown")
+
+        logger.info("Rutina nocturna finalizada con éxito.")
+    except Exception as e:
+        logger.error(f"Error en rutina nocturna: {e}")
+
+# 1. COMANDO /pagar (Menú dinámico de planes desde Supabase)
+# =========================================================================
+async def cmd_pagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra al usuario los planes de pago disponibles de forma dinámica."""
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
+        cur.execute('SELECT "plan_id", "descripcion", "estrellas" FROM "Planes" WHERE "activo" = TRUE')
+        planes = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        if not planes:
+            msg_sin_planes = traducciones.get("10_pagar_sin_planes", "⚠️ No hay planes de pago disponibles en este momento.")
+            await update.message.reply_text(msg_sin_planes)
+            return
+
+        keyboard = []
+        for plan in planes:
+            plan_id, descripcion_db, estrellas = plan[0], plan[1], plan[2]
+            nombre_plan = traducciones.get(str(plan_id).strip(), descripcion_db)
+            keyboard.append([InlineKeyboardButton(f"{nombre_plan} ({estrellas} ⭐)", callback_data=f"comprar_{plan_id}")])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        msg_titulo = traducciones.get("10_pagar_titulo", "⭐ **Seleccioná el plan con el que deseás abonar o renovar tu suscripción:**")
+        await update.message.reply_text(
+            msg_titulo,
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error(f"Error al cargar planes dinámicos para /pagar: {e}")
+        msg_error = traducciones.get("10_pagar_error_carga", "❌ Ocurrió un error al cargar las opciones de pago.")
+        await update.message.reply_text(msg_error)
+
+# 2. MANEJADOR DE BOTONES DE PLANES (Callback Query)
+# =========================================================================
+async def boton_elegir_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = str(query.from_user.id).strip()
+    lang = obtener_idioma_usuario(int(user_id)) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    data = query.data
+    
+    # Lógica de rescate prorrateado para Estado 3
+    if data == "rescate_mensual":
+        try:
+            conn, cur = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
+            cur.execute('SELECT "estrellas" FROM "Planes" WHERE "plan_id" = %s', ('1_mes',))
+            plan_base = cur.fetchone()
+            cur.close()
+            conn.close()
+
+            estrellas_mes = plan_base[0] if plan_base else 250
+            
+            hoy = datetime.now()
+            dias_en_mes = calendar.monthrange(hoy.year, hoy.month)[1]
+            dias_restantes = dias_en_mes - hoy.day + 1
+            
+            estrellas_prorrateo = math.floor((estrellas_mes / dias_en_mes) * dias_restantes)
+            
+            item_desc_rescate = traducciones.get("10_rescate_item_desc", "Activación hasta fin de mes ({dias_restantes} días)").format(dias_restantes=dias_restantes)
+            precios = [LabeledPrice(item_desc_rescate, estrellas_prorrateo)]
+            
+            titulo_rescate = traducciones.get("10_rescate_inv_titulo", "Activación de Cuenta")
+            desc_rescate = traducciones.get("10_rescate_inv_desc", "Abono prorrateado para habilitar la cuenta hasta el último día del mes actual.")
+
+            await context.bot.send_invoice(
+                chat_id=int(user_id),
+                title=titulo_rescate,
+                description=desc_rescate,
+                payload=f"rescate_mensual_{user_id}",
+                provider_token="",
+                currency="XTR",
+                prices=precios,
+                start_parameter="rescate"
+            )
+            msg_gen_fact = traducciones.get("10_rescate_factura_generada", "✅ Se generó la factura por **{estrellas_prorrateo} Estrellas** para reactivar tu cuenta.").format(estrellas_prorrateo=estrellas_prorrateo)
+            await query.edit_message_text(msg_gen_fact, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Error generando rescate mensual para {user_id}: {e}")
+            msg_err_act = traducciones.get("10_rescate_error_act", "❌ Error al procesar la activación.")
+            await query.edit_message_text(msg_err_act)
+        return
+
+    if not data.startswith("comprar_"):
+        return
+
+    plan_id = data.replace("comprar_", "")
+
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
+        cur.execute('SELECT "descripcion", "estrellas" FROM "Planes" WHERE "plan_id" = %s', (plan_id,))
+        plan = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if not plan:
+            msg_no_disp = traducciones.get("10_pagar_plan_no_disp", "❌ El plan seleccionado ya no está disponible.")
+            await query.edit_message_text(msg_no_disp)
+            return
+
+        descripcion_db, estrellas = plan[0], plan[1]
+        descripcion = traducciones.get(str(plan_id).strip(), descripcion_db)
+
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur.execute('UPDATE "Usuarios" SET "plan_preferido" = %s WHERE "User ID" = %s', (plan_id, user_id))
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        precios = [LabeledPrice(descripcion, estrellas)]
+        payload_transaccion = f"pago_{plan_id}_{user_id}"
+
+        desc_factura_tpl = traducciones.get("10_pagar_factura_desc", "Suscripción - {descripcion}")
+        await context.bot.send_invoice(
+            chat_id=int(user_id),
+            title=descripcion,
+            description=desc_factura_tpl.format(descripcion=descripcion),
+            payload=payload_transaccion,
+            provider_token="",
+            currency="XTR",
+            prices=precios,
+            start_parameter=f"pay_{plan_id}"
+        )
+        
+        msg_enviado_tpl = traducciones.get("10_pagar_enviado", "✅ Has seleccionado: **{descripcion} ({estrellas} Estrellas)**.\nTe hemos enviado la factura para abonar en el chat.")
+        await query.edit_message_text(msg_enviado_tpl.format(descripcion=descripcion, estrellas=estrellas).replace('\\n', '\n'), parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Error procesando la selección de plan para el usuario {user_id}: {e}")
+        msg_err_proc = traducciones.get("10_pagar_error_proc", "❌ Ocurrió un error al procesar tu selección.")
+        await query.edit_message_text(msg_err_proc)
+
+# 3. COMANDO ADMINISTRATIVO /cobrar (Cobro Manual por ID y Estrellas)
+# =========================================================================
+async def cmd_forzar_cobro(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Comando administrativo para emitir un cobro manual por cantidad de estrellas.
+    Uso: /cobrar <user_id> <estrellas>
+    """
+    user_actual = update.effective_user.id
+    lang = obtener_idioma_usuario(user_actual) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    if not es_administrador(user_actual):
+        msg_no_perm = traducciones.get("10_cobrar_no_perm", "❌ No tenés permisos para ejecutar este comando.")
+        await update.message.reply_text(msg_no_perm)
+        return
+
+    if not context.args or len(context.args) < 2:
+        msg_uso_inc = traducciones.get(
+            "10_cobrar_uso_incorrecto",
+            "⚠️ Uso incorrecto.\nUso correcto: `/cobrar <user_id> <estrellas>`"
+        )
+        await update.message.reply_text(msg_uso_inc, parse_mode="Markdown")
+        return
+
+    target_user_id = context.args[0].strip()
+    try:
+        cantidad_estrellas = int(context.args[1].strip())
+    except ValueError:
+        msg_num_inv = traducciones.get("10_cobrar_num_invalido", "❌ La cantidad de estrellas debe ser un número entero válido.")
+        await update.message.reply_text(msg_num_inv)
+        return
+
+    titulo_manual_tpl = traducciones.get("10_cobrar_titulo_manual", "Pago Especial / Manual ({cantidad_estrellas} Estrellas)")
+    precios = [LabeledPrice(titulo_manual_tpl.format(cantidad_estrellas=cantidad_estrellas), cantidad_estrellas)]
+    payload_transaccion = f"pago_manual_{target_user_id}"
+
+    try:
+        msg_aviso_adm = traducciones.get("10_cobrar_aviso_adm", "🔔 **Aviso de Facturación Administrativa:** Se ha generado una solicitud de pago especial:")
+        await context.bot.send_message(chat_id=int(target_user_id), text=msg_aviso_adm, parse_mode="Markdown")
+        
+        desc_manual = traducciones.get("10_cobrar_desc_manual", "Factura administrativa personalizada.")
+        await context.bot.send_invoice(
+            chat_id=int(target_user_id),
+            title=traducciones.get("10_cobrar_titulo_factura", "Pago Especial / Manual"),
+            description=desc_manual,
+            payload=payload_transaccion,
+            provider_token="",
+            currency="XTR",
+            prices=precios,
+            start_parameter="manual_pago"
+        )
+        
+        msg_exito_adm_tpl = traducciones.get("10_cobrar_exito_adm", "✅ Factura manual por `{cantidad_estrellas}` estrellas enviada con éxito al usuario `{target_user_id}`.")
+        await update.message.reply_text(msg_exito_adm_tpl.format(cantidad_estrellas=cantidad_estrellas, target_user_id=target_user_id))
+
+    except Exception as e:
+        logger.error(f"Error al enviar factura manual al usuario {target_user_id}: {e}")
+        msg_err_envio_tpl = traducciones.get("10_cobrar_error_envio", "❌ Error al enviar la factura: {e}")
+        await update.message.reply_text(msg_err_envio_tpl.format(e=e))
+
+# 4. PRE-CHECKOUT Y SUCCESSFUL PAYMENT HANDLERS
+# =========================================================================
+async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.pre_checkout_query
+    await query.answer(ok=True)
+
+async def successful_payment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    payment = update.message.successful_payment
+    user_id = str(update.effective_user.id).strip()
+    lang = obtener_idioma_usuario(int(user_id)) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    payload = payment.invoice_payload
+    total_estrellas_pagadas = payment.total_amount
+
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+
+        # Lógica del pago de rescate prorrateado
+        if payload.startswith("rescate_mensual_"):
+            hoy = datetime.now().date()
+            ultimo_dia_mes = calendar.monthrange(hoy.year, hoy.month)[1]
+            nuevo_vencimiento = hoy.replace(day=ultimo_dia_mes).strftime("%Y-%m-%d")
+
+            cur.execute(
+                'UPDATE "Usuarios" SET "vencimiento_suscripcion" = %s, "Estado" = %s WHERE "User ID" = %s',
+                (nuevo_vencimiento, "10", user_id)
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            msg_rescate_exito = traducciones.get(
+                "10_pago_exito_rescate",
+                "⭐ **¡Cuenta reactivada con éxito!**\n\nTu acceso ha sido restaurado y tu ciclo de facturación se ha ajustado para el {nuevo_vencimiento}.\nYa podés seguir utilizando todos los comandos."
+            ).format(nuevo_vencimiento=nuevo_vencimiento).replace('\\n', '\n')
+
+            await update.message.reply_text(msg_rescate_exito, parse_mode="Markdown")
+            return
+
+        # Lógica de pago manual
+        if "pago_manual" in payload:
+            cur.execute(
+                'UPDATE "Usuarios" SET "saldo_estrellas" = COALESCE("saldo_estrellas", 0) + %s WHERE "User ID" = %s',
+                (total_estrellas_pagadas, user_id)
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            msg_pago_exito_tpl = traducciones.get(
+                "10_pago_exito_manual",
+                "⭐ **¡Pago recibido con éxito!**\n\nSe han acreditado `{total_estrellas_pagadas}` estrellas a tu saldo."
+            )
+            await update.message.reply_text(msg_pago_exito_tpl.format(total_estrellas_pagadas=total_estrellas_pagadas).replace('\\n', '\n'), parse_mode="Markdown")
+
+            return
+
+        # Lógica de Planes regulares
+        plan_id = payload.replace("pago_", "").rsplit("_", 1)[0]
+
+        conn_p, cur_p = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
+        # ¡CAMBIO CLAVE! Ahora leemos "meses" en lugar de "dias"
+        cur_p.execute('SELECT "meses" FROM "Planes" WHERE "plan_id" = %s', (plan_id,))
+        resultado_plan = cur_p.fetchone()
+        cur_p.close()
+        conn_p.close()
+
+        # Si por algún motivo no encuentra el plan, asumimos 1 mes por defecto
+        meses_a_sumar = int(resultado_plan[0]) if resultado_plan else 1
+        hoy = datetime.now().date()
+        
+        # ¡LA MAGIA DE RELATIVEDELTA! Suma meses reales, cayendo en el día exacto de vencimiento
+        nuevo_vencimiento = (hoy + relativedelta(months=meses_a_sumar)).strftime("%Y-%m-%d")
+
+        cur.execute(
+            'UPDATE "Usuarios" SET "vencimiento_suscripcion" = %s, "plan_preferido" = NULL, "Estado" = %s WHERE "User ID" = %s',
+            (nuevo_vencimiento, "10", user_id)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        msg_renov_exito_tpl = traducciones.get(
+            "10_pago_exito_plan",
+            "⭐ **¡Suscripción renovada con éxito!**\n\nTu acceso se encuentra activo hasta el **{nuevo_vencimiento}**."
+        )
+        await update.message.reply_text(msg_renov_exito_tpl.format(nuevo_vencimiento=nuevo_vencimiento).replace('\\n', '\n'), parse_mode="Markdown")
+        logger.info(f"✅ Suscripción actualizada para usuario {user_id} mediante plan {plan_id} hasta {nuevo_vencimiento}.")
+
+    except Exception as e:
+        logger.error(f"❌ Error al procesar pago exitoso para {user_id}: {e}")
+        msg_err_pago = traducciones.get("10_pago_error_ficha", "⚠️ El pago se realizó pero hubo un error al actualizar tu ficha.")
+        await update.message.reply_text(msg_err_pago)
+# 5. PROCESO MASIVO DE FACTURACIÓN AUTOMÁTICA
+# =========================================================================
+async def proceso_masivo_cobros(context: ContextTypes.DEFAULT_TYPE):
+    """Proceso periódico que emite facturas considerando el plan preferido o 1 mes por defecto."""
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur.execute('SELECT "User ID", "plan_preferido" FROM "Usuarios"')
+        usuarios = cur.fetchall()
+        
+        conn_p, cur_p = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
+        cur_p.execute('SELECT "plan_id", "descripcion", "estrellas" FROM "Planes"')
+        planes_dict = {row[0]: {"descripcion": row[1], "estrellas": row[2]} for row in cur_p.fetchall()}
+        cur_p.close()
+        conn_p.close()
+
+        for user in usuarios:
+            user_id, plan_preferido = user[0], user[1]
+            
+            u_lang = obtener_idioma_usuario(int(str(user_id).split('.')[0].strip())) or 'es'
+            u_trad = obtener_traducciones_db(u_lang) or {}
+
+            plan_a_facturar = plan_preferido if plan_preferido in planes_dict else "1_mes"
+            datos_plan = planes_dict.get(plan_a_facturar, planes_dict.get("1_mes"))
+
+            if not datos_plan:
+                continue
+
+            descripcion_db = datos_plan["descripcion"]
+            estrellas = datos_plan["estrellas"]
+            descripcion_plan = u_trad.get(str(plan_a_facturar).strip(), descripcion_db)
+
+            precios = [LabeledPrice(descripcion_plan, estrellas)]
+            payload_transaccion = f"pago_{plan_a_facturar}_{user_id}"
+
+            desc_auto_tpl = u_trad.get("10_factura_auto_desc", "Renovación automática - {descripcion}")
+            try:
+                await context.bot.send_invoice(
+                    chat_id=int(str(user_id).split('.')[0].strip()),
+                    title=descripcion_plan,
+                    description=desc_auto_tpl.format(descripcion=descripcion_plan),
+                    payload=payload_transaccion,
+                    provider_token="",
+                    currency="XTR",
+                    prices=precios,
+                    start_parameter=f"auto_{plan_a_facturar}"
+                )
+                logger.info(f"Factura automática enviada a {user_id} por plan {plan_a_facturar}")
+            except Exception as ex:
+                logger.error(f"No se pudo enviar factura automática a {user_id}: {ex}")
+                
+            await asyncio.sleep(2)
+
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error en el proceso masivo de cobros: {e}")
+        
+# =============================================================================================================================================
+#                FINAL                            COMANDOS FACTURACION                             FINAL 
+# =============================================================================================================================================
 
 # ======================================================================================================================================
 #                   INICIO                                    COMANDOS INFORMES                                   INICIO  DB OK
@@ -9917,7 +10386,8 @@ async def job_recordatorio_tarde(context):
 conv_handler_ingreso = ConversationHandler(
     entry_points=[CommandHandler(["alta", "register", "nuevo_usuario"], cmd_ingreso_start)],
     states={
-        ING_TERMINOS: [CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$")],
+
+        ING_TERMINOS: [MessageHandler(filters.StatusUpdate.WEB_APP_DATA, ing_aceptar_terminos), CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$")],
         ING_PROFESIONAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_profesional)],
         ING_NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_nombre)],
         ING_SEXO: [CallbackQueryHandler(ing_recibir_sexo, pattern="^sexo_")],
@@ -10033,7 +10503,6 @@ def main():
         
         # Enrutadores para el módulo profesional (listados, informes y edición por botones)
         app_bot.add_handler(CallbackQueryHandler(callback_enviar_informe_paciente, pattern="^enviar_inf_"))
-        app_bot.add_handler(CallbackQueryHandler(callback_seleccionar_paciente_clinico, pattern="^edit_clinico_sel_"))
         app_bot.add_handler(CallbackQueryHandler(callback_descargar_manual_usuario, pattern="^descargar_manual_user_"))        
 
         app_bot.add_handler(CallbackQueryHandler(callback_btn_momento, pattern="^set_m_"))
@@ -10068,6 +10537,4 @@ if __name__ == "__main__":
 # =============================================================================================================================================
 #                                               FINAL MAIN EXECUTION                                                    FINAL
 # =============================================================================================================================================
-
-
 
