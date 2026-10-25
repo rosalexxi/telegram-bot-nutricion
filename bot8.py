@@ -147,6 +147,969 @@ HTML_CALCULADORA_RECETAS = """
         }
         
         header { 
+            background: rgba(255, 255, 255, 0.95); 
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1); 
+            position: sticky;
+            top: 0;
+            z-index: 1000; 
+            padding: 10px 15px;
+        }
+        
+        .nav-container { max-width: 1100px; margin: auto; display: flex; flex-direction: column; gap: 8px; }
+        
+        /* Fila 1: Logo Izquierda, Título Centro */
+        .nav-row-1 { display: flex; justify-content: center; align-items: center; position: relative; }
+        .logo-img { width: 36px; height: 36px; border-radius: 50%; position: absolute; left: 0; object-fit: contain; }
+        .site-title { font-size: 1.4rem; font-weight: bold; color: var(--primary); margin: 0; }
+
+        /* Fila 2: Índice a la izquierda (con scroll horizontal en celulares) */
+        .nav-row-2 { 
+            display: flex; justify-content: flex-start; align-items: center; gap: 8px; 
+            overflow-x: auto; white-space: nowrap; padding-bottom: 4px; 
+        }
+        .nav-row-2::-webkit-scrollbar { height: 4px; }
+        .nav-row-2::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 4px; }
+        .nav-row-2 a { text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 0.9rem; padding: 6px 10px; border-radius: 4px; cursor: pointer; transition: background-color 0.2s; }
+        .nav-row-2 a:hover, .nav-row-2 a.active { background-color: var(--primary); color: white; }
+
+        /* Fila 3: Banderas a la derecha */
+        .nav-row-3 { display: flex; justify-content: flex-end; align-items: center; gap: 8px; border-top: 1px solid rgba(0,0,0,0.06); padding-top: 6px; }
+        
+        .flag-btn { 
+            background: transparent; border: 2px solid transparent; border-radius: 6px; 
+            padding: 2px; cursor: pointer; text-decoration: none; display: inline-flex; 
+            align-items: center; justify-content: center; transition: all 0.2s ease; 
+        }
+        .flag-btn:hover, .flag-btn.active-flag { 
+            border-color: var(--primary); background: rgba(39, 174, 96, 0.1); transform: scale(1.12); 
+        }
+        .flag-icon-img { width: 34px; height: 24px; object-fit: contain; display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.2)); }
+
+        .content-wrapper { 
+            max-width: 950px; margin: 20px auto; background: rgba(255, 255, 255, 0.40); 
+            backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+            padding: 25px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); 
+            border: 1px solid rgba(255, 255, 255, 0.4); width: 90%; box-sizing: border-box; flex: 1;
+        }
+
+        .content-box { 
+            background: rgba(255, 255, 255, 0.65); border: 1px solid rgba(226, 232, 240, 0.8); 
+            border-radius: 8px; padding: 25px; box-shadow: 0 2px 6px rgba(0,0,0,0.02); margin-bottom: 20px;
+        }
+
+        /* Clases de texto para las páginas de contenido */
+        .page-title { color: var(--primary); text-align: center; margin-top: 0; text-transform: uppercase; font-size: 1.5rem; }
+        .page-subtitle { text-align: center; color: var(--secondary); margin-bottom: 15px; font-weight: normal; }
+        .page-divider { border: 0; border-top: 1px solid rgba(0,0,0,0.1); margin: 15px 0; }
+        .page-footer { text-align: center; color: var(--primary); margin-top: 25px; }
+        .page-bullet { margin-bottom: 12px; line-height: 1.6; color: #333; font-size: 0.95rem; text-align: justify; }
+
+        .section-content { display: none; }
+        .section-content.active { display: block; }
+
+        .calculator-section { margin-top: 5px; }
+        label { font-weight: bold; display: block; margin-top: 8px; margin-bottom: 2px; font-size: 0.85rem; color: #2c3e50; }
+        input[type="text"], input[type="number"], select, textarea { 
+            width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box; 
+            font-size: 0.85rem; color: #333; background: rgba(255, 255, 255, 0.85);
+        }
+        textarea { height: 80px; resize: vertical; }
+        .row { display: flex; gap: 10px; }
+        .col { flex: 1; }
+        button.calc-btn { background-color: var(--primary); color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-size: 0.9rem; font-weight: bold; cursor: pointer; margin-top: 12px; }
+        button.calc-btn:hover { background-color: var(--primary-dark); }
+        
+        #loading { display: none; text-align: center; margin-top: 8px; font-style: italic; color: #7f8c8d; font-size: 0.85rem; }
+        #resultado-section { display: none; margin-top: 15px; border-top: 2px solid rgba(0,0,0,0.1); padding-top: 8px; }
+        
+        table.calc-tbl { width: 100%; border-collapse: collapse; margin-top: 6px; }
+        table.calc-tbl th, table.calc-tbl td { border: 1px solid #cbd5e1; padding: 6px; text-align: center; vertical-align: middle; background: rgba(255, 255, 255, 0.6); }
+        table.calc-tbl th { background-color: rgba(241, 245, 249, 0.9); font-weight: bold; font-size: 0.8rem; color: #1e293b; }
+        table.calc-tbl tr.total-row { background-color: rgba(230, 244, 234, 0.9); font-weight: bold; font-size: 0.85rem; color: #065f46; }
+        
+        .editable-cell { width: 100%; padding: 4px; border: 1px solid transparent; background: transparent; text-align: center; font-size: 0.8rem; color: #1e293b; border-radius: 3px; }
+        .editable-cell:hover, .editable-cell:focus { border-color: var(--primary); background: rgba(255, 255, 255, 0.95); outline: none; }
+
+        .btn-save { background-color: #8e44ad; margin-top: 10px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
+        .btn-save:hover { background-color: #71368a; }
+        .btn-copy { background-color: #2980b9; margin-top: 6px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
+        .btn-copy:hover { background-color: #1f6391; }
+        
+        .user-badge { background: rgba(224, 242, 254, 0.9); color: #0369a1; padding: 6px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; display: inline-block; margin-bottom: 10px; }
+
+        footer { 
+            background: rgba(44, 62, 80, 0.92); backdrop-filter: blur(5px); color: white; 
+            text-align: center; padding: 15px 20px 30px 20px; flex-shrink: 0; font-size: 0.8rem; margin-top: auto;
+        }
+        .footer-links { margin-bottom: 10px; display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; gap: 12px; }
+        .footer-link { color: white; text-decoration: none; padding: 6px; background: rgba(255,255,255,0.10); border-radius: 8px; transition: all 0.2s ease; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+        .footer-link:hover { background: rgba(255,255,255,0.25); transform: translateY(-2px) scale(1.08); }
+        .footer-icon-img { width: 38px; height: 38px; object-fit: contain; display: block; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); }
+        .footer-info { opacity: 0.85; font-size: 0.75rem; text-align: left; margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+<div id="loadingLang" data-var="_02_loading_lang" style="display:none; position:fixed; top:20px; right:20px; background:#2c3e50; color:white; padding:10px 15px; border-radius:8px; z-index:9999; font-size:0.85rem; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+    ⏳ Cargando idioma...
+</div>
+
+<header>
+    <div class="nav-container">
+        <!-- Renglón 1: Logo y Título -->
+        <div class="nav-row-1">
+            <img src="{{ url_for('static', filename='logo.png') }}" class="logo-img" alt="Logo" onerror="this.style.display='none'">
+            <h1 class="site-title" data-var="_02_titulo_web">IA NutriBot</h1>
+        </div>
+        <!-- Renglón 2: Índice de páginas -->
+        <div class="nav-row-2" id="nav-links">
+            <a id="nav-inicio" onclick="showSection('inicio')" class="active" data-var="_02_menu_inicio">Inicio</a>
+            <a id="nav-ingreso" onclick="showSection('ingreso')" data-var="_02_menu_ingreso">Ingreso</a>
+            <a id="nav-salud" onclick="showSection('salud')" data-var="_02_menu_salud">Salud</a>
+            <a id="nav-informes" onclick="showSection('informes')" data-var="_02_menu_informes">Informes</a>
+            <a id="nav-calculadora_info" onclick="showSection('calculadora_info')" data-var="_02_menu_calculadora_info">Precargadas</a>
+            <a id="nav-alta" onclick="showSection('alta')" data-var="_02_menu_alta">Alta</a>
+            <a id="nav-comandos" onclick="showSection('comandos')" data-var="_02_menu_comandos">Comandos</a>
+            <a id="nav-faq" onclick="showSection('faq')" data-var="_02_menu_faq">FAQ</a>
+            <a id="nav-terminos" onclick="showSection('terminos')" data-var="_02_menu_terminos">Legal</a>
+            {% if user_id %}
+            <a id="nav-calculadora" onclick="showSection('calculadora')" data-var="_02_menu_calculadora">Calculadora Web</a>
+            {% endif %}
+        </div>
+        <!-- Renglón 3: Banderas -->
+        <div class="nav-row-3" id="langFlagsContainer"></div>
+    </div>
+</header>
+
+<div class="content-wrapper">
+    <!-- INICIO -->
+    <div id="section-inicio" class="section-content active">
+        <div class="content-box">
+            <h2 class="page-title"><b data-var="_02_inicio_tit">BIENVENIDO A IA NUTRIBOT</b></h2>
+            <h4 class="page-subtitle" data-var="_02_inicio_sub">La forma más simple, rápida y segura de llevar el control de tu alimentación.</h4>
+            <hr class="page-divider">
+            <p class="page-bullet" data-var="_02_inicio_b1"></p>
+            <p class="page-bullet" data-var="_02_inicio_b2"></p>
+            <p class="page-bullet" data-var="_02_inicio_b3"></p>
+            <p class="page-bullet" data-var="_02_inicio_b4"></p>
+            <p class="page-bullet" data-var="_02_inicio_b5"></p>
+            <h3 class="page-footer" data-var="_02_inicio_foot">¡Nunca fue tan fácil llevar tu control nutricional!</h3>
+        </div>
+    </div>
+
+    <!-- INGRESO -->
+    <div id="section-ingreso" class="section-content">
+        <div class="content-box">
+            <h2 class="page-title"><b data-var="_02_ingreso_tit">INGRESO DE COMIDAS</b></h2>
+            <h4 class="page-subtitle" data-var="_02_ingreso_sub">Todas las opciones para registrar tu alimentación...</h4>
+            <hr class="page-divider">
+            <p class="page-bullet" data-var="_02_ingreso_b1"></p>
+            <p class="page-bullet" data-var="_02_ingreso_b2"></p>
+            <p class="page-bullet" data-var="_02_ingreso_b3"></p>
+            <p class="page-bullet" data-var="_02_ingreso_b4"></p>
+            <p class="page-bullet" data-var="_02_ingreso_b5"></p>
+            <p class="page-bullet" data-var="_02_ingreso_b6"></p>
+            <p class="page-bullet" data-var="_02_ingreso_b7"></p>
+            <h3 class="page-footer" data-var="_02_ingreso_foot">¡Empieza ahora mismo enviando tu primera comida!</h3>
+        </div>
+    </div>
+
+    <!-- SALUD -->
+    <div id="section-salud" class="section-content">
+        <div class="content-box">
+            <h2 class="page-title"><b data-var="_02_salud_tit">SALUD, ACTIVIDAD Y PERFIL</b></h2>
+            <h4 class="page-subtitle" data-var="_02_salud_sub">Lleva un registro integral...</h4>
+            <hr class="page-divider">
+            <p class="page-bullet" data-var="_02_salud_b1"></p>
+            <p class="page-bullet" data-var="_02_salud_b2"></p>
+            <p class="page-bullet" data-var="_02_salud_b3"></p>
+            <p class="page-bullet" data-var="_02_salud_b4"></p>
+            <h3 class="page-footer" data-var="_02_salud_foot">¡El control de tu salud ahora la tendrás en la palma de tu mano!</h3>
+        </div>
+    </div>
+
+    <!-- INFORMES -->
+    <div id="section-informes" class="section-content">
+        <div class="content-box">
+            <h2 class="page-title"><b data-var="_02_info_tit">INFORMES, ESTADÍSTICAS Y CONTROL</b></h2>
+            <h4 class="page-subtitle" data-var="_02_info_sub">Visualiza tu progreso...</h4>
+            <hr class="page-divider">
+            <p class="page-bullet" data-var="_02_info_b1"></p>
+            <p class="page-bullet" data-var="_02_info_b2"></p>
+            <p class="page-bullet" data-var="_02_info_b3"></p>
+            <p class="page-bullet" data-var="_02_info_b4"></p>
+            <p class="page-bullet" data-var="_02_info_b5"></p>
+            <p class="page-bullet" data-var="_02_info_b6"></p>
+            <h3 class="page-footer" data-var="_02_info_foot">¡Toda tu evolución nutricional la recibís en tu Telegram en PDF!</h3>
+        </div>
+    </div>
+
+    <!-- PRECARGADAS -->
+    <div id="section-calculadora_info" class="section-content">
+        <div class="content-box">
+            <h2 class="page-title"><b data-var="_02_pre_tit">COMIDAS PRECARGADAS Y CALCULADORA WEB</b></h2>
+            <h4 class="page-subtitle" data-var="_02_pre_sub">Guarda tus recetas favoritas...</h4>
+            <hr class="page-divider">
+            <p class="page-bullet" data-var="_02_pre_b1"></p>
+            <p class="page-bullet" data-var="_02_pre_b2"></p>
+            <p class="page-bullet" data-var="_02_pre_b3"></p>
+            <p class="page-bullet" data-var="_02_pre_b4"></p>
+            <h3 class="page-footer" data-var="_02_pre_foot">¡Exactitud y rapidez para tu salud!</h3>
+        </div>
+    </div>
+
+    <!-- ALTA -->
+    <div id="section-alta" class="section-content">
+        <div class="content-box">
+            <h2 class="page-title"><b data-var="_02_alta_tit">ALTA DE USUARIO Y PERFIL BIOMÉTRICO</b></h2>
+            <h4 class="page-subtitle" data-var="_02_alta_sub">Un proceso rapidísimo...</h4>
+            <hr class="page-divider">
+            <p class="page-bullet" data-var="_02_alta_b1"></p>
+            <p class="page-bullet" data-var="_02_alta_b2"></p>
+            <p class="page-bullet" data-var="_02_alta_b3"></p>
+            <p class="page-bullet" data-var="_02_alta_b4"></p>
+            <h3 class="page-footer" data-var="_02_alta_foot">¿Ya estas listo para iniciar un camino saludable?</h3>
+        </div>
+    </div>
+
+    <!-- COMANDOS -->
+    <div id="section-comandos" class="section-content">
+        <div class="content-box">
+            <h2 class="page-title"><b data-var="_02_cmd_tit">GUÍA COMPLETA DE COMANDOS</b></h2>
+            <h4 class="page-subtitle" data-var="_02_cmd_sub">Accede rápidamente a todas las funciones...</h4>
+            <hr class="page-divider">
+            <p class="page-bullet" data-var="_02_cmd_b1"></p>
+            <p class="page-bullet" data-var="_02_cmd_b2"></p>
+            <p class="page-bullet" data-var="_02_cmd_b3"></p>
+            <p class="page-bullet" data-var="_02_cmd_b4"></p>
+            <p class="page-bullet" data-var="_02_cmd_b5"></p>
+            <p class="page-bullet" data-var="_02_cmd_b6"></p>
+            <p class="page-bullet" data-var="_02_cmd_b7"></p>
+            <p class="page-bullet" data-var="_02_cmd_b8"></p>
+            <p class="page-bullet" data-var="_02_cmd_b9"></p>
+            <p class="page-bullet" data-var="_02_cmd_b10"></p>
+            <p class="page-bullet" data-var="_02_cmd_b11"></p>
+            <p class="page-bullet" data-var="_02_cmd_b12"></p>
+            <p class="page-bullet" data-var="_02_cmd_b13"></p>
+            <p class="page-bullet" data-var="_02_cmd_b14"></p>
+            <p class="page-bullet" data-var="_02_cmd_b15"></p>
+            <p class="page-bullet" data-var="_02_cmd_b16"></p>
+        </div>
+    </div>
+
+    <!-- FAQ -->
+    <div id="section-faq" class="section-content">
+        <div class="content-box">
+            <h2 class="page-title"><b data-var="_02_faq_tit">PREGUNTAS FRECUENTES (FAQ)</b></h2>
+            <h4 class="page-subtitle" data-var="_02_faq_sub">Respuestas rápidas a las dudas...</h4>
+            <hr class="page-divider">
+            <p class="page-bullet" data-var="_02_faq_b1"></p>
+            <p class="page-bullet" data-var="_02_faq_b2"></p>
+            <p class="page-bullet" data-var="_02_faq_b3"></p>
+            <p class="page-bullet" data-var="_02_faq_b4"></p>
+            <p class="page-bullet" data-var="_02_faq_b5"></p>
+            <p class="page-bullet" data-var="_02_faq_b6"></p>
+        </div>
+    </div>
+
+    <!-- TERMINOS -->
+    <div id="section-terminos" class="section-content">
+        <div class="content-box">
+            <h2 class="page-title"><b data-var="_02_leg_tit">TÉRMINOS Y CONDICIONES</b></h2>
+            <h4 class="page-subtitle" data-var="_02_leg_sub">Información importante sobre el uso...</h4>
+            <hr class="page-divider">
+            <p class="page-bullet" data-var="_02_leg_b1"></p>
+            <p class="page-bullet" data-var="_02_leg_b2"></p>
+            <p class="page-bullet" data-var="_02_leg_b3"></p>
+            <p class="page-bullet" data-var="_02_leg_b4"></p>
+        </div>
+    </div>
+
+    <!-- Sección Calculadora Web -->
+    {% if user_id %}
+    <div id="section-calculadora" class="section-content">
+        <div class="content-box calculator-section">
+            <h2 class="page-title" data-var="_02_titulo_calc">Calculadora Web</h2>
+            <p class="page-subtitle" data-var="_02_desc_calc">Herramienta avanzada para registrar y calcular recetas.</p>
+
+            <div class="user-badge"><span data-var="_02_user_conectado">Usuario Conectado</span>: {{ user_id }}</div>
+            
+            <div class="row">
+                <div class="col" style="flex: 0.4;">
+                    <label for="codigo"><span data-var="_02_label_codigo">Código</span>:</label>
+                    <input type="text" id="codigo" data-placeholder="_02_ph_codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()">
+                </div>
+                <div class="col">
+                    <label for="descripcion"><span data-var="_02_label_descripcion">Descripción</span>:</label>
+                    <input type="text" id="descripcion" data-placeholder="_02_ph_descripcion" placeholder="Ej: Porción de pascualina de atún">
+                </div>
+            </div>
+
+            <label for="recetaText"><span data-var="_02_label_ingredientes">Ingredientes y Cantidad</span>:</label>
+            <textarea id="recetaText" data-placeholder="_02_ph_ingredientes" placeholder="Ej:&#10;1 kg de harina&#10;6 huevos&#10;200 g de manteca"></textarea>
+
+            <div class="row">
+                <div class="col">
+                    <label for="tipoCalculo"><span data-var="_02_label_criterio">Criterio de División</span>:</label>
+                    <select id="tipoCalculo" onchange="toggleCriterio()">
+                        <option value="porciones" data-var="_02_opt_porciones">Porciones</option>
+                        <option value="gramos" data-var="_02_opt_gramos">Porción de 100 Gramos</option>
+                    </select>
+                </div>
+                <div class="col" id="colPorciones">
+                    <label for="porciones"><span data-var="_02_label_porciones">Porciones</span>:</label>
+                    <input type="number" id="porciones" value="1" min="1">
+                </div>
+            </div>
+
+            <button class="calc-btn" onclick="calcularReceta()"><span data-var="_02_btn_calcular">✨ Calcular Fila con IA</span></button>
+
+            <div id="loading" data-var="_02_loading_ia">Calculando macronutrientes...</div>
+
+            <div id="resultado-section">
+                <div style="overflow-x: auto;">
+                    <table class="calc-tbl" id="tablaNutricional">
+                        <thead>
+                            <tr>
+                                <th data-var="_02_th_nombre">Nombre</th>
+                                <th data-var="_02_th_peso">⚖️ Peso (g)</th>
+                                <th data-var="_02_th_calorias">🔥 Calorías</th>
+                                <th data-var="_02_th_proteinas">🥩 Proteínas</th>
+                                <th data-var="_02_th_grasas">🥑 Grasas</th>
+                                <th data-var="_02_th_carbohidratos">🍞 Carbos</th>
+                                <th data-var="_02_th_fibras">🌾 Fibras</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                        <tfoot>
+                            <tr class="total-row" id="filaTotales">
+                                <td><span data-var="_02_th_totales">Totales</span></td>
+                                <td id="totPeso">0</td>
+                                <td id="totCal">0</td>
+                                <td id="totProt">0</td>
+                                <td id="totGras">0</td>
+                                <td id="totCarb">0</td>
+                                <td id="totFibr">0</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <button class="btn-save" onclick="guardarEnGoogleSheets()"><span data-var="_02_btn_guardar">💾 Guardar Directamente en Planilla</span></button>
+                <button class="btn-copy" onclick="copiarFilaExcel()"><span data-var="_02_btn_copiar">📋 Copiar Fila para Excel</span></button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+
+<footer>
+    <!-- Footer con imágenes PNG grandes alineadas a la izquierda -->
+    <div class="footer-links">
+        <a onclick="reproducirAudioguia()" class="footer-link" data-title="_02_title_audioguia" title="Audioguía">
+            <img src="{{ url_for('static', filename='audioguia.png') }}" alt="Audioguía" class="footer-icon-img">
+        </a>
+        <a id="linkManual" href="#" target="_blank" class="footer-link" data-title="_02_title_manual" title="Manual (PDF)">
+            <img src="{{ url_for('static', filename='manual.png') }}" alt="Manual" class="footer-icon-img">
+        </a>
+        <a href="https://instagram.com/ianutribot" target="_blank" class="footer-link" title="Instagram">
+            <img src="{{ url_for('static', filename='instagram.png') }}" alt="Instagram" class="footer-icon-img">
+        </a>
+        <a href="https://twitter.com/ianutribot" target="_blank" class="footer-link" title="X (Twitter)">
+            <img src="{{ url_for('static', filename='x.png') }}" alt="X" class="footer-icon-img">
+        </a>
+        <a href="https://tiktok.com/@ianutribot" target="_blank" class="footer-link" title="TikTok">
+            <img src="{{ url_for('static', filename='tiktok.png') }}" alt="TikTok" class="footer-icon-img">
+        </a>
+        <a href="https://facebook.com/ianutribot" target="_blank" class="footer-link" title="Facebook">
+            <img src="{{ url_for('static', filename='facebook.png') }}" alt="Facebook" class="footer-icon-img">
+        </a>
+        <a href="https://youtube.com/@ianutribot" target="_blank" class="footer-link" title="YouTube">
+            <img src="{{ url_for('static', filename='youtube.png') }}" alt="YouTube" class="footer-icon-img">
+        </a>
+        <a href="mailto:ianutribot@gmail.com" class="footer-link" title="Mail">
+            <img src="{{ url_for('static', filename='mail.png') }}" alt="Mail" class="footer-icon-img">
+        </a>
+    </div>
+    <div class="footer-info" data-var="_02_footer_rights">© 2026 IA NutriBot - Todos los derechos reservados.</div>
+</footer>
+
+<script>
+    const fondosNutricion = [
+        "https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1920&q=80",
+        "https://images.unsplash.com/photo-1498837167922-ddd27525d352?auto=format&fit=crop&w=1920&q=80",
+        "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=1920&q=80",
+        "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=1920&q=80",
+        "https://images.unsplash.com/photo-1490645935967-10de6ba17061?auto=format&fit=crop&w=1920&q=80",
+        "https://images.unsplash.com/photo-1505253716362-afaea1d3d1af?auto=format&fit=crop&w=1920&q=80"
+    ];
+
+    function aplicarFondoAleatorioRotativo() {
+        const randomIndex = Math.floor(Math.random() * fondosNutricion.length);
+        document.body.style.backgroundImage = `url('${fondosNutricion[randomIndex]}')`;
+    }
+
+    let idiomasDisponiblesGlobal = [];
+    let traduccionesGlobal = {};
+    let idiomaActual = 'es';
+    let nombreLargoActual = 'Español';
+    const currentUserId = "{{ user_id }}";
+    let itemsDesglosadosGlobal = [];
+
+    // Función auxiliar para traducir alertas y mensajes en JS con respaldo (fallback)
+    function t(clave, fallback) {
+        return (traduccionesGlobal && traduccionesGlobal[clave] !== undefined) ? traduccionesGlobal[clave] : fallback;
+    }
+
+    async function cargarBanderasIdiomas() {
+        try {
+            const res = await fetch('/api/config-idiomas');
+            const data = await res.json();
+            const container = document.getElementById('langFlagsContainer');
+            container.innerHTML = '';
+            
+            if (data.idiomas && Array.isArray(data.idiomas)) {
+                idiomasDisponiblesGlobal = data.idiomas;
+                data.idiomas.forEach(langObj => {
+                    const code = langObj.code.toLowerCase();
+                    const btn = document.createElement('a');
+                    btn.className = 'flag-btn';
+                    btn.id = `flag-btn-${code}`;
+                    btn.title = langObj.name;
+                    btn.onclick = () => cambiarIdioma(code);
+
+                    const img = document.createElement('img');
+                    img.src = `/static/${code}.png`;
+                    img.alt = code.toUpperCase();
+                    img.className = 'flag-icon-img';
+                    img.onerror = function() {
+                        this.style.display = 'none';
+                        btn.innerText = langObj.flag || code.toUpperCase();
+                    };
+
+                    btn.appendChild(img);
+                    container.appendChild(btn);
+                });
+            }
+        } catch (e) {
+            console.error("Error al cargar banderas de idiomas:", e);
+        }
+    }
+
+    async function cambiarIdioma(lang) {
+        const loadingBox = document.getElementById('loadingLang');
+        if (loadingBox) loadingBox.style.display = 'block';
+
+        try {
+            idiomaActual = lang.toLowerCase();
+            document.documentElement.lang = idiomaActual;
+
+            document.querySelectorAll('.flag-btn').forEach(b => b.classList.remove('active-flag'));
+            const activeFlag = document.getElementById(`flag-btn-${idiomaActual}`);
+            if (activeFlag) activeFlag.classList.add('active-flag');
+            
+            const objLang = idiomasDisponiblesGlobal.find(i => i.code.toLowerCase() === idiomaActual);
+            if (objLang && objLang.name) {
+                nombreLargoActual = objLang.name;
+            }
+
+            const response = await fetch(`/api/traducciones?lang=${idiomaActual}`);
+            if (!response.ok) throw new Error("No se pudieron cargar las traducciones.");
+            const traducciones = await response.json();
+            traduccionesGlobal = traducciones;
+            
+            document.querySelectorAll('[data-var]').forEach(el => {
+                const clave = el.getAttribute('data-var');
+                if (traducciones[clave] !== undefined) {
+                    el.innerHTML = traducciones[clave];
+                }
+            });
+
+            document.querySelectorAll('[data-placeholder]').forEach(el => {
+                const clave = el.getAttribute('data-placeholder');
+                if (traducciones[clave] !== undefined) {
+                    el.placeholder = traducciones[clave];
+                }
+            });
+
+            document.querySelectorAll('[data-title]').forEach(el => {
+                const clave = el.getAttribute('data-title');
+                if (traducciones[clave] !== undefined) {
+                    el.title = traducciones[clave];
+                }
+            });
+
+            const linkManual = document.getElementById('linkManual');
+            if (linkManual) {
+                linkManual.href = `/static/${idiomaActual}.pdf`;
+            }
+        } catch (err) {
+            console.error("Error al cambiar idioma:", err);
+        } finally {
+            if (loadingBox) loadingBox.style.display = 'none';
+        }
+    }
+
+    async function inicializarIdiomaWeb() {
+        aplicarFondoAleatorioRotativo();
+        setInterval(aplicarFondoAleatorioRotativo, 30000);
+        await cargarBanderasIdiomas();
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const userId = urlParams.get('user_id');
+
+        if (userId) {
+            try {
+                const resUser = await fetch(`/api/usuario-idioma?user_id=${userId}`);
+                const dataUser = await resUser.json();
+                if (dataUser.lang) {
+                    await cambiarIdioma(dataUser.lang);
+                    return;
+                }
+            } catch (e) {
+                console.error("Error al obtener idioma de usuario:", e);
+            }
+        }
+        await cambiarIdioma('es');
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+        inicializarIdiomaWeb();
+        if (window.location.hash === '#calculadora') {
+            showSection('calculadora');
+        }
+    });
+
+    async function reproducirAudioguia() {
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+            try {
+                const response = await fetch(`/api/audioguia?lang=${idiomaActual}`);
+                if (!response.ok) throw new Error(t('_02_err_audioguia', "No se pudo cargar la audioguía."));
+                const data = await response.json();
+                
+                const utterance = new SpeechSynthesisUtterance(data.guia);
+                utterance.lang = idiomaActual;
+                utterance.rate = 1.0;
+                window.speechSynthesis.speak(utterance);
+            } catch (error) {
+                alert(t('_02_err_audioguia', "Error al reproducir la audioguía:") + " " + error.message);
+            }
+        } else {
+            alert(t('_02_err_no_speech', "Tu navegador no soporta la función de lectura de voz."));
+        }
+    }
+
+    function showSection(sectionId) {
+        document.querySelectorAll('.section-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.nav-row-2 a').forEach(el => el.classList.remove('active'));
+        
+        const targetSection = document.getElementById('section-' + sectionId);
+        const targetNav = document.getElementById('nav-' + sectionId);
+        
+        if (targetSection) targetSection.classList.add('active');
+        if (targetNav) targetNav.classList.add('active');
+        
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function toggleCriterio() {
+        const tipo = document.getElementById('tipoCalculo').value;
+        const colPorciones = document.getElementById('colPorciones');
+        if (colPorciones) {
+            colPorciones.style.display = (tipo === 'gramos') ? 'none' : 'block';
+        }
+    }
+
+    async function calcularReceta() {
+        if (!currentUserId) {
+            alert(t('_02_err_no_registrado', "Acción no permitida para usuarios no registrados."));
+            return;
+        }
+
+        const codigo = document.getElementById('codigo').value.trim();
+        const descripcion = document.getElementById('descripcion').value.trim();
+        const receta = document.getElementById('recetaText').value.trim();
+        const tipoCalculo = document.getElementById('tipoCalculo').value;
+        const porciones = document.getElementById('porciones').value;
+
+        if (!codigo || !descripcion || !receta) {
+            alert(t('_02_err_campos_vacios', "Por favor completa el código, la descripción y los ingredientes."));
+            return;
+        }
+
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('resultado-section').style.display = 'none';
+
+        try {
+            const response = await fetch('/api/calcular-receta', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    user_id: currentUserId,
+                    lang: idiomaActual,
+                    codigo, 
+                    descripcion, 
+                    receta, 
+                    tipoCalculo, 
+                    porciones: parseInt(porciones || 1) 
+                })
+            });
+
+            const responseText = await response.text();
+            if (responseText.trim().startsWith('<')) {
+                alert(t('_02_err_servidor', "❌ El servidor falló") + " (HTTP " + response.status + ").");
+                return;
+            }
+
+            const data = JSON.parse(responseText);
+            
+            if (response.ok && data.items && Array.isArray(data.items)) {
+                itemsDesglosadosGlobal = data.items;
+                renderizarTablaEditable();
+                document.getElementById('resultado-section').style.display = 'block';
+            } else {
+                alert(t('_02_err_calcular', "❌ Error al calcular:") + " " + (data.error || ""));
+            }
+        } catch (err) {
+            alert(t('_02_err_procesamiento', "❌ Error de procesamiento:") + " " + err.message);
+        } finally {
+            document.getElementById('loading').style.display = 'none';
+        }
+    }
+
+    function renderizarTablaEditable() {
+        const tbody = document.querySelector('#tablaNutricional tbody');
+        tbody.innerHTML = '';
+
+        itemsDesglosadosGlobal.forEach((item, index) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="text" class="editable-cell" value="${item.alimento || ''}" onchange="actualizarItem(${index}, 'alimento', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.peso || 0}" onchange="actualizarItem(${index}, 'peso', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.calorias || 0}" onchange="actualizarItem(${index}, 'calorias', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.proteinas || 0}" onchange="actualizarItem(${index}, 'proteinas', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.grasas || 0}" onchange="actualizarItem(${index}, 'grasas', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.carbohidratos || 0}" onchange="actualizarItem(${index}, 'carbohidratos', this.value)"></td>
+                <td><input type="number" step="any" class="editable-cell" value="${item.fibras || 0}" onchange="actualizarItem(${index}, 'fibras', this.value)"></td>
+            `;
+            tbody.appendChild(tr);
+        });
+        recalcularTotales();
+    }
+
+    function actualizarItem(index, campo, valor) {
+        if (campo === 'alimento') {
+            itemsDesglosadosGlobal[index][campo] = valor;
+        } else {
+            itemsDesglosadosGlobal[index][campo] = parseFloat(valor) || 0;
+        }
+        recalcularTotales();
+    }
+
+    function recalcularTotales() {
+        let tPeso = 0, tCal = 0, tProt = 0, tGras = 0, tCarb = 0, tFibr = 0;
+
+        itemsDesglosadosGlobal.forEach(item => {
+            tPeso += parseFloat(item.peso) || 0;
+            tCal += parseFloat(item.calorias) || 0;
+            tProt += parseFloat(item.proteinas) || 0;
+            tGras += parseFloat(item.grasas) || 0;
+            tCarb += parseFloat(item.carbohidratos) || 0;
+            tFibr += parseFloat(item.fibras) || 0;
+        });
+
+        document.getElementById('totPeso').innerText = Math.round(tPeso);
+        document.getElementById('totCal').innerText = Math.round(tCal);
+        document.getElementById('totProt').innerText = Math.round(tProt);
+        document.getElementById('totGras').innerText = Math.round(tGras);
+        document.getElementById('totCarb').innerText = Math.round(tCarb);
+        document.getElementById('totFibr').innerText = Math.round(tFibr);
+    }
+
+    async function guardarEnGoogleSheets() {
+        if (!currentUserId || itemsDesglosadosGlobal.length === 0) {
+            alert(t('_02_err_sin_datos', "No hay datos calculados para guardar."));
+            return;
+        }
+
+        const filaTotalConsolidada = {
+            nombre: document.getElementById('codigo').value.trim(),
+            descripcion: document.getElementById('descripcion').value.trim(),
+            peso: parseFloat(document.getElementById('totPeso').innerText),
+            calorias: parseFloat(document.getElementById('totCal').innerText),
+            proteinas: parseFloat(document.getElementById('totProt').innerText),
+            grasas: parseFloat(document.getElementById('totGras').innerText),
+            carbohidratos: parseFloat(document.getElementById('totCarb').innerText),
+            fibras: parseFloat(document.getElementById('totFibr').innerText)
+        };
+
+        try {
+            const response = await fetch('/api/guardar-comida', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: currentUserId,
+                    fila: filaTotalConsolidada
+                })
+            });
+
+            const res = await response.json();
+            if (response.ok) {
+                if (res.codigo_guardado) {
+                    filaTotalConsolidada.nombre = res.codigo_guardado;
+                    document.getElementById('codigo').value = res.codigo_guardado;
+                }
+                alert(t('_02_msg_exito_guardar', "✅ ¡Éxito!") + " " + (res.message || ""));
+            } else {
+                alert(t('_02_err_guardar', "❌ Error al guardar:") + " " + (res.error || ""));
+            }
+        } catch (e) {
+            alert(t('_02_err_conexion_guardar', "Error de conexión al intentar guardar."));
+        }
+    }
+
+    function copiarFilaExcel() {
+        const codigo = document.getElementById('codigo').value.trim();
+        const descripcion = document.getElementById('descripcion').value.trim();
+        const celdas = [
+            codigo,
+            descripcion,
+            document.getElementById('totPeso').innerText,
+            document.getElementById('totCal').innerText,
+            document.getElementById('totProt').innerText,
+            document.getElementById('totGras').innerText,
+            document.getElementById('totCarb').innerText,
+            document.getElementById('totFibr').innerText
+        ];
+        const textoCopiable = celdas.join('\\t');
+
+        navigator.clipboard.writeText(textoCopiable).then(() => {
+            alert(t('_02_msg_copiado', "¡Fila total copiada! Podés pegarla en tu Excel con Ctrl + V."));
+        }).catch(err => {
+            alert(t('_02_err_copiar', "Error al copiar al portapapeles."));
+        });
+    }
+</script>
+</body>
+</html>
+"""
+
+@app.route('/', methods=['GET'])
+def vista_calculadora():
+    user_id = request.args.get('user_id', '')
+    return render_template_string(HTML_CALCULADORA_RECETAS, user_id=user_id)
+
+
+@app.route('/manual.pdf', methods=['GET'])
+def servir_manual_pdf():
+    try:
+        return send_from_directory(directory=os.path.join(os.getcwd(), 'static'), path='manual.pdf', as_attachment=True)
+    except Exception as e:
+        return jsonify({"error": "No se encontró el archivo manual.pdf en la carpeta static."}), 404
+
+
+@app.route('/api/config-idiomas', methods=['GET'])
+def api_config_idiomas():
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_schema = 'public' AND LOWER(table_name) = 'multi' AND LOWER(column_name) NOT IN ('id', 'variables')
+        """)
+        cols = [f[0].strip().lower() for f in cur.fetchall() if f[0]]
+
+        cur.execute('SELECT * FROM "multi"')
+        filas = cur.fetchall()
+        colnames = [desc[0].strip().lower() for desc in cur.description]
+        cur.close(); conn.close()
+
+        dict_filas = {str(dict(zip(colnames, fila)).get('variables', '')).strip().lower(): dict(zip(colnames, fila)) for fila in filas}
+        row_lenguajes = dict_filas.get('lenguajes', {})
+        row_banderas = dict_filas.get('banderas', {})
+
+        idiomas_info = []
+        for col in cols:
+            idiomas_info.append({
+                'code': col,
+                'name': str(row_lenguajes.get(col, col.upper())).strip(),
+                'flag': str(row_banderas.get(col, '🌐')).strip()
+            })
+        return jsonify({"idiomas": idiomas_info}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/audioguia', methods=['GET'])
+def api_audioguia():
+    lang = request.args.get('lang', 'es')
+    try:
+        traducciones = obtener_traducciones_db(lang)
+        texto_guia = traducciones.get("guia", "Bienvenido a la audioguía del asistente nutricional.")
+        return jsonify({"guia": texto_guia}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/traducciones', methods=['GET'])
+def api_traducciones():
+    lang = request.args.get('lang', 'en')
+    try:
+        traducciones = obtener_traducciones_db(lang)
+        return jsonify(traducciones), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/usuario-idioma', methods=['GET'])
+def api_usuario_idioma():
+    user_id = request.args.get('user_id')
+    lang = 'es'
+    if user_id:
+        try:
+            lang = obtener_idioma_usuario(user_id)
+        except Exception:
+            pass
+    return jsonify({"lang": lang}), 200
+
+
+@app.route('/api/calcular-receta', methods=['POST'])
+def api_calcular_receta():
+    try:
+        data = request.json
+        codigo = data.get("codigo")
+        descripcion = data.get("descripcion")
+        receta = data.get("receta")
+        tipo_calculo = data.get("tipoCalculo")
+        porciones = int(data.get("porciones", 1))
+        lang = data.get("lang", "es")
+
+        prompt_ia = (
+            f"Analiza la siguiente receta o listado de ingredientes: '{receta}'. "
+            f"Desglósalo estrictamente **ítem por ítem**. Para cada ítem, calcula:\n"
+            f"- El nombre del alimento ('alimento'), escrito en el idioma '{lang}'\n"
+            f"- El peso estimado en gramos ('peso')\n"
+            f"- Las calorías ('calorias')\n"
+            f"- Las proteínas en gramos ('proteinas')\n"
+            f"- Las grasas en gramos ('grasas')\n"
+            f"- Los carbohidratos en gramos ('carbohidratos')\n"
+            f"- Las fibras en gramos ('fibras')\n\n"
+            "REGLA MATEMÁTICA: Las calorías deben coincidir con la suma aproximada de (Proteínas*4) + (Carbohidratos*4) + (Grasas*9).\n"
+            "Devuelve ÚNICAMENTE un JSON con esta estructura exacta:\n"
+            '{"items": [{"alimento": "...", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}]}'
+        )
+
+        instruccion = "Eres un nutricionista clínico experto en análisis de recetas y desglose de macronutrientes."
+        config_gen = {"response_mime_type": "application/json", "temperature": 0.1}
+
+        resultado_json = None
+
+        try:
+            model = genai.GenerativeModel(MODELO_TEXTO, system_instruction=instruccion)
+            response = model.generate_content(prompt_ia, generation_config=config_gen)
+            resultado_json = json.loads(response.text)
+            
+        except Exception as e_prin:
+            logger.warning(f"⚠️ Falla Principal Web ({MODELO_TEXTO}): {e_prin}. Pasando a Respaldo...")
+            try:
+                model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=instruccion)
+                response_resp = model_resp.generate_content(prompt_ia, generation_config=config_gen)
+                resultado_json = json.loads(response_resp.text)
+                
+            except Exception as e_resp:
+                logger.warning(f"⚠️ Falla Respaldo Web ({MODELO_RESPALDO}): {e_resp}. Pasando a Emergencia...")
+                try:
+                    model_emer = genai.GenerativeModel(MODELO_EMERGENCIA, system_instruction=instruccion)
+                    response_emer = model_emer.generate_content(prompt_ia, generation_config=config_gen)
+                    resultado_json = json.loads(response_emer.text)
+                    
+                except Exception as e_emer:
+                    logger.error(f"❌ Fallaron todos los modelos web: {e_emer}")
+                    return jsonify({"error": "No se pudo conectar con los servidores de Inteligencia Artificial."}), 500
+
+        items = resultado_json.get("items", [])
+
+        if tipo_calculo == "porciones" and porciones > 1:
+            for item in items:
+                for k in ["peso", "calorias", "proteinas", "grasas", "carbohidratos", "fibras"]:
+                    item[k] = round(float(item.get(k, 0)) / porciones, 2)
+        elif tipo_calculo == "gramos":
+            total_peso = sum(float(i.get("peso", 0)) for i in items)
+            if total_peso > 0:
+                factor = 100.0 / total_peso
+                for item in items:
+                    for k in ["peso", "calorias", "proteinas", "grasas", "carbohidratos", "fibras"]:
+                        item[k] = round(float(item.get(k, 0)) * factor, 2)
+
+        return jsonify({"nombre": codigo, "descripcion": descripcion, "items": items}), 200
+
+    except Exception as e:
+        logger.error(f"Error crítico en api_calcular_receta: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+            
+@app.route('/api/guardar-comida', methods=['POST'])
+def api_guardar_comida():
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        fila = data.get('fila')
+
+        if not user_id or not fila:
+            return jsonify({"error": "Faltan datos de usuario o de la receta."}), 400
+
+        codigo_guardado = guardar_comida_precargada_db(user_id, fila)
+
+        return jsonify({
+            "message": "Receta guardada exitosamente en tu base de datos.",
+            "codigo_guardado": codigo_guardado
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error en api_guardar_comida: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+# =====================================================================================================================================
+#              FINAL                                  PAGINA WEB (CALCULADORA UNICA)                  FINAL
+# =====================================================================================================================================
+
+# =====================================================================================================================================
+#              INICIO                                  PAGINA WEB (CALCULADORA UNICA)                        INICIO  DB OK
+# ======================================================================================================================================
+
+HTML_CALCULADORA_RECETAS = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title id="title-app" data-var="_02_titulo_web">IA NutriBot</title>
+    <style>
+        :root {
+            --primary: #27ae60;
+            --primary-dark: #219150;
+            --secondary: #2c3e50;
+            --bg-light: #f4f6f9;
+            --text-color: #2c3e50;
+        }
+        
+        html, body { 
+            min-height: 100dvh; 
+            margin: 0; 
+            padding: 0; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            color: var(--text-color); 
+            display: flex;
+            flex-direction: column;
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            background-blend-mode: overlay;
+            background-color: rgba(244, 246, 249, 0.85);
+            transition: background-image 1.5s ease-in-out;
+        }
+        
+        header { 
             background: rgba(255, 255, 255, 0.92); 
             backdrop-filter: blur(8px);
             box-shadow: 0 2px 8px rgba(0,0,0,0.06); 
