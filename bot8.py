@@ -1053,7 +1053,116 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"2. Clasificá la intención y generá un JSON estricto según estas reglas:\n\n"
             f"SI ES COMIDA: {{\"transcripcion\": \"...\", \"tipo\": \"Comida\", \"items\": [{{\"alimento\": \"...\", \"peso\": 0, \"calorias\": 0, \"proteinas\": 0, \"grasas\": 0, \"carbohidratos\": 0, \"fibras\": 0}}]}} (Ajustá calorías = Prot*4 + Carb*4 + Grasas*9)\n"
             f"SI ES ACTIVIDAD FISICA: {{\"transcripcion\": \"...\", \"tipo\": \"Actividad\", \"items\": [{{\"alimento\": \"[MINUTOS] min [DETALLE COMPLETO SIN RESUMIR]\", \"peso\": 0, \"calorias\": -0}}]}} "
-            f"(REGLA CRÍTICA DE ACTIVIDAD: El campo 'alimento' DEBE empezar SIEMPRE con el número de minutos seguido de 'min' y conservar todos los
+            f"(REGLA CRÍTICA DE ACTIVIDAD: El campo 'alimento' DEBE empezar SIEMPRE con el número de minutos seguido de 'min' y conservar todos los detalles dichos por el usuario. Ejemplo: si dice 'caminata de 50 minutos en el parque recorriendo 3000 metros', 'alimento' DEBE ser exactamente '50 min caminata en el parque recorriendo 3000 metros'. PROHIBIDO resumir a una sola palabra).\n"
+            f"SI ES RESUMEN MENSUAL: {{\"transcripcion\": \"...\", \"tipo\": \"INFORME_MENSUAL\", \"parametro\": \"YYYY-MM\"}}\n"
+            f"SI ES RESUMEN DIARIO: {{\"transcripcion\": \"...\", \"tipo\": \"INFORME_DIARIO\", \"parametro\": \"YYYY-MM-DD\"}}\n"
+            f"SI ES RESUMEN SEMANAL: {{\"transcripcion\": \"...\", \"tipo\": \"INFORME_SEMANAL\"}}\n"
+            f"SI ES RECHAZO: {{\"transcripcion\": \"...\", \"tipo\": \"RECHAZO\"}}"
+        )
+
+        audio_data = {"mime_type": "audio/ogg", "data": bytes(audio_bytes)}
+        configuracion_gen = {"response_mime_type": "application/json", "temperature": 0.1}
+        payload_ia = ["Procesá este audio:", audio_data]
+
+        try:
+            model = genai.GenerativeModel(MODELO_AUDIO, system_instruction=system_prompt)
+            resp = await asyncio.to_thread(model.generate_content, payload_ia, generation_config=configuracion_gen)
+            data = json.loads(resp.text.replace("```json", "").replace("```", "").strip())
+        except Exception as e_prin:
+            logger.warning(f"⚠️ Falla Principal Audio ({MODELO_AUDIO}): {e_prin}. Pasando a Respaldo...")
+            msg_ocupado = traducciones.get("07_bot_audio_servidor_ocupado", "⚠️ Servidor de audio ocupado. Cambiando a servidor de respaldo...")
+            try: await msg.edit_text(msg_ocupado)
+            except Exception: pass
+            
+            try:
+                model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=system_prompt)
+                resp_resp = await asyncio.to_thread(model_resp.generate_content, payload_ia, generation_config=configuracion_gen)
+                data = json.loads(resp_resp.text.replace("```json", "").replace("```", "").strip())
+            except Exception as e_resp:
+                logger.warning(f"⚠️ Falla Respaldo Audio ({MODELO_RESPALDO}): {e_resp}. Pasando a Emergencia...")
+                msg_emerg = traducciones.get("07_bot_audio_servidor_emergencia", "⚠️ Reintentando conexión con servidor de emergencia...")
+                try: await msg.edit_text(msg_emerg)
+                except Exception: pass
+                
+                try:
+                    model_emer = genai.GenerativeModel(MODELO_EMERGENCIA, system_instruction=system_prompt)
+                    resp_emer = await asyncio.to_thread(model_emer.generate_content, payload_ia, generation_config=configuracion_gen)
+                    data = json.loads(resp_emer.text.replace("```json", "").replace("```", "").strip())
+                except Exception as e_emer:
+                    logger.error(f"❌ Fallaron todos los modelos de audio: {e_emer}")
+                    msg_error_conex = traducciones.get("07_bot_audio_error_conexion", "⚠️ **Error de conexión.** Todos los servidores fallaron. Por favor, reintentá más tarde.")
+                    await msg.edit_text(msg_error_conex, parse_mode="Markdown")
+                    return
+
+        transcription = data.get("transcripcion", "")
+        tipo = str(data.get("tipo", "")).strip().upper()
+
+        if context.user_data.get("awaiting_edit_item_val"):
+            try: await msg.delete()
+            except Exception: pass
+            await _sub_manejar_edicion_item(update, context, transcription, update.effective_chat.id)
+            return
+
+        if context.user_data.get("awaiting_activity_voice"):
+            return await _sub_manejar_voz_actividad(update, context, transcription, msg)
+
+        if tipo == "ERROR_IA" or not transcription:
+            msg_no_entendido = traducciones.get("07_bot_audio_no_entendido", "⚠️ No se pudo procesar su archivo de audio o el volumen no es el adecuado. Por favor, vuelva a grabarlo o ingrese los datos por texto.")
+            await msg.edit_text(msg_no_entendido)
+            return
+
+        if tipo == "INFORME_MENSUAL":
+            try: await msg.delete()
+            except Exception: pass
+            param = str(data.get("parametro", "")).strip()
+            mes_target = param[:7] if param and re.match(r"^20\d{2}-\d{2}", param) else ahora.strftime("%Y-%m")
+            context.args = [mes_target]
+            await mostrar_resumen_mes(update, context)
+            return
+
+        elif tipo == "INFORME_SEMANAL":
+            try: await msg.delete()
+            except Exception: pass
+            await cmd_mensaje(update, context)
+            return
+
+        elif tipo == "INFORME_DIARIO":
+            try: await msg.delete()
+            except Exception: pass
+            param = str(data.get("parametro", "")).strip()
+            fecha_objetivo = param[:10] if param and re.match(r"^20\d{2}-\d{2}-\d{2}", param) else ahora.strftime("%Y-%m-%d")
+            await mostrar_diario_fecha(update.message if update.message else update.callback_query, user_id, fecha_objetivo)
+            return
+
+        elif tipo == "RECHAZO":
+            msg_rechazado = traducciones.get("07_bot_audio_rechazado", "⚠️ El audio no corresponde a un registro nutricional o comando válido.")
+            await msg.edit_text(msg_rechazado)
+            return
+
+        # Seguro para garantizar formato: "XX min detalle completo" en Actividades
+        if tipo == "ACTIVIDAD" and data.get("items"):
+            for item in data["items"]:
+                alim = str(item.get("alimento", "")).strip()
+                # Si la IA no empezó con un número o resumió a 1 o 2 palabras, lo armamos desde la transcripción
+                if not re.match(r'^\d+', alim) or len(alim.split()) <= 2:
+                    m_min = re.search(r'(\d+)\s*(?:minutos|minuto|min|m\b|horas|hora|hs|h\b)', transcription, re.IGNORECASE)
+                    if m_min:
+                        num_val = int(m_min.group(1))
+                        if 'hora' in m_min.group(0).lower() or 'h' in m_min.group(0).lower():
+                            num_val *= 60
+                        # Quitamos la frase del tiempo del medio para pasarla adelante limpia
+                        resto = (transcription[:m_min.start()] + transcription[m_min.end():]).strip()
+                        resto = re.sub(r'\b(de|por|durante)\s*$', '', transcription[:m_min.start()], flags=re.IGNORECASE).strip() + " " + re.sub(r'^\s*(de|por|durante)\b', '', transcription[m_min.end():], flags=re.IGNORECASE).strip()
+                        resto = re.sub(r'\s+', ' ', resto).strip()
+                        item["alimento"] = f"{num_val} min {resto}" if resto else f"{num_val} min {alim}"
+
+        await procesar_y_mostrar_confirmacion(data, msg, context)
+
+    except Exception as e:
+        logger.error(f"Error al procesar audio: {e}")
+        txt_err = traducciones.get("07_bot_error_procesar_audio", "❌ Error al procesar audio: {e}").format(e=e)
+        try: await msg.edit_text(txt_err)
+        except Exception: pass
             
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
