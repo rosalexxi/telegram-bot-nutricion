@@ -3459,8 +3459,7 @@ async def callback_btn_momento(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data['last_menu_msg_id'] = query.message.message_id
     context.user_data['pending_momento'] = query.data.replace("set_m_", "")
     await render_confirmation_screen(query, context)
-
-        
+     
 @requiere_registro
 async def callback_btn_editar_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
