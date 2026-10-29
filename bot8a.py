@@ -3462,6 +3462,38 @@ async def callback_btn_momento(update: Update, context: ContextTypes.DEFAULT_TYP
 
         
 @requiere_registro
+async def callback_btn_editar_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+    context.user_data['last_menu_msg_id'] = query.message.message_id
+
+    idx = int(data.replace("edit_item_", "")) - 1
+    context.user_data.update({'awaiting_edit_item_val': True, 'editing_item_idx': idx})
+    
+    momento_actual = context.user_data.get('pending_momento', 'Comida')
+    items = context.user_data.get('pending_items', [])
+    
+    es_codigo_barras = (0 <= idx < len(items) and items[idx].get('fuente') == "Open Food Facts")
+    es_plantilla = (0 <= idx < len(items) and items[idx].get('es_plantilla') == True)
+
+    if momento_actual == 'Actividad':
+        txt_ed_kcal = traducciones.get('06_bot_edit_calorias', "✏️ Ingresá el nuevo valor de calorías para la actividad (ej: `220`):")
+        await query.message.reply_text(txt_ed_kcal, parse_mode="Markdown")
+    elif es_codigo_barras:
+        txt_ed_peso = traducciones.get('06_bot_edit_peso_gr', "⚖️ Ingresá el **nuevo peso en gramos** para este producto (ej: `150`):")
+        await query.message.reply_text(txt_ed_peso, parse_mode="Markdown")
+    elif es_plantilla:
+        txt_ed_plantilla = traducciones.get('06_bot_edit_unidades', "✏️ Ingresá la **nueva cantidad de unidades** (ej: `2` o `1.5`):")
+        await query.message.reply_text(txt_ed_plantilla, parse_mode="Markdown")
+    else:
+        txt_ed_gen = traducciones.get('06_bot_edit_desc_peso', "✏️ Ingresá la nueva descripción y/o peso para este alimento:")
+        await query.message.reply_text(txt_ed_gen)
+        
+@requiere_registro
 async def callback_btn_anular_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
