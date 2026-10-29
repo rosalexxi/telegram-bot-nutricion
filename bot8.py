@@ -5,6 +5,20 @@
 #===============================================================================================================
 
 from bot8a import *
+from bot8a import (
+    _asegurar_tabla_y_conectar,
+    _obtener_conexion_db,
+    _core_guardar_perfil_db,
+    _core_guardar_usuario_db,
+    _garantizar_fila_mes_actual,
+    _validar_peso_mes_actual,
+    _sub_manejar_fecha_personalizada_ingesta,
+    _sub_manejar_texto_actividad,
+    _sub_manejar_edicion_item,
+    _sub_manejar_plantilla_comida,
+    _sub_manejar_voz_ingesta,
+    _sub_manejar_voz_actividad
+)
 import web
 
 from administrador import (
