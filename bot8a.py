@@ -2541,19 +2541,71 @@ async def limpiar_teclado_anterior(update: Update, context: ContextTypes.DEFAULT
     chat_id = update.effective_chat.id if update.effective_chat else None
     if not chat_id:
         return
+
+    # Detectamos si el usuario acaba de enviar un comando (ej: /dia, /perfil, /x)
+    es_comando = bool(
+        update.message and 
+        update.message.text and 
+        update.message.text.strip().startswith('/')
+    )
+
+    # 1. Si está enviando el valor de edición (texto o audio) y NO es un comando nuevo,
+    # conservamos 'last_menu_msg_id' para que pueda actualizar el cartel original.
+    if update.message and not es_comando and (
+        context.user_data.get('awaiting_edit_item_val') or 
+        context.user_data.get('awaiting_custom_date')
+    ):
+        return
+
+    # Si mandó un comando nuevo mientras estaba a mitad de una edición, limpiamos los estados colgados
+    if es_comando:
+        context.user_data.pop('awaiting_edit_item_val', None)
+        context.user_data.pop('editing_item_idx', None)
+        context.user_data.pop('awaiting_custom_date', None)
+        msg_solic_ed = context.user_data.pop('msg_solicitud_edit_id', None)
+        if msg_solic_ed:
+            try: await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic_ed)
+            except Exception: pass
+
+    # 2. Si el usuario tocó un botón dentro del mismo menú de confirmación:
+    if update.callback_query and update.callback_query.data:
+        cb_data = update.callback_query.data
         
+        # Si cambia momento (set_m_), fecha rápida (set_d_hoy/ayer) o borra un ítem (del_item_),
+        # aseguramos que el ID quede registrado y dejamos que render_confirmation_screen actualice el cartel.
+        # Si luego el usuario pasa a otro comando, el Punto 3 borrará estos botones.
+        if cb_data.startswith(("set_m_", "del_item_")) or cb_data in ("set_d_hoy", "set_d_ayer"):
+            context.user_data['last_menu_msg_id'] = update.callback_query.message.message_id
+            return
+            
+        # Si toca editar ítem (edit_item_) o pedir otra fecha (set_d_otro/custom),
+        # BORRAMOS los botones de la pantalla ahora mismo, pero guardamos 'last_menu_msg_id'
+        # para poder restaurar el cartel cuando ingrese el número.
+        if cb_data.startswith("edit_item_") or cb_data in ("set_d_otro", "set_d_custom"):
+            last_msg_id = update.callback_query.message.message_id
+            context.user_data['last_menu_msg_id'] = last_msg_id
+            try:
+                await context.bot.edit_message_reply_markup(
+                    chat_id=chat_id,
+                    message_id=last_msg_id,
+                    reply_markup=None
+                )
+            except Exception:
+                pass
+            return
+
+    # 3. Para cualquier otra acción o comando nuevo, borramos los botones del mensaje anterior y limpiamos el ID
     last_msg_id = context.user_data.pop('last_menu_msg_id', None)
     if last_msg_id:
         try:
-            # Editamos el mensaje pasándole reply_markup=None para borrar solo los botones
             await context.bot.edit_message_reply_markup(
                 chat_id=chat_id,
                 message_id=last_msg_id,
                 reply_markup=None
             )
         except Exception:
-            pass # Falla silenciosa si el mensaje fue borrado a mano por el usuario o es muy viejo
-   
+            pass
+            
 def requiere_registro(func):
     """Decorador que verifica registro y bloquea usuarios en Estado 3 ofreciendo reactivación prorrateada."""
     @wraps(func)
@@ -2852,16 +2904,20 @@ async def analizar_imagen_con_ia(base64_image: str, user_id=None, msg_obj=None):
 # ======================================================================================================================================
 
 async def render_confirmation_screen(msg_or_query, context):
-    # 1. Extracción segura del chat_id y user_id
+    # 1. Extracción segura del chat_id y user_id (Soporta Update, CallbackQuery y Message)
     chat_id = None
     user_id = None
     
-    if hasattr(msg_or_query, 'chat') and msg_or_query.chat:
+    if hasattr(msg_or_query, 'effective_chat') and msg_or_query.effective_chat:
+        chat_id = msg_or_query.effective_chat.id
+    elif hasattr(msg_or_query, 'chat') and msg_or_query.chat:
         chat_id = msg_or_query.chat.id
     elif hasattr(msg_or_query, 'message') and msg_or_query.message and msg_or_query.message.chat:
         chat_id = msg_or_query.message.chat.id
 
-    if hasattr(msg_or_query, 'from_user') and msg_or_query.from_user and not msg_or_query.from_user.is_bot:
+    if hasattr(msg_or_query, 'effective_user') and msg_or_query.effective_user and not msg_or_query.effective_user.is_bot:
+        user_id = msg_or_query.effective_user.id
+    elif hasattr(msg_or_query, 'from_user') and msg_or_query.from_user and not msg_or_query.from_user.is_bot:
         user_id = msg_or_query.from_user.id
     elif hasattr(msg_or_query, 'message') and msg_or_query.message and msg_or_query.message.from_user and not msg_or_query.message.from_user.is_bot:
         user_id = msg_or_query.message.from_user.id
@@ -2964,12 +3020,14 @@ async def render_confirmation_screen(msg_or_query, context):
 
     markup = InlineKeyboardMarkup(keyboard)
 
-    # 3. Despliegue seguro con reporte de errores para que nunca más falle en silencio
-    is_callback = hasattr(msg_or_query, 'message') and msg_or_query.message is not None
+    # 3. Despliegue seguro distinguiendo CallbackQuery real de Update/Message
+    is_callback = hasattr(msg_or_query, 'edit_message_text')
 
     if is_callback:
         try:
             await msg_or_query.edit_message_text(txt, reply_markup=markup, parse_mode="HTML")
+            if hasattr(msg_or_query, 'message') and msg_or_query.message:
+                context.user_data['last_menu_msg_id'] = msg_or_query.message.message_id
             return
         except Exception:
             pass
@@ -2998,6 +3056,7 @@ async def render_confirmation_screen(msg_or_query, context):
             context.user_data['last_menu_msg_id'] = nuevo_msg.message_id
         except Exception as e:
             logger.error(f"Fallo send_message en render_confirmation_screen: {e}")
+            
             
 async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     items = data_json.get("items", [])
@@ -3191,19 +3250,12 @@ async def _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, ch
 
     if fecha_parseada:
         context.user_data.update({'pending_fecha': fecha_parseada, 'awaiting_custom_date': False})
-        last_id = context.user_data.get('last_menu_msg_id')
-        if last_id:
-            try:
-                target = await context.bot.get_message(chat_id=chat_id, message_id=last_id)
-                await render_confirmation_screen(target, context)
-                return
-            except Exception: pass
         await render_confirmation_screen(update, context)
     else:
         txt_err_fec = traducciones.get('06_bot_error_fecha_inv', "⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):")
         msg_err = await update.message.reply_text(txt_err_fec, parse_mode="Markdown")
         context.user_data['msg_solicitud_fecha_id'] = msg_err.message_id
-
+        
 async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
     item_index = context.user_data.get('editing_item_idx')
     items = context.user_data.get('pending_items', [])
@@ -3338,9 +3390,13 @@ async def _sub_manejar_plantilla_comida(update: Update, context: ContextTypes.DE
     traducciones = obtener_traducciones_db(lang) or {}
 
     contenido = raw_text[1:].strip()
-    partes = [p.strip() for p in contenido.split(',')]
+    # Separamos solo en la primera coma o espacio para tolerar decimales con coma (ej: *PIZZA, 1,5)
+    partes = [p.strip() for p in contenido.split(',', 1)]
     nombre_plantilla = partes[0].upper()
-    mult = float(partes[1]) if len(partes) > 1 else 1.0
+    try:
+        mult = float(partes[1].replace(',', '.')) if len(partes) > 1 and partes[1] else 1.0
+    except ValueError:
+        mult = 1.0
 
     plantillas = obtener_comidas_usuario(user_id)
     plantilla = next((p for p in plantillas if str(p.get('Nombre', '')).strip().upper() == nombre_plantilla), None)
@@ -3378,7 +3434,6 @@ async def _sub_manejar_plantilla_comida(update: Update, context: ContextTypes.DE
         msg = await update.message.reply_text(txt_proc)
         await procesar_y_mostrar_confirmacion({"items": [item_gen], "tipo": "Comida"}, msg, context)
     else:
-        # Buscamos la traducción y si no existe, usamos un texto por defecto seguro
         mensaje_base = traducciones.get('06_bot_error_comida_no_enc')
         if not mensaje_base or not str(mensaje_base).strip():
             mensaje_base = "❌ No se encontró la comida `*{nombre}` en tu planilla `Comidas_{user_id}`."
@@ -3468,6 +3523,8 @@ async def callback_btn_editar_item(update: Update, context: ContextTypes.DEFAULT
     user_id = query.from_user.id
     lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
+    
+    # Aseguramos que quede guardado el ID del mensaje del menú principal
     context.user_data['last_menu_msg_id'] = query.message.message_id
 
     idx = int(data.replace("edit_item_", "")) - 1
@@ -3481,17 +3538,20 @@ async def callback_btn_editar_item(update: Update, context: ContextTypes.DEFAULT
 
     if momento_actual == 'Actividad':
         txt_ed_kcal = traducciones.get('06_bot_edit_calorias', "✏️ Ingresá el nuevo valor de calorías para la actividad (ej: `220`):")
-        await query.message.reply_text(txt_ed_kcal, parse_mode="Markdown")
+        msg_prompt = await query.message.reply_text(txt_ed_kcal, parse_mode="Markdown")
     elif es_codigo_barras:
         txt_ed_peso = traducciones.get('06_bot_edit_peso_gr', "⚖️ Ingresá el **nuevo peso en gramos** para este producto (ej: `150`):")
-        await query.message.reply_text(txt_ed_peso, parse_mode="Markdown")
+        msg_prompt = await query.message.reply_text(txt_ed_peso, parse_mode="Markdown")
     elif es_plantilla:
         txt_ed_plantilla = traducciones.get('06_bot_edit_unidades', "✏️ Ingresá la **nueva cantidad de unidades** (ej: `2` o `1.5`):")
-        await query.message.reply_text(txt_ed_plantilla, parse_mode="Markdown")
+        msg_prompt = await query.message.reply_text(txt_ed_plantilla, parse_mode="Markdown")
     else:
         txt_ed_gen = traducciones.get('06_bot_edit_desc_peso', "✏️ Ingresá la nueva descripción y/o peso para este alimento:")
-        await query.message.reply_text(txt_ed_gen)
-        
+        msg_prompt = await query.message.reply_text(txt_ed_gen)
+
+    # Guardamos el ID de este cartelito para poder borrarlo apenas el usuario responda
+    context.user_data['msg_solicitud_edit_id'] = msg_prompt.message_id
+    
 @requiere_registro
 async def callback_btn_anular_item(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

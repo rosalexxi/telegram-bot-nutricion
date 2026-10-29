@@ -840,63 +840,6 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
         except Exception as e:
             logger.error(f"Error recalculando métricas en vivo para {user_id}: {e}")
             await update.message.reply_text(mensaje_exito.replace('\\n', '\n'), parse_mode="Markdown")
-
-async def _sub_manejar_plantilla_comida(update: Update, context: ContextTypes.DEFAULT_TYPE, raw_text, user_id):
-    lang = obtener_idioma_usuario(user_id) or 'es'
-    traducciones = obtener_traducciones_db(lang) or {}
-
-    contenido = raw_text[1:].strip()
-    partes = [p.strip() for p in contenido.split(',')]
-    nombre_plantilla = partes[0].upper()
-    mult = float(partes[1].replace(',', '.')) if len(partes) > 1 else 1.0
-
-    plantillas = obtener_comidas_usuario(user_id)
-    plantilla = next((p for p in plantillas if str(p.get('Nombre', '')).strip().upper() == nombre_plantilla), None)
-
-    if plantilla:
-        p_b, c_b, pr_b, g_b, cb_b, f_b = plantilla.get('Peso', 0), plantilla.get('Calorias', 0), plantilla.get('Proteinas', 0), plantilla.get('Grasas', 0), plantilla.get('Carbohidratos', 0), plantilla.get('Fibras', 0)
-        
-        def_comida_text = traducciones.get('06_bot_def_comida', 'Comida')
-        desc_limpia = (plantilla.get('Descripcion') or plantilla.get('Nombre', def_comida_text)).replace('§', '').strip()
-        mult_str = f"{int(mult)}" if mult.is_integer() else f"{mult}"
-        
-        descripcion_final = f"{desc_limpia} x {mult_str}"
-        
-        item_gen = {
-            "alimento": descripcion_final, 
-            "alimento_display": descripcion_final,
-            "peso": p_b * mult, 
-            "calorias": c_b * mult, 
-            "proteinas": pr_b * mult,
-            "grasas": g_b * mult, 
-            "carbohidratos": cb_b * mult, 
-            "fibras": f_b * mult,
-            # Etiquetas internas ocultas para edición:
-            "es_plantilla": True,
-            "desc_base": desc_limpia,
-            "peso_base": p_b,
-            "cal_base": c_b,
-            "prot_base": pr_b,
-            "gras_base": g_b,
-            "carb_base": cb_b,
-            "fibr_base": f_b
-        }
-        
-        txt_proc = traducciones.get('06_bot_proc_comida', "⏳ Procesando comida predeterminada...")
-        msg = await update.message.reply_text(txt_proc)
-        await procesar_y_mostrar_confirmacion({"items": [item_gen], "tipo": "Comida"}, msg, context)
-    else:
-        # Buscamos la traducción y si no existe, usamos un texto por defecto seguro
-        mensaje_base = traducciones.get('06_bot_error_comida_no_enc')
-        if not mensaje_base or not str(mensaje_base).strip():
-            mensaje_base = "❌ No se encontró la comida `*{nombre}` en tu planilla `Comidas_{user_id}`."
-            
-        try:
-            txt_err_noenc = mensaje_base.format(nombre=nombre_plantilla, user_id=user_id)
-        except Exception:
-            txt_err_noenc = f"❌ No se encontró la comida `*{nombre_plantilla}` en tu planilla `Comidas_{user_id}`."
-            
-        await update.message.reply_text(txt_err_noenc, parse_mode="Markdown")
         
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3854,6 +3797,7 @@ async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(txt_err_read, parse_mode="Markdown")
         
 async def cmd_cancelar_conversacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await limpiar_teclado_anterior(update, context)
     context.user_data.clear()
     
     user_id = update.effective_user.id if update.effective_user else None
