@@ -3760,18 +3760,19 @@ async def limpiar_teclado_anterior(update: Update, context: ContextTypes.DEFAULT
             pass # Falla silenciosa si el mensaje fue borrado a mano por el usuario o es muy viejo
    
 def requiere_registro(func):
-    #Decorador que verifica registro y bloquea usuarios en Estado 3 ofreciendo reactivación prorrateada.
+    """Decorador que verifica registro y bloquea usuarios en Estado 3 ofreciendo reactivación prorrateada."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        await limpiar_teclado_anterior(update, context)
+        if 'limpiar_teclado_anterior' in globals():
+            await limpiar_teclado_anterior(update, context)
+            
         user_id = str(update.effective_user.id).strip()
         encontrado = False
         esta_activo = True
         estado_val = "0"
         
-        # Obtener traducciones para el usuario
-        lang = obtener_idioma_usuario(user_id)
-        traducciones = obtener_traducciones_db(lang)
+        lang = obtener_idioma_usuario(user_id) or 'es'
+        traducciones = obtener_traducciones_db(lang) or {}
 
         mensaje_no_registrado = traducciones.get(
             "04_bot_no_registrado", 
@@ -3779,6 +3780,7 @@ def requiere_registro(func):
             "Para usar este comando y acceder a tu plan nutricional, primero debés registrarte.\n\n"
             "👉 Usá el comando `/alta` para crear tu perfil en un par de pasos."
         ).replace('\\n', '\n')        
+        
         mensaje_deshabilitado = traducciones.get(
             "04_bot_deshabilitado", 
             "❌ **Tu cuenta ha sido deshabilitada por inactividad o eliminación del sistema. Por favor, contactá al administrador.**"
@@ -3822,7 +3824,6 @@ def requiere_registro(func):
             return
 
         if estado_val == '3':
-
             mensaje_bloqueo = traducciones.get(
                 "04_bot_prueba_fin",
                 "⚠️ **Tu período de prueba gratuito ha finalizado.**\n\n"
@@ -3846,7 +3847,7 @@ def requiere_registro(func):
 
         return await func(update, context, *args, **kwargs)
     return wrapper
-
+    
 # =============================================================================================================================================
 #              FINAL                          FUNCIONES AUXILIARES INTERNAS                  FINAL
 # =============================================================================================================================================

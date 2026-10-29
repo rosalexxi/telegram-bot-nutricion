@@ -278,7 +278,7 @@ def buscar_comida_precargada_exacta(user_id, texto_codigo):
     return None
     
 def generar_pdf_comidas_bytes(plantillas, user_id=None):
-    lang = obtener_idioma_usuario(user_id) if user_id and 'obtener_idioma_usuario' in globals() else 'en'
+    lang = obtener_idioma_usuario(user_id) if user_id else 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     buffer = io.BytesIO()
@@ -304,7 +304,7 @@ def generar_pdf_comidas_bytes(plantillas, user_id=None):
         th_desc = traducciones.get("07_PDF_comidas_th_desc", "Descripción")
         th_peso = traducciones.get("07_PDF_comidas_th_peso", "Peso (g)")
         th_kcal = traducciones.get("07_PDF_comidas_th_kcal", "Kcal")
-        th_prot = traducciones.get("07_PDF_comidas_th_prot", "Prot (g)")
+        th_prot = traducciones.get("07_PDF_comidas_th_th_prot", "Prot (g)")
         th_gras = traducciones.get("07_PDF_comidas_th_gras", "Gras (g)")
         th_carb = traducciones.get("07_PDF_comidas_th_carb", "Carb (g)")
         th_fibr = traducciones.get("07_PDF_comidas_th_fibr", "Fibr (g)")
@@ -327,12 +327,12 @@ def generar_pdf_comidas_bytes(plantillas, user_id=None):
             table_data.append([
                 Paragraph(nombre_limpio, body_style),
                 Paragraph(desc_limpia, body_style),
-                Paragraph(f"{p.get('Peso', 0):.1f}", body_style),
-                Paragraph(f"{p.get('Calorias', 0):.1f}", body_style),
-                Paragraph(f"{p.get('Proteinas', 0):.1f}", body_style),
-                Paragraph(f"{p.get('Grasas', 0):.1f}", body_style),
-                Paragraph(f"{p.get('Carbohidratos', 0):.1f}", body_style),
-                Paragraph(f"{p.get('Fibras', 0):.1f}", body_style)
+                Paragraph(f"{float(p.get('Peso', 0)):.1f}", body_style),
+                Paragraph(f"{float(p.get('Calorias', 0)):.1f}", body_style),
+                Paragraph(f"{float(p.get('Proteinas', 0)):.1f}", body_style),
+                Paragraph(f"{float(p.get('Grasas', 0)):.1f}", body_style),
+                Paragraph(f"{float(p.get('Carbohidratos', 0)):.1f}", body_style),
+                Paragraph(f"{float(p.get('Fibras', 0)):.1f}", body_style)
             ])
         
         t = Table(table_data, colWidths=[100, 150, 45, 45, 45, 45, 45, 35])
@@ -350,7 +350,7 @@ def generar_pdf_comidas_bytes(plantillas, user_id=None):
     doc.build(story)
     buffer.seek(0)
     return buffer
-
+    
 @requiere_registro
 async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -840,6 +840,63 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
             logger.error(f"Error recalculando métricas en vivo para {user_id}: {e}")
             await update.message.reply_text(mensaje_exito.replace('\\n', '\n'), parse_mode="Markdown")
 
+async def _sub_manejar_plantilla_comida(update: Update, context: ContextTypes.DEFAULT_TYPE, raw_text, user_id):
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    contenido = raw_text[1:].strip()
+    partes = [p.strip() for p in contenido.split(',')]
+    nombre_plantilla = partes[0].upper()
+    mult = float(partes[1].replace(',', '.')) if len(partes) > 1 else 1.0
+
+    plantillas = obtener_comidas_usuario(user_id)
+    plantilla = next((p for p in plantillas if str(p.get('Nombre', '')).strip().upper() == nombre_plantilla), None)
+
+    if plantilla:
+        p_b, c_b, pr_b, g_b, cb_b, f_b = plantilla.get('Peso', 0), plantilla.get('Calorias', 0), plantilla.get('Proteinas', 0), plantilla.get('Grasas', 0), plantilla.get('Carbohidratos', 0), plantilla.get('Fibras', 0)
+        
+        def_comida_text = traducciones.get('06_bot_def_comida', 'Comida')
+        desc_limpia = (plantilla.get('Descripcion') or plantilla.get('Nombre', def_comida_text)).replace('§', '').strip()
+        mult_str = f"{int(mult)}" if mult.is_integer() else f"{mult}"
+        
+        descripcion_final = f"{desc_limpia} x {mult_str}"
+        
+        item_gen = {
+            "alimento": descripcion_final, 
+            "alimento_display": descripcion_final,
+            "peso": p_b * mult, 
+            "calorias": c_b * mult, 
+            "proteinas": pr_b * mult,
+            "grasas": g_b * mult, 
+            "carbohidratos": cb_b * mult, 
+            "fibras": f_b * mult,
+            # Etiquetas internas ocultas para edición:
+            "es_plantilla": True,
+            "desc_base": desc_limpia,
+            "peso_base": p_b,
+            "cal_base": c_b,
+            "prot_base": pr_b,
+            "gras_base": g_b,
+            "carb_base": cb_b,
+            "fibr_base": f_b
+        }
+        
+        txt_proc = traducciones.get('06_bot_proc_comida', "⏳ Procesando comida predeterminada...")
+        msg = await update.message.reply_text(txt_proc)
+        await procesar_y_mostrar_confirmacion({"items": [item_gen], "tipo": "Comida"}, msg, context)
+    else:
+        # Buscamos la traducción y si no existe, usamos un texto por defecto seguro
+        mensaje_base = traducciones.get('06_bot_error_comida_no_enc')
+        if not mensaje_base or not str(mensaje_base).strip():
+            mensaje_base = "❌ No se encontró la comida `*{nombre}` en tu planilla `Comidas_{user_id}`."
+            
+        try:
+            txt_err_noenc = mensaje_base.format(nombre=nombre_plantilla, user_id=user_id)
+        except Exception:
+            txt_err_noenc = f"❌ No se encontró la comida `*{nombre_plantilla}` en tu planilla `Comidas_{user_id}`."
+            
+        await update.message.reply_text(txt_err_noenc, parse_mode="Markdown")
+        
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, chat_id = update.effective_user.id, update.effective_chat.id
@@ -2207,27 +2264,7 @@ async def cmd_mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg_espera.edit_text(msg_err_proc)        
 #               INICIO                                COMANDO RESUMEN COMANDO MES                       INICIO DB OK
 # ==========================================================================================================================================
-
-def obtener_mensaje_variacion_peso(cambio_kg: float, traducciones: dict = None) -> str:
-    """Devuelve un mensaje cualitativo según la variación de peso mensual estimada."""
-    if traducciones is None:
-        traducciones = {}
-
-    if abs(cambio_kg) <= 0.8:
-        return traducciones.get("08_inf_var_peso_estable", "Prácticamente estable")
-    elif 0.8 < cambio_kg <= 1.8:
-        return traducciones.get("08_inf_var_peso_peq_arriba", "Pequeña variación hacia arriba")
-    elif 1.8 < cambio_kg <= 3.0:
-        return traducciones.get("08_inf_var_peso_mod_arriba", "Variación moderada hacia arriba")
-    elif cambio_kg > 3.0:
-        return traducciones.get("08_inf_var_peso_imp_arriba", "Variación importante hacia arriba")
-    elif -1.8 <= cambio_kg < -0.8:
-        return traducciones.get("08_inf_var_peso_peq_abajo", "Pequeña variación hacia abajo")
-    elif -3.0 <= cambio_kg < -1.8:
-        return traducciones.get("08_inf_var_peso_mod_abajo", "Variación moderada hacia abajo")
-    else:
-        return traducciones.get("08_inf_var_peso_imp_abajo", "Variación importante hacia abajo")
-                        
+ 
 @requiere_registro
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -2483,186 +2520,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             await update.message.reply_text(msg_err)
                                             
-def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, user_id):
-    lang = obtener_idioma_usuario(user_id) or 'es'
-    traducciones = obtener_traducciones_db(lang) or {}
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
-    styles = getSampleStyleSheet()
-    
-    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=14, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
-    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=10, textColor=colors.HexColor('#2563EB'), spaceBefore=6, spaceAfter=2)
-    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#1E293B'))
-    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
-
-    t_titulo_tmpl = traducciones.get("08_PDF_resumen_titulo", "Reporte Nutricional Mensual - {mes_str}")
-    t_usr_tmpl = traducciones.get("08_PDF_resumen_usuario_id", "**Usuario Telegram ID:** {user_id}")
-
-    story = [
-        Paragraph(f"<b>{t_titulo_tmpl.format(mes_str=mes_str)}</b>", title_style),
-        Paragraph(t_usr_tmpl.format(user_id=user_id), body_style),
-        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=6)
-    ]
-
-    h_fecha = traducciones.get("08_PDF_resumen_th_fecha", "Fecha")
-    h_cal_cons = traducciones.get("08_PDF_resumen_th_cal_cons", "Cal. Consumid.")
-    h_cal_quem = traducciones.get("08_PDF_resumen_th_cal_quem", "Cal. Quemad.")
-    h_bal_neto = traducciones.get("08_PDF_resumen_th_bal_neto", "Bal. Neto")
-    h_prot = traducciones.get("08_PDF_resumen_th_proteinas", "Proteinas (g)")
-    h_gras = traducciones.get("08_PDF_resumen_th_grasas", "Grasas (g)")
-    h_carb = traducciones.get("08_PDF_resumen_th_carbs", "Carbohidratos (g)")
-    h_fibr = traducciones.get("08_PDF_resumen_th_fibras", "Fibras (g)")
-
-    headers_h1 = [h_fecha, h_cal_cons, h_cal_quem, h_bal_neto, h_prot, h_gras, h_carb, h_fibr]
-    table_data_h1 = [[Paragraph(h, header_style) for h in headers_h1]]
-
-    tot_cons, tot_quem, tot_prot, tot_gras, tot_carb, tot_fibr = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
-
-    if df_mes is not None and not df_mes.empty:
-        fechas_unicas = sorted(df_mes['Fecha'].unique())
-
-        for f in fechas_unicas:
-            sub = df_mes[df_mes['Fecha'] == f]
-            
-            c_cons = float(sub[sub['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in sub.columns else 0.0
-            c_quem = float(abs(sub[sub['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in sub.columns else 0.0
-            b_neto = c_cons - c_quem
-            
-            prot = float(sub['Proteinas'].sum()) if 'Proteinas' in sub.columns else 0.0
-            gras = float(sub['Grasas'].sum()) if 'Grasas' in sub.columns else 0.0
-            carb = float(sub['Carbohidratos'].sum()) if 'Carbohidratos' in sub.columns else 0.0
-            fibr = float(sub['Fibras'].sum()) if 'Fibras' in sub.columns else 0.0
-
-            tot_cons += c_cons
-            tot_quem += c_quem
-            tot_prot += prot
-            tot_gras += gras
-            tot_carb += carb
-            tot_fibr += fibr
-
-            table_data_h1.append([
-                Paragraph(str(f), body_style),
-                Paragraph(f"{int(round(c_cons))} kcal", body_style),
-                Paragraph(f"{int(round(c_quem))} kcal", body_style),
-                Paragraph(f"{int(round(b_neto))} kcal", body_style),
-                Paragraph(f"{int(round(prot))} g", body_style),
-                Paragraph(f"{int(round(gras))} g", body_style),
-                Paragraph(f"{int(round(carb))} g", body_style),
-                Paragraph(f"{int(round(fibr))} g", body_style)
-            ])
-        
-        tot_neto = tot_cons - tot_quem
-        dias_activos = len(fechas_unicas) if len(fechas_unicas) > 0 else 1
-
-        lbl_tot = traducciones.get("08_PDF_resumen_total_mes", "TOTAL MES")
-        lbl_prom = traducciones.get("08_PDF_resumen_prom_diario", "PROM. DIARIO")
-
-        table_data_h1.append([
-            Paragraph(f"<b>{lbl_tot}</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_cons))} kcal</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_quem))} kcal</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_neto))} kcal</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_prot))} g</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_gras))} g</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_carb))} g</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_fibr))} g</b>", body_style)
-        ])
-
-        table_data_h1.append([
-            Paragraph(f"<b>{lbl_prom}</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_cons/dias_activos))} kcal</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_quem/dias_activos))} kcal</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_neto/dias_activos))} kcal</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_prot/dias_activos))} g</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_gras/dias_activos))} g</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_carb/dias_activos))} g</b>", body_style),
-            Paragraph(f"<b>{int(round(tot_fibr/dias_activos))} g</b>", body_style)
-        ])
-
-    t1 = Table(table_data_h1, colWidths=[65, 75, 70, 70, 65, 60, 80, 55])
-    t1.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-        ('BACKGROUND', (0, -2), (-1, -1), colors.HexColor('#F1F5F9'))
-    ]))
-    story.append(t1)
-
-    story.append(PageBreak())
-    
-    sub_analisis = traducciones.get("08_PDF_resumen_analisis_sub", "Análisis Metabólico y Tabla Comparativa de Macronutrientes (Rangos Saludables)")
-    story.append(Paragraph(f"<b>{sub_analisis}</b>", title_style))
-    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=6))
-
-    perfil_dict = perfil if isinstance(perfil, dict) else {}
-    m = calcular_metricas_mensuales(df_mes, perfil_dict, user_id=user_id, mes_str=mes_str)
-
-    th_nutriente = traducciones.get("08_PDF_resumen_th_nutriente", "Nutriente / Métrica")
-    th_prom_real = traducciones.get("08_PDF_resumen_th_prom_real", "Promedio Diario Real (Mes)")
-    th_rango_salud = traducciones.get("08_PDF_resumen_th_rango_salud", "Rango / Mínimo Saludable")
-
-    n_cal = traducciones.get("08_PDF_resumen_nutr_calorias", "Balance Neto (kcal)")
-    n_prot = traducciones.get("08_PDF_resumen_nutr_proteinas", "Proteínas")
-    n_gras = traducciones.get("08_PDF_resumen_nutr_grasas", "Grasas")
-    n_carb = traducciones.get("08_PDF_resumen_nutr_carbs", "Carbohidratos")
-    n_fibr = traducciones.get("08_PDF_resumen_nutr_fibras", "Fibras")
-    min_tpl = traducciones.get("08_PDF_resumen_minimo", "Mínimo {val} g")
-
-    table_comp = [
-        [Paragraph(f"<b>{th_nutriente}</b>", header_style), Paragraph(f"<b>{th_prom_real}</b>", header_style), Paragraph(f"<b>{th_rango_salud}</b>", header_style)],
-        [Paragraph(n_cal, body_style), Paragraph(f"{m.get('prom_bal_neto', 0)} kcal", body_style), Paragraph(f"{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal", body_style)],
-        [Paragraph(n_prot, body_style), Paragraph(f"{m.get('prom_prot', 0)} g", body_style), Paragraph(f"{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g", body_style)],
-        [Paragraph(n_gras, body_style), Paragraph(f"{m.get('prom_gras', 0)} g", body_style), Paragraph(f"{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g", body_style)],
-        [Paragraph(n_carb, body_style), Paragraph(f"{m.get('prom_carb', 0)} g", body_style), Paragraph(f"{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g", body_style)],
-        [Paragraph(n_fibr, body_style), Paragraph(f"{m.get('prom_fibr', 0)} g", body_style), Paragraph(min_tpl.format(val=m.get('fibr_min', 0)), body_style)]
-    ]
-    t_comp = Table(table_comp, colWidths=[150, 185, 185])
-    t_comp.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
-    ]))
-    story.append(t_comp)
-    story.append(Spacer(1, 4))
-
-    peso_act_pdf = round(float(m.get('peso_actual', 0)), 1)
-    peso_ref_pdf = round(float(m.get('peso_referencia', 0)), 1)
-
-    p_perfil_tmpl = traducciones.get("08_PDF_resumen_perfil_reg", "• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {peso_act_pdf} kg | Peso Objetivo de esta etapa : {peso_ref_pdf} kg |")
-    p_cambio_tmpl = traducciones.get("08_PDF_resumen_cambio_peso", "• <b>TENDENCIA ESTIMADA DE PESO:</b> {cambio_txt}")
-    p_act_tmpl = traducciones.get("08_PDF_resumen_act_fisica", "• <b>ACTIVIDAD FÍSICA PROMEDIO:</b> {act_minutos} min/día (Rango recomendado: {act_min} - {act_max} min/día)")
-    p_nota_act = traducciones.get("08_PDF_resumen_nota_act", "<i>(Nota: Los rangos de actividad consideran impacto corporal; actividades de bajo impacto como aquagym, natación o yoga no aplican restricciones de sobrepeso).</i>")
-
-    story.append(Paragraph(p_perfil_tmpl.format(mes_str=mes_str, peso_act_pdf=peso_act_pdf, peso_ref_pdf=peso_ref_pdf), body_style))
-    
-    cambio_val = float(m.get('cambio_peso_kg', 0))
-    mensaje_variacion = obtener_mensaje_variacion_peso(cambio_val, traducciones)
-    story.append(Paragraph(p_cambio_tmpl.format(cambio_txt=mensaje_variacion), body_style))
-    
-    story.append(Paragraph(p_act_tmpl.format(act_minutos=m.get('prom_minutos_act', 0), act_min=m.get('act_min', 30), act_max=m.get('act_max', 60)), body_style))
-    story.append(Spacer(1, 2))
-    story.append(Paragraph(p_nota_act, body_style))
-
-    story.append(Spacer(1, 6))
-    
-    # --- NUEVA LÓGICA DE DISCLAIMER ---
-    es_personalizado = m.get('valores_personalizados', False)
-    id_prof = str(perfil_dict.get('profesional', '123456789')).strip()
-    
-    if es_personalizado:
-        nota_pdf = traducciones.get("08_pdf_resumen_nota_pers", "<i>👨‍⚕️ <b>Nota Clínica:</b> Las metas y rangos de macronutrientes de este reporte han sido analizados, personalizados y aprobados explícitamente por tu profesional a cargo, reemplazando el cálculo estándar.</i>")
-    elif id_prof != "123456789" and id_prof != "S/D" and id_prof != "":
-        nota_pdf = traducciones.get("08_pdf_resumen_nota_prof_pend", "<i>🤖 <b>Nota del Sistema:</b> Tu profesional a cargo aún no ha personalizado las metas para este período. Los rangos mostrados han sido calculados de forma automática por el motor clínico del asistente (Fórmulas estandarizadas).</i>")
-    else:
-        nota_pdf = traducciones.get("08_pdf_resumen_nota_auto", "<i>🤖 <b>Nota del Sistema:</b> Reporte generado mediante métricas analíticas directas y cálculos automatizados. La tendencia de peso indicada es una proyección matemática aproximada calculada en base a tus registros.</i>")
-
-    story.append(Paragraph(nota_pdf, body_style))
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
     
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

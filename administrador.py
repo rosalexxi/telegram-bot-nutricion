@@ -17,27 +17,6 @@ logger = logging.getLogger(__name__)
 # =============================================================================================================================================
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------
-# FUNCIÓN INTERNA 1: _asegurar_tabla_y_conectar_migrar
-# ¿QUÉ HACE?: Se conecta a Supabase, BORRA (DROP) la tabla indicada si ya existía y la vuelve a crear (CREATE) desde cero
-#             usando exactamente los nombres de columnas que tenga el archivo Excel (DataFrame) que se le pase.
-# ¿CUÁNDO SE USA?: La llaman automáticamente por detrás los comandos /traducir, /armar, /subir y /migrar.
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
-    conn = _obtener_conexion_db()
-    cur = conn.cursor()
-    cur.execute(f'DROP TABLE IF EXISTS "{tabla_nombre}" CASCADE;')
-    conn.commit()
-    
-    if df_muestra is not None and not df_muestra.empty:
-        cols_def = []
-        for col in df_muestra.columns:
-            cols_def.append(f'"{col}" TEXT')
-        cols_sql = ", ".join(cols_def)
-        cur.execute(f'CREATE TABLE "{tabla_nombre}" (id SERIAL PRIMARY KEY, {cols_sql});')
-        conn.commit()
-    return conn, cur
-
-# ---------------------------------------------------------------------------------------------------------------------------------------------
 # COMANDO DE TELEGRAM: /desarmar (PASO 1 para traducir el Excel afuera sin romper variables)
 # CÓMO SE USA EN TELEGRAM: /desarmar
 # ¿QUÉ HACE?:
@@ -248,7 +227,7 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cur = conn.cursor()
         else:
             # Modo normal: Borra la tabla y la crea de cero
-            conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df_trad)
+            conn, cur = _asegurar_tabla_y_conectar(nombre_tabla, df_muestra=df_trad)
 
         columnas = list(df_trad.columns)
         cols_sql = ', '.join([f'"{c}"' for c in columnas])
@@ -317,7 +296,7 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         df.columns = [str(c).strip() for c in df.columns]
 
-        conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df)
+        conn, cur = _asegurar_tabla_y_conectar(nombre_tabla, df_muestra=df)
 
         columnas = list(df.columns)
         cols_sql = ', '.join([f'"{c}"' for c in columnas])
