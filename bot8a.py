@@ -1417,7 +1417,12 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
                     "cintura_cm" DOUBLE PRECISION,
                     "cuello_cm" DOUBLE PRECISION,
                     "cadera_cm" DOUBLE PRECISION,
-                    "ritmo_preferido" TEXT
+                    "ritmo_preferido" TEXT,
+                    "dias_inactivo" INTEGER DEFAULT 0,
+                    "plan_preferido" TEXT,
+                    "vencimiento_suscripcion" TEXT,
+                    "saldo_estrellas" INTEGER DEFAULT 0,
+                    "profesional_pendiente" TEXT
                 );
             """)
         elif tipo_tabla == "categorias_comida":
@@ -1444,17 +1449,33 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
                     "Especialidad" TEXT
                 );
             """)
+        elif tipo_tabla == "planes":
+            cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS "{tabla_real}" (
+                    id SERIAL PRIMARY KEY,
+                    "plan_id" TEXT UNIQUE,
+                    "descripcion" TEXT,
+                    "estrellas" INTEGER,
+                    "meses" INTEGER DEFAULT 1,
+                    "activo" BOOLEAN DEFAULT TRUE
+                );
+            """)
         conn.commit()
 
     if tipo_tabla == "usuarios":
         try:
             cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "cadera_cm" DOUBLE PRECISION;')
+            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "dias_inactivo" INTEGER DEFAULT 0;')
+            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "plan_preferido" TEXT;')
+            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "vencimiento_suscripcion" TEXT;')
+            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "saldo_estrellas" INTEGER DEFAULT 0;')
+            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "profesional_pendiente" TEXT;')
             conn.commit()
         except Exception:
             conn.rollback()
 
     return conn, cur
-
+    
 #              INICIO                           FUNCIONES CENTRALES DE ESCRITURA 
 # =============================================================================================================================================
 
@@ -1568,6 +1589,43 @@ def _core_guardar_perfil_db(user_id, mes, datos_perfil: dict):
 #              INICIO                              FUNCIONES USUARIOS                       
 # =============================================================================================================================================
 
+def obtener_valores_clinicos_profesional(user_id, mes_str):
+    """Consulta la tabla Valores_Clinicos_Profesional en Supabase para un usuario y mes específico."""
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Valores_Clinicos_Profesional", tipo_tabla="comidas_precargadas")
+        query = """
+            SELECT tmb, get, peso_etapa, calorias_min, calorias_max, 
+                   proteinas_min, proteinas_max, hidratos_min, hidratos_max, 
+                   grasas_min, grasas_max, fibras_min
+            FROM "Valores_Clinicos_Profesional"
+            WHERE "user_id" = %s AND "mes" = %s
+            ORDER BY id DESC LIMIT 1
+        """
+        cur.execute(query, (str(user_id).strip(), str(mes_str).strip()))
+        fila = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if fila:
+            return {
+                "tmb": float(fila[0] or 0),
+                "get": float(fila[1] or 0),
+                "peso_etapa": float(fila[2] or 0),
+                "calorias_min": float(fila[3] or 0),
+                "calorias_max": float(fila[4] or 0),
+                "proteinas_min": float(fila[5] or 0),
+                "proteinas_max": float(fila[6] or 0),
+                "hidratos_min": float(fila[7] or 0),
+                "hidratos_max": float(fila[8] or 0),
+                "grasas_min": float(fila[9] or 0),
+                "grasas_max": float(fila[10] or 0),
+                "fibras_min": float(fila[11] or 0)
+            }
+    except Exception as e:
+        logger.error(f"Error obteniendo valores clínicos del profesional para {user_id}: {e}")
+    
+    return None
+    
 def obtener_datos_usuario(user_id):
     conn = None
     cur = None
@@ -1860,132 +1918,6 @@ def eliminar_comida_precargada_db(user_id, nombre_a_borrar):
             try: conn.close()
             except: pass
 
-#                    INICIO                      FUNCIONES LECTURA PROFESIONALES                     
-# =======================================================================================================================================
-
-async def _verificar_y_obtener_profesional(update: Update):
-    prof_id = str(update.effective_user.id).strip()
-    conn = None
-    cur = None
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Profesionales", tipo_tabla="profesionales")
-        query = """
-            SELECT "User ID"
-            FROM "Profesionales"
-        """
-        cur.execute(query)
-        filas = cur.fetchall()
-
-        for fila in filas:
-            id_p = str(fila[0] or "").split('.')[0].strip()
-            if id_p == prof_id:
-                return prof_id
-    except Exception as e:
-        logger.error(f"Error en _verificar_y_obtener_profesional: {e}")
-    finally:
-        if cur:
-            try: cur.close()
-            except: pass
-        if conn:
-            try: conn.close()
-            except: pass
-    return None
-    
-def obtener_especialidad_profesional(prof_id):
-    conn = None
-    cur = None
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Profesionales", tipo_tabla="profesionales")
-        query = """
-            SELECT "User ID", "Especialidad"
-            FROM "Profesionales"
-        """
-        cur.execute(query)
-        filas = cur.fetchall()
-
-        for fila in filas:
-            id_p = str(fila[0] or "").split('.')[0].strip()
-            if id_p == str(prof_id).strip():
-                return str(fila[1] or "General").strip()
-    except Exception as e:
-        logger.error(f"Error en obtener_especialidad_profesional para {prof_id}: {e}")
-    finally:
-        if cur:
-            try: cur.close()
-            except: pass
-        if conn:
-            try: conn.close()
-            except: pass
-    return None
-
-def obtener_pacientes_por_medico(prof_id):
-    pacientes = []
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        query = """
-            SELECT "User ID", "Nombre", "Estado", "profesional"
-            FROM "Usuarios"
-        """
-        cur.execute(query)
-        filas = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        for fila in filas:
-            p_id = str(fila[3] or "").split('.')[0].strip()
-            if p_id == str(prof_id).strip():
-                u_id = str(fila[0] or "").split('.')[0].strip()
-                nombre = fila[1] or "Sin Nombre"
-                
-                # Estado numérico: 3 es bloqueado/inactivo. 0, 1, 2, 10, etc., son válidos.
-                try:
-                    estado_int = int(fila[2]) if fila[2] is not None else 0
-                except (ValueError, TypeError):
-                    estado_int = 0
-
-                # Si no está en estado 3 (bloqueado), se incluye en la lista del médico
-                if estado_int != 3:
-                    pacientes.append({"user_id": u_id, "nombre": nombre})
-    except Exception as e:
-        logger.error(f"Error en obtener_pacientes_por_medico para {prof_id}: {e}")
-    return pacientes
-  
-def obtener_valores_clinicos_profesional(user_id, mes_str):
-    """Consulta la tabla Valores_Clinicos_Profesional en Supabase para un usuario y mes específico."""
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Valores_Clinicos_Profesional", tipo_tabla="comidas_precargadas")
-        query = """
-            SELECT tmb, get, peso_etapa, calorias_min, calorias_max, 
-                   proteinas_min, proteinas_max, hidratos_min, hidratos_max, 
-                   grasas_min, grasas_max, fibras_min
-            FROM "Valores_Clinicos_Profesional"
-            WHERE "user_id" = %s AND "mes" = %s
-            ORDER BY id DESC LIMIT 1
-        """
-        cur.execute(query, (str(user_id).strip(), str(mes_str).strip()))
-        fila = cur.fetchone()
-        cur.close()
-        conn.close()
-
-        if fila:
-            return {
-                "tmb": float(fila[0] or 0),
-                "get": float(fila[1] or 0),
-                "peso_etapa": float(fila[2] or 0),
-                "calorias_min": float(fila[3] or 0),
-                "calorias_max": float(fila[4] or 0),
-                "proteinas_min": float(fila[5] or 0),
-                "proteinas_max": float(fila[6] or 0),
-                "hidratos_min": float(fila[7] or 0),
-                "hidratos_max": float(fila[8] or 0),
-                "grasas_min": float(fila[9] or 0),
-                "grasas_max": float(fila[10] or 0),
-                "fibras_min": float(fila[11] or 0)
-            }
-    except Exception as e:
-        logger.error(f"Error obteniendo valores clínicos del profesional para {user_id}: {e}")
-    
-    return None
     
 #              INICIO                                   FUNCIONES USUARIOS                        
 # =============================================================================================================================================
@@ -2536,409 +2468,6 @@ def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=No
 # =============================================================================================================================================
 
 # =============================================================================================================================================
-#              INICIO                              FUNCIONES ADMINISTRADOR                           INICIO
-# =============================================================================================================================================
-
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-# FUNCIÓN INTERNA 1: _asegurar_tabla_y_conectar_migrar
-# ¿QUÉ HACE?: Se conecta a Supabase, BORRA (DROP) la tabla indicada si ya existía y la vuelve a crear (CREATE) desde cero
-#             usando exactamente los nombres de columnas que tenga el archivo Excel (DataFrame) que se le pase.
-# ¿CUÁNDO SE USA?: La llaman automáticamente por detrás los comandos /traducir, /armar, /subir y /migrar.
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-def _asegurar_tabla_y_conectar_migrar(tabla_nombre, df_muestra=None):
-    conn = _obtener_conexion_db()
-    cur = conn.cursor()
-    cur.execute(f'DROP TABLE IF EXISTS "{tabla_nombre}" CASCADE;')
-    conn.commit()
-    
-    if df_muestra is not None and not df_muestra.empty:
-        cols_def = []
-        for col in df_muestra.columns:
-            cols_def.append(f'"{col}" TEXT')
-        cols_sql = ", ".join(cols_def)
-        cur.execute(f'CREATE TABLE "{tabla_nombre}" (id SERIAL PRIMARY KEY, {cols_sql});')
-        conn.commit()
-    return conn, cur
-
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-# COMANDO DE TELEGRAM: /desarmar (PASO 1 para traducir el Excel afuera sin romper variables)
-# CÓMO SE USA EN TELEGRAM: /desarmar
-# ¿QUÉ HACE?:
-#   1. Lee el archivo 'multi.xlsx' que está en el servidor (debe tener columnas 'variables' y 'ES').
-#   2. Busca todo lo que esté entre llaves {variable} o corchetes [variable] y lo reemplaza por códigos (__VAR_0001__, etc.).
-#   3. Te envía por Telegram un Excel llamado 'multi_desarmado.xlsx' con 2 pestañas:
-#      - Pestaña 'traduccion': Lista para que la subas a Google Drive/Sheets y traduzcas con fórmulas GOOGLETRANSLATE.
-#      - Pestaña 'diccionario_vars': Guarda qué significaba cada código __VAR_XXXX__ para poder rearmarlo después.
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    user_id = update.effective_user.id
-
-    if not es_administrador(user_id):
-        return
-
-    nombre_tabla = "multi"
-
-    try:
-        ruta_archivo = f"{nombre_tabla}.xlsx"
-        if not os.path.exists(ruta_archivo):
-            msg_no_enc = f"❌ No encuentro el archivo `{ruta_archivo}` en el servidor."
-            await update.message.reply_text(msg_no_enc, parse_mode="Markdown")
-            return
-
-        df = pd.read_excel(ruta_archivo)
-        df.columns = [str(c).strip() for c in df.columns]
-
-        # Buscar nombres reales de columnas 'variables' y 'ES' sin importar mayúsculas/minúsculas
-        col_vars = next((c for c in df.columns if c.lower() == 'variables'), None)
-        col_es = next((c for c in df.columns if c.upper() == 'ES'), None)
-
-        if not col_vars or not col_es:
-            msg_cols = "❌ El archivo base debe tener columnas 'variables' y 'ES'."
-            await update.message.reply_text(msg_cols, parse_mode="Markdown")
-            return
-
-        # Limpiar nombres de variables y dejar SOLO LA ÚLTIMA VERSIÓN si hay repetidas
-        df[col_vars] = df[col_vars].astype(str).str.strip()
-        df = df[df[col_vars].notna() & (df[col_vars] != "") & (df[col_vars].str.lower() != "nan")]
-        df = df.drop_duplicates(subset=[col_vars], keep='last').reset_index(drop=True)
-
-        mapa_variables = {}
-        mapa_inverso = {}
-        contador_var = 1
-        textos_preparados = []
-
-        # Función interna para reemplazar cada {var} o [var] de forma exacta sin colisiones
-        def reemplazar_placeholder(match):
-            nonlocal contador_var
-            ph = match.group(0)
-            if ph in mapa_inverso:
-                return mapa_inverso[ph]
-            token = f"__VAR_{contador_var:04d}__"
-            mapa_variables[token] = ph
-            mapa_inverso[ph] = token
-            contador_var += 1
-            return token
-
-        patron_ph = re.compile(r'(\[[^\]\n]+\]|\{[^}\n]+\})')
-
-        for _, row in df.iterrows():
-            texto_es = str(row[col_es]) if pd.notna(row[col_es]) else ""
-            if not texto_es.strip() or texto_es.strip().lower() == 'nan':
-                textos_preparados.append("")
-                continue
-
-            texto_modificado = patron_ph.sub(reemplazar_placeholder, texto_es)
-            textos_preparados.append(texto_modificado)
-
-        df_hoja1 = pd.DataFrame()
-        df_hoja1['variables'] = df[col_vars]
-        df_hoja1['ES'] = textos_preparados
-
-        lista_diccionario = [{"codigo": k, "variable_original": v} for k, v in mapa_variables.items()]
-        df_hoja2 = pd.DataFrame(lista_diccionario)
-
-        nombre_salida = f"{nombre_tabla}_desarmado.xlsx"
-        
-        buffer_out = io.BytesIO()
-        with pd.ExcelWriter(buffer_out, engine='openpyxl') as writer:
-            df_hoja1.to_excel(writer, index=False, sheet_name='traduccion')
-            df_hoja2.to_excel(writer, index=False, sheet_name='diccionario_vars')
-        buffer_out.seek(0)
-
-        msg_exito = (
-            "✅ **¡Archivo desarmado detectando todas las variables y corchetes!**\n\n"
-            "1. Subilo a Google Drive, agregale las columnas de idiomas que quieras (`EN`, `IT`, etc.) y traducilo.\n"
-            "2. La segunda pestaña (`diccionario_vars`) ahora indexa el 100% de las variables sin cortes.\n"
-            "3. Cuando termines, mandámelo con `/armar`."
-        )
-
-        await update.message.reply_document(
-            document=buffer_out,
-            filename=nombre_salida,
-            caption=msg_exito,
-            parse_mode="Markdown"
-        )
-
-    except Exception as e:
-        logger.error(f"Error en desarmar Excel: {e}", exc_info=True)
-        msg_err_gen = f"❌ Error: `{e}`"
-        await update.message.reply_text(msg_err_gen, parse_mode="Markdown")
-
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-# COMANDO DE TELEGRAM: /armar (Lee el Excel desarmado directamente del servidor, restaura variables y sube a Supabase)
-# CÓMO SE USA EN TELEGRAM: /armar  (o /armar agregar)
-# ¿QUÉ HACE?:
-#   1. Busca el archivo 'multi_desarmado.xlsx' directamente en la carpeta del servidor.
-#   2. Lee las solapas 'traduccion' y 'diccionario_vars'.
-#   3. Reemplaza todos los códigos __VAR_XXXX__ por sus llaves o corchetes originales.
-#   4. Si se pasa el argumento "agregar", inserta los registros sin borrar la tabla. 
-#      Si no se pasa, borra y recrea la tabla por completo como antes.
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-
-async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    user_id = update.effective_user.id
-
-    if not es_administrador(user_id):
-        return
-
-    # Verificar si el usuario escribió /armar agregar
-    modo_agregar = False
-    if context.args and len(context.args) > 0:
-        if context.args[0].strip().lower() == "agregar":
-            modo_agregar = True
-
-    nombre_tabla = "multi"
-    ruta_archivo = f"{nombre_tabla}_desarmado.xlsx"
-
-    if not os.path.exists(ruta_archivo):
-        msg_no_enc = f"❌ No encuentro el archivo `{ruta_archivo}` en el servidor. Asegurate de haber subido el archivo traducido al repositorio o carpeta del bot."
-        await update.message.reply_text(msg_no_enc, parse_mode="Markdown")
-        return
-
-    msg_leyendo = "🔄 Leyendo del servidor, ensamblando traducciones y sincronizando Supabase..."
-    mensaje_espera = await update.message.reply_text(msg_leyendo, parse_mode="Markdown")
-
-    try:
-        xls = pd.ExcelFile(ruta_archivo)
-        sheets = xls.sheet_names
-
-        if 'traduccion' not in sheets or 'diccionario_vars' not in sheets:
-            msg_solapas = "❌ El archivo en el servidor no tiene las solapas requeridas ('traduccion' y 'diccionario_vars')."
-            await mensaje_espera.edit_text(msg_solapas, parse_mode="Markdown")
-            return
-
-        df_trad = pd.read_excel(ruta_archivo, sheet_name='traduccion')
-        df_dict = pd.read_excel(ruta_archivo, sheet_name='diccionario_vars')
-
-        df_trad.columns = [str(c).strip() for c in df_trad.columns]
-        df_dict.columns = [str(c).strip() for c in df_dict.columns]
-
-        # Eliminar columna 'id' si vino heredada de una descarga previa de Supabase
-        cols_id = [c for c in df_trad.columns if c.lower() == 'id']
-        if cols_id:
-            df_trad = df_trad.drop(columns=cols_id)
-
-        # Identificar explícitamente la columna 'variables' y quedarnos SOLO CON LA ÚLTIMA si hay repetidas
-        col_vars = next((c for c in df_trad.columns if c.lower() == 'variables'), df_trad.columns[0])
-        df_trad[col_vars] = df_trad[col_vars].astype(str).str.strip()
-        df_trad = df_trad[df_trad[col_vars].notna() & (df_trad[col_vars] != "") & (df_trad[col_vars].str.lower() != "nan")]
-        df_trad = df_trad.drop_duplicates(subset=[col_vars], keep='last').reset_index(drop=True)
-
-        # Mapa de códigos por número ('0001' -> '{peso}') para tolerar alteraciones del traductor
-        mapa_por_num = {}
-        if not df_dict.empty and 'codigo' in df_dict.columns and 'variable_original' in df_dict.columns:
-            for _, r_d in df_dict.iterrows():
-                cod_str = str(r_d['codigo']).strip()
-                orig_str = str(r_d['variable_original'])
-                m_num = re.search(r'(\d{4})', cod_str)
-                if m_num:
-                    mapa_por_num[m_num.group(1)] = orig_str
-
-        # Regex tolerante a espacios, mayúsculas/minúsculas que Google Translate suele alterar
-        patron_restaurar = re.compile(r'_\s*_\s*VAR\s*_\s*(\d{4})\s*_\s*_', re.IGNORECASE)
-
-        def restaurar_token(match):
-            num_id = match.group(1)
-            return mapa_por_num.get(num_id, match.group(0))
-
-        columnas_idiomas = [c for c in df_trad.columns if c.lower() != col_vars.lower()]
-
-        for col in columnas_idiomas:
-            nueva_columna = []
-            for _, val in df_trad[col].items():
-                texto = str(val) if pd.notna(val) else ""
-                if not texto.strip() or texto.strip().lower() == 'nan':
-                    nueva_columna.append("")
-                    continue
-
-                texto = patron_restaurar.sub(restaurar_token, texto)
-                texto = re.sub(r'\\\s+n', r'\\n', texto)
-
-                nueva_columna.append(texto)
-            
-            df_trad[col] = nueva_columna
-
-        # Guardar copia limpia localmente como 'multi.xlsx'
-        ruta_archivo_local = f"{nombre_tabla}.xlsx"
-        df_trad.to_excel(ruta_archivo_local, index=False)
-
-        # Lógica según el modo:
-        if modo_agregar:
-            # Modo agregar: Nos conectamos sin hacer DROP, asegurando únicamente conexión estándar
-            conn = _obtener_conexion_db()
-            cur = conn.cursor()
-        else:
-            # Modo normal: Borra la tabla y la crea de cero
-            conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df_trad)
-
-        columnas = list(df_trad.columns)
-        cols_sql = ', '.join([f'"{c}"' for c in columnas])
-        placeholders = ', '.join(['%s'] * len(columnas))
-        
-        query_insert = f'INSERT INTO "{nombre_tabla}" ({cols_sql}) VALUES ({placeholders})'
-
-        filas_insertadas = 0
-        for _, row in df_trad.iterrows():
-            valores = [None if pd.isna(row[col]) else str(row[col]).strip() for col in columnas]
-            cur.execute(query_insert, tuple(valores))
-            filas_insertadas += 1
-
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        if modo_agregar:
-            msg_exito = f"➕ **¡Bloque agregado con éxito!**\nSe añadieron {filas_insertadas} registros nuevos a la tabla `{nombre_tabla}` en Supabase sin borrar los anteriores."
-        else:
-            msg_exito = f"🏆 **¡Traducción aplicada con éxito!**\nLa tabla `{nombre_tabla}` fue completamente reemplazada en Supabase con {filas_insertadas} registros procesados desde el servidor."
-        
-        await mensaje_espera.edit_text(msg_exito, parse_mode="Markdown")
-
-    except Exception as e:
-        logger.error(f"Error armando Excel desde el servidor: {e}", exc_info=True)
-        msg_err_armar = f"❌ Error al ensamblar: `{e}`"
-        await mensaje_espera.edit_text(msg_err_armar, parse_mode="Markdown")
-
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-# COMANDO DE TELEGRAM: /subir (Pasa un archivo .xlsx que ya esté en GitHub/Servidor directo a Supabase)
-# CÓMO SE USA EN TELEGRAM: /subir multi   (o el nombre de cualquier archivo .xlsx que hayas subido a GitHub)
-# ¿QUÉ HACE?: Busca el archivo '<nombre>.xlsx' en la carpeta del servidor, borra la tabla en Supabase
-#             y la vuelve a crear cargando todas las filas tal cual están en ese Excel (sin traducir ni modificar nada).
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    user_id = update.effective_user.id
-
-    if not es_administrador(user_id):
-        return
-    
-    if not context.args or len(context.args) == 0:
-        msg_formato = "⚠️ Por favor, indica el nombre de la tabla a importar.\nEjemplo: `/subir multi`"
-        await update.message.reply_text(msg_formato, parse_mode="Markdown")
-        return
-
-    nombre_tabla = context.args[0].strip()
-    ruta_archivo = f"{nombre_tabla}.xlsx"
-
-    if not os.path.exists(ruta_archivo):
-        msg_no_enc = f"❌ No encontré el archivo `{ruta_archivo}` en el servidor. Asegurate de haberlo subido al repositorio de GitHub."
-        await update.message.reply_text(msg_no_enc, parse_mode="Markdown")
-        return
-
-    msg_leyendo = f"🔄 Leyendo `{ruta_archivo}` del servidor y reescribiendo la tabla `{nombre_tabla}` en Supabase..."
-    mensaje_espera = await update.message.reply_text(msg_leyendo, parse_mode="Markdown")
-
-    try:
-        df = pd.read_excel(ruta_archivo)
-
-        if df.empty:
-            msg_vacio = f"⚠️ El archivo `{ruta_archivo}` está vacío."
-            await mensaje_espera.edit_text(msg_vacio, parse_mode="Markdown")
-            return
-
-        df.columns = [str(c).strip() for c in df.columns]
-
-        conn, cur = _asegurar_tabla_y_conectar_migrar(nombre_tabla, df_muestra=df)
-
-        columnas = list(df.columns)
-        cols_sql = ', '.join([f'"{c}"' for c in columnas])
-        placeholders = ', '.join(['%s'] * len(columnas))
-        
-        query_insert = f'INSERT INTO "{nombre_tabla}" ({cols_sql}) VALUES ({placeholders})'
-
-        filas_insertadas = 0
-        for _, row in df.iterrows():
-            valores = []
-            for col in columnas:
-                val = row[col]
-                if pd.isna(val):
-                    val = None
-                else:
-                    val = str(val).strip()
-                valores.append(val)
-
-            cur.execute(query_insert, tuple(valores))
-            filas_insertadas += 1
-
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        msg_exito = f"✅ ¡Éxito! La tabla `{nombre_tabla}` fue leída del servidor y sincronizada en Supabase con {filas_insertadas} registros."
-        await mensaje_espera.edit_text(msg_exito, parse_mode="Markdown")
-
-    except Exception as e:
-        logger.error(f"Error al importar la tabla {nombre_tabla} desde el servidor: {e}", exc_info=True)
-        msg_err = f"❌ Error al importar la tabla: `{e}`"
-        await mensaje_espera.edit_text(msg_err, parse_mode="Markdown")
-
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-# COMANDO DE TELEGRAM: /descargar (Descarga cualquier tabla de Supabase a un archivo Excel)
-# CÓMO SE USA EN TELEGRAM: /descargar multi   o   /descargar Usuarios
-# ¿QUÉ HACE?: Consulta la tabla en vivo en Supabase, arma un archivo .xlsx en memoria y te lo envía por Telegram
-#             para que lo tengas de backup o lo puedas revisar en tu PC.
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    user_id = update.effective_user.id
-
-    if not es_administrador(user_id):
-        return
-    
-    if not context.args or len(context.args) == 0:
-        msg_formato = "⚠️ Por favor, indica el nombre de la tabla que deseas descargar.\nEjemplo: `/descargar textos_bot` o `/descargar Usuarios`"
-        await update.message.reply_text(msg_formato, parse_mode="Markdown")
-        return
-
-    nombre_tabla = context.args[0].strip()
-    msg_consultando = f"⏳ Consultando y preparando la tabla `{nombre_tabla}`..."
-    mensaje_espera = await update.message.reply_text(msg_consultando, parse_mode="Markdown")
-
-    try:
-        conn, cur = _asegurar_tabla_y_conectar(nombre_tabla, tipo_tabla="comida")
-        query = f'SELECT * FROM "{nombre_tabla}"'
-        df = pd.read_sql(query, conn)
-        
-        cur.close()
-        conn.close()
-
-        if df.empty:
-            msg_vacia = f"⚠️ La tabla `{nombre_tabla}` existe pero está vacía."
-            await mensaje_espera.edit_text(msg_vacia, parse_mode="Markdown")
-            return
-
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name=nombre_tabla[:31])
-        buffer.seek(0)
-
-        filename = f"{nombre_tabla}.xlsx"
-        
-        msg_exito = f"✅ Aquí tienes el respaldo de la tabla *{nombre_tabla}* ({len(df)} registros)."
-        await update.message.reply_document(
-            document=buffer,
-            filename=filename,
-            caption=msg_exito,
-            parse_mode="Markdown"
-        )
-        
-        try:
-            await mensaje_espera.delete()
-        except Exception:
-            pass
-
-    except Exception as e:
-        logger.error(f"Error al descargar la tabla {nombre_tabla} para el usuario {user_id}: {e}", exc_info=True)
-        msg_err = f"❌ No se pudo descargar la tabla `{nombre_tabla}`.\nError: `{e}`"
-        await mensaje_espera.edit_text(msg_err, parse_mode="Markdown")   
-
-# =========================================================================================================================================
-#              FINAL                             FUNCIONES ADMINISTRADOR                                  FINAL
-# ==========================================================================================================================================
-
-# =============================================================================================================================================
 #              INICIO                         FUNCIONES AUXILIARES INTERNAS                  INICIO
 # =============================================================================================================================================
 #              INICIO                             FUNCIONES DE PARSING Y FECHAS                  INICIO
@@ -3009,6 +2538,197 @@ def obtener_momento_y_fecha_auto():
 #              INICIO                     FUNCIONES BIOMETRICAS Y METRICAS                   INICIO
 # =============================================================================================================================================
 
+def calcular_metricas_mensuales(df_mes, perfil_dict, user_id=None, mes_str=None):
+    if df_mes is not None and not df_mes.empty and 'Fecha' in df_mes.columns:
+        todas_comidas = {"Desayuno", "Almuerzo", "Merienda", "Cena"}
+        comidas_principales = {"Almuerzo", "Cena"}
+        dias_validos_filtrados = []
+        
+        for fecha, grupo in df_mes.groupby('Fecha'):
+            comidas_del_dia = [
+                str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() 
+                for _, r in grupo.iterrows()
+                if str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() in todas_comidas
+            ]
+            
+            total_comidas = len(comidas_del_dia)
+            tiene_principal = any(c in comidas_principales for c in comidas_del_dia)
+            
+            if total_comidas >= 2 and tiene_principal:
+                dias_validos_filtrados.append(fecha)
+                
+        df_mes = df_mes[df_mes['Fecha'].isin(dias_validos_filtrados)]
+
+    dias_registrados = df_mes['Fecha'].nunique() if (df_mes is not None and not df_mes.empty) else 1
+    if dias_registrados == 0:
+        dias_registrados = 1
+
+    tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
+    tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
+
+    minutos_totales_actividad = 0
+    if df_mes is not None and not df_mes.empty and 'Momento' in df_mes.columns and 'Alimento' in df_mes.columns:
+        for _, row in df_mes.iterrows():
+            momento_str = str(row.get('Momento', '')).strip().lower()
+            alimento_str = str(row.get('Alimento', '')).strip()
+            cal_val = float(row.get('Calorias', 0) or 0)
+            if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
+                match = re.match(r'^(\d+)', alimento_str)
+                if match:
+                    minutos_totales_actividad += int(match.group(1))
+
+    prom_minutos_act = int(round(minutos_totales_actividad / dias_registrados))
+
+    prom_cons = tot_cons_mes / dias_registrados
+    prom_quem = tot_quem_mes / dias_registrados
+    prom_bal_neto = prom_cons - prom_quem
+
+    tot_prot = float(df_mes['Proteinas'].sum()) if df_mes is not None and 'Proteinas' in df_mes.columns else 0.0
+    tot_gras = float(df_mes['Grasas'].sum()) if df_mes is not None and 'Grasas' in df_mes.columns else 0.0
+    tot_carb = float(df_mes['Carbohidratos'].sum()) if df_mes is not None and 'Carbohidratos' in df_mes.columns else 0.0
+    tot_fibr = float(df_mes['Fibras'].sum()) if df_mes is not None and 'Fibras' in df_mes.columns else 0.0
+
+    prom_cal = int(round(prom_cons))
+    prom_prot = int(round(tot_prot / dias_registrados))
+    prom_gras = int(round(tot_gras / dias_registrados))
+    prom_carb = int(round(tot_carb / dias_registrados))
+    prom_fibr = int(round(tot_fibr / dias_registrados))
+
+    perfil_dict = perfil_dict if isinstance(perfil_dict, dict) else {}
+    
+    def get_perfil_num(key_list, default):
+        for k in key_list:
+            if k in perfil_dict and perfil_dict[k] is not None:
+                val = parse_raw_val(perfil_dict[k])
+                if val != 0.0:
+                    return val
+        return default
+
+    edad = int(get_perfil_num(['Edad', 'edad', 'EDAD'], 64))
+    altura = get_perfil_num(['Altura', 'altura', 'ALTURA'], 167.5)
+    peso_actual = get_perfil_num(['PESO', 'Peso', 'peso', 'peso_actual'], 104.6)
+    
+    ocupacion = perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 1.375)
+    genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('Sexo') or perfil_dict.get('genero', 'masculino')).strip()
+    gen_clean = genero.lower()
+    is_femenino = gen_clean in ["femenino", "f", "mujer", "female"]
+    ritmo_usuario = str(perfil_dict.get('Ritmo') or perfil_dict.get('ritmo_preferido', 'moderado')).strip()
+
+    # 1. Calculamos Peso Ideal y Peso de Etapa (promedio ponderado entre actual e ideal)
+    peso_ideal_secreto = calcular_peso_ideal(genero, altura, edad=edad)
+    peso_etapa_calculado = calcular_peso_etapa(peso_actual, peso_ideal_secreto, ritmo_usuario)
+    
+    peso_referencia = round(peso_etapa_calculado, 1)
+    peso_ideal_dinamico = peso_referencia  
+    
+    # 2. Calculamos el GET del peso actual (para el balance real de variación de peso)
+    #    y el GET correspondiente al peso de etapa
+    _, get_real = calcular_tmb_y_get(
+        peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal_dinamico
+    )
+    _, get_meta = calcular_tmb_y_get(
+        peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal_dinamico
+    )
+
+    balance_diario = prom_cons - (get_real + prom_quem)
+    cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
+
+    if is_femenino:
+        factor_proteina_min = 1.0
+        factor_proteina_max = 1.2
+        fibr_min = 25
+    else:
+        factor_proteina_min = 1.2
+        factor_proteina_max = 1.5
+        fibr_min = 30
+
+    # 3. Definición del Rango Calórico Saludable basado en el Peso de Etapa:
+    #    Si el peso_referencia (etapa) es menor al peso_actual, proyectamos las calorías
+    #    en proporción directa al peso de etapa para garantizar el descenso hacia esa meta.
+    if peso_actual > 0 and peso_referencia < peso_actual:
+        cal_etapa_objetivo = get_real * (peso_referencia / peso_actual)
+        cal_min = int(round(min(cal_etapa_objetivo, get_meta) - 50))
+        cal_max = int(round(max(cal_etapa_objetivo, get_meta) + 50))
+        # Si la diferencia entre cal_min y cal_max quedó muy estrecha, aseguramos al menos 150 kcal de banda
+        if (cal_max - cal_min) < 150:
+            centro = int(round(cal_etapa_objetivo))
+            cal_min = centro - 100
+            cal_max = centro + 50
+    else:
+        # Si ya está en su peso ideal (peso_actual == peso_referencia), damos margen de mantenimiento (+/- 100 kcal)
+        val_get_meta = int(round(get_meta))
+        cal_min = val_get_meta - 100
+        cal_max = val_get_meta + 100
+
+    # 4. Macronutrientes calculados directamente sobre el peso de etapa y su rango calórico
+    prot_min = int(round(float(peso_referencia) * factor_proteina_min))
+    prot_max = int(round(float(peso_referencia) * factor_proteina_max))
+
+    gras_min = int(round((cal_min * 0.20) / 9.0))
+    gras_max = int(round((cal_max * 0.30) / 9.0))
+
+    carb_min = int(round((cal_min * 0.40) / 4.0))
+    carb_max = int(round((cal_max * 0.55) / 4.0))
+
+    # --- SUPREMACÍA CLÍNICA: VERIFICAR SI TIENE VALORES DEL PROFESIONAL ---
+    valores_personalizados = False
+    if user_id and mes_str:
+        valores_prof = obtener_valores_clinicos_profesional(user_id, mes_str)
+        if valores_prof:
+            valores_personalizados = True
+            cal_min = int(valores_prof.get("calorias_min", cal_min))
+            cal_max = int(valores_prof.get("calorias_max", cal_max))
+            prot_min = int(valores_prof.get("proteinas_min", prot_min))
+            prot_max = int(valores_prof.get("proteinas_max", prot_max))
+            carb_min = int(valores_prof.get("hidratos_min", carb_min))
+            carb_max = int(valores_prof.get("hidratos_max", carb_max))
+            gras_min = int(valores_prof.get("grasas_min", gras_min))
+            gras_max = int(valores_prof.get("grasas_max", gras_max))
+            fibr_min = int(valores_prof.get("fibras_min", fibr_min))
+            if valores_prof.get("peso_etapa", 0) > 0:
+                peso_referencia = float(valores_prof.get("peso_etapa"))
+
+    return {
+        "dias_registrados": dias_registrados,
+        "prom_cal": prom_cal,
+        "prom_quem": int(round(prom_quem)),
+        "prom_bal_neto": int(round(prom_bal_neto)),
+        "prom_prot": prom_prot,
+        "prom_gras": prom_gras,
+        "prom_carb": prom_carb,
+        "prom_fibr": prom_fibr,
+        "prom_minutos_act": prom_minutos_act,
+        "cal_min": cal_min, "cal_max": cal_max,
+        "prot_min": prot_min, "prot_max": prot_max,
+        "gras_min": gras_min, "gras_max": gras_max,
+        "carb_min": carb_min, "carb_max": carb_max,
+        "fibr_min": fibr_min,
+        "peso_actual": round(float(peso_actual), 1),
+        "peso_referencia": round(float(peso_referencia), 1),
+        "cambio_peso_kg": cambio_peso_kg,
+        "valores_personalizados": valores_personalizados
+    }
+     
+def obtener_mensaje_variacion_peso(cambio_kg: float, traducciones: dict = None) -> str:
+    """Devuelve un mensaje cualitativo según la variación de peso mensual estimada."""
+    if traducciones is None:
+        traducciones = {}
+
+    if abs(cambio_kg) <= 0.8:
+        return traducciones.get("08_inf_var_peso_estable", "Prácticamente estable")
+    elif 0.8 < cambio_kg <= 1.8:
+        return traducciones.get("08_inf_var_peso_peq_arriba", "Pequeña variación hacia arriba")
+    elif 1.8 < cambio_kg <= 3.0:
+        return traducciones.get("08_inf_var_peso_mod_arriba", "Variación moderada hacia arriba")
+    elif cambio_kg > 3.0:
+        return traducciones.get("08_inf_var_peso_imp_arriba", "Variación importante hacia arriba")
+    elif -1.8 <= cambio_kg < -0.8:
+        return traducciones.get("08_inf_var_peso_peq_abajo", "Pequeña variación hacia abajo")
+    elif -3.0 <= cambio_kg < -1.8:
+        return traducciones.get("08_inf_var_peso_mod_abajo", "Variación moderada hacia abajo")
+    else:
+        return traducciones.get("08_inf_var_peso_imp_abajo", "Variación importante hacia abajo")
+
 def calcular_rango_actividad_fisica(peso_actual: float, peso_referencia: float) -> tuple[int, int]:
     min_minutos = 30  
     if peso_referencia <= 0:
@@ -3050,28 +2770,6 @@ def aplicar_calibracion_reloj(factor_previo: float, get_reloj: float, tmb: float
         factor_final = factor_crudo
 
     return round(factor_final, 4)
-        
-def obtener_registros_presion(u_id):
-    try:
-        df_presion = obtener_datos_presion_db(u_id)
-        if not df_presion.empty:
-            return df_presion.to_dict(orient="records")
-    except Exception as e:
-        logger.error(f"Error al obtener registros de presión en Supabase para {u_id}: {e}")
-    return []
-
-def obtener_ultima_presion(recs_presion_all):
-    presion_str = "S/D"
-    try:
-        if recs_presion_all:
-            ult_pres = recs_presion_all[-1]
-            sys = ult_pres.get("Alta", ult_pres.get("Sistolica", ult_pres.get("sistólica", ult_pres.get("sistolica", ""))))
-            dia = ult_pres.get("Baja", ult_pres.get("Diastolica", ult_pres.get("diastólica", ult_pres.get("diastolica", ""))))
-            if sys and dia:
-                presion_str = f"{sys}/{dia} mmHg"
-    except Exception as e:
-        logger.error(f"Error al formatear última presión: {e}")
-    return presion_str
         
 def _obtener_biometria_encapsulada(sexo_arg=None, altura_arg=None, peso_arg=None, edad_arg=None):
     datos = {
@@ -3309,33 +3007,7 @@ def obtener_ultimo_peso(user_id: int) -> dict:
     except Exception as e:
         logger.error(f"Error en obtener_ultimo_peso para User {user_id}: {e}")
         return None
-        
-def obtener_promedio_calorias_mes_actual(u_id, ahora):
-    calorias_str = "S/D"
-    try:
-        df_u = obtener_datos_usuario(u_id)
-        if not df_u.empty and 'Fecha' in df_u.columns:
-            mes_actual_str = ahora.strftime("%Y-%m")
-            df_u['Mes_Filtro'] = df_u['Fecha'].astype(str).str.slice(0, 7)
-            df_mes = df_u[df_u['Mes_Filtro'] == mes_actual_str]
-            if not df_mes.empty and 'Calorias' in df_mes.columns:
-                calorias_mes = [float(c) for c in df_mes['Calorias'] if float(c) > 0]
-                if calorias_mes:
-                    prom_cal = sum(calorias_mes) / len(calorias_mes)
-                    calorias_str = f"{round(prom_cal)} kcal/día"
-    except Exception as e:
-        logger.error(f"Error en obtener_promedio_calorias_mes_actual para {u_id}: {e}")
-    return calorias_str
-
-def obtener_ultimo_perfil_dict(u_id):
-    try:
-        perfil = obtener_perfil_usuario(u_id)
-        if perfil:
-            return perfil
-    except Exception as e:
-        logger.error(f"Error en obtener_ultimo_perfil_dict para {u_id}: {e}")
-    return {}
-  
+          
 def _calcular_y_actualizar_factor_mes_anterior(user_id, mes_anterior_str, peso_fin_mes_override=None):
     try:
         df_datos = obtener_datos_usuario(user_id) 
@@ -3455,7 +3127,7 @@ def calcular_peso_etapa(peso_actual: float, peso_ideal: float, ritmo_preferido: 
     peso_etapa = (peso_actual * factor_actual) + (peso_ideal * factor_ideal)
     return round(peso_etapa, 1)
 
-# 8. CÁLCULO DE TMB Y GET (SCHOFIELD OMS EN NIÑOS, KATCH/MIFFLIN EN ADULTOS)
+# 8. CÁLCULO DE TMB Y GET (SCHOFIELD OMS EN NIÑOS, KATCH/MIFFLIN AJUSTADO EN ADULTOS)
 def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: str = "masculino", actividad: float = 1.375, masa_magra: float = None, peso_ideal: float = None, cadera_cm: float = None) -> tuple[float, float]:
     try:
         peso = float(peso_actual)
@@ -3475,6 +3147,15 @@ def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: 
     gen_clean = str(genero).strip().lower()
     is_femenino = gen_clean in ["femenino", "f", "mujer", "female", "chica", "niña"]
 
+    try:
+        factor_act = float(actividad)
+        if factor_act > 10:
+            factor_act /= 1000.0
+        if factor_act <= 0:
+            factor_act = 1.375
+    except (TypeError, ValueError):
+        factor_act = 1.375
+
     # --- PEDIATRÍA (< 18 AÑOS): SCHOFIELD / OMS CON DEPÓSITO DE CRECIMIENTO ---
     if anios < 18:
         if is_femenino:
@@ -3488,50 +3169,52 @@ def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: 
             else:
                 tmb = (17.686 * peso) + 658.2
 
-        try:
-            factor_act = float(actividad)
-            if factor_act > 10: factor_act /= 1000.0
-        except (TypeError, ValueError):
-            factor_act = 1.375
-
         calorias_crecimiento = 25.0
         get = (tmb * factor_act) + calorias_crecimiento
         return round(tmb, 2), round(get, 2)
 
-    # --- ADULTOS (>= 18 AÑOS): KATCH-MCARDLE O MIFFLIN-ST JEOR ---
+    # --- ADULTOS (>= 18 AÑOS): KATCH-MCARDLE + AJUSTE DINÁMICO POR PESO EVALUADO ---
     if is_femenino:
         tmb_mifflin = (10.0 * peso) + (6.25 * altura) - (5.0 * anios) - 161.0
     else:
         tmb_mifflin = (10.0 * peso) + (6.25 * altura) - (5.0 * anios) + 5.0
 
     if masa_magra is None or masa_magra <= 1.0:
-        bio = _obtener_biometria_encapsulada(sexo_arg=genero, altura_arg=altura, peso_arg=peso, edad_arg=anios)
+        # Buscamos los datos biométricos reales del usuario en la base de datos (sin pisar su peso real)
+        bio = _obtener_biometria_encapsulada(sexo_arg=genero, altura_arg=altura, peso_arg=None, edad_arg=anios)
         cint_eval = bio.get("cintura", 1.0)
         cuell_eval = bio.get("cuello", 1.0)
         cad_eval = cadera_cm if (cadera_cm is not None and float(cadera_cm) > 0) else bio.get("cadera", 0.0)
+        peso_real_db = bio.get("peso", 0.0)
+        if peso_real_db <= 1.0:
+            peso_real_db = peso
 
+        # Calculamos la masa magra real de la persona en base a su peso real y sus circunferencias actuales
+        masa_magra_real = None
         if is_femenino:
             if cint_eval > 1.0 and cuell_eval > 1.0 and cad_eval > 1.0:
-                _, masa_magra = calcular_grasa_y_magra(genero, altura, cint_eval, cuell_eval, peso, cadera_cm=cad_eval, edad=anios)
+                _, masa_magra_real = calcular_grasa_y_magra(genero, altura, cint_eval, cuell_eval, peso_real_db, cadera_cm=cad_eval, edad=anios)
         else:
             if cint_eval > 1.0 and cuell_eval > 1.0 and cint_eval > cuell_eval:
-                _, masa_magra = calcular_grasa_y_magra(genero, altura, cint_eval, cuell_eval, peso, edad=anios)
+                _, masa_magra_real = calcular_grasa_y_magra(genero, altura, cint_eval, cuell_eval, peso_real_db, edad=anios)
+
+        if masa_magra_real is not None and masa_magra_real > 1.0:
+            # Si estamos calculando para un peso distinto al real (ej: peso_etapa o peso_ideal),
+            # ajustamos la masa libre de grasa considerando que de cada kg de diferencia de peso,
+            # ~75% es tejido adiposo y ~25% es componente magro/hídrico de sostén:
+            diferencia_peso = peso - peso_real_db
+            masa_magra = max(25.0, masa_magra_real + (diferencia_peso * 0.25))
 
     if masa_magra is not None and masa_magra > 1.0:
-        tmb = 370.0 + (21.6 * float(masa_magra))
+        tmb_katch = 370.0 + (21.6 * float(masa_magra))
+        # Combinamos Katch-McArdle (precisión por composición magra) con Mifflin (impacto del peso total a trasladar)
+        tmb = (tmb_katch * 0.70) + (tmb_mifflin * 0.30)
     else:
         tmb = tmb_mifflin
 
-    try:
-        factor_act = float(actividad)
-        if factor_act > 10:
-            factor_act /= 1000.0
-    except (TypeError, ValueError):
-        factor_act = 1.375
-
     get = tmb * factor_act
     return round(tmb, 2), round(get, 2)
-
+     
 async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.DEFAULT_TYPE = None, user_id: int = None) -> bool:
     uid = user_id or (update.effective_user.id if update else None)
     if not uid:
@@ -3740,6 +3423,323 @@ def obtener_traducciones_db(lang):
     except Exception as e:
         logger.error(f"Error al obtener traducciones de Supabase para el idioma {lang}: {e}")
     return traducciones
+
+def generar_pdf_resumen_bytes(mes_str, df_mes, df_presion, perfil, tmb_val, user_id):
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=25, leftMargin=25, topMargin=25, bottomMargin=25)
+    styles = getSampleStyleSheet()
+    
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=14, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
+    sub_style = ParagraphStyle('SubTitle', parent=styles['Heading2'], fontSize=10, textColor=colors.HexColor('#2563EB'), spaceBefore=6, spaceAfter=2)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#1E293B'))
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
+
+    t_titulo_tmpl = traducciones.get("08_PDF_resumen_titulo", "Reporte Nutricional Mensual - {mes_str}")
+    t_usr_tmpl = traducciones.get("08_PDF_resumen_usuario_id", "**Usuario Telegram ID:** {user_id}")
+
+    story = [
+        Paragraph(f"<b>{t_titulo_tmpl.format(mes_str=mes_str)}</b>", title_style),
+        Paragraph(t_usr_tmpl.format(user_id=user_id), body_style),
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=6)
+    ]
+
+    h_fecha = traducciones.get("08_PDF_resumen_th_fecha", "Fecha")
+    h_cal_cons = traducciones.get("08_PDF_resumen_th_cal_cons", "Cal. Consumid.")
+    h_cal_quem = traducciones.get("08_PDF_resumen_th_cal_quem", "Cal. Quemad.")
+    h_bal_neto = traducciones.get("08_PDF_resumen_th_bal_neto", "Bal. Neto")
+    h_prot = traducciones.get("08_PDF_resumen_th_proteinas", "Proteinas (g)")
+    h_gras = traducciones.get("08_PDF_resumen_th_grasas", "Grasas (g)")
+    h_carb = traducciones.get("08_PDF_resumen_th_carbs", "Carbohidratos (g)")
+    h_fibr = traducciones.get("08_PDF_resumen_th_fibras", "Fibras (g)")
+
+    headers_h1 = [h_fecha, h_cal_cons, h_cal_quem, h_bal_neto, h_prot, h_gras, h_carb, h_fibr]
+    table_data_h1 = [[Paragraph(h, header_style) for h in headers_h1]]
+
+    tot_cons, tot_quem, tot_prot, tot_gras, tot_carb, tot_fibr = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+
+    if df_mes is not None and not df_mes.empty:
+        fechas_unicas = sorted(df_mes['Fecha'].unique())
+
+        for f in fechas_unicas:
+            sub = df_mes[df_mes['Fecha'] == f]
+            
+            c_cons = float(sub[sub['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in sub.columns else 0.0
+            c_quem = float(abs(sub[sub['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in sub.columns else 0.0
+            b_neto = c_cons - c_quem
+            
+            prot = float(sub['Proteinas'].sum()) if 'Proteinas' in sub.columns else 0.0
+            gras = float(sub['Grasas'].sum()) if 'Grasas' in sub.columns else 0.0
+            carb = float(sub['Carbohidratos'].sum()) if 'Carbohidratos' in sub.columns else 0.0
+            fibr = float(sub['Fibras'].sum()) if 'Fibras' in sub.columns else 0.0
+
+            tot_cons += c_cons
+            tot_quem += c_quem
+            tot_prot += prot
+            tot_gras += gras
+            tot_carb += carb
+            tot_fibr += fibr
+
+            table_data_h1.append([
+                Paragraph(str(f), body_style),
+                Paragraph(f"{int(round(c_cons))} kcal", body_style),
+                Paragraph(f"{int(round(c_quem))} kcal", body_style),
+                Paragraph(f"{int(round(b_neto))} kcal", body_style),
+                Paragraph(f"{int(round(prot))} g", body_style),
+                Paragraph(f"{int(round(gras))} g", body_style),
+                Paragraph(f"{int(round(carb))} g", body_style),
+                Paragraph(f"{int(round(fibr))} g", body_style)
+            ])
+        
+        tot_neto = tot_cons - tot_quem
+        dias_activos = len(fechas_unicas) if len(fechas_unicas) > 0 else 1
+
+        lbl_tot = traducciones.get("08_PDF_resumen_total_mes", "TOTAL MES")
+        lbl_prom = traducciones.get("08_PDF_resumen_prom_diario", "PROM. DIARIO")
+
+        table_data_h1.append([
+            Paragraph(f"<b>{lbl_tot}</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_cons))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_quem))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_neto))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_prot))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_gras))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_carb))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_fibr))} g</b>", body_style)
+        ])
+
+        table_data_h1.append([
+            Paragraph(f"<b>{lbl_prom}</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_cons/dias_activos))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_quem/dias_activos))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_neto/dias_activos))} kcal</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_prot/dias_activos))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_gras/dias_activos))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_carb/dias_activos))} g</b>", body_style),
+            Paragraph(f"<b>{int(round(tot_fibr/dias_activos))} g</b>", body_style)
+        ])
+
+    t1 = Table(table_data_h1, colWidths=[65, 75, 70, 70, 65, 60, 80, 55])
+    t1.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('BACKGROUND', (0, -2), (-1, -1), colors.HexColor('#F1F5F9'))
+    ]))
+    story.append(t1)
+
+    story.append(PageBreak())
+    
+    sub_analisis = traducciones.get("08_PDF_resumen_analisis_sub", "Análisis Metabólico y Tabla Comparativa de Macronutrientes (Rangos Saludables)")
+    story.append(Paragraph(f"<b>{sub_analisis}</b>", title_style))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=6))
+
+    perfil_dict = perfil if isinstance(perfil, dict) else {}
+    m = calcular_metricas_mensuales(df_mes, perfil_dict, user_id=user_id, mes_str=mes_str)
+
+    th_nutriente = traducciones.get("08_PDF_resumen_th_nutriente", "Nutriente / Métrica")
+    th_prom_real = traducciones.get("08_PDF_resumen_th_prom_real", "Promedio Diario Real (Mes)")
+    th_rango_salud = traducciones.get("08_PDF_resumen_th_rango_salud", "Rango / Mínimo Saludable")
+
+    n_cal = traducciones.get("08_PDF_resumen_nutr_calorias", "Balance Neto (kcal)")
+    n_prot = traducciones.get("08_PDF_resumen_nutr_proteinas", "Proteínas")
+    n_gras = traducciones.get("08_PDF_resumen_nutr_grasas", "Grasas")
+    n_carb = traducciones.get("08_PDF_resumen_nutr_carbs", "Carbohidratos")
+    n_fibr = traducciones.get("08_PDF_resumen_nutr_fibras", "Fibras")
+    min_tpl = traducciones.get("08_PDF_resumen_minimo", "Mínimo {val} g")
+
+    table_comp = [
+        [Paragraph(f"<b>{th_nutriente}</b>", header_style), Paragraph(f"<b>{th_prom_real}</b>", header_style), Paragraph(f"<b>{th_rango_salud}</b>", header_style)],
+        [Paragraph(n_cal, body_style), Paragraph(f"{m.get('prom_bal_neto', 0)} kcal", body_style), Paragraph(f"{m.get('cal_min', 0)} - {m.get('cal_max', 0)} kcal", body_style)],
+        [Paragraph(n_prot, body_style), Paragraph(f"{m.get('prom_prot', 0)} g", body_style), Paragraph(f"{m.get('prot_min', 0)} - {m.get('prot_max', 0)} g", body_style)],
+        [Paragraph(n_gras, body_style), Paragraph(f"{m.get('prom_gras', 0)} g", body_style), Paragraph(f"{m.get('gras_min', 0)} - {m.get('gras_max', 0)} g", body_style)],
+        [Paragraph(n_carb, body_style), Paragraph(f"{m.get('prom_carb', 0)} g", body_style), Paragraph(f"{m.get('carb_min', 0)} - {m.get('carb_max', 0)} g", body_style)],
+        [Paragraph(n_fibr, body_style), Paragraph(f"{m.get('prom_fibr', 0)} g", body_style), Paragraph(min_tpl.format(val=m.get('fibr_min', 0)), body_style)]
+    ]
+    t_comp = Table(table_comp, colWidths=[150, 185, 185])
+    t_comp.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+    ]))
+    story.append(t_comp)
+    story.append(Spacer(1, 4))
+
+    peso_act_pdf = round(float(m.get('peso_actual', 0)), 1)
+    peso_ref_pdf = round(float(m.get('peso_referencia', 0)), 1)
+
+    p_perfil_tmpl = traducciones.get("08_PDF_resumen_perfil_reg", "• <b>PERFIL REGISTRADO EN EL MES ({mes_str}):</b> Peso Registrado: {peso_act_pdf} kg | Peso Objetivo de esta etapa : {peso_ref_pdf} kg |")
+    p_cambio_tmpl = traducciones.get("08_PDF_resumen_cambio_peso", "• <b>TENDENCIA ESTIMADA DE PESO:</b> {cambio_txt}")
+    p_act_tmpl = traducciones.get("08_PDF_resumen_act_fisica", "• <b>ACTIVIDAD FÍSICA PROMEDIO:</b> {act_minutos} min/día (Rango recomendado: {act_min} - {act_max} min/día)")
+    p_nota_act = traducciones.get("08_PDF_resumen_nota_act", "<i>(Nota: Los rangos de actividad consideran impacto corporal; actividades de bajo impacto como aquagym, natación o yoga no aplican restricciones de sobrepeso).</i>")
+
+    story.append(Paragraph(p_perfil_tmpl.format(mes_str=mes_str, peso_act_pdf=peso_act_pdf, peso_ref_pdf=peso_ref_pdf), body_style))
+    
+    cambio_val = float(m.get('cambio_peso_kg', 0))
+    mensaje_variacion = obtener_mensaje_variacion_peso(cambio_val, traducciones)
+    story.append(Paragraph(p_cambio_tmpl.format(cambio_txt=mensaje_variacion), body_style))
+    
+    story.append(Paragraph(p_act_tmpl.format(act_minutos=m.get('prom_minutos_act', 0), act_min=m.get('act_min', 30), act_max=m.get('act_max', 60)), body_style))
+    story.append(Spacer(1, 2))
+    story.append(Paragraph(p_nota_act, body_style))
+
+    story.append(Spacer(1, 6))
+    
+    # --- NUEVA LÓGICA DE DISCLAIMER ---
+    es_personalizado = m.get('valores_personalizados', False)
+    id_prof = str(perfil_dict.get('profesional', '123456789')).strip()
+    
+    if es_personalizado:
+        nota_pdf = traducciones.get("08_pdf_resumen_nota_pers", "<i>👨‍⚕️ <b>Nota Clínica:</b> Las metas y rangos de macronutrientes de este reporte han sido analizados, personalizados y aprobados explícitamente por tu profesional a cargo, reemplazando el cálculo estándar.</i>")
+    elif id_prof != "123456789" and id_prof != "S/D" and id_prof != "":
+        nota_pdf = traducciones.get("08_pdf_resumen_nota_prof_pend", "<i>🤖 <b>Nota del Sistema:</b> Tu profesional a cargo aún no ha personalizado las metas para este período. Los rangos mostrados han sido calculados de forma automática por el motor clínico del asistente (Fórmulas estandarizadas).</i>")
+    else:
+        nota_pdf = traducciones.get("08_pdf_resumen_nota_auto", "<i>🤖 <b>Nota del Sistema:</b> Reporte generado mediante métricas analíticas directas y cálculos automatizados. La tendencia de peso indicada es una proyección matemática aproximada calculada en base a tus registros.</i>")
+
+    story.append(Paragraph(nota_pdf, body_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    try:
+        peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
+        if not peso_ok and not forzar_envio:
+            return False
+
+        df_datos = obtener_datos_usuario(user_id) 
+        if df_datos.empty or 'Fecha' not in df_datos.columns:
+            msg_nodata = traducciones.get("08_sup_inf_no_registros", "⚠️ No hay suficientes registros para generar el reporte.")
+            await context.bot.send_message(chat_id=user_id, text=msg_nodata)
+            return False
+
+        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
+        
+        ahora_arg = obtener_ahora_arg()
+        if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
+            ahora_arg = ahora_arg.replace(tzinfo=None)
+        
+        hoy_ts = pd.Timestamp(ahora_arg).normalize()
+        ayer_ts = hoy_ts - pd.Timedelta(days=1)
+        mes_actual_str = hoy_ts.strftime("%Y-%m")
+
+        if es_automatico_15:
+            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
+            fin_periodo = pd.Timestamp(f"{mes_target}-14").normalize()
+            etiqueta_tmpl = traducciones.get("08_sup_inf_periodo_quincenal", "Quincenal ({mes_target}: 1 al 14)")
+            etiqueta_periodo = etiqueta_tmpl.format(mes_target=mes_target)
+        else:
+            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
+            if mes_target == mes_actual_str:
+                fin_periodo = ayer_ts
+                etiqueta_tmpl = traducciones.get("08_sup_inf_periodo_mes_actual", "Mes Actual en curso ({mes_target}: del 01 al {ayer_ts})")
+                etiqueta_periodo = etiqueta_tmpl.format(mes_target=mes_target, ayer_ts=ayer_ts.strftime('%d/%m'))
+            else:
+                fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
+                etiqueta_tmpl = traducciones.get("08_sup_inf_periodo_mes_completo", "Mes Completo ({mes_target})")
+                etiqueta_periodo = etiqueta_tmpl.format(mes_target=mes_target)
+
+        df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
+
+        if df_filtrado.empty:
+            msg_template = traducciones.get("08_sup_inf_sin_registros_periodo", "⚠️ No se encontraron registros cerrados para el período {etiqueta_periodo}.")
+            msg_closed = msg_template.format(etiqueta_periodo=etiqueta_periodo)
+            await context.bot.send_message(chat_id=user_id, text=msg_closed)
+            return False
+
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) or {}
+        m = calcular_metricas_mensuales(df_filtrado, perfil, user_id=user_id, mes_str=mes_target) or {}
+
+        df_presion = pd.DataFrame()
+        tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
+        pdf_buffer = await asyncio.to_thread(
+            generar_pdf_resumen_bytes,
+            mes_target,
+            df_filtrado,
+            df_presion,
+            perfil,
+            tmb_val,
+            user_id
+        )
+        
+        # Envío del informe al usuario
+        cap_tmpl = traducciones.get("08_sup_inf_caption_reporte", "📊 **Reporte Mensual correspondiente a {mes_target}**")
+        caption_txt = cap_tmpl.format(mes_target=mes_target)
+        
+        await context.bot.send_document(
+            chat_id=chat_destino,
+            document=pdf_buffer,
+            filename=f"Informe_Mensual_{mes_target}.pdf",
+            caption=caption_txt,
+            parse_mode="Markdown"
+        )
+
+        # --- ALERTA CLÍNICA AUTOMÁTICA AL PROFESIONAL SI TIENE MÉDICO ASIGNADO ---
+        prof_asignado = str(perfil.get("profesional", "")).strip() if isinstance(perfil, dict) else ""
+        if not prof_asignado:
+            # Intentar buscar el profesional desde la tabla de usuarios
+            try:
+                conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+                cur_u.execute('SELECT "profesional" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
+                fila_prof = cur_u.fetchone()
+                cur_u.close(); conn_u.close()
+                if fila_prof and fila_prof[0]:
+                    prof_asignado = str(fila_prof[0]).split('.')[0].strip()
+            except Exception:
+                pass
+
+        if prof_asignado and prof_asignado != "123456789":
+            try:
+                # Verificar desvío respecto a los rangos clínicos
+                bal_neto = m.get("prom_bal_neto", 0)
+                c_min = m.get("cal_min", 0)
+                c_max = m.get("cal_max", 0)
+                
+                desvio = False
+                motivo_desvio = ""
+                if bal_neto < c_min:
+                    desvio = True
+                    m_inferior_tmpl = traducciones.get("08_sup_inf_motivo_inf", "Balance neto inferior al mínimo establecido ({bal_neto} kcal vs mín {c_min} kcal)")
+                    motivo_desvio = m_inferior_tmpl.format(bal_neto=bal_neto, c_min=c_min)
+                elif bal_neto > c_max:
+                    desvio = True
+                    m_superior_tmpl = traducciones.get("08_sup_inf_motivo_sup", "Balance neto superior al máximo establecido ({bal_neto} kcal vs máx {c_max} kcal)")
+                    motivo_desvio = m_superior_tmpl.format(bal_neto=bal_neto, c_max=c_max)
+
+                if desvio:
+                    alerta_tmpl = traducciones.get(
+                        "08_sup_inf_alerta_medico",
+                        "⚠️ **ALERTA CLÍNICA DE DESVÍO**\n\nEl paciente **{nombre_paciente}** (ID: `{user_id}`) ha presentado un desvío en su reporte mensual de `{mes_target}`:\n• *Motivo:* {motivo_desvio}\n\nSe adjunta copia del informe para su revisión."
+                    )
+                    alerta_medico = alerta_tmpl.format(
+                        nombre_paciente=perfil.get('Nombre', user_id),
+                        user_id=user_id,
+                        mes_target=mes_target,
+                        motivo_desvio=motivo_desvio
+                    ).replace('\\n', '\n')
+                    
+                    pdf_buffer.seek(0)
+                    await context.bot.send_message(chat_id=int(prof_asignado), text=alerta_medico, parse_mode="Markdown")
+                    pdf_buffer.seek(0)
+                    await context.bot.send_document(
+                        chat_id=int(prof_asignado),
+                        document=pdf_buffer,
+                        filename=f"Alerta_Paciente_{user_id}_{mes_target}.pdf"
+                    )
+            except Exception as e_medico:
+                logger.error(f"Error al enviar alerta clínica al profesional {prof_asignado} para el usuario {user_id}: {e_medico}")
+
+        return True
+    except Exception as e:
+        logger.error(f"Error in procesar_y_enviar_informe_mensual for {user_id}: {e}")
+        return False
    
 async def limpiar_teclado_anterior(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Elimina los botones del menú anterior si el usuario inicia una nueva acción."""
@@ -3760,7 +3760,7 @@ async def limpiar_teclado_anterior(update: Update, context: ContextTypes.DEFAULT
             pass # Falla silenciosa si el mensaje fue borrado a mano por el usuario o es muy viejo
    
 def requiere_registro(func):
-    """Decorador que verifica registro y bloquea usuarios en Estado 3 ofreciendo reactivación prorrateada."""
+    #Decorador que verifica registro y bloquea usuarios en Estado 3 ofreciendo reactivación prorrateada.
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         await limpiar_teclado_anterior(update, context)
@@ -3921,7 +3921,7 @@ async def ejecutar_consulta_ia(
   return ""
   
 def obtener_nombre_lenguaje_ia(user_id=None):
-    """Obtiene el nombre completo del lenguaje para la IA desde la tabla Usuarios."""
+    # Obtiene el nombre completo del lenguaje para la IA desde la tabla Usuarios.
     if not user_id:
         return "Español"
     try:
@@ -3949,13 +3949,12 @@ async def analizar_con_ia(prompt_text, user_id=None, msg_obj=None):
         "1. COMIDA (alimentos/bebidas)\n"
         "2. ACTIVIDAD (ejercicio)\n"
         "3. RECHAZO (cualquier otra cosa ajena al registro)\n\n"
+        "REGLA ANTI-SPAM: Si el usuario ingresa alimentos ficticios, combinaciones absurdas (ej: 'piedras con mayonesa') o cantidades humanamente imposibles de ingerir en una sola comida (ej: '50 pizzas', '20 litros de bebida'), clasificalo inmediatamente como RECHAZO.\n\n"
         "REGLA MATEMÁTICA PARA COMIDAS: Calorías = (Proteínas*4) + (Carbohidratos*4) + (Grasas*9). Ajustá los valores para que la ecuación sea perfecta.\n"
         "Devolvé EXCLUSIVAMENTE un JSON estricto según estas reglas:\n"
         "SI ES COMIDA: {\"tipo\": \"Comida\", \"items\": [{\"alimento\": \"...\", \"peso\": 0, \"calorias\": 0, \"proteinas\": 0, \"grasas\": 0, \"carbohidratos\": 0, \"fibras\": 0}]}\n"
-        
         "SI ES ACTIVIDAD: {\"tipo\": \"Actividad\", \"items\": [{\"alimento\": \"[MINUTOS] min [DETALLE COMPLETO]\", \"peso\": 0, \"calorias\": -0, \"proteinas\": 0, \"grasas\": 0, \"carbohidratos\": 0, \"fibras\": 0}]} "
         "(REGLA OBLIGATORIA PARA ACTIVIDAD: El campo 'alimento' DEBE empezar SIEMPRE con los minutos en número seguidos de 'min' y mantener todo el detalle del texto original sin resumir. Ejemplo: '50 min caminata en el parque recorriendo 3000 metros').\n"
-        
         "SI ES RECHAZO: {\"tipo\": \"Rechazo\"}"
     )
 
@@ -3972,7 +3971,7 @@ async def analizar_con_ia(prompt_text, user_id=None, msg_obj=None):
         if msg_obj:
             try: await msg_obj.edit_text("⚠️ Main server busy. Switching to backup server...")
             except Exception: pass
-        
+            
         try:
             model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=system_prompt)
             response_resp = await asyncio.to_thread(model_resp.generate_content, prompt_text, generation_config=configuracion_gen)
@@ -3984,7 +3983,7 @@ async def analizar_con_ia(prompt_text, user_id=None, msg_obj=None):
             if msg_obj:
                 try: await msg_obj.edit_text("⚠️ Retrying connection with emergency server...")
                 except Exception: pass
-            
+                
             try:
                 model_emer = genai.GenerativeModel(MODELO_EMERGENCIA, system_instruction=system_prompt)
                 response_emer = await asyncio.to_thread(model_emer.generate_content, prompt_text, generation_config=configuracion_gen)
@@ -4209,11 +4208,13 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     tipo = str(data_json.get("tipo", "Comida")).strip().capitalize()
     total_calorias = sum(float(item.get("calorias", 0)) for item in items)
     
+    # Extraemos el user_id del objeto mensaje para poder hacer las validaciones
+    user_id = msg_obj.chat_id if hasattr(msg_obj, 'chat_id') else (msg_obj.chat.id if hasattr(msg_obj, 'chat') else None)
+    lang = obtener_idioma_usuario(user_id) if user_id and 'obtener_idioma_usuario' in globals() else 'es'
+    traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
+
     # --- EVITAMOS EL SILENCIO SI LA IA FALLA ---
     if not items or (total_calorias == 0 and tipo != "Actividad"):
-        lang = obtener_idioma_usuario(msg_obj.chat_id) if hasattr(msg_obj, 'chat_id') and 'obtener_idioma_usuario' in globals() else 'es'
-        traducciones = obtener_traducciones_db(lang) if 'obtener_traducciones_db' in globals() else {}
-        
         txt_err = traducciones.get("06_bot_error_ia_vacio", "⚠️ No pude identificar alimentos o calorías válidas en tu texto. Por favor, sé más específico (ej: 'Comí 200g de pollo').")
         try: 
             await msg_obj.edit_text(txt_err)
@@ -4222,13 +4223,9 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
         return
         
     magnitud_calorica = abs(total_calorias)
-    # ... (El resto de la función sigue exactamente igual) ...
     limite_exceso = 1000 if tipo == "Actividad" else 2200
 
     if magnitud_calorica > limite_exceso:
-        lang = obtener_idioma_usuario(msg_obj.chat_id) or '$1'
-        traducciones = obtener_traducciones_db(lang) or {}
-        
         if tipo == "Actividad":
             txt_exceso = traducciones.get(
                 "06_bot_act_limite_superado",
@@ -4270,7 +4267,29 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
             fecha = fecha_parseada if fecha_parseada else fecha_auto
     else:
         fecha = fecha_auto
-    
+
+    # --- NUEVO FILTRO: TOPE DIARIO DE 6000 KCAL (ANTI-SPAM) ---
+    if tipo != "Actividad" and user_id:
+        try:
+            df_user = obtener_datos_usuario(user_id)
+            if not df_user.empty and 'Fecha' in df_user.columns:
+                df_dia = df_user[(df_user['Fecha'].astype(str).str.strip() == fecha) & (df_user['Calorias'] > 0)]
+                calorias_acumuladas = df_dia['Calorias'].sum()
+                
+                if (calorias_acumuladas + magnitud_calorica) > 6000:
+                    txt_spam = traducciones.get(
+                        "06_bot_limite_diario_spam",
+                        "⛔ **Límite calórico diario excedido**\n\n"
+                        f"Ya llevás registradas `{calorias_acumuladas:.0f} kcal` consumidas para la fecha `{fecha}`. "
+                        f"Sumar este nuevo registro supera el límite de seguridad establecido de 6.000 kcal diarias.\n\n"
+                        "Por favor, revisá tus ingresos previos con `/diario` o ajustá las cantidades."
+                    ).replace('\\n', '\n')
+                    
+                    await msg_obj.edit_text(txt_spam, parse_mode="Markdown")
+                    return
+        except Exception as e:
+            logger.error(f"Error al verificar tope diario anti-spam para {user_id}: {e}")
+
     if tipo == "Actividad":
         momento = "Actividad"
         for item in items:
@@ -4283,7 +4302,7 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
     context.user_data['pending_momento'] = momento
 
     await render_confirmation_screen(msg_obj, context)
-
+    
     
 #               MANEJADORES INDEPENDIENTES Y EXCLUSIVOS PARA CADA GRUPO DE BOTONES (CERO COMPARTIDOS)
 # ======================================================================================================================================
@@ -4293,7 +4312,7 @@ async def callback_handler_presion_foto(update: Update, context: ContextTypes.DE
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     if data == "presion_guardar_directo":
@@ -4363,7 +4382,7 @@ async def _sub_manejar_texto_actividad(update, context, raw_text, chat_id):
               
 async def _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     fecha_parseada = parsear_fecha_flexible(raw_text)
@@ -4392,6 +4411,7 @@ async def _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, ch
 async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
     item_index = context.user_data.get('editing_item_idx')
     items = context.user_data.get('pending_items', [])
+    momento_actual = context.user_data.get('pending_momento', 'Comida')
     
     if not items or item_index is None or item_index < 0 or item_index >= len(items):
         context.user_data.pop('awaiting_edit_item_val', None)
@@ -4418,9 +4438,38 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
     def_comida_text = traducciones.get('06_bot_def_comida', 'Comida')
 
     if es_solo_numero:
-        if es_plantilla:
-            # Multiplicamos los valores base de la plantilla por las nuevas unidades ingresadas
+        if momento_actual == 'Actividad':
+            # --- SOLUCIÓN 1 Y 2: REEMPLAZO DIRECTO Y TOPE PARA ACTIVIDADES ---
+            if nuevo_valor > 1000:
+                txt_exceso = traducciones.get(
+                    "06_bot_act_limite_superado",
+                    "⚠️ **Límite de actividad superado**\n\nEl gasto energético ingresado supera el límite máximo permitido por registro (1.000 kcal)."
+                ).replace('\\n', '\n')
+                msg = await context.bot.send_message(chat_id=chat_id, text=txt_exceso, parse_mode="Markdown")
+                await asyncio.sleep(4)
+                try: await msg.delete()
+                except: pass
+                return  # Cortamos acá para que el usuario ingrese un número lógico
+
+            item_actual['calorias'] = -abs(nuevo_valor)
+            item_actual['peso'] = 0
+            item_actual['proteinas'] = 0
+            item_actual['grasas'] = 0
+            item_actual['carbohidratos'] = 0
+            item_actual['fibras'] = 0
+            
+        elif es_plantilla:
             mult = nuevo_valor
+            
+            # --- TOPE DE SEGURIDAD PARA COMIDAS (PLANTILLAS) ---
+            if item_actual.get('cal_base', 0) * mult > 2200:
+                txt_exceso = traducciones.get("06_bot_comida_limite_superado", "⚠️ **Cantidad excesiva detectada**\n\nEl registro supera el límite razonable (2.200 kcal).").replace('\\n', '\n')
+                msg = await context.bot.send_message(chat_id=chat_id, text=txt_exceso, parse_mode="Markdown")
+                await asyncio.sleep(4)
+                try: await msg.delete()
+                except: pass
+                return
+            
             desc_base = item_actual.get('desc_base', def_comida_text)
             mult_str = f"{int(mult)}" if mult.is_integer() else f"{mult}"
             descripcion_final = f"{desc_base} x {mult_str}"
@@ -4434,10 +4483,19 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
             item_actual['carbohidratos'] = item_actual.get('carb_base', 0) * mult
             item_actual['fibras'] = item_actual.get('fibr_base', 0) * mult
         else:
-            # Comportamiento estándar para peso en gramos (productos sueltos o código de barras)
             peso_anterior = float(item_actual.get('peso', 1))
             if peso_anterior <= 0: peso_anterior = 1.0
             factor = nuevo_valor / peso_anterior
+            
+            # --- TOPE DE SEGURIDAD PARA COMIDAS (POR GRAMOS) ---
+            if float(item_actual.get('calorias', 0)) * factor > 2200:
+                txt_exceso = traducciones.get("06_bot_comida_limite_superado", "⚠️ **Cantidad excesiva detectada**\n\nEl registro supera el límite razonable (2.200 kcal).").replace('\\n', '\n')
+                msg = await context.bot.send_message(chat_id=chat_id, text=txt_exceso, parse_mode="Markdown")
+                await asyncio.sleep(4)
+                try: await msg.delete()
+                except: pass
+                return
+
             item_actual['peso'] = nuevo_valor
             item_actual['calorias'] = float(item_actual.get('calorias', 0)) * factor
             item_actual['proteinas'] = float(item_actual.get('proteinas', 0)) * factor
@@ -4478,9 +4536,9 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
             await msg_analizando.edit_text(txt_err)
             context.user_data.pop('awaiting_edit_item_val', None)
             context.user_data.pop('editing_item_idx', None)
-                        
+                                    
 async def _sub_manejar_plantilla_comida(update: Update, context: ContextTypes.DEFAULT_TYPE, raw_text, user_id):
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     contenido = raw_text[1:].strip()
@@ -4557,7 +4615,7 @@ async def _sub_manejar_voz_ingesta(update, context, transcription, msg):
         data = await analizar_con_ia(transcription, user_id)
         await procesar_y_mostrar_confirmacion(data, msg, context)
     except Exception as e:
-        lang = obtener_idioma_usuario(user_id) or '$1'
+        lang = obtener_idioma_usuario(user_id) or 'es'
         traducciones = obtener_traducciones_db(lang) or {}
         txt_err_aud = traducciones.get('06_bot_error_audio', "❌ Error al procesar el audio con IA: {e}").format(e=e)
         logger.error(f"Error procesando voz de ingesta: {e}")
@@ -4565,7 +4623,7 @@ async def _sub_manejar_voz_ingesta(update, context, transcription, msg):
 
 async def _sub_manejar_voz_actividad(update, context, transcription, msg):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     context.user_data['awaiting_activity_voice'] = False
@@ -4613,7 +4671,7 @@ async def callback_btn_editar_item(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
     context.user_data['last_menu_msg_id'] = query.message.message_id
 
@@ -4645,7 +4703,7 @@ async def callback_btn_anular_item(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
     context.user_data['last_menu_msg_id'] = query.message.message_id
 
@@ -4666,7 +4724,7 @@ async def callback_btn_cancelar_registro(update: Update, context: ContextTypes.D
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     context.user_data.pop('pending_items', None)

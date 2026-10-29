@@ -1,22 +1,33 @@
-# Al inicio de bot8b.py:
+
+#===============================================================================================================
+#           VERIFICAR ERRORES ANTES DE SUBIR   python3 -m py_compile bot8a.py administrador.py profesionales.py bot8.py
+#           REEMPLAZAR DESDE LINEA DE COMANDOS  sed -i "s/or '\$1'/or 'es'/g" bot8.py bot8a.py   sed -i "s/STRING_A_REEMPLAZAR/STRING_REEMPLAZO/g" ARCHIVO1 ARCHIVO2
+#===============================================================================================================
+
 from bot8a import *
-from bot8a import (
-    _obtener_conexion_db,
-    _asegurar_tabla_y_conectar,
-    _core_guardar_usuario_db,
-    _core_guardar_perfil_db,
-    _verificar_y_obtener_profesional,
-    _garantizar_fila_mes_actual,
-    _asegurar_tabla_y_conectar_migrar,
-    _obtener_biometria_encapsulada,
-    _calcular_y_actualizar_factor_mes_anterior,
-    _validar_peso_mes_actual,
-    _sub_manejar_texto_actividad,
-    _sub_manejar_fecha_personalizada_ingesta,
-    _sub_manejar_edicion_item,
-    _sub_manejar_plantilla_comida,
-    _sub_manejar_voz_ingesta,
-    _sub_manejar_voz_actividad
+
+from administrador import (
+    cmd_desarmar_excel,
+    cmd_armar_excel,
+    cmd_subir,
+    cmd_descargar
+)
+
+from profesionales import (
+    cmd_pacientes,
+    cmd_enviar_informe_actual,
+    cmd_enviar_nota_paciente,
+    cmd_editar_valores_clinicos,
+    cmd_generar_manual_pdf,
+    callback_editar_valor_clinico_menu,
+    callback_gestion_solicitud_medico,
+    callback_seleccionar_paciente_clinico,
+    callback_enviar_informe_paciente,
+    callback_acciones_informe,
+    callback_seleccionar_paciente_nota,
+    procesar_cambio_valor_clinico,
+    procesar_texto_nota_informe,
+    procesar_texto_nota_medica
 )
 
 @requiere_registro
@@ -53,7 +64,7 @@ async def callback_handler_reportes_pdf(update: Update, context: ContextTypes.DE
 
 async def _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     fecha_parseada = parsear_fecha_flexible(raw_text)
@@ -78,7 +89,7 @@ async def _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id):
 
 async def _sub_manejar_fecha_diario(update, context, raw_text, chat_id):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     fecha_parseada = parsear_fecha_flexible(raw_text)
@@ -103,7 +114,7 @@ async def callback_btn_fechas_diario(update: Update, context: ContextTypes.DEFAU
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
     context.user_data['last_menu_msg_id'] = query.message.message_id
 
@@ -343,7 +354,7 @@ def generar_pdf_comidas_bytes(plantillas, user_id=None):
 @requiere_registro
 async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
     
     web_app_url = f"https://ianutribot.com/?user_id={user_id}#calculadora"
@@ -404,7 +415,7 @@ def detectar_y_leer_codigo_barras_ia(base64_image: str) -> str:
 async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
     user_id = message_obj.from_user.id
     
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
     
     msg_analizando = traducciones.get("07_bot_analizando_barra", "🔍 Analizando código de barras y verificando producto...")
@@ -454,7 +465,7 @@ async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
 async def cmd_barra(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
     
     args = context.args
@@ -533,7 +544,7 @@ async def cmd_borrar_comida(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @requiere_registro
 async def cmd_eliminar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     context.user_data.pop('del_fecha', None)
@@ -561,7 +572,7 @@ async def cmd_eliminar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def mostrar_selector_momento_eliminar(query_or_msg, context):
     user_id = query_or_msg.from_user.id if hasattr(query_or_msg, 'from_user') else query_or_msg.message.chat_id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     if not context.user_data.get('del_fecha'):
@@ -647,7 +658,7 @@ async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEF
     data = query.data
     user_id = query.from_user.id
     
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
     
     if data == "del_d_hoy":
@@ -702,7 +713,7 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
 
     cambio_biometrico = False
     mensaje_exito = ""
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     if context.user_data.get('awaiting_edit_perfil_peso'):
@@ -832,7 +843,7 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, chat_id = update.effective_user.id, update.effective_chat.id
-    lang = obtener_idioma_usuario(user_id) or "$1"
+    lang = obtener_idioma_usuario(user_id) or "es"
     traducciones = obtener_traducciones_db(lang) or {}
 
     raw_text = update.message.text.strip() if update.message and update.message.text else ""
@@ -1051,6 +1062,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Escuchá el audio y realizá DOS tareas simultáneas:\n"
             f"1. Transcribí exactamente lo que dijo el usuario en el campo 'transcripcion'. ¡Este campo es obligatorio SIEMPRE!\n"
             f"2. Clasificá la intención y generá un JSON estricto según estas reglas:\n\n"
+            f"REGLA ANTI-SPAM: Si el usuario menciona alimentos ficticios, combinaciones absurdas (ej: 'piedras con mayonesa') o cantidades humanamente imposibles de ingerir en una sola comida (ej: '50 pizzas', '20 litros de bebida'), clasificá la intención directamente como RECHAZO.\n\n"
             f"SI ES COMIDA: {{\"transcripcion\": \"...\", \"tipo\": \"Comida\", \"items\": [{{\"alimento\": \"...\", \"peso\": 0, \"calorias\": 0, \"proteinas\": 0, \"grasas\": 0, \"carbohidratos\": 0, \"fibras\": 0}}]}} (Ajustá calorías = Prot*4 + Carb*4 + Grasas*9)\n"
             f"SI ES ACTIVIDAD FISICA: {{\"transcripcion\": \"...\", \"tipo\": \"Actividad\", \"items\": [{{\"alimento\": \"[MINUTOS] min [DETALLE COMPLETO SIN RESUMIR]\", \"peso\": 0, \"calorias\": -0}}]}} "
             f"(REGLA CRÍTICA DE ACTIVIDAD: El campo 'alimento' DEBE empezar SIEMPRE con el número de minutos seguido de 'min' y conservar todos los detalles dichos por el usuario. Ejemplo: si dice 'caminata de 50 minutos en el parque recorriendo 3000 metros', 'alimento' DEBE ser exactamente '50 min caminata en el parque recorriendo 3000 metros'. PROHIBIDO resumir a una sola palabra).\n"
@@ -1163,7 +1175,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         txt_err = traducciones.get("07_bot_error_procesar_audio", "❌ Error al procesar audio: {e}").format(e=e)
         try: await msg.edit_text(txt_err)
         except Exception: pass
-            
+                    
 # =====================================================================================================================================
 #                FINAL                               COMANDOS COMIDA COMANDOS ACTIVIDAD                           FINAL
 # ======================================================================================================================================
@@ -2215,298 +2227,6 @@ def obtener_mensaje_variacion_peso(cambio_kg: float, traducciones: dict = None) 
         return traducciones.get("08_inf_var_peso_mod_abajo", "Variación moderada hacia abajo")
     else:
         return traducciones.get("08_inf_var_peso_imp_abajo", "Variación importante hacia abajo")
-
-def calcular_metricas_mensuales(df_mes, perfil_dict, user_id=None, mes_str=None):
-    if df_mes is not None and not df_mes.empty and 'Fecha' in df_mes.columns:
-        todas_comidas = {"Desayuno", "Almuerzo", "Merienda", "Cena"}
-        comidas_principales = {"Almuerzo", "Cena"}
-        dias_validos_filtrados = []
-        
-        for fecha, grupo in df_mes.groupby('Fecha'):
-            comidas_del_dia = [
-                str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() 
-                for _, r in grupo.iterrows()
-                if str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() in todas_comidas
-            ]
-            
-            total_comidas = len(comidas_del_dia)
-            tiene_principal = any(c in comidas_principales for c in comidas_del_dia)
-            
-            if total_comidas >= 2 and tiene_principal:
-                dias_validos_filtrados.append(fecha)
-                
-        df_mes = df_mes[df_mes['Fecha'].isin(dias_validos_filtrados)]
-
-    dias_registrados = df_mes['Fecha'].nunique() if (df_mes is not None and not df_mes.empty) else 1
-    if dias_registrados == 0:
-        dias_registrados = 1
-
-    tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
-    tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if df_mes is not None and 'Calorias' in df_mes.columns else 0.0
-
-    minutos_totales_actividad = 0
-    if df_mes is not None and not df_mes.empty and 'Momento' in df_mes.columns and 'Alimento' in df_mes.columns:
-        for _, row in df_mes.iterrows():
-            momento_str = str(row.get('Momento', '')).strip().lower()
-            alimento_str = str(row.get('Alimento', '')).strip()
-            cal_val = float(row.get('Calorias', 0) or 0)
-            if cal_val < 0 or 'actividad' in momento_str or 'ejercicio' in momento_str or 'caminata' in momento_str:
-                match = re.match(r'^(\d+)', alimento_str)
-                if match:
-                    minutos_totales_actividad += int(match.group(1))
-
-    prom_minutos_act = int(round(minutos_totales_actividad / dias_registrados))
-
-    prom_cons = tot_cons_mes / dias_registrados
-    prom_quem = tot_quem_mes / dias_registrados
-    prom_bal_neto = prom_cons - prom_quem
-
-    tot_prot = float(df_mes['Proteinas'].sum()) if df_mes is not None and 'Proteinas' in df_mes.columns else 0.0
-    tot_gras = float(df_mes['Grasas'].sum()) if df_mes is not None and 'Grasas' in df_mes.columns else 0.0
-    tot_carb = float(df_mes['Carbohidratos'].sum()) if df_mes is not None and 'Carbohidratos' in df_mes.columns else 0.0
-    tot_fibr = float(df_mes['Fibras'].sum()) if df_mes is not None and 'Fibras' in df_mes.columns else 0.0
-
-    prom_cal = int(round(prom_cons))
-    prom_prot = int(round(tot_prot / dias_registrados))
-    prom_gras = int(round(tot_gras / dias_registrados))
-    prom_carb = int(round(tot_carb / dias_registrados))
-    prom_fibr = int(round(tot_fibr / dias_registrados))
-
-    perfil_dict = perfil_dict if isinstance(perfil_dict, dict) else {}
-    
-    def get_perfil_num(key_list, default):
-        for k in key_list:
-            if k in perfil_dict and perfil_dict[k] is not None:
-                val = parse_raw_val(perfil_dict[k])
-                if val != 0.0:
-                    return val
-        return default
-
-    edad = int(get_perfil_num(['Edad', 'edad'], 64))
-    altura = get_perfil_num(['Altura', 'altura', 'ALTURA'], 167.5)
-    peso_actual = get_perfil_num(['PESO', 'Peso', 'peso', 'peso_actual'], 104.6)
-    
-    ocupacion = str(perfil_dict.get('Ocupacion') or perfil_dict.get('ocupacion') or perfil_dict.get('actividad', 'ligero')).strip()
-    genero = str(perfil_dict.get('GENERO') or perfil_dict.get('Genero') or perfil_dict.get('genero', 'masculino')).strip()
-    gen_clean = genero.lower()
-    is_femenino = gen_clean in ["femenino", "f", "mujer", "female"]
-    ritmo_usuario = str(perfil_dict.get('Ritmo') or perfil_dict.get('ritmo_preferido', 'moderado')).strip()
-
-    peso_ideal_secreto = calcular_peso_ideal(genero, altura)
-    peso_etapa_calculado = calcular_peso_etapa(peso_actual, peso_ideal_secreto, ritmo_usuario)
-    
-    peso_referencia = round(peso_etapa_calculado, 1)
-    peso_ideal_dinamico = peso_referencia  
-    
-    _, get_real = calcular_tmb_y_get(
-        peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal_dinamico
-    )
-    _, get_meta = calcular_tmb_y_get(
-        peso_actual=peso_referencia, altura_cm=altura, edad=edad, genero=genero, actividad=ocupacion, peso_ideal=peso_ideal_dinamico
-    )
-    balance_diario = prom_cons - (get_real + prom_quem)
-    cambio_peso_kg = (balance_diario * dias_registrados) / 7700.0
-
-    if is_femenino:
-        factor_proteina_min = 1.0
-        factor_proteina_max = 1.2
-        fibr_min = 25
-    else:
-        factor_proteina_min = 1.2
-        factor_proteina_max = 1.5
-        fibr_min = 30
-
-    val_get_real = int(round(get_real))
-    val_get_meta = int(round(get_meta))
-    cal_min = min(val_get_real, val_get_meta)
-    cal_max = max(val_get_real, val_get_meta)
-
-    peso_min = min(float(peso_actual), float(peso_referencia))
-    peso_max = max(float(peso_actual), float(peso_referencia))
-
-    prot_min = int(round(peso_min * factor_proteina_min))
-    prot_max = int(round(peso_max * factor_proteina_max))
-
-    gras_min = int(round((cal_min * 0.20) / 9.0))
-    gras_max = int(round((cal_max * 0.30) / 9.0))
-
-    carb_min = int(round((cal_min * 0.40) / 4.0))
-    carb_max = int(round((cal_max * 0.55) / 4.0))
-
-    # --- SUPREMACÍA CLÍNICA: VERIFICAR SI TIENE VALORES DEL PROFESIONAL ---
-    valores_personalizados = False
-    if user_id and mes_str:
-        valores_prof = obtener_valores_clinicos_profesional(user_id, mes_str)
-        if valores_prof:
-            valores_personalizados = True
-            cal_min = int(valores_prof.get("calorias_min", cal_min))
-            cal_max = int(valores_prof.get("calorias_max", cal_max))
-            prot_min = int(valores_prof.get("proteinas_min", prot_min))
-            prot_max = int(valores_prof.get("proteinas_max", prot_max))
-            carb_min = int(valores_prof.get("hidratos_min", carb_min))
-            carb_max = int(valores_prof.get("hidratos_max", carb_max))
-            gras_min = int(valores_prof.get("grasas_min", gras_min))
-            gras_max = int(valores_prof.get("grasas_max", gras_max))
-            fibr_min = int(valores_prof.get("fibras_min", fibr_min))
-            if valores_prof.get("peso_etapa", 0) > 0:
-                peso_referencia = float(valores_prof.get("peso_etapa"))
-
-    return {
-        "dias_registrados": dias_registrados,
-        "prom_cal": prom_cal,
-        "prom_quem": int(round(prom_quem)),
-        "prom_bal_neto": int(round(prom_bal_neto)),
-        "prom_prot": prom_prot,
-        "prom_gras": prom_gras,
-        "prom_carb": prom_carb,
-        "prom_fibr": prom_fibr,
-        "prom_minutos_act": prom_minutos_act,
-        "cal_min": cal_min, "cal_max": cal_max,
-        "prot_min": prot_min, "prot_max": prot_max,
-        "gras_min": gras_min, "gras_max": gras_max,
-        "carb_min": carb_min, "carb_max": carb_max,
-        "fibr_min": fibr_min,
-        "peso_actual": round(float(peso_actual), 1),
-        "peso_referencia": round(float(peso_referencia), 1),
-        "cambio_peso_kg": cambio_peso_kg,
-        "valores_personalizados": valores_personalizados
-    }
-    
-async def procesar_y_enviar_informe_mensual(context, user_id: int, chat_destino: int, mes_target: str, es_automatico_15: bool = False, forzar_envio: bool = False):
-    lang = obtener_idioma_usuario(user_id) or 'es'
-    traducciones = obtener_traducciones_db(lang) or {}
-
-    try:
-        peso_ok = await _validar_peso_mes_actual(context=context, user_id=user_id)
-        if not peso_ok and not forzar_envio:
-            return False
-
-        df_datos = obtener_datos_usuario(user_id) 
-        if df_datos.empty or 'Fecha' not in df_datos.columns:
-            msg_nodata = traducciones.get("08_sup_inf_no_registros", "⚠️ No hay suficientes registros para generar el reporte.")
-            await context.bot.send_message(chat_id=user_id, text=msg_nodata)
-            return False
-
-        df_datos['Fecha_dt'] = pd.to_datetime(df_datos['Fecha'], errors='coerce').dt.tz_localize(None).dt.normalize()
-        
-        ahora_arg = obtener_ahora_arg()
-        if hasattr(ahora_arg, 'tzinfo') and ahora_arg.tzinfo is not None:
-            ahora_arg = ahora_arg.replace(tzinfo=None)
-        
-        hoy_ts = pd.Timestamp(ahora_arg).normalize()
-        ayer_ts = hoy_ts - pd.Timedelta(days=1)
-        mes_actual_str = hoy_ts.strftime("%Y-%m")
-
-        if es_automatico_15:
-            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
-            fin_periodo = pd.Timestamp(f"{mes_target}-14").normalize()
-            etiqueta_tmpl = traducciones.get("08_sup_inf_periodo_quincenal", "Quincenal ({mes_target}: 1 al 14)")
-            etiqueta_periodo = etiqueta_tmpl.format(mes_target=mes_target)
-        else:
-            inicio_periodo = pd.Timestamp(f"{mes_target}-01").normalize()
-            if mes_target == mes_actual_str:
-                fin_periodo = ayer_ts
-                etiqueta_tmpl = traducciones.get("08_sup_inf_periodo_mes_actual", "Mes Actual en curso ({mes_target}: del 01 al {ayer_ts})")
-                etiqueta_periodo = etiqueta_tmpl.format(mes_target=mes_target, ayer_ts=ayer_ts.strftime('%d/%m'))
-            else:
-                fin_periodo = (inicio_periodo + pd.offsets.MonthEnd(0)).normalize()
-                etiqueta_tmpl = traducciones.get("08_sup_inf_periodo_mes_completo", "Mes Completo ({mes_target})")
-                etiqueta_periodo = etiqueta_tmpl.format(mes_target=mes_target)
-
-        df_filtrado = df_datos[(df_datos['Fecha_dt'] >= inicio_periodo) & (df_datos['Fecha_dt'] <= fin_periodo)].copy()
-
-        if df_filtrado.empty:
-            msg_template = traducciones.get("08_sup_inf_sin_registros_periodo", "⚠️ No se encontraron registros cerrados para el período {etiqueta_periodo}.")
-            msg_closed = msg_template.format(etiqueta_periodo=etiqueta_periodo)
-            await context.bot.send_message(chat_id=user_id, text=msg_closed)
-            return False
-
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_target) or {}
-        m = calcular_metricas_mensuales(df_filtrado, perfil, user_id=user_id, mes_str=mes_target) or {}
-
-        df_presion = pd.DataFrame()
-        tmb_val = perfil.get('tmb', 0) if isinstance(perfil, dict) else 0
-        pdf_buffer = await asyncio.to_thread(
-            generar_pdf_resumen_bytes,
-            mes_target,
-            df_filtrado,
-            df_presion,
-            perfil,
-            tmb_val,
-            user_id
-        )
-        
-        # Envío del informe al usuario
-        cap_tmpl = traducciones.get("08_sup_inf_caption_reporte", "📊 **Reporte Mensual correspondiente a {mes_target}**")
-        caption_txt = cap_tmpl.format(mes_target=mes_target)
-        
-        await context.bot.send_document(
-            chat_id=chat_destino,
-            document=pdf_buffer,
-            filename=f"Informe_Mensual_{mes_target}.pdf",
-            caption=caption_txt,
-            parse_mode="Markdown"
-        )
-
-        # --- ALERTA CLÍNICA AUTOMÁTICA AL PROFESIONAL SI TIENE MÉDICO ASIGNADO ---
-        prof_asignado = str(perfil.get("profesional", "")).strip() if isinstance(perfil, dict) else ""
-        if not prof_asignado:
-            # Intentar buscar el profesional desde la tabla de usuarios
-            try:
-                conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-                cur_u.execute('SELECT "profesional" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id),))
-                fila_prof = cur_u.fetchone()
-                cur_u.close(); conn_u.close()
-                if fila_prof and fila_prof[0]:
-                    prof_asignado = str(fila_prof[0]).split('.')[0].strip()
-            except Exception:
-                pass
-
-        if prof_asignado and prof_asignado != "123456789":
-            try:
-                # Verificar desvío respecto a los rangos clínicos
-                bal_neto = m.get("prom_bal_neto", 0)
-                c_min = m.get("cal_min", 0)
-                c_max = m.get("cal_max", 0)
-                
-                desvio = False
-                motivo_desvio = ""
-                if bal_neto < c_min:
-                    desvio = True
-                    m_inferior_tmpl = traducciones.get("08_sup_inf_motivo_inf", "Balance neto inferior al mínimo establecido ({bal_neto} kcal vs mín {c_min} kcal)")
-                    motivo_desvio = m_inferior_tmpl.format(bal_neto=bal_neto, c_min=c_min)
-                elif bal_neto > c_max:
-                    desvio = True
-                    m_superior_tmpl = traducciones.get("08_sup_inf_motivo_sup", "Balance neto superior al máximo establecido ({bal_neto} kcal vs máx {c_max} kcal)")
-                    motivo_desvio = m_superior_tmpl.format(bal_neto=bal_neto, c_max=c_max)
-
-                if desvio:
-                    alerta_tmpl = traducciones.get(
-                        "08_sup_inf_alerta_medico",
-                        "⚠️ **ALERTA CLÍNICA DE DESVÍO**\n\nEl paciente **{nombre_paciente}** (ID: `{user_id}`) ha presentado un desvío en su reporte mensual de `{mes_target}`:\n• *Motivo:* {motivo_desvio}\n\nSe adjunta copia del informe para su revisión."
-                    )
-                    alerta_medico = alerta_tmpl.format(
-                        nombre_paciente=perfil.get('Nombre', user_id),
-                        user_id=user_id,
-                        mes_target=mes_target,
-                        motivo_desvio=motivo_desvio
-                    ).replace('\\n', '\n')
-                    
-                    pdf_buffer.seek(0)
-                    await context.bot.send_message(chat_id=int(prof_asignado), text=alerta_medico, parse_mode="Markdown")
-                    pdf_buffer.seek(0)
-                    await context.bot.send_document(
-                        chat_id=int(prof_asignado),
-                        document=pdf_buffer,
-                        filename=f"Alerta_Paciente_{user_id}_{mes_target}.pdf"
-                    )
-            except Exception as e_medico:
-                logger.error(f"Error al enviar alerta clínica al profesional {prof_asignado} para el usuario {user_id}: {e_medico}")
-
-        return True
-    except Exception as e:
-        logger.error(f"Error in procesar_y_enviar_informe_mensual for {user_id}: {e}")
-        return False
                         
 @requiere_registro
 async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3048,14 +2768,25 @@ def evaluar_dias_validos(registros, fecha_inicio, fecha_fin):
     curr = fecha_inicio
     while curr <= fecha_fin:
         str_d = curr.strftime("%Y-%m-%d")
-        comidas_del_dia = [
-            str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() 
-            for r in registros 
-            if str(r.get("Fecha", "")).strip() == str_d 
-            and str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize() in todas_comidas
-        ]
+        comidas_del_dia = []
+        calorias_del_dia = 0.0
+        
+        for r in registros:
+            if str(r.get("Fecha", "")).strip() == str_d:
+                momento = str(r.get("Momento/Actividad") or r.get("Momento", "")).capitalize()
+                cal_val = float(r.get("Calorías (kcal)", r.get("Calorias", 0.0)) or 0.0)
+                
+                if momento in todas_comidas:
+                    comidas_del_dia.append(momento)
+                    # Sumamos solo las calorías positivas (ingestas, no actividades)
+                    if cal_val > 0:
+                        calorias_del_dia += cal_val
+                        
+        # Condición estricta: Al menos 2 comidas, 1 principal, y superar las 600 kcal diarias
         if len(comidas_del_dia) >= 2 and any(c in comidas_principales for c in comidas_del_dia):
-            validos += 1
+            if calorias_del_dia >= 600.0:
+                validos += 1
+                
         curr += timedelta(days=1)
     return validos
 
@@ -3223,7 +2954,20 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
                 registros_u = obtener_registros_usuario(user_id)
                 dias_validos = evaluar_dias_validos(registros_u, inicio_check, fin_check)
                 
-                if dias_validos < 20:
+                # --- NUEVA LÓGICA: AUDITORÍA DE CALIDAD CLÍNICA (FILTRO ANTI-TROLL) ---
+                promedio_irreal = False
+                promedio_calorico = 0
+                if dias_validos > 0:
+                    calorias_totales = sum(
+                        float(r.get("Calorías (kcal)", r.get("Calorias", 0))) 
+                        for r in registros_u 
+                        if r.get("Fecha") and inicio_check <= datetime.strptime(r["Fecha"].strip(), "%Y-%m-%d").date() <= fin_check and float(r.get("Calorías (kcal)", r.get("Calorias", 0))) > 0
+                    )
+                    promedio_calorico = calorias_totales / dias_validos
+                    if promedio_calorico < 1000 or promedio_calorico > 4000:
+                        promedio_irreal = True
+                
+                if dias_validos < 20 or promedio_irreal:
                     actualizar_estado_usuario(str(user_id), "3")
                     
                     _, dias_en_mes = calendar.monthrange(hoy.year, hoy.month)
@@ -3234,15 +2978,25 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
                     
                     if 'facturar_saldo_del_mes' in globals():
                         await facturar_saldo_del_mes(context, user_id, dias_restantes, estrellas_prorrateadas)
- 
-                    msg_fin = traducciones.get(
-                        "08_notif_freemium_fin20",
-                        "❌ **Período de prueba finalizado.**\nNo alcanzaste el objetivo mínimo de constancia (20 días) para mantener la cuenta gratuita y el seguimiento fue pausado.\n\nPara reactivarlo y usar el bot sin interrupciones hasta fin de mes, hemos emitido una factura proporcional por los días restantes (aprox. {costo_usd} USD / {estrellas} ⭐️).\n\nA fin de mes podrás elegir tu plan definitivo."
-                    ).format(
-                        costo_usd=f"{costo_usd_prorrateado:.2f}", 
-                        estrellas=estrellas_prorrateadas
-                    ).replace('\\n', '\n') 
-                     
+                    
+                    if promedio_irreal and dias_validos >= 20:
+                        msg_fin = traducciones.get(
+                            "08_notif_freemium_fin20_irreal",
+                            "❌ **Seguimiento pausado.**\n\nHemos detectado un patrón de registros anómalos o irreales en tus ingestas (promedio diario de `{promedio_calorico:.0f} kcal`, fuera del rango vital permitido). Tu plan gratuito ha sido cancelado para mantener la integridad del sistema.\n\nPara reactivarlo y usar el bot sin interrupciones hasta fin de mes, hemos emitido una factura proporcional por los días restantes (aprox. {costo_usd} USD / {estrellas} ⭐️)."
+                        ).format(
+                            promedio_calorico=promedio_calorico,
+                            costo_usd=f"{costo_usd_prorrateado:.2f}", 
+                            estrellas=estrellas_prorrateadas
+                        ).replace('\\n', '\n')
+                    else:
+                        msg_fin = traducciones.get(
+                            "08_notif_freemium_fin20",
+                            "❌ **Período de prueba finalizado.**\nNo alcanzaste el objetivo mínimo de constancia (20 días) para mantener la cuenta gratuita y el seguimiento fue pausado.\n\nPara reactivarlo y usar el bot sin interrupciones hasta fin de mes, hemos emitido una factura proporcional por los días restantes (aprox. {costo_usd} USD / {estrellas} ⭐️).\n\nA fin de mes podrás elegir tu plan definitivo."
+                        ).format(
+                            costo_usd=f"{costo_usd_prorrateado:.2f}", 
+                            estrellas=estrellas_prorrateadas
+                        ).replace('\\n', '\n') 
+
                     await context.bot.send_message(chat_id=user_id, text=msg_fin, parse_mode="Markdown")
                     continue
 
@@ -3268,8 +3022,8 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
                             await context.bot.send_message(chat_id=int(user_id), text=txt_resumen, parse_mode="Markdown")
                             logger.info(f"Resumen semanal enviado exitosamente a {user_id}")
 
-                            if index < len(registros_usuarios) - 1:
-                                await asyncio.sleep(60)
+                        if index < len(registros_usuarios) - 1:
+                            await asyncio.sleep(60)
                     except Exception as e_ia:
                         logger.error(f"Error generando resumen semanal para {user_id}: {e_ia}")
 
@@ -3298,8 +3052,8 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
                         if exito_envio:
                             logger.info(f"Informe automático en PDF del período {mes_target_str} enviado exitosamente a {user_id}")
 
-                            if index < len(registros_usuarios) - 1:
-                                await asyncio.sleep(60)
+                        if index < len(registros_usuarios) - 1:
+                            await asyncio.sleep(60)
 
                     except Exception as e_mensual:
                         logger.error(f"Error generando informe automático en PDF para {user_id}: {e_mensual}", exc_info=True)
@@ -3386,17 +3140,19 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
 
 async def procesar_informe_inicial(datos_usuario: dict) -> tuple[str, io.BytesIO]:
     user_id = datos_usuario.get('user_id')
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     nombre = datos_usuario.get('nombre', 'Paciente')
-    edad = datos_usuario.get('edad', 0)
+    edad = int(datos_usuario.get('edad', 30))
     sexo = datos_usuario.get('sexo', 'M')
-    altura = datos_usuario.get('altura', 0)
-    peso = datos_usuario.get('peso', 0)
-    peso_ideal = datos_usuario.get('peso_ideal', 0)
-    peso_etapa = datos_usuario.get('peso_etapa', peso)
-    get_calorias = datos_usuario.get('get', 2000)
+    altura = float(datos_usuario.get('altura', 170.0))
+    peso = float(datos_usuario.get('peso', 70.0))
+    peso_ideal = float(datos_usuario.get('peso_ideal', peso))
+    peso_etapa = float(datos_usuario.get('peso_etapa', peso))
+    ocupacion = float(datos_usuario.get('ocupacion', 1.375))
+    cadera = float(datos_usuario.get('cadera', 0.0))
+    get_calorias = float(datos_usuario.get('get', 2000.0))
     profesional = str(datos_usuario.get('profesional', '')).strip()
     
     ritmo_elegido = str(datos_usuario.get('ritmo', 'moderado')).lower()
@@ -3408,9 +3164,26 @@ async def procesar_informe_inicial(datos_usuario: dict) -> tuple[str, io.BytesIO
     else:
         texto_orientacion = traducciones.get("05_bot_inf_equilibrado", "Has seleccionado un enfoque equilibrado...")
 
-    get_val = float(get_calorias) if get_calorias > 0 else 2000.0
+    # Calculamos el gasto energético y el objetivo calórico en base al PESO DE ETAPA
+    genero_str = "femenino" if str(sexo).upper() in ["F", "FEMENINO", "MUJER"] else "masculino"
+    _, get_etapa = calcular_tmb_y_get(
+        peso_actual=peso_etapa,
+        altura_cm=altura,
+        edad=edad,
+        genero=genero_str,
+        actividad=ocupacion,
+        cadera_cm=cadera
+    )
+
+    get_val = float(get_calorias) if get_calorias > 0 else float(get_etapa)
+    if peso > 0 and peso_etapa < peso:
+        # Las calorías objetivo acompañan exactamente la proporción del peso de etapa elegido
+        cal_proporcional = get_val * (peso_etapa / peso)
+        meta_cal = int(round((cal_proporcional + get_etapa) / 2.0))
+    else:
+        meta_cal = int(round(get_etapa))
+
     factor_prot = 1.5 if str(sexo).upper() in ['M', 'MASCULINO'] else 1.2
-    meta_cal = int(round(get_val * 0.85))
     meta_prot = int(round(peso_etapa * factor_prot))
     meta_gras = int(round((meta_cal * 0.25) / 9.0))
     meta_carb = int(round((meta_cal * 0.50) / 4.0))
@@ -3465,7 +3238,6 @@ async def procesar_informe_inicial(datos_usuario: dict) -> tuple[str, io.BytesIO
         story.append(Spacer(1, 6))
         story.append(Paragraph(texto_orientacion, body_style))
 
-    # NUEVO: Bloque detallado para el PDF sobre las condiciones del plan gratuito
     story.append(Spacer(1, 10))
     t_tit_cond = traducciones.get("05_bot_pdf_condiciones_titulo", "<b>Condiciones de Mantenimiento del Plan Gratuito:</b>")
     t_txt_cond = traducciones.get(
@@ -3667,7 +3439,7 @@ async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     btn_terminos_text = traducciones.get('09_btn_aceptar_terminos', "✅ Leer y Aceptar Términos")
     
     # Aquí configuramos la URL de tu Web App desplegada en Flask (ej: https://tu-sitio.onrender.com/terminos)
-    url_webapp = f"https://tu-sitio.onrender.com/terminos?user_id={user_id}"
+    url_webapp = f"https://ianutribot.com/terminos?user_id={user_id}"
     
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(btn_terminos_text, web_app=WebAppInfo(url=url_webapp))]])
     await update.message.reply_text(texto_advertencia.replace('\\n', '\n'), reply_markup=keyboard, parse_mode="Markdown")
@@ -4093,7 +3865,7 @@ def cmd_nuevo_usuario(datos_usuario):
 @requiere_registro
 async def cmd_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
     
     ahora = obtener_ahora_arg()
@@ -4266,7 +4038,7 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
     await query.answer()
     data = query.data
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     if data == "edit_perfil_peso":
@@ -4331,7 +4103,7 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
 @requiere_registro
 async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     texto_mensaje = update.message.text.strip() if update.message and update.message.text else ""
@@ -4394,7 +4166,7 @@ async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(txt_err_guardar)
                                       
 async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     df_presion = obtener_datos_presion_db(user_id)
@@ -4442,7 +4214,7 @@ async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
   
 async def _sub_manejar_foto_presion(update, context, res_presion, msg):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     alta = float(res_presion.get("alta", 0))
@@ -4584,7 +4356,7 @@ def generar_pdf_presion_bytes(mes_str, df_p_mes, user_id):
 async def generar_y_enviar_pdf_presion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     await query.answer(traducciones.get('09_presi_generando_pdf', "Generando PDF de presión... ⏳"))
@@ -4609,7 +4381,7 @@ async def generar_y_enviar_pdf_presion(update: Update, context: ContextTypes.DEF
 @requiere_registro
 async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
     
     raw_text = re.sub(r'^/(presio|presi|presion)\w*(@\w+)?', '', update.message.text, flags=re.IGNORECASE).strip()
@@ -4692,7 +4464,7 @@ async def cmd_presion_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 @requiere_registro
 async def cmd_factor_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or '$1'
+    lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
     try:
@@ -4833,878 +4605,6 @@ async def callback_confirmar_factor(update: Update, context: ContextTypes.DEFAUL
 # ======================================================================================================================================
 #                       FINAL                        COMANDOS INGRESOS                                      FINAL
 # ======================================================================================================================================
-
-# =============================================================================================================================================
-#                INICIO                            COMANDOS PROFESIONALES                             INICIO 
-# =============================================================================================================================================
-
-async def callback_editar_valor_clinico_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Maneja los botones del menú de edición clínica y le pide el nuevo valor al médico."""
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data
-    if data == "edit_val_volver":
-        await query.edit_message_text("🔙 Operación finalizada.", parse_mode="Markdown")
-        return
-
-    # Mapeo de botones a campos en la base de datos
-    mapa_campos = {
-        "edit_val_calorias": ("calorias_max", "Calorías Máximas / GET (ej: 2100)"),
-        "edit_val_proteinas": ("proteinas_max", "Proteínas Máximas en gramos (ej: 120)"),
-        "edit_val_peso": ("peso_etapa", "Peso de Etapa en kg (ej: 80.5)")
-    }
-
-    if data in mapa_campos:
-        campo_db, etiqueta = mapa_campos[data]
-        context.user_data['campo_clinico_a_editar'] = campo_db
-        
-        await query.edit_message_text(
-            f"✍️ **Modificar {etiqueta}**\n\n"
-            "Por favor, escribí a continuación el nuevo valor numérico:",
-            parse_mode="Markdown"
-        )
-        
-async def procesar_cambio_valor_clinico(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Captura el número escrito por el médico y actualiza la tabla de valores clínicos en Supabase."""
-    campo_db = context.user_data.get('campo_clinico_a_editar')
-    target_user_id = context.user_data.get('edit_medico_target_user')
-    mes_actual = context.user_data.get('edit_medico_mes')
-
-    if not campo_db or not target_user_id or not mes_actual:
-        return False # No es una edición clínica activa, dejar pasar el mensaje
-
-    texto_ingresado = update.message.text.strip().replace(',', '.')
-    
-    # Limpiar estado del contexto
-    context.user_data.pop('campo_clinico_a_editar', None)
-
-    try:
-        nuevo_valor = float(texto_ingresado)
-        
-        # Conectar a Supabase y actualizar el registro clínico
-        conn, cur = _asegurar_tabla_y_conectar("Valores_Clinicos_Profesional", tipo_tabla="comidas_precargadas")
-        
-        # Si es calorías, actualizamos un rango lógico (ej: min y max simétricos o ajustados)
-        if campo_db == "calorias_max":
-            cal_min = max(800.0, nuevo_valor - 300.0)
-            cur.execute("""
-                UPDATE "Valores_Clinicos_Profesional" 
-                SET "calorias_min" = %s, "calorias_max" = %s, "get" = %s
-                WHERE "user_id" = %s AND "mes" = %s
-            """, (cal_min, nuevo_valor, nuevo_valor, str(target_user_id), str(mes_actual)))
-        else:
-            query_upd = f'UPDATE "Valores_Clinicos_Profesional" SET "{campo_db}" = %s WHERE "user_id" = %s AND "mes" = %s'
-            cur.execute(query_upd, (nuevo_valor, str(target_user_id), str(mes_actual)))
-            
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        await update.message.reply_text(
-            f"✅ **¡Valor clínico actualizado con éxito!**\n\n"
-            f"• Paciente ID: `{target_user_id}`\n"
-            f"• Período: `{mes_actual}`\n"
-            f"• Nuevo valor registrado para `{campo_db}`: `{nuevo_valor}`",
-            parse_mode="Markdown"
-        )
-        return True
-
-    except ValueError:
-        await update.message.reply_text("⚠️ Por favor, ingresá un número válido (ejemplo: `2100` o `85.5`).")
-        return True
-    except Exception as e:
-        logger.error(f"Error al actualizar valor clínico en Supabase: {e}")
-        await update.message.reply_text(f"❌ Ocurrió un error al actualizar la base de datos: {e}")
-        return True
-        
-async def callback_gestion_solicitud_medico(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Maneja la respuesta del médico al aceptar o rechazar la solicitud de un nuevo paciente."""
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data
-    prof_id = str(query.from_user.id).strip()
-
-    if not data.startswith("medico_aceptar_") and not data.startswith("medico_rechazar_"):
-        return
-
-    es_aceptacion = data.startswith("medico_aceptar_")
-    target_user_id = data.replace("medico_aceptar_", "").replace("medico_rechazar_", "").strip()
-
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        
-        if es_aceptacion:
-            # 1. Pasar el profesional pendiente a la columna oficial "profesional" y limpiar el pendiente
-            cur.execute("""
-                UPDATE "Usuarios" 
-                SET "profesional" = %s, "profesional_pendiente" = NULL 
-                WHERE "User ID" = %s
-            """, (prof_id, str(target_user_id)))
-            conn.commit()
-
-            # 2. Generar automáticamente los valores clínicos iniciales para el mes actual en la tabla de Supabase
-            ahora = obtener_ahora_arg()
-            mes_actual = ahora.strftime("%Y-%m")
-            
-            # Consultar biometría del usuario para calcular valores base
-            cur.execute('SELECT "Sexo", "cintura_cm", "cuello_cm", "cadera_cm" FROM "Usuarios" WHERE "User ID" = %s', (str(target_user_id),))
-            fila_u = cur.fetchone()
-            
-            perfil_u = obtener_perfil_usuario(target_user_id, mes_target=mes_actual) or {}
-            peso_u = float(perfil_u.get('PESO', perfil_u.get('Peso', 70)))
-            altura_u = float(perfil_u.get('ALTURA', perfil_u.get('Altura', 170)))
-            edad_u = int(perfil_u.get('EDAD', perfil_u.get('Edad', 40)))
-            sexo_u = str(fila_u[0] if fila_u and fila_u[0] else perfil_u.get('GENERO', 'M'))
-            
-            # Calcular metas y macros iniciales
-            peso_ideal = calcular_peso_ideal(sexo_u, altura_u, edad=edad_u)
-            peso_etapa = calcular_peso_etapa(peso_u, peso_ideal, perfil_u.get('Ritmo', 'moderado'))
-            tmb, get_val = calcular_tmb_y_get(peso_u, altura_u, edad_u, sexo_u, actividad=1.375)
-            
-            # Insertar en la tabla Valores_Clinicos_Profesional
-            try:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS "Valores_Clinicos_Profesional" (
-                        id SERIAL PRIMARY KEY,
-                        "user_id" TEXT,
-                        "prof_id" TEXT,
-                        "mes" TEXT,
-                        "tmb" DOUBLE PRECISION,
-                        "get" DOUBLE PRECISION,
-                        "peso_etapa" DOUBLE PRECISION,
-                        "calorias_min" DOUBLE PRECISION,
-                        "calorias_max" DOUBLE PRECISION,
-                        "proteinas_min" DOUBLE PRECISION,
-                        "proteinas_max" DOUBLE PRECISION,
-                        "hidratos_min" DOUBLE PRECISION,
-                        "hidratos_max" DOUBLE PRECISION,
-                        "grasas_min" DOUBLE PRECISION,
-                        "grasas_max" DOUBLE PRECISION,
-                        "fibras_min" DOUBLE PRECISION
-                    );
-                """)
-                cur.execute("""
-                    INSERT INTO "Valores_Clinicos_Profesional" 
-                    ("user_id", "prof_id", "mes", "tmb", "get", "peso_etapa", "calorias_min", "calorias_max", "proteinas_min", "proteinas_max", "hidratos_min", "hidratos_max", "grasas_min", "grasas_max", "fibras_min")
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (
-                    str(target_user_id), prof_id, mes_actual, tmb, get_val, peso_etapa,
-                    get_val - 300, get_val, 80, 110, 150, 220, 45, 65, 25
-                ))
-                conn.commit()
-            except Exception as e_vc:
-                logger.error(f"Error al insertar valores clínicos iniciales: {e_vc}")
-
-            cur.close()
-            conn.close()
-
-            # 3. Informar al médico y al paciente
-            await query.edit_message_text(
-                f"✅ **Paciente aceptado con éxito.**\n\n"
-                f"El usuario con ID `{target_user_id}` ha sido vinculado oficialmente a su cuenta. "
-                f"Se han generado sus valores clínicos iniciales para el período `{mes_actual}`. "
-                f"Ya puede revisarlos o modificarlos desde el comando `/editar_valores`.",
-                parse_mode="Markdown"
-            )
-            
-            try:
-                msg_paciente = "🩺 **¡Buenas noticias!** Tu profesional a cargo ha aceptado la supervisión de tu cuenta. Tu seguimiento clínico ya se encuentra activo."
-                await context.bot.send_message(chat_id=int(target_user_id), text=msg_paciente, parse_mode="Markdown")
-            except Exception as e_notif_pac:
-                logger.error(f"No se pudo notificar la aceptación al paciente {target_user_id}: {e_notif_pac}")
-
-        else:
-            # Si el médico rechaza, limpiamos el campo pendiente pero dejamos el genérico activo en el usuario
-            cur.execute("""
-                UPDATE "Usuarios" 
-                SET "profesional_pendiente" = NULL 
-                WHERE "User ID" = %s
-            """, (str(target_user_id),))
-            conn.commit()
-            cur.close()
-            conn.close()
-
-            await query.edit_message_text(
-                f"❌ **Solicitud rechazada.**\nEl usuario con ID `{target_user_id}` continuará operando de forma autónoma con el sistema genérico.",
-                parse_mode="Markdown"
-            )
-            
-            try:
-                msg_paciente = "ℹ️ Te informamos que tu solicitud de vinculación con el profesional ingresado no pudo ser procesada en este momento. Tu cuenta continúa operando de forma autónoma."
-                await context.bot.send_message(chat_id=int(target_user_id), text=msg_paciente, parse_mode="Markdown")
-            except Exception as e_notif_pac_rec:
-                logger.error(f"No se pudo notificar el rechazo al paciente {target_user_id}: {e_notif_pac_rec}")
-
-    except Exception as e:
-        logger.error(f"Error crítico en gestión de solicitud médica para usuario {target_user_id}: {e}")
-        await query.edit_message_text(f"❌ Ocurrió un error al procesar la respuesta: {e}")
-        
-async def cmd_editar_valores_clinicos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Comando para que el médico despliegue el menú de pacientes y seleccione 
-    a cuál desea revisarle o modificarle los valores clínicos.
-    Uso: /editar_valores
-    """
-    prof_id = str(update.effective_user.id).strip()
-    
-    # Validar si es profesional autorizado
-    especialidad_prof = obtener_especialidad_profesional(prof_id)
-    if not especialidad_prof:
-        await update.message.reply_text("⛔ **Acceso denegado:** Este comando es exclusivo para profesionales registrados.", parse_mode="Markdown")
-        return
-
-    pacientes = obtener_pacientes_por_medico(prof_id)
-    if not pacientes:
-        await update.message.reply_text("📋 No tenés pacientes activos asignados en este momento.", parse_mode="Markdown")
-        return
-
-    # Armar teclado interactivo con el nombre y el ID del paciente
-    keyboard = []
-    for pac in pacientes:
-        u_id = str(pac["user_id"])
-        nombre = pac["nombre"]
-        # Texto del botón claro: Nombre e ID
-        btn_text = f"👤 {nombre} (ID: {u_id})"
-        callback_data = f"edit_clinico_sel_{u_id}"
-        keyboard.append([InlineKeyboardButton(btn_text, callback_data=callback_data)])
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "🎛️ **Panel de Modificación Clínica**\n\n"
-        "Seleccioná el paciente cuyos valores de referencia deseas consultar o corregir:",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
-    
-async def callback_seleccionar_paciente_clinico(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Maneja la selección del paciente y muestra sus valores clínicos actuales del mes."""
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data
-    if not data.startswith("edit_clinico_sel_"):
-        return
-
-    target_user_id = data.replace("edit_clinico_sel_", "").strip()
-    ahora = obtener_ahora_arg()
-    mes_actual = ahora.strftime("%Y-%m")
-
-    # Guardar en contexto para los siguientes pasos de edición
-    context.user_data['edit_medico_target_user'] = target_user_id
-    context.user_data['edit_medico_mes'] = mes_actual
-
-    # Obtener valores actuales (si los hay en la tabla del profesional o los calculados)
-    valores = obtener_valores_clinicos_profesional(target_user_id, mes_actual)
-
-    if not valores:
-        texto_valores = (
-            f"⚠️ No se encontraron valores personalizados para el usuario `{target_user_id}` en el período `{mes_actual}`.\n"
-            "Se están utilizando los valores estándar calculados por las fórmulas del sistema."
-        )
-    else:
-        texto_valores = (
-            f"📋 **Valores Clínicos Actuales ({mes_actual})**\n"
-            f"👤 Paciente ID: `{target_user_id}`\n\n"
-            f"• **TMB:** `{valores.get('tmb', 0)} kcal`\n"
-            f"• **GET:** `{valores.get('get', 0)} kcal`\n"
-            f"• **Peso Etapa:** `{valores.get('peso_etapa', 0)} kg`\n"
-            f"• **Calorías Mín-Máx:** `{valores.get('calorias_min', 0)} - {valores.get('calorias_max', 0)} kcal`\n"
-            f"• **Proteínas Mín-Máx:** `{valores.get('proteinas_min', 0)} - {valores.get('proteinas_max', 0)} g`\n"
-            f"• **Hidratos Mín-Máx:** `{valores.get('hidratos_min', 0)} - {valores.get('hidratos_max', 0)} g`\n"
-            f"• **Grasas Mín-Máx:** `{valores.get('grasas_min', 0)} - {valores.get('grasas_max', 0)} g`\n"
-        )
-
-    # Botones para que el médico elija qué modificar
-    keyboard = [
-        [InlineKeyboardButton("🔥 Modificar Calorías/GET", callback_data="edit_val_calorias")],
-        [InlineKeyboardButton("🥩 Modificar Proteínas", callback_data="edit_val_proteinas")],
-        [InlineKeyboardButton("⚖️ Modificar Peso de Etapa", callback_data="edit_val_peso")],
-        [InlineKeyboardButton("🔙 Volver al Listado", callback_data="edit_val_volver")]
-    ]
-    
-    await query.edit_message_text(texto_valores, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-    
-async def cmd_pacientes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando para que el profesional vea el listado de sus pacientes y genere un reporte PDF avanzado (hasta 6 meses con promedios mensuales)."""
-    prof_id = str(update.effective_user.id).strip()
-    
-    msg_espera = await update.message.reply_text("⏳ **Buscando pacientes y procesando historial clínico (últimos 6 meses)...**", parse_mode="Markdown")
-
-    try:
-        especialidad_prof = obtener_especialidad_profesional(prof_id)
-
-        if not especialidad_prof:
-            await msg_espera.edit_text("⛔ **Acceso denegado:** Este comando es exclusivo para profesionales registrados.", parse_mode="Markdown")
-            return
-
-        pacientes_del_medico = obtener_pacientes_por_medico(prof_id)
-
-        if not pacientes_del_medico:
-            await msg_espera.edit_text("ℹ️ No tenés pacientes activos asignados en este momento.", parse_mode="Markdown")
-            return
-
-        ahora = obtener_ahora_arg()
-        meses_a_evaluar = []
-        for i in range(6):
-            mes_calculado = ahora - timedelta(days=i * 30)
-            m_str = mes_calculado.strftime("%Y-%m")
-            if m_str not in meses_a_evaluar:
-                meses_a_evaluar.append(m_str)
-        meses_a_evaluar = sorted(list(set(meses_a_evaluar)))[-6:]
-
-        texto_reporte = f"📋 **Listado de Pacientes Asignados**\n🩺 *Especialidad:* `{especialidad_prof}`\n\n"
-        datos_para_pdf = []
-
-        for pac in pacientes_del_medico:
-            u_id = pac["user_id"]
-            nombre = pac["nombre"]
-            
-            peso_raw = obtener_ultimo_peso(u_id)
-            if isinstance(peso_raw, dict):
-                peso_str = peso_raw.get("peso", peso_raw.get("fecha", "S/D"))
-            else:
-                peso_str = str(peso_raw) if peso_raw else "S/D"
-
-            recs_presion_all = obtener_registros_presion(u_id)
-            presion_str = obtener_ultima_presion(recs_presion_all)
-            calorias_str = obtener_promedio_calorias_mes_actual(u_id, ahora)
-
-            texto_reporte += (
-                f"👤 **{nombre}** (ID: `{u_id}`)\n"
-                f"• ⚖️ Peso: `{peso_str}`\n"
-                f"• 🩸 Presión: `{presion_str}`\n"
-                f"• 🔥 Prom. Calorías: `{calorias_str}`\n"
-                "--------------------------------------------------\n"
-            )
-
-            historial_6m = []
-            perfil_dict = obtener_ultimo_perfil_dict(u_id)
-            
-            df_u = obtener_datos_usuario(u_id) 
-            if not df_u.empty and 'Fecha' in df_u.columns:
-                df_u['Mes_Filtro'] = df_u['Fecha'].str.slice(0, 7)
-
-            for m_str in meses_a_evaluar:
-                prom_cons_m = 0
-                prom_quem_m = 0
-                prom_neto_m = 0
-                prom_prot_m = 0
-                prom_gras_m = 0
-                prom_carb_m = 0
-                prom_fibr_m = 0
-
-                if not df_u.empty and 'Mes_Filtro' in df_u.columns:
-                    df_m = df_u[df_u['Mes_Filtro'] == m_str]
-                    if not df_m.empty:
-                        metricas_m = calcular_metricas_mensuales(df_m, perfil_dict, user_id=u_id, mes_str=m_str)
-                        prom_cons_m = metricas_m.get("prom_cal", 0)
-                        prom_quem_m = metricas_m.get("prom_quem", 0)
-                        prom_neto_m = metricas_m.get("prom_bal_neto", 0)
-                        prom_prot_m = metricas_m.get("prom_prot", 0)
-                        prom_gras_m = metricas_m.get("prom_gras", 0)
-                        prom_carb_m = metricas_m.get("prom_carb", 0)
-                        prom_fibr_m = metricas_m.get("prom_fibr", 0)
-
-                historial_6m.append({
-                    "mes": m_str,
-                    "cal_cons": prom_cons_m,
-                    "cal_quem": prom_quem_m,
-                    "bal_neto": prom_neto_m,
-                    "proteinas": prom_prot_m,
-                    "grasas": prom_gras_m,
-                    "carbohidratos": prom_carb_m,
-                    "fibras": prom_fibr_m
-                })
-
-            datos_para_pdf.append({
-                "nombre": nombre,
-                "user_id": u_id,
-                "historial": historial_6m
-            })
-
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=20, leftMargin=20, topMargin=30, bottomMargin=30)
-        styles = getSampleStyleSheet()
-        elements = []
-
-        elements.append(Paragraph(f"<b>Reporte Clínico Consolidado Promedio ({especialidad_prof})</b>", styles['Heading1']))
-        elements.append(Paragraph(f"Generado el: {ahora.strftime('%Y-%m-%d')} | Historial de Promedios de los Últimos 6 Meses", styles['Normal']))
-        elements.append(Spacer(1, 15))
-
-        header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
-        body_style = ParagraphStyle('BodyStyle', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#1E293B'), alignment=1)
-
-        for d in datos_para_pdf:
-            elements.append(Paragraph(f"<b>Paciente: {d['nombre']} (ID: {d['user_id']})</b>", styles['Heading2']))
-            elements.append(Spacer(1, 4))
-            
-            hist_data = [[
-                Paragraph("Mes", header_style),
-                Paragraph("Cal. Consumid.", header_style),
-                Paragraph("Cal. Quemad.", header_style),
-                Paragraph("Bal. Neto", header_style),
-                Paragraph("Proteínas (g)", header_style),
-                Paragraph("Grasas (g)", header_style),
-                Paragraph("Carbohidr. (g)", header_style),
-                Paragraph("Fibras (g)", header_style)
-            ]]
-
-            for h in d["historial"]:
-                hist_data.append([
-                    Paragraph(h["mes"], body_style),
-                    Paragraph(f"{h['cal_cons']} kcal", body_style),
-                    Paragraph(f"{h['cal_quem']} kcal", body_style),
-                    Paragraph(f"{h['bal_neto']} kcal", body_style),
-                    Paragraph(f"{h['proteinas']} g", body_style),
-                    Paragraph(f"{h['grasas']} g", body_style),
-                    Paragraph(f"{h['carbohidratos']} g", body_style),
-                    Paragraph(f"{h['fibras']} g", body_style)
-                ])
-            
-            # Ancho total ajustado para la hoja tamaño carta (Letter = 612 pt de ancho - 40 pt de márgenes = 572 pt disponibles)
-            t_hist = Table(hist_data, colWidths=[65, 75, 75, 70, 70, 70, 77, 70])
-            t_hist.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2563EB")),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
-                ('TOPPADDING', (0, 0), (-1, -1), 4),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-            ]))
-            elements.append(t_hist)
-            elements.append(Spacer(1, 15))
-
-        doc.build(elements)
-        buffer.seek(0)
-
-        esp_limpia = re.sub(r'[^\w\s]', '', especialidad_prof).replace(' ', '_')
-
-        await msg_espera.delete()
-        await update.message.reply_text(texto_reporte, parse_mode="Markdown")
-        await update.message.reply_document(
-            document=buffer,
-            filename=f"Reporte_Promedios_Clinicos_{esp_limpia}_{ahora.strftime('%Y-%m')}.pdf",
-            caption="📄 **Reporte clínico mensual consolidado generado con éxito.**",
-            parse_mode="Markdown"
-        )
-
-    except Exception as e:
-        logger.error(f"Error al generar listado de pacientes para el profesional {prof_id}: {e}")
-        await msg_espera.edit_text(f"❌ Ocurrió un error al procesar el listado clínico: {e}")
-
-async def cmd_enviar_informe_actual(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Comando para que el profesional seleccione un paciente de su lista y envíe el informe PDF.
-    Uso: /informe
-    """
-    try:
-        prof_id = await _verificar_y_obtener_profesional(update)
-        if not prof_id:
-            await update.message.reply_text("⛔ No tenés permisos para ejecutar este comando o no estás registrado como profesional.")
-            return
-
-        pacientes = obtener_pacientes_por_medico(prof_id)
-        
-        if not pacientes:
-            await update.message.reply_text("📋 No tenés pacientes activos asignados en este momento.")
-            return
-
-        keyboard = []
-        for pac in pacientes:
-            callback_data = f"enviar_inf_{pac['user_id']}"
-            keyboard.append([InlineKeyboardButton(f"👤 {pac['nombre']}", callback_data=callback_data)])
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text(
-            "📊 **Generación de Informe Médico**\nSeleccioná el paciente al que deseas enviarle el informe del período:",
-            parse_mode="Markdown",
-            reply_markup=reply_markup
-        )
-
-    except Exception as e:
-        logger.error(f"Error en cmd_enviar_informe_actual: {e}", exc_info=True)
-        await update.message.reply_text("⚠️ Ocurrió un error al procesar la solicitud del informe.")
-
-async def callback_enviar_informe_paciente(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Paso 1: Muestra los promedios del paciente en pantalla y le da opciones al médico antes de enviar."""
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data
-    if not data.startswith("enviar_inf_"):
-        return
-
-    target_user_id = data.replace("enviar_inf_", "").strip()
-    ahora = obtener_ahora_arg()
-    mes_actual = ahora.strftime("%Y-%m")
-
-    # Guardar en contexto el paciente seleccionado
-    context.user_data['informe_medico_target'] = target_user_id
-    context.user_data['informe_medico_mes'] = mes_actual
-
-    try:
-        # Obtener datos y calcular métricas del mes actual para la previsualización
-        df_u = obtener_datos_usuario(target_user_id) 
-        perfil = obtener_perfil_usuario(target_user_id, mes_target=mes_actual) or {}
-        
-        if not df_u.empty and 'Fecha' in df_u.columns:
-            df_u['Mes_Filtro'] = df_u['Fecha'].str.slice(0, 7)
-            df_mes = df_u[df_u['Mes_Filtro'] == mes_actual]
-        else:
-            df_mes = pd.DataFrame()
-
-        if df_mes.empty:
-            resumen_txt = f"⚠️ El paciente con ID `{target_user_id}` no tiene registros cargados en el período actual (`{mes_actual}`).\n¿Desea enviarle el informe de todas formas?"
-        else:
-            m = calcular_metricas_mensuales(df_mes, perfil, user_id=target_user_id, mes_str=mes_actual)
-            resumen_txt = (
-                f"📋 **Previsualización de Informe Mensual ({mes_actual})**\n"
-                f"👤 Paciente ID: `{target_user_id}`\n\n"
-                f"• 🔥 Cal. Consumidas: `{m.get('prom_cal', 0)} kcal/día`\n"
-                f"• ⚡ Cal. Quemadas: `{m.get('prom_quem', 0)} kcal/día`\n"
-                f"• ⚖️ Balance Neto: `{m.get('prom_bal_neto', 0)} kcal/día`\n"
-                f"• 🥩 Proteínas: `{m.get('prom_prot', 0)} g/día`\n"
-                f"• 🥑 Grasas: `{m.get('prom_gras', 0)} g/día`\n"
-                f"• 🍞 Carbohidratos: `{m.get('prom_carb', 0)} g/día`\n"
-                f"• 🌾 Fibras: `{m.get('prom_fibr', 0)} g/día`\n\n"
-                f"¿Cómo desea proceder con el envío?"
-            )
-
-        # Botones de decisión para el médico
-        keyboard = [
-            [InlineKeyboardButton("🚀 Enviar Directamente", callback_data=f"inf_dir_{target_user_id}")],
-            [InlineKeyboardButton("✏️ Escribir Nota y Enviar", callback_data=f"inf_nota_{target_user_id}")],
-            [InlineKeyboardButton("❌ Cancelar", callback_data="inf_cancelar")]
-        ]
-        
-        await query.edit_message_text(resumen_txt, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
-    except Exception as e:
-        logger.error(f"Error al previsualizar informe para el paciente {target_user_id}: {e}")
-        await query.edit_message_text(f"❌ Ocurrió un error al procesar la previsualización: {e}")
-
-
-async def callback_acciones_informe(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Maneja las acciones de envío directo o solicitud de nota para el informe."""
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    prof_id = str(query.from_user.id).strip()
-
-    if data.startswith("inf_dir_"):
-        target_user_id = data.replace("inf_dir_", "").strip()
-        mes_target = context.user_data.get('informe_medico_mes', obtener_ahora_arg().strftime("%Y-%m"))
-        
-        await query.edit_message_text(f"⏳ Generando y enviando informe al paciente `{target_user_id}`...", parse_mode="Markdown")
-        
-        try:
-            exito = await procesar_y_enviar_informe_mensual(context, user_id=int(target_user_id), chat_destino=int(target_user_id), mes_target=mes_target, forzar_envio=True)
-            
-            if exito:
-                # Notificar al paciente que su médico le envió una actualización
-                await context.bot.send_message(chat_id=int(target_user_id), text="🩺 **Tu profesional a cargo te ha enviado una actualización de tu informe clínico mensual.**", parse_mode="Markdown")
-                await query.edit_message_text(f"✅ **Informe enviado con éxito** al paciente con ID `{target_user_id}`.", parse_mode="Markdown")
-            else:
-                await query.edit_message_text(f"⚠️ No se pudo generar o enviar el informe al paciente `{target_user_id}` (quizás falten registros).", parse_mode="Markdown")
-        except Exception as e:
-            logger.error(f"Error en envío directo de informe por médico {prof_id}: {e}")
-            await query.edit_message_text(f"❌ Error al enviar el informe: {e}")
-
-    elif data.startswith("inf_nota_"):
-        target_user_id = data.replace("inf_nota_", "").strip()
-        context.user_data['esperando_nota_informe_para'] = target_user_id
-        
-        await query.edit_message_text(
-            f"✅ Paciente seleccionado (ID: `{target_user_id}`).\n\n"
-            "✍️ **Escribí a continuación la nota u observación médica** que querés adjuntar al informe:",
-            parse_mode="Markdown"
-        )
-
-    elif data == "inf_cancelar":
-        context.user_data.pop('informe_medico_target', None)
-        context.user_data.pop('informe_medico_mes', None)
-        await query.edit_message_text("❌ Operación cancelada.", parse_mode="Markdown")
-
-async def procesar_texto_nota_informe(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Captura la nota escrita por el médico, genera el informe y lo envía al paciente."""
-    target_user_id = context.user_data.get('esperando_nota_informe_para')
-    if not target_user_id:
-        return False # No era una nota de informe, dejar pasar
-
-    prof_id = str(update.effective_user.id).strip()
-    nota_texto = update.message.text.strip()
-    mes_target = context.user_data.get('informe_medico_mes', obtener_ahora_arg().strftime("%Y-%m"))
-    
-    # Limpiar estados del contexto
-    context.user_data.pop('esperando_nota_informe_para', None)
-    context.user_data.pop('informe_medico_target', None)
-    context.user_data.pop('informe_medico_mes', None)
-
-    try:
-        msg_esp = await update.message.reply_text("⏳ **Generando informe con la nota médica adjunta...**", parse_mode="Markdown")
-        
-        exito = await procesar_y_enviar_informe_mensual(context, user_id=int(target_user_id), chat_destino=int(target_user_id), mes_target=mes_target, forzar_envio=True)
-        
-        if exito:
-            # Enviar la nota personalizada del médico al paciente
-            mensaje_paciente = f"🩺 **Nota de tu médico tratante:**\n\n\"{nota_texto}\""
-            await context.bot.send_message(chat_id=int(target_user_id), text=mensaje_paciente, parse_mode="Markdown")
-            
-            await msg_esp.edit_text(f"✅ **Informe y nota médica enviados correctamente** al paciente con ID `{target_user_id}`.", parse_mode="Markdown")
-        else:
-            await msg_esp.edit_text(f"⚠️ No se pudo generar el informe para el paciente `{target_user_id}`.", parse_mode="Markdown")
-        
-        return True
-    except Exception as e:
-        logger.error(f"Error al enviar informe con nota desde el profesional {prof_id}: {e}")
-        await update.message.reply_text(f"❌ Ocurrió un error al procesar el envío: {e}")
-        return True
-
-
-
-
-
-async def cmd_enviar_nota_paciente(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Comando interactivo por botones para que el profesional seleccione al paciente 
-    al que desea enviarle una nota o indicación médica.
-    Uso: /nota o /enviar_nota
-    """
-    prof_id = str(update.effective_user.id).strip()
-    
-    especialidad_prof = obtener_especialidad_profesional(prof_id)
-    if not especialidad_prof:
-        await update.message.reply_text("⛔ **Acceso denegado:** Este comando es exclusivo para profesionales registrados.", parse_mode="Markdown")
-        return
-
-    pacientes = obtener_pacientes_por_medico(prof_id)
-    if not pacientes:
-        await update.message.reply_text("📋 No tenés pacientes activos asignados en este momento para enviarles notas.", parse_mode="Markdown")
-        return
-
-    # Armar teclado interactivo dinámico con los pacientes del médico
-    keyboard = []
-    for pac in pacientes:
-        u_id = str(pac["user_id"])
-        nombre = pac["nombre"]
-        btn_text = f"👤 {nombre} (ID: {u_id})"
-        callback_data = f"selec_nota_pac_{u_id}"
-        keyboard.append([InlineKeyboardButton(btn_text, callback_data=callback_data)])
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "📝 **Envío de Nota Médica**\n\n"
-        "Seleccioná de la lista al paciente al que querés enviarle una indicación:",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
-
-
-async def callback_seleccionar_paciente_nota(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Maneja la selección del paciente por botón para la nota y activa el estado de espera del mensaje."""
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data
-    if not data.startswith("selec_nota_pac_"):
-        return
-
-    target_user_id = data.replace("selec_nota_pac_", "").strip()
-    
-    # Guardar el ID objetivo en el contexto del usuario para capturar su siguiente mensaje de texto
-    context.user_data['esperando_texto_nota_para'] = target_user_id
-
-    await query.edit_message_text(
-        f"✅ Paciente seleccionado (ID: `{target_user_id}`).\n\n"
-        "✍️ **Escribí a continuación el texto de la nota o indicación** que querés enviarle:",
-        parse_mode="Markdown"
-    )
-
-
-async def procesar_texto_nota_medica(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Captura el texto escrito por el médico tras haber seleccionado al paciente y se lo envía."""
-    target_user_id = context.user_data.get('esperando_texto_nota_para')
-    if not target_user_id:
-        return False # No era una nota pendiente, dejar pasar a otros message handlers
-
-    prof_id = str(update.effective_user.id).strip()
-    nota_texto = update.message.text.strip()
-    
-    # Limpiar estado del contexto
-    context.user_data.pop('esperando_texto_nota_para', None)
-
-    especialidad_prof = obtener_especialidad_profesional(prof_id)
-
-    try:
-        mensaje_paciente = (
-            f"🩺 **Indicación de tu médico tratante ({especialidad_prof}):**\n\n"
-            f"\"{nota_texto}\""
-        )
-        
-        await context.bot.send_message(chat_id=int(target_user_id), text=mensaje_paciente, parse_mode="Markdown")
-        await update.message.reply_text(f"✅ **Nota enviada correctamente** al paciente con ID `{target_user_id}`.", parse_mode="Markdown")
-        return True
-    except Exception as e:
-        logger.error(f"Error al enviar nota interactiva del profesional {prof_id} al paciente {target_user_id}: {e}")
-        await update.message.reply_text(f"❌ Ocurrió un error al enviar la nota: {e}")
-        return True
-
-
-async def cmd_generar_manual_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Comando /manual: Muestra por pantalla el resumen de comandos disponibles para el profesional 
-    y adjunta el manual operativo oficial en PDF de 3 páginas.
-    """
-    prof_id = str(update.effective_user.id).strip()
-    
-    especialidad_prof = obtener_especialidad_profesional(prof_id)
-    if not especialidad_prof:
-        await update.message.reply_text("⛔ **Acceso denegado:** Este comando es exclusivo para profesionales registrados.", parse_mode="Markdown")
-        return
-
-    # 1. Enviar el resumen interactivo de comandos disponibles en pantalla
-    resumen_comandos = (
-        "🩺 **Panel de Control — Guía de Comandos Profesionales**\n\n"
-        "• `/pacientes`: Genera un reporte clínico consolidado en PDF con el historial de los últimos 6 meses de tus pacientes.\n"
-        "• `/informe`: Despliega un menú táctil para auditar y reenviar el informe mensual individual en PDF.\n"
-        "• `/editar_valores`: Panel interactivo para consultar y corregir las metas clínicas (TMB, GET, macros, peso de etapa).\n"
-        "• `/nota` (o `/enviar_nota`): Despliega los botones con tus pacientes para enviarles notas clínicas o directivas directas.\n"
-        "• `/manual`: Muestra esta guía rápida y adjunta el manual completo en PDF.\n\n"
-        "📄 *A continuación se adjunta el documento técnico operativo completo:*"
-    )
-    await update.message.reply_text(resumen_comandos, parse_mode="Markdown")
-
-    # 2. Generar y enviar el PDF completo
-    msg_espera = await update.message.reply_text("⏳ **Generando el manual operativo oficial de 3 páginas...**", parse_mode="Markdown")
-
-    try:
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(
-            buffer, 
-            pagesize=letter, 
-            rightMargin=36, 
-            leftMargin=36, 
-            topMargin=36, 
-            bottomMargin=36
-        )
-        
-        styles = getSampleStyleSheet()
-        c_primario = colors.HexColor('#1E3A8A')
-        c_secundario = colors.HexColor('#2563EB')
-        c_texto = colors.HexColor('#1E293B')
-        c_fondo_tbl = colors.HexColor('#F8FAFC')
-        
-        title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=c_primario, spaceAfter=4, alignment=1)
-        subtitle_style = ParagraphStyle('SubTitleStyle', parent=styles['Normal'], fontSize=10, leading=13, textColor=c_secundario, spaceAfter=10, alignment=1)
-        h1_style = ParagraphStyle('H1Style', parent=styles['Heading2'], fontSize=12, leading=15, textColor=c_primario, spaceBefore=8, spaceAfter=4)
-        body_style = ParagraphStyle('BodyStyle', parent=styles['Normal'], fontSize=8.5, leading=11.5, textColor=c_texto, spaceAfter=5)
-        bullet_style = ParagraphStyle('BulletStyle', parent=styles['Normal'], fontSize=8.5, leading=11.5, textColor=c_texto, leftIndent=10, spaceAfter=3)
-        
-        story = []
-
-        # PÁGINA 1
-        story.append(Paragraph("<b>IA NutriBot — Sistema de Gestión y Supervisión Clínica</b>", title_style))
-        story.append(Paragraph("<b>Manual Operativo y Especificaciones Técnicas para Profesionales</b>", subtitle_style))
-        story.append(HRFlowable(width="100%", thickness=1.2, color=c_secundario, spaceAfter=8))
-        
-        story.append(Paragraph("<b>1. Resumen de Ventajas y Propuesta de Valor</b>", h1_style))
-        story.append(Paragraph("IA NutriBot combina la accesibilidad masiva de Telegram con una potente capa clínica de supervisión:", body_style))
-        
-        ventajas = [
-            "<b>• Supremacía Clínica:</b> El bot respeta estrictamente los criterios del médico tratante por sobre las fórmulas matemáticas estándar.",
-            "<b>• Protección del Tiempo Profesional:</b> Canales de salida <b>unidireccionales</b> (notas y recetas) para evitar saturación de consultas.",
-            "<b>• Alertas de Desvío Automáticas:</b> Al cierre mensual, el sistema audita registros y reenvía una copia con alertas si el paciente sale de rango.",
-            "<b>• Autogestión Segura:</b> Calibración mediante relojes inteligentes acotada estrictamente a partir del día 15 y con topes del 20%.",
-            "<b>• Trazabilidad de 6 Meses:</b> Arquitectura robusta en Python y Supabase para almacenar historiales clínicos consolidados."
-        ]
-        for v in ventajas:
-            story.append(Paragraph(v, bullet_style))
-        
-        story.append(PageBreak())
-
-        # PÁGINA 2
-        story.append(Paragraph("<b>2. Guía de Comandos y Funciones del Módulo Profesional</b>", h1_style))
-        story.append(Paragraph("El profesional opera de forma directa mediante comandos de texto y menús interactivos táctiles:", body_style))
-        
-        tabla_funciones = [
-            [Paragraph("<b>Comando</b>", ParagraphStyle('Th', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold')), 
-             Paragraph("<b>Descripción y Alcance Operativo</b>", ParagraphStyle('Th2', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold'))],
-            [Paragraph("<b>/pacientes</b>", body_style), Paragraph("Genera un reporte PDF clínico con el historial de los últimos 6 meses de todos los pacientes asignados.", body_style)],
-            [Paragraph("<b>/informe</b>", body_style), Paragraph("Despliega botones interactivos con nombres e IDs para reenviar el informe mensual en PDF de manera individual.", body_style)],
-            [Paragraph("<b>/editar_valores</b>", body_style), Paragraph("Panel táctil interactivo para visualizar metas actuales (TMB, GET, peso de etapa) y corregirlas al instante.", body_style)],
-            [Paragraph("<b>/nota</b>", body_style), Paragraph("Despliega botones interactivos con tus pacientes para enviarles notas o indicaciones médicas directas.", body_style)],
-            [Paragraph("<b>/manual</b>", body_style), Paragraph("Muestra el resumen de comandos en pantalla y adjunta el manual completo en PDF.", body_style)]
-        ]
-        
-        t_func = Table(tabla_funciones, colWidths=[110, 430])
-        t_func.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), c_primario),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, c_fondo_tbl]),
-            ('TOPPADDING', (0, 0), (-1, -1), 5),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ]))
-        story.append(t_func)
-        
-        story.append(PageBreak())
-
-
-
-
-        # PÁGINA 3
-        story.append(Paragraph("<b>3. Base de Datos: Valores_Clinicos_Profesional</b>", h1_style))
-        story.append(Paragraph("La persistencia de los valores clínicos personalizados se administra mediante la siguiente estructura relacional:", body_style))
-        
-        tabla_db = [
-            [Paragraph("<b>Columna SQL</b>", ParagraphStyle('Th3', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold')), 
-             Paragraph("<b>Tipo</b>", ParagraphStyle('Th4', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold')),
-             Paragraph("<b>Descripción del Parámetro Clínico</b>", ParagraphStyle('Th5', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold'))],
-            [Paragraph("`user_id` / `prof_id`", body_style), Paragraph("TEXT", body_style), Paragraph("Identificadores de Telegram vinculados.", body_style)],
-            [Paragraph("`mes`", body_style), Paragraph("VARCHAR", body_style), Paragraph("Período de validez en formato `YYYY-MM`.", body_style)],
-            [Paragraph("`tmb` / `get_val`", body_style), Paragraph("NUMERIC", body_style), Paragraph("Tasa metabólica basal y gasto energético total.", body_style)],
-            [Paragraph("`peso_etapa`", body_style), Paragraph("NUMERIC", body_style), Paragraph("Meta de peso establecida para la etapa.", body_style)],
-            [Paragraph("`calorias_min/max`", body_style), Paragraph("NUMERIC", body_style), Paragraph("Topes de control calórico permitidos.", body_style)],
-            [Paragraph("`proteinas/hidratos/grasas`", body_style), Paragraph("NUMERIC", body_style), Paragraph("Rangos de macronutrientes asignados.", body_style)]
-        ]
-        
-        t_db = Table(tabla_db, colWidths=[120, 70, 350])
-        t_db.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), c_secundario),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, c_fondo_tbl]),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ]))
-        story.append(t_db)
-        story.append(Spacer(1, 15))
-        story.append(Paragraph("<b>Sistema Operativo:</b> 100% Sincronizado y Funcional (Módulos 08, 09 y 11)", ParagraphStyle('Firma', parent=body_style, textColor=colors.HexColor('#64748B'))))
-
-        doc.build(story)
-        buffer.seek(0)
-
-        await msg_espera.delete()
-        await update.message.reply_document(
-            document=buffer,
-            filename="Manual_Profesional_IA_NutriBot.pdf",
-            caption="📄 **Aquí tenés el manual oficial completo en PDF.**",
-            parse_mode="Markdown"
-        )
-
-    except Exception as e:
-        logger.error(f"Error al generar el manual PDF para el profesional {prof_id}: {e}")
-        await msg_espera.edit_text(f"❌ Ocurrió un error al generar el documento PDF: {e}")
-        
-# ==========================================================================================================================================
-#                    FINAL                      COMANDOS PROFESIONALES                               FINAL  
-# ==========================================================================================================================================
 
 # ==========================================================================================================================================
 #                                   INICIO                                       MAIN                                   INICIO  
