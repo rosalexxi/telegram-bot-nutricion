@@ -2786,6 +2786,7 @@ def obtener_nombre_lenguaje_ia(user_id=None):
     
 async def analizar_con_ia(prompt_text, user_id=None, msg_obj=None):
     nombre_lenguaje = obtener_idioma_usuario(user_id) or "es"
+    traducciones = obtener_traducciones_db(nombre_lenguaje) or {}
     ahora = obtener_ahora_arg()
     fecha_hoy = ahora.strftime("%Y-%m-%d")
     mes_actual = ahora.strftime("%Y-%m")
@@ -2817,7 +2818,8 @@ async def analizar_con_ia(prompt_text, user_id=None, msg_obj=None):
     except Exception as e_prin:
         logger.warning(f"⚠️ Falla Principal ({MODELO_TEXTO}): {e_prin}. Pasando a Respaldo...")
         if msg_obj:
-            try: await msg_obj.edit_text("⚠️ Main server busy. Switching to backup server...")
+            msg_ocupado = traducciones.get("06_bot_ia_main_busy", "⚠️ Servidor principal ocupado. Cambiando a servidor de respaldo...")
+            try: await msg_obj.edit_text(msg_ocupado)
             except Exception: pass
             
         try:
@@ -2829,7 +2831,8 @@ async def analizar_con_ia(prompt_text, user_id=None, msg_obj=None):
         except Exception as e_resp:
             logger.warning(f"⚠️ Falla Respaldo ({MODELO_RESPALDO}): {e_resp}. Pasando a Emergencia...")
             if msg_obj:
-                try: await msg_obj.edit_text("⚠️ Retrying connection with emergency server...")
+                msg_emerg = traducciones.get("06_bot_ia_backup_busy", "⚠️ Reintentando conexión con servidor de emergencia...")
+                try: await msg_obj.edit_text(msg_emerg)
                 except Exception: pass
                 
             try:
@@ -2841,8 +2844,8 @@ async def analizar_con_ia(prompt_text, user_id=None, msg_obj=None):
             except Exception as e_emer:
                 logger.error(f"❌ Fallaron todos los modelos de texto: {e_emer}")
                 return {"items": [], "tipo": "Error_IA"}
-                
-async def analizar_imagen_con_ia(base64_image: str, user_id=None, msg_obj=None):
+
+async def analizar_imagen_con_ia(base64_image: str, user_id=None, msg_obj=None, caption=""):
     nombre_lenguaje = obtener_idioma_usuario(user_id) or "es"
     ahora = obtener_ahora_arg()
     fecha_hoy = ahora.strftime("%Y-%m-%d")
@@ -2860,7 +2863,13 @@ async def analizar_imagen_con_ia(base64_image: str, user_id=None, msg_obj=None):
     )
 
     imagen_data = {"mime_type": "image/jpeg", "data": base64.b64decode(base64_image)}
-    prompt_usuario = "Realiza el desglose científico de esta imagen según las directrices establecidas."
+    
+    # NUEVO: Incorporamos tu texto al prompt si enviaste algo
+    if caption:
+        prompt_usuario = f"El usuario proporcionó esta descripción o peso exacto: '{caption}'. Usa OBLIGATORIAMENTE estos datos para identificar los alimentos, ajustar tu análisis y distribuir el peso total. Realiza el desglose científico de la imagen."
+    else:
+        prompt_usuario = "Realiza el desglose científico de esta imagen según las directrices establecidas."
+
     configuracion_gen = {"response_mime_type": "application/json", "temperature": 0.0}
 
     try:

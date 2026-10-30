@@ -975,15 +975,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_err_proc = traducciones.get("07_bot_error_procesar_texto", "❌ Error al procesar el texto: {e}")
         try: await msg.edit_text(msg_err_proc.format(e=e))
         except Exception: pass
-        
+     
+
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) or "es"
     traducciones = obtener_traducciones_db(lang) or {}
 
+    # NUEVO: Capturamos el texto que escribís al pie de la foto
+    caption = update.message.caption.strip() if update.message.caption else ""
+
     txt_analizando_img = traducciones.get("07_bot_analizando_imagen", "📸 Analizando imagen...")
-    # Este es el ÚNICO mensaje inicial estático que verá el usuario
     msg = await update.message.reply_text(txt_analizando_img)
 
     try:
@@ -1030,8 +1033,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 1. ARRANCAMOS EL MOTOR DE ANIMACIÓN EN PARALELO
         tarea_animacion = asyncio.create_task(animar_carga(msg, traducciones))
         try:
-            # 2. LA IA TRABAJA MIENTRAS LA ANIMACIÓN GIRA
-            data = await analizar_imagen_con_ia(base64_image, user_id, msg_obj=msg)
+            # NUEVO: Le pasamos el caption a la IA
+            data = await analizar_imagen_con_ia(base64_image, user_id, msg_obj=msg, caption=caption)
         finally:
             # 3. APENAS TERMINA LA IA, APAGAMOS LA ANIMACIÓN SÍ O SÍ
             tarea_animacion.cancel()
@@ -1681,7 +1684,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/diario`: Ingestas seleccionando por teclado y PDF.\n"
         "• `/eliminar`: Borra ingestas y actividades.\n"
         "• `/GET`: Actualiza GET por reloj inteligente .\n"
-        "• `/inicio`: Resumen de comandos y manual en PDF.\n"
+        "• `/ayuda`: Resumen de comandos y manual en PDF.\n"
         "• `/pago`: Elegir el plan o promoción de pago vigente.\n"
         "• `/perfil`: Actualización de datos biométricos.\n"
         "• `/peso`: Registro o control de peso mensual \n"
@@ -4518,7 +4521,7 @@ def main():
         app_bot.add_handler(CommandHandler(["manual", "documentacion"], cmd_generar_manual_pdf))
         
         # =================================INGRESOS Y CONSULTAS MANUALES============================================
-        app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
+        app_bot.add_handler(CommandHandler(["start", "inicio", "ayuda" , "h"], cmd_start))
         app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
         app_bot.add_handler(CommandHandler(["perfil", "profile"], cmd_perfil))
         app_bot.add_handler(CommandHandler(["receta", "recipe"], cmd_cargar_receta))

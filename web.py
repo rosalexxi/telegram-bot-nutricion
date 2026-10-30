@@ -892,8 +892,9 @@ HTML_TERMINOS_ALTA = """
         <p data-var="_02_leg_b3">⭐ <b>Privacidad y Datos Personales:</b> El uso de IA NutriBot es totalmente anónimo. No se requiere, ni se almacena, información de identidad personal como número de documento, correo electrónico o datos financieros. Solo se conservan tus datos biométricos y de ubicación (país, ciudad, zona horaria) con el único fin de realizar los cálculos nutricionales.</p>
         <p data-var="_02_leg_b4">⭐ <b>Responsabilidad del Usuario:</b> Al presionar "Aceptar" al inicio del alta, el usuario comprende y acepta que la información cargada y las decisiones tomadas en base a los resúmenes del bot son bajo su propia responsabilidad.</p>
     </div>
-    <button class="btn-accept" id="btnAccept" onclick="aceptarTerminos()">✅ He leído y acepto los términos</button>
-    <div id="loading">Registrando datos y conectando con el bot...</div>
+
+    <button class="btn-accept" id="btnAccept" onclick="aceptarTerminos()" data-var="_02_leg_btn_aceptar">✅ He leído y acepto los términos</button>
+    <div id="loading" data-var="_02_leg_loading">Registrando datos y conectando con el bot...</div>
 </div>
 
 <script>
@@ -1005,8 +1006,12 @@ def api_guardar_terminos():
         ciudad = data.get('ciudad', 'Desconocida')
         zona_horaria = data.get('zona_horaria', 'America/Argentina/Buenos_Aires')
 
+        lang = obtener_idioma_usuario(user_id) if user_id else 'es'
+        traducciones = obtener_traducciones_db(lang) or {}
+
         if not user_id:
-            return jsonify({"error": "Falta user_id"}), 400
+            err_msg = traducciones.get("02_api_err_falta_id", "Falta user_id")
+            return jsonify({"error": err_msg}), 400
 
         try:
             conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
@@ -1037,11 +1042,12 @@ def api_guardar_terminos():
             except Exception as inner_err:
                 logger.error(f"Error crítico al alterar tabla y guardar datos de alta: {inner_err}")
 
-        return jsonify({"message": "Términos guardados y ubicación registrada correctamente."}), 200
+        ok_msg = traducciones.get("02_api_msg_terminos_ok", "Términos guardados y ubicación registrada correctamente.")
+        return jsonify({"message": ok_msg}), 200
     except Exception as e:
         logger.error(f"Error en api_guardar_terminos: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
-
+        
 #              FINAL                                   PÁGINA DE TÉRMINOS Y ALTA (WEB APP TRADUCIBLE)                   FINAL
 # =====================================================================================================================================
 
@@ -1122,7 +1128,6 @@ def api_usuario_idioma():
             pass
     return jsonify({"lang": lang}), 200
 
-
 @app.route('/api/calcular-receta', methods=['POST'])
 def api_calcular_receta():
     try:
@@ -1133,6 +1138,8 @@ def api_calcular_receta():
         tipo_calculo = data.get("tipoCalculo")
         porciones = int(data.get("porciones", 1))
         lang = data.get("lang", "es")
+        
+        traducciones = obtener_traducciones_db(lang) or {}
 
         prompt_ia = (
             f"Analiza la siguiente receta o listado de ingredientes: '{receta}'. "
@@ -1175,7 +1182,8 @@ def api_calcular_receta():
                     
                 except Exception as e_emer:
                     logger.error(f"❌ Fallaron todos los modelos web: {e_emer}")
-                    return jsonify({"error": "No se pudo conectar con los servidores de Inteligencia Artificial."}), 500
+                    err_msg = traducciones.get("02_api_err_ia_fallo", "No se pudo conectar con los servidores de Inteligencia Artificial.")
+                    return jsonify({"error": err_msg}), 500
 
         items = resultado_json.get("items", [])
 
@@ -1204,13 +1212,18 @@ def api_guardar_comida():
         user_id = data.get('user_id')
         fila = data.get('fila')
 
+        lang = obtener_idioma_usuario(user_id) if user_id else 'es'
+        traducciones = obtener_traducciones_db(lang) or {}
+
         if not user_id or not fila:
-            return jsonify({"error": "Faltan datos de usuario o de la receta."}), 400
+            err_msg = traducciones.get("02_api_err_faltan_datos", "Faltan datos de usuario o de la receta.")
+            return jsonify({"error": err_msg}), 400
 
         codigo_guardado = guardar_comida_precargada_db(user_id, fila)
 
+        ok_msg = traducciones.get("02_api_msg_receta_guardada", "Receta guardada exitosamente en tu base de datos.")
         return jsonify({
-            "message": "Receta guardada exitosamente en tu base de datos.",
+            "message": ok_msg,
             "codigo_guardado": codigo_guardado
         }), 200
 
