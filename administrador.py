@@ -393,7 +393,7 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # COMANDO DE TELEGRAM: /descargar (Descarga cualquier tabla de Supabase a un archivo Excel)
 # CÓMO SE USA EN TELEGRAM: /descargar multi   o   /descargar Usuarios
 # ¿QUÉ HACE?: Consulta la tabla en vivo en Supabase, arma un archivo .xlsx en memoria y te lo envía por Telegram
-#             para que lo tengas de backup o lo puedas revisar en tu PC.
+#             para que lo tengas de backup o lo puedas revisar en tu PC. (Excluye la columna 'id' para evitar conflictos al re-importar)
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -424,6 +424,13 @@ async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await mensaje_espera.edit_text(msg_vacia, parse_mode="Markdown")
             return
 
+        # ================= NUEVO: EXCLUIR LA COLUMNA 'id' =================
+        # Buscamos y eliminamos cualquier columna que se llame 'id' (ignorando mayúsculas/minúsculas)
+        cols_id = [c for c in df.columns if str(c).strip().lower() == 'id']
+        if cols_id:
+            df = df.drop(columns=cols_id)
+        # =================================================================
+
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name=nombre_tabla[:31])
@@ -447,8 +454,8 @@ async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Error al descargar la tabla {nombre_tabla} para el usuario {user_id}: {e}", exc_info=True)
         msg_err = f"❌ No se pudo descargar la tabla `{nombre_tabla}`.\nError: `{e}`"
-        await mensaje_espera.edit_text(msg_err, parse_mode="Markdown")   
-
+        await mensaje_espera.edit_text(msg_err, parse_mode="Markdown")
+        
 # =========================================================================================================================================
 #              FINAL                             FUNCIONES ADMINISTRADOR                                  FINAL
 # ==========================================================================================================================================
