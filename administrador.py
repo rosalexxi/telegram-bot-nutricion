@@ -303,6 +303,139 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg_err_armar = f"❌ Error al ensamblar: `{e}`"
         await mensaje_espera.edit_text(msg_err_armar, parse_mode="Markdown")
 
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+# COMANDO DE TELEGRAM: /subir (Pasa un archivo .xlsx que ya esté en GitHub/Servidor directo a Supabase)
+# CÓMO SE USA EN TELEGRAM: /subir multi   (o el nombre de cualquier archivo .xlsx que hayas subido a GitHub)
+# ¿QUÉ HACE?: Busca el archivo '<nombre>.xlsx' en la carpeta del servidor, borra la tabla en Supabase
+#             y la vuelve a crear cargando todas las filas tal cual están en ese Excel (sin traducir ni modificar nada).
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user_id = update.effective_user.id
+
+    if not es_administrador(user_id):
+        return
+    
+    if not context.args or len(context.args) == 0:
+        msg_formato = "⚠️ Por favor, indica el nombre de la tabla a importar.\nEjemplo: `/subir multi`"
+        await update.message.reply_text(msg_formato, parse_mode="Markdown")
+        return
+
+    nombre_tabla = context.args[0].strip()
+    ruta_archivo = f"{nombre_tabla}.xlsx"
+
+    if not os.path.exists(ruta_archivo):
+        msg_no_enc = f"❌ No encontré el archivo `{ruta_archivo}` en el servidor. Asegurate de haberlo subido al repositorio de GitHub."
+        await update.message.reply_text(msg_no_enc, parse_mode="Markdown")
+        return
+
+    msg_leyendo = f"🔄 Leyendo `{ruta_archivo}` del servidor y reescribiendo la tabla `{nombre_tabla}` en Supabase..."
+    mensaje_espera = await update.message.reply_text(msg_leyendo, parse_mode="Markdown")
+
+    try:
+        df = pd.read_excel(ruta_archivo)
+
+        if df.empty:
+            msg_vacio = f"⚠️ El archivo `{ruta_archivo}` está vacío."
+            await mensaje_espera.edit_text(msg_vacio, parse_mode="Markdown")
+            return
+
+        df.columns = [str(c).strip() for c in df.columns]
+
+        conn, cur = _asegurar_tabla_y_conectar(nombre_tabla, df_muestra=df)
+
+        columnas = list(df.columns)
+        cols_sql = ', '.join([f'"{c}"' for c in columnas])
+        placeholders = ', '.join(['%s'] * len(columnas))
+        
+        query_insert = f'INSERT INTO "{nombre_tabla}" ({cols_sql}) VALUES ({placeholders})'
+
+        filas_insertadas = 0
+        for _, row in df.iterrows():
+            valores = []
+            for col in columnas:
+                val = row[col]
+                if pd.isna(val):
+                    val = None
+                else:
+                    val = str(val).strip()
+                valores.append(val)
+
+            cur.execute(query_insert, tuple(valores))
+            filas_insertadas += 1
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        msg_exito = f"✅ ¡Éxito! La tabla `{nombre_tabla}` fue leída del servidor y sincronizada en Supabase con {filas_insertadas} registros."
+        await mensaje_espera.edit_text(msg_exito, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Error al importar la tabla {nombre_tabla} desde el servidor: {e}", exc_info=True)
+        msg_err = f"❌ Error al importar la tabla: `{e}`"
+        await mensaje_espera.edit_text(msg_err, parse_mode="Markdown")
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+# COMANDO DE TELEGRAM: /descargar (Descarga cualquier tabla de Supabase a un archivo Excel)
+# CÓMO SE USA EN TELEGRAM: /descargar multi   o   /descargar Usuarios
+# ¿QUÉ HACE?: Consulta la tabla en vivo en Supabase, arma un archivo .xlsx en memoria y te lo envía por Telegram
+#             para que lo tengas de backup o lo puedas revisar en tu PC.
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+async def cmd_descargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user_id = update.effective_user.id
+
+    if not es_administrador(user_id):
+        return
+    
+    if not context.args or len(context.args) == 0:
+        msg_formato = "⚠️ Por favor, indica el nombre de la tabla que deseas descargar.\nEjemplo: `/descargar textos_bot` o `/descargar Usuarios`"
+        await update.message.reply_text(msg_formato, parse_mode="Markdown")
+        return
+
+    nombre_tabla = context.args[0].strip()
+    msg_consultando = f"⏳ Consultando y preparando la tabla `{nombre_tabla}`..."
+    mensaje_espera = await update.message.reply_text(msg_consultando, parse_mode="Markdown")
+
+    try:
+        conn, cur = _asegurar_tabla_y_conectar(nombre_tabla, tipo_tabla="comida")
+        query = f'SELECT * FROM "{nombre_tabla}"'
+        df = pd.read_sql(query, conn)
+        
+        cur.close()
+        conn.close()
+
+        if df.empty:
+            msg_vacia = f"⚠️ La tabla `{nombre_tabla}` existe pero está vacía."
+            await mensaje_espera.edit_text(msg_vacia, parse_mode="Markdown")
+            return
+
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name=nombre_tabla[:31])
+        buffer.seek(0)
+
+        filename = f"{nombre_tabla}.xlsx"
+        
+        msg_exito = f"✅ Aquí tienes el respaldo de la tabla *{nombre_tabla}* ({len(df)} registros)."
+        await update.message.reply_document(
+            document=buffer,
+            filename=filename,
+            caption=msg_exito,
+            parse_mode="Markdown"
+        )
+        
+        try:
+            await mensaje_espera.delete()
+        except Exception:
+            pass
+
+    except Exception as e:
+        logger.error(f"Error al descargar la tabla {nombre_tabla} para el usuario {user_id}: {e}", exc_info=True)
+        msg_err = f"❌ No se pudo descargar la tabla `{nombre_tabla}`.\nError: `{e}`"
+        await mensaje_espera.edit_text(msg_err, parse_mode="Markdown")   
+
 # =========================================================================================================================================
 #              FINAL                             FUNCIONES ADMINISTRADOR                                  FINAL
 # ==========================================================================================================================================
