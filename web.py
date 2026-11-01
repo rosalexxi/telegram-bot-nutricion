@@ -3,6 +3,7 @@ import os
 import json
 import logging
 import google.generativeai as genai
+import time
 
 # Importamos la instancia de Flask y las funciones necesarias del núcleo
 from bot8a import (
@@ -18,7 +19,7 @@ from bot8a import (
 )
 
 # =====================================================================================================================================
-#              INICIO                                  PAGINA WEB (CALCULADORA UNICA)                        INICIO  DB OK
+#              INICIO                                  PAGINA WEB (CALCULADORA UNICA)                        INICIO
 # ======================================================================================================================================
 
 HTML_CALCULADORA_RECETAS = """
@@ -28,150 +29,195 @@ HTML_CALCULADORA_RECETAS = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title id="title-app" data-var="_02_titulo_web">IA NutriBot</title>
+    <!-- Fuente Moderna de Google -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- SweetAlert2 para Notificaciones Modernas -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
     <style>
         :root {
             --primary: #27ae60;
             --primary-dark: #219150;
-            --secondary: #2c3e50;
-            --bg-light: #f4f6f9;
-            --text-color: #2c3e50;
+            --primary-gradient: linear-gradient(135deg, #27ae60 0%, #219150 100%);
+            --secondary: #1e293b;
+            --bg-light: #f8fafc;
+            --text-main: #334155;
+            --text-muted: #64748b;
+            --border-light: #e2e8f0;
         }
         
         html, body { 
             min-height: 100dvh; margin: 0; padding: 0; 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            color: var(--text-color); display: flex; flex-direction: column;
+            font-family: 'Inter', sans-serif; 
+            color: var(--text-main); display: flex; flex-direction: column;
             background-size: cover; background-position: center; background-attachment: fixed;
-            background-blend-mode: overlay; background-color: rgba(244, 246, 249, 0.85);
+            background-blend-mode: overlay; background-color: rgba(244, 246, 249, 0.90);
             transition: background-image 1.5s ease-in-out;
         }
         
         header { 
-            background: rgba(255, 255, 255, 0.95); box-shadow: 0 2px 8px rgba(0,0,0,0.1); 
-            position: sticky; top: 0; z-index: 1000; padding: 10px 15px;
+            background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px -3px rgba(0,0,0,0.05); 
+            position: sticky; top: 0; z-index: 1000; padding: 15px 20px;
         }
         
-        .nav-container { max-width: 1100px; margin: auto; display: flex; flex-direction: column; gap: 8px; }
+        .nav-container { max-width: 1100px; margin: auto; display: flex; flex-direction: column; gap: 12px; }
         
         /* Fila 1: Logo Izquierda, Título Centro */
         .nav-row-1 { display: flex; justify-content: center; align-items: center; position: relative; }
-        .logo-img { width: 36px; height: 36px; border-radius: 50%; position: absolute; left: 0; object-fit: contain; }
-        .site-title { font-size: 1.4rem; font-weight: bold; color: var(--primary); margin: 0; }
+        .logo-img { width: 42px; height: 42px; border-radius: 50%; position: absolute; left: 0; object-fit: contain; }
+        .site-title { font-size: 1.5rem; font-weight: 700; color: var(--primary); margin: 0; letter-spacing: -0.5px;}
 
         /* Fila 2: Índice a la izquierda (con scroll horizontal en celulares) */
         .nav-row-2 { 
             display: flex; justify-content: flex-start; align-items: center; gap: 8px; 
-            overflow-x: auto; white-space: nowrap; padding-bottom: 4px; 
+            overflow-x: auto; white-space: nowrap; padding-bottom: 5px; 
         }
         .nav-row-2::-webkit-scrollbar { height: 4px; }
         .nav-row-2::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 4px; }
-        .nav-row-2 a { text-decoration: none; color: var(--secondary); font-weight: 600; font-size: 0.9rem; padding: 6px 10px; border-radius: 4px; cursor: pointer; transition: background-color 0.2s; }
-        .nav-row-2 a:hover, .nav-row-2 a.active { background-color: var(--primary); color: white; }
+        .nav-row-2 a { text-decoration: none; color: var(--text-muted); font-weight: 600; font-size: 0.9rem; padding: 8px 12px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease; border-bottom: 2px solid transparent;}
+        .nav-row-2 a:hover { color: var(--primary); background-color: rgba(39, 174, 96, 0.05); }
+        .nav-row-2 a.active { color: var(--primary); border-bottom: 2px solid var(--primary); background-color: rgba(39, 174, 96, 0.08); }
 
-        /* Fila 3: Banderas a la derecha */
-        .nav-row-3 { display: flex; justify-content: flex-end; align-items: center; gap: 8px; border-top: 1px solid rgba(0,0,0,0.06); padding-top: 6px; }
+        /* Fila 3: Telegram y Banderas */
+        .nav-row-3 { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-light); padding-top: 10px; }
         
+        .telegram-link {
+            display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
+            color: var(--primary); font-weight: 600; font-size: 0.85rem;
+            background: rgba(39, 174, 96, 0.1); padding: 6px 14px; border-radius: 20px;
+            transition: all 0.2s ease;
+        }
+        .telegram-link:hover { background: var(--primary); color: white; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(39,174,96,0.2); }
+        .tg-icon-img { width: 18px; height: 18px; object-fit: contain; }
+
         .flag-btn { 
             background: transparent; border: 2px solid transparent; border-radius: 6px; 
-            padding: 2px; cursor: pointer; text-decoration: none; display: inline-flex; 
+            padding: 3px; cursor: pointer; text-decoration: none; display: inline-flex; 
             align-items: center; justify-content: center; transition: all 0.2s ease; 
         }
         .flag-btn:hover, .flag-btn.active-flag { 
-            border-color: var(--primary); background: rgba(39, 174, 96, 0.1); transform: scale(1.12); 
+            background: rgba(39, 174, 96, 0.1); transform: scale(1.1); 
         }
-        .flag-icon-img { width: 34px; height: 24px; object-fit: contain; display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.2)); }
+        .flag-icon-img { width: 28px; height: 20px; object-fit: cover; display: block; border-radius: 3px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 
+        /* Contenedores Principales */
         .content-wrapper { 
-            max-width: 950px; margin: 20px auto; background: rgba(255, 255, 255, 0.40); 
-            backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-            padding: 25px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); 
-            border: 1px solid rgba(255, 255, 255, 0.4); width: 90%; box-sizing: border-box; flex: 1;
+            max-width: 950px; margin: 30px auto; background: rgba(255, 255, 255, 0.7); 
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            padding: 30px; border-radius: 20px; box-shadow: 0 10px 30px -5px rgba(0,0,0,0.1); 
+            border: 1px solid rgba(255, 255, 255, 0.5); width: 92%; box-sizing: border-box; flex: 1;
         }
 
         .content-box { 
-            background: rgba(255, 255, 255, 0.65); border: 1px solid rgba(226, 232, 240, 0.8); 
-            border-radius: 8px; padding: 25px; box-shadow: 0 2px 6px rgba(0,0,0,0.02); margin-bottom: 20px;
+            background: #ffffff; border-radius: 16px; padding: 30px; 
+            box-shadow: 0 4px 15px -3px rgba(0,0,0,0.05); margin-bottom: 20px;
         }
 
-        /* Clases de texto para las páginas de contenido */
-        .page-title { color: var(--primary); text-align: center; margin-top: 0; text-transform: uppercase; font-size: 1.5rem; }
-        .page-subtitle { text-align: center; color: var(--secondary); margin-bottom: 15px; font-weight: normal; }
-        .page-divider { border: 0; border-top: 1px solid rgba(0,0,0,0.1); margin: 15px 0; }
-        .page-footer { text-align: center; color: var(--primary); margin-top: 25px; }
-        .page-bullet { margin-bottom: 12px; line-height: 1.6; color: #333; font-size: 0.95rem; text-align: justify; }
+        /* Textos y Secciones */
+        .page-title { color: var(--secondary); text-align: center; margin-top: 0; font-size: 1.6rem; font-weight: 700; letter-spacing: -0.5px;}
+        .page-subtitle { text-align: center; color: var(--text-muted); margin-bottom: 20px; font-weight: 400; font-size: 1rem; }
+        .page-divider { border: 0; border-top: 1px solid var(--border-light); margin: 20px 0; }
+        .page-footer { text-align: center; color: var(--primary); margin-top: 30px; font-weight: 600;}
+        .page-bullet { margin-bottom: 15px; line-height: 1.7; color: var(--text-main); font-size: 0.95rem; }
+        .page-bullet b { color: var(--secondary); }
 
+        /* Animación de pestañas */
         .section-content { display: none; }
-        .section-content.active { display: block; }
-
-        .calculator-section { margin-top: 5px; }
-        label { font-weight: bold; display: block; margin-top: 8px; margin-bottom: 2px; font-size: 0.85rem; color: #2c3e50; }
-        input[type="text"], input[type="number"], select, textarea { 
-            width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box; 
-            font-size: 0.85rem; color: #333; background: rgba(255, 255, 255, 0.85);
+        .section-content.active { display: block; animation: fadeIn 0.4s ease forwards; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-        textarea { height: 80px; resize: vertical; }
-        .row { display: flex; gap: 10px; }
-        .col { flex: 1; }
-        button.calc-btn { background-color: var(--primary); color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-size: 0.9rem; font-weight: bold; cursor: pointer; margin-top: 12px; }
-        button.calc-btn:hover { background-color: var(--primary-dark); }
-        
-        #loading { display: none; text-align: center; margin-top: 8px; font-style: italic; color: #7f8c8d; font-size: 0.85rem; }
-        #resultado-section { display: none; margin-top: 15px; border-top: 2px solid rgba(0,0,0,0.1); padding-top: 8px; }
-        
-        table.calc-tbl { width: 100%; border-collapse: collapse; margin-top: 6px; }
-        table.calc-tbl th, table.calc-tbl td { border: 1px solid #cbd5e1; padding: 6px; text-align: center; vertical-align: middle; background: rgba(255, 255, 255, 0.6); }
-        table.calc-tbl th { background-color: rgba(241, 245, 249, 0.9); font-weight: bold; font-size: 0.8rem; color: #1e293b; }
-        table.calc-tbl tr.total-row { background-color: rgba(230, 244, 234, 0.9); font-weight: bold; font-size: 0.85rem; color: #065f46; }
-        
-        .editable-cell { width: 100%; padding: 4px; border: 1px solid transparent; background: transparent; text-align: center; font-size: 0.8rem; color: #1e293b; border-radius: 3px; }
-        .editable-cell:hover, .editable-cell:focus { border-color: var(--primary); background: rgba(255, 255, 255, 0.95); outline: none; }
 
-        .btn-save { background-color: #8e44ad; margin-top: 10px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
-        .btn-save:hover { background-color: #71368a; }
-        .btn-copy { background-color: #2980b9; margin-top: 6px; color: white; padding: 10px; border: none; border-radius: 4px; width: 100%; font-weight: bold; cursor: pointer; font-size: 0.85rem; }
-        .btn-copy:hover { background-color: #1f6391; }
+        /* Calculadora */
+        .calculator-section { margin-top: 5px; }
+        label { font-weight: 600; display: block; margin-top: 15px; margin-bottom: 6px; font-size: 0.85rem; color: var(--secondary); text-transform: uppercase; letter-spacing: 0.5px;}
         
-        .user-badge { background: rgba(224, 242, 254, 0.9); color: #0369a1; padding: 6px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; display: inline-block; margin-bottom: 10px; }
+        input[type="text"], input[type="number"], select, textarea { 
+            width: 100%; padding: 12px 15px; border: 1px solid transparent; border-radius: 8px; box-sizing: border-box; 
+            font-size: 0.9rem; color: var(--text-main); background: #f1f5f9; font-family: 'Inter', sans-serif;
+            transition: all 0.2s ease;
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none; background: #ffffff; border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(39, 174, 96, 0.15);
+        }
+        textarea { height: 100px; resize: vertical; }
+        
+        .row { display: flex; gap: 15px; flex-wrap: wrap;}
+        .col { flex: 1 1 200px; }
+        
+        button.calc-btn { 
+            background: var(--primary-gradient); color: white; padding: 14px; border: none; 
+            border-radius: 8px; width: 100%; font-size: 1rem; font-weight: 600; cursor: pointer; 
+            margin-top: 20px; transition: transform 0.2s, box-shadow 0.2s; 
+        }
+        button.calc-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 15px rgba(39,174,96,0.3); }
+        
+        /* Spinner de carga */
+        #loading { display: none; text-align: center; margin-top: 20px; padding: 20px; }
+        .spinner { border: 3px solid rgba(0,0,0,0.1); width: 34px; height: 34px; border-radius: 50%; border-left-color: var(--primary); animation: spin 1s linear infinite; display: inline-block; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .loading-text { display: block; margin-top: 10px; color: var(--text-muted); font-size: 0.9rem; font-weight: 500;}
+
+        #resultado-section { display: none; margin-top: 25px; border-top: 1px solid var(--border-light); padding-top: 15px; }
+        
+        table.calc-tbl { width: 100%; border-collapse: collapse; margin-top: 10px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-light); }
+        table.calc-tbl th, table.calc-tbl td { border-bottom: 1px solid var(--border-light); padding: 10px; text-align: center; vertical-align: middle; background: #ffffff; }
+        table.calc-tbl th { background-color: #f8fafc; font-weight: 600; font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;}
+        table.calc-tbl th:first-child, table.calc-tbl td:first-child { text-align: left; }
+        table.calc-tbl tr:last-child td { border-bottom: none; }
+        table.calc-tbl tr.total-row { background-color: #f0fdf4; font-weight: 700; font-size: 0.85rem; color: #166534; border-top: 2px solid #bbf7d0;}
+        
+        .editable-cell { width: 100%; padding: 8px; border: 1px solid transparent; background: transparent; text-align: inherit; font-size: 0.85rem; color: var(--text-main); border-radius: 6px; transition: background 0.2s;}
+        .editable-cell:hover, .editable-cell:focus { background: #f1f5f9; outline: none; }
+
+        .btn-save { background-color: #8b5cf6; margin-top: 15px; color: white; padding: 12px; border: none; border-radius: 8px; width: 100%; font-weight: 600; cursor: pointer; font-size: 0.9rem; transition: background 0.2s;}
+        .btn-save:hover { background-color: #7c3aed; }
+        .btn-copy { background-color: #3b82f6; margin-top: 10px; color: white; padding: 12px; border: none; border-radius: 8px; width: 100%; font-weight: 600; cursor: pointer; font-size: 0.9rem; transition: background 0.2s;}
+        .btn-copy:hover { background-color: #2563eb; }
+        
+        .user-badge { background: #e0f2fe; color: #0284c7; padding: 8px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; display: inline-block; margin-bottom: 10px; border: 1px solid #bae6fd;}
 
         footer { 
-            background: rgba(44, 62, 80, 0.92); backdrop-filter: blur(5px); color: white; 
-            text-align: center; padding: 15px 20px 30px 20px; flex-shrink: 0; font-size: 0.8rem; margin-top: auto;
+            background: rgba(30, 41, 59, 0.95); backdrop-filter: blur(10px); color: white; 
+            text-align: center; padding: 25px 20px; flex-shrink: 0; font-size: 0.85rem; margin-top: auto;
         }
-        .footer-links { margin-bottom: 10px; display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; gap: 12px; }
-        .footer-link { color: white; text-decoration: none; padding: 6px; background: rgba(255,255,255,0.10); border-radius: 8px; transition: all 0.2s ease; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
-        .footer-link:hover { background: rgba(255,255,255,0.25); transform: translateY(-2px) scale(1.08); }
-        .footer-icon-img { width: 38px; height: 38px; object-fit: contain; display: block; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); }
-        .footer-info { opacity: 0.85; font-size: 0.75rem; text-align: left; margin-top: 5px; }
+        .footer-links { margin-bottom: 15px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 15px; }
+        .footer-link { padding: 8px; border-radius: 12px; transition: all 0.2s ease; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+        .footer-link:hover { background: rgba(255,255,255,0.1); transform: translateY(-3px); }
+        .footer-icon-img { width: 28px; height: 28px; object-fit: contain; display: block; opacity: 0.85; transition: opacity 0.2s;}
+        .footer-link:hover .footer-icon-img { opacity: 1; }
+        .footer-info { opacity: 0.7; font-size: 0.8rem; }
        
-        @media (max-width: 500px) {
-            .footer-links { 
-                gap: 4px; /* Reduce el espacio entre logos */
-                justify-content: center; 
-            }
-            .footer-link { 
-                padding: 4px; /* Reduce el cuadro transparente de fondo */
-            }
-            .footer-icon-img { 
-                width: 24px;  /* Achica el logo visualmente */
-                height: 24px; 
-            }
+        @media (max-width: 600px) {
+            .content-wrapper { padding: 15px; width: 95%; margin: 15px auto;}
+            .content-box { padding: 20px; }
+            .nav-row-3 { flex-direction: column-reverse; gap: 10px; align-items: stretch; }
+            .telegram-link { justify-content: center; }
+            #langFlagsContainer { justify-content: center; }
         }        
-    
     </style>
 </head>
 <body>
 
-<div id="loadingLang" data-var="_02_loading_lang" style="display:none; position:fixed; top:20px; right:20px; background:#2c3e50; color:white; padding:10px 15px; border-radius:8px; z-index:9999; font-size:0.85rem; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+<div id="loadingLang" data-var="_02_loading_lang" style="display:none; position:fixed; top:20px; right:20px; background:#1e293b; color:white; padding:12px 20px; border-radius:30px; z-index:9999; font-size:0.85rem; font-weight:600; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
     ⏳ Cargando idioma...
 </div>
 
 <header>
     <div class="nav-container">
+
+
         <!-- Renglón 1: Logo y Título -->
         <div class="nav-row-1">
-            <img src="{{ url_for('static', filename='logo.png') }}" class="logo-img" alt="Logo" onerror="this.style.display='none'">
+            <a href="https://t.me/mi_control_dieta_bot" target="_blank" style="position: absolute; left: 0; z-index: 10;">
+                <img src="{{ url_for('static', filename='logo.png') }}" class="logo-img" alt="Logo" onerror="this.style.display='none'" style="position: static;">
+            </a>
             <h1 class="site-title" data-var="_02_titulo_web">IA NutriBot</h1>
         </div>
+
         <!-- Renglón 2: Índice de páginas -->
         <div class="nav-row-2" id="nav-links">
             <a id="nav-inicio" onclick="showSection('inicio')" class="active" data-var="_02_menu_inicio">Inicio</a>
@@ -187,8 +233,15 @@ HTML_CALCULADORA_RECETAS = """
             <a id="nav-calculadora" onclick="showSection('calculadora')" data-var="_02_menu_calculadora">Calculadora Web</a>
             {% endif %}
         </div>
-        <!-- Renglón 3: Banderas -->
-        <div class="nav-row-3" id="langFlagsContainer"></div>
+        <!-- Renglón 3: Telegram y Banderas -->
+        <div class="nav-row-3">
+
+            <a href="[https://t.me/mi_control_dieta_bot](https://t.me/mi_control_dieta_bot)" target="_blank" class="telegram-link">
+                <img src="{{ url_for('static', filename='telegram.png') }}" alt="Telegram" class="tg-icon-img" onerror="this.outerHTML='<span style=\'font-size:18px;\'>✈️</span>'">
+                <span data-var="_02_menu_telegram">Abrir en Telegram</span>
+            </a>
+            <div id="langFlagsContainer" style="display:flex; gap:8px;"></div>
+        </div>
     </div>
 </header>
 
@@ -196,7 +249,7 @@ HTML_CALCULADORA_RECETAS = """
     <!-- INICIO -->
     <div id="section-inicio" class="section-content active">
         <div class="content-box">
-            <h2 class="page-title"><b data-var="_02_inicio_tit">BIENVENIDO A IA NUTRIBOT</b></h2>
+            <h2 class="page-title"><span data-var="_02_inicio_tit">BIENVENIDO A IA NUTRIBOT</span></h2>
             <h4 class="page-subtitle" data-var="_02_inicio_sub">La forma más simple, rápida y segura de llevar el control de tu alimentación.</h4>
             <hr class="page-divider">
             <p class="page-bullet" data-var="_02_inicio_b1">⭐ <b>Facilidad total:</b> Olvidate de instalar apps con permisos para acceder a tus datos personales. IA NutriBot funciona 100% dentro de tu Telegram. No necesitas descargar ni instalar ninguna aplicación extra.</p>
@@ -211,7 +264,7 @@ HTML_CALCULADORA_RECETAS = """
     <!-- INGRESO -->
     <div id="section-ingreso" class="section-content">
         <div class="content-box">
-            <h2 class="page-title"><b data-var="_02_ingreso_tit">INGRESO DE COMIDAS</b></h2>
+            <h2 class="page-title"><span data-var="_02_ingreso_tit">INGRESO DE COMIDAS</span></h2>
             <h4 class="page-subtitle" data-var="_02_ingreso_sub">Todas las opciones para registrar tu alimentación de manera fácil, rápida y segura.</h4>
             <hr class="page-divider">
             <p class="page-bullet" data-var="_02_ingreso_b1">⭐ <b>Por Foto:</b> Solo envía una imagen de tu celu o una foto de tu plato y la Inteligencia Artificial hará el cálculo.</p>
@@ -228,7 +281,7 @@ HTML_CALCULADORA_RECETAS = """
     <!-- SALUD -->
     <div id="section-salud" class="section-content">
         <div class="content-box">
-            <h2 class="page-title"><b data-var="_02_salud_tit">SALUD, ACTIVIDAD Y PERFIL</b></h2>
+            <h2 class="page-title"><span data-var="_02_salud_tit">SALUD, ACTIVIDAD Y PERFIL</span></h2>
             <h4 class="page-subtitle" data-var="_02_salud_sub">Lleva un registro integral de tu bienestar y mantén tus datos siempre al día.</h4>
             <hr class="page-divider">
             <p class="page-bullet" data-var="_02_salud_b1">⭐ <b>Presión Arterial:</b> Registra tus mediciones escribiendo los valores manualmente o, de forma mucho más directa, enviando una foto de un tensiómetro digital. ¡IA NutriBot leerá los números automáticamente!</p>
@@ -242,7 +295,7 @@ HTML_CALCULADORA_RECETAS = """
     <!-- INFORMES -->
     <div id="section-informes" class="section-content">
         <div class="content-box">
-            <h2 class="page-title"><b data-var="_02_info_tit">INFORMES, ESTADÍSTICAS Y CONTROL</b></h2>
+            <h2 class="page-title"><span data-var="_02_info_tit">INFORMES, ESTADÍSTICAS Y CONTROL</span></h2>
             <h4 class="page-subtitle" data-var="_02_info_sub">Visualiza tu progreso con resúmenes detallados y mantén tu registro siempre al día.</h4>
             <hr class="page-divider">
             <p class="page-bullet" data-var="_02_info_b1">⭐ <b>Historial Seguro:</b> El bot acumula y guarda automáticamente todos tus datos, creando un historial completo sin que tengas que anotar nada.</p>
@@ -258,7 +311,7 @@ HTML_CALCULADORA_RECETAS = """
     <!-- PRECARGADAS -->
     <div id="section-calculadora_info" class="section-content">
         <div class="content-box">
-            <h2 class="page-title"><b data-var="_02_pre_tit">COMIDAS PRECARGADAS Y CALCULADORA WEB</b></h2>
+            <h2 class="page-title"><span data-var="_02_pre_tit">COMIDAS PRECARGADAS Y CALCULADORA WEB</span></h2>
             <h4 class="page-subtitle" data-var="_02_pre_sub">Guarda tus recetas favoritas y agiliza tus registros diarios con nuestras herramientas avanzadas.</h4>
             <hr class="page-divider">
             <p class="page-bullet" data-var="_02_pre_b1">⭐ <b>Calculadora Nutricional Web:</b> Accede a nuestro módulo web interactivo exclusivo para registrar tus propias recetas caseras (como una pizza o una torta) o tus combinaciones de alimentos habituales.</p>
@@ -272,7 +325,7 @@ HTML_CALCULADORA_RECETAS = """
     <!-- ALTA -->
     <div id="section-alta" class="section-content">
         <div class="content-box">
-            <h2 class="page-title"><b data-var="_02_alta_tit">ALTA DE USUARIO Y PERFIL BIOMÉTRICO</b></h2>
+            <h2 class="page-title"><span data-var="_02_alta_tit">ALTA DE USUARIO Y PERFIL BIOMÉTRICO</span></h2>
             <h4 class="page-subtitle" data-var="_02_alta_sub">Un proceso rapidísimo, 100% anónimo y diseñado exclusivamente para la exactitud de tus resultados.</h4>
             <hr class="page-divider">
             <p class="page-bullet" data-var="_02_alta_b1">⭐ <b>Privacidad Total:</b> No te pedimos documento, ni correo electrónico, ni tarjetas de crédito, ni ningún dato personal sensible. Solo necesitas ingresar un nombre para tu ficha, pero puedes usar un apodo o simplemente poner dos letras si lo prefieres</p>
@@ -286,7 +339,7 @@ HTML_CALCULADORA_RECETAS = """
     <!-- COMANDOS -->
     <div id="section-comandos" class="section-content">
         <div class="content-box">
-            <h2 class="page-title"><b data-var="_02_cmd_tit">GUÍA COMPLETA DE COMANDOS</b></h2>
+            <h2 class="page-title"><span data-var="_02_cmd_tit">GUÍA COMPLETA DE COMANDOS</span></h2>
             <h4 class="page-subtitle" data-var="_02_cmd_sub">Accede rápidamente a todas las funciones y estadísticas del bot escribiendo estos comandos en el chat.</h4>
             <hr class="page-divider">
             <p class="page-bullet" data-var="_02_cmd_b1">⭐ <b>/alta:</b> Inicia el proceso de apertura y configuración de tu cuenta ingresando tus datos biométricos iniciales.</p>
@@ -311,7 +364,7 @@ HTML_CALCULADORA_RECETAS = """
     <!-- FAQ -->
     <div id="section-faq" class="section-content">
         <div class="content-box">
-            <h2 class="page-title"><b data-var="_02_faq_tit">PREGUNTAS FRECUENTES (FAQ)</b></h2>
+            <h2 class="page-title"><span data-var="_02_faq_tit">PREGUNTAS FRECUENTES (FAQ)</span></h2>
             <h4 class="page-subtitle" data-var="_02_faq_sub">Respuestas rápidas a las dudas más comunes sobre el uso de IA NutriBot.</h4>
             <hr class="page-divider">
             <p class="page-bullet" data-var="_02_faq_b1">⭐ <b>¿Necesito instalar alguna aplicación nueva?</b><br>No, IA NutriBot funciona 100% dentro de tu Telegram. No requieres descargar otras aplicaciones pesadas, ni crear cuentas con contraseñas o correos electrónicos.</p>
@@ -326,7 +379,7 @@ HTML_CALCULADORA_RECETAS = """
     <!-- TERMINOS -->
     <div id="section-terminos" class="section-content">
         <div class="content-box">
-            <h2 class="page-title"><b data-var="_02_leg_tit">TÉRMINOS Y CONDICIONES</b></h2>
+            <h2 class="page-title"><span data-var="_02_leg_tit">TÉRMINOS Y CONDICIONES</span></h2>
             <h4 class="page-subtitle" data-var="_02_leg_sub">Información importante sobre el uso de IA NutriBot y el manejo de tus datos.</h4>
             <hr class="page-divider">
             <p class="page-bullet" data-var="_02_leg_b1">⭐ <b>Naturaleza de la Herramienta:</b> IA NutriBot es exclusivamente una herramienta de cálculo automatizado orientada a sumar y restar calorías, así como a registrar ingestas y macronutrientes de forma práctica.</p>
@@ -346,11 +399,11 @@ HTML_CALCULADORA_RECETAS = """
             <div class="user-badge"><span data-var="_02_user_conectado">Usuario Conectado</span>: {{ user_id }}</div>
             
             <div class="row">
-                <div class="col" style="flex: 0.4;">
+                <div class="col">
                     <label for="codigo"><span data-var="_02_label_codigo">Código</span>:</label>
                     <input type="text" id="codigo" data-placeholder="_02_ph_codigo" placeholder="Ej: PASCUALINAP" style="text-transform: uppercase;" oninput="this.value = this.value.toUpperCase()">
                 </div>
-                <div class="col">
+                <div class="col" style="flex: 2;">
                     <label for="descripcion"><span data-var="_02_label_descripcion">Descripción</span>:</label>
                     <input type="text" id="descripcion" data-placeholder="_02_ph_descripcion" placeholder="Ej: Porción de pascualina de atún">
                 </div>
@@ -375,14 +428,17 @@ HTML_CALCULADORA_RECETAS = """
 
             <button class="calc-btn" onclick="calcularReceta()"><span data-var="_02_btn_calcular">✨ Calcular Fila con IA</span></button>
 
-            <div id="loading" data-var="_02_loading_ia">Calculando macronutrientes...</div>
+            <div id="loading">
+                <div class="spinner"></div><br>
+                <span class="loading-text" data-var="_02_loading_ia">Calculando macronutrientes con IA...</span>
+            </div>
 
             <div id="resultado-section">
                 <div style="overflow-x: auto;">
                     <table class="calc-tbl" id="tablaNutricional">
                         <thead>
                             <tr>
-                                <th data-var="_02_th_nombre">Nombre</th>
+                                <th data-var="_02_th_nombre" style="text-align:left;">Nombre</th>
                                 <th data-var="_02_th_peso">⚖️ Peso (g)</th>
                                 <th data-var="_02_th_calorias">🔥 Calorías</th>
                                 <th data-var="_02_th_proteinas">🥩 Proteínas</th>
@@ -394,7 +450,7 @@ HTML_CALCULADORA_RECETAS = """
                         <tbody></tbody>
                         <tfoot>
                             <tr class="total-row" id="filaTotales">
-                                <td><span data-var="_02_th_totales">Totales</span></td>
+                                <td style="text-align:left;"><span data-var="_02_th_totales">Totales</span></td>
                                 <td id="totPeso">0</td>
                                 <td id="totCal">0</td>
                                 <td id="totProt">0</td>
@@ -418,28 +474,28 @@ HTML_CALCULADORA_RECETAS = """
 <footer>
     <div class="footer-links">
         <a onclick="reproducirAudioguia()" class="footer-link" data-title="_02_title_audioguia" title="Audioguía">
-            <img src="{{ url_for('static', filename='audioguia.png') }}" alt="Audioguía" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px; line-height:1;\'>🎧</span>'">
+            <img src="{{ url_for('static', filename='audioguia.png') }}" alt="Audioguía" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px;\'>🎧</span>'">
         </a>
         <a id="linkManual" href="#" target="_blank" class="footer-link" data-title="_02_title_manual" title="Manual (PDF)">
-            <img src="{{ url_for('static', filename='manual.png') }}" alt="Manual" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px; line-height:1;\'>📖</span>'">
+            <img src="{{ url_for('static', filename='manual.png') }}" alt="Manual" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px;\'>📖</span>'">
         </a>
         <a href="https://instagram.com/ianutribot" target="_blank" class="footer-link" title="Instagram">
-            <img src="{{ url_for('static', filename='instagram.png') }}" alt="Instagram" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px; line-height:1;\'>📷</span>'">
+            <img src="{{ url_for('static', filename='instagram.png') }}" alt="Instagram" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px;\'>📷</span>'">
         </a>
         <a href="https://twitter.com/ianutribot" target="_blank" class="footer-link" title="X (Twitter)">
-            <img src="{{ url_for('static', filename='x.png') }}" alt="X" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px; line-height:1;\'>✖️</span>'">
+            <img src="{{ url_for('static', filename='x.png') }}" alt="X" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px;\'>✖️</span>'">
         </a>
         <a href="https://tiktok.com/@ianutribot" target="_blank" class="footer-link" title="TikTok">
-            <img src="{{ url_for('static', filename='tiktok.png') }}" alt="TikTok" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px; line-height:1;\'>🎵</span>'">
+            <img src="{{ url_for('static', filename='tiktok.png') }}" alt="TikTok" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px;\'>🎵</span>'">
         </a>
         <a href="https://facebook.com/ianutribot" target="_blank" class="footer-link" title="Facebook">
-            <img src="{{ url_for('static', filename='facebook.png') }}" alt="Facebook" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px; line-height:1;\'>📘</span>'">
+            <img src="{{ url_for('static', filename='facebook.png') }}" alt="Facebook" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px;\'>📘</span>'">
         </a>
         <a href="https://youtube.com/@ianutribot" target="_blank" class="footer-link" title="YouTube">
-            <img src="{{ url_for('static', filename='youtube.png') }}" alt="YouTube" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px; line-height:1;\'>▶️</span>'">
+            <img src="{{ url_for('static', filename='youtube.png') }}" alt="YouTube" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px;\'>▶️</span>'">
         </a>
         <a href="mailto:ianutribot@gmail.com" class="footer-link" title="Mail">
-            <img src="{{ url_for('static', filename='mail.png') }}" alt="Mail" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px; line-height:1;\'>✉️</span>'">
+            <img src="{{ url_for('static', filename='mail.png') }}" alt="Mail" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px;\'>✉️</span>'">
         </a>
     </div>
     <div class="footer-info" data-var="_02_footer_rights">© 2026 IA NutriBot - Todos los derechos reservados.</div>
@@ -465,6 +521,7 @@ HTML_CALCULADORA_RECETAS = """
     let idiomaActual = 'es';
     let nombreLargoActual = 'Español';
     const currentUserId = "{{ user_id }}";
+    const tokenSeguro = "{{ token_seguro }}"; // AGREGAR ESTA LÍNEA
     let itemsDesglosadosGlobal = [];
 
     function t(clave, fallback) {
@@ -603,10 +660,11 @@ HTML_CALCULADORA_RECETAS = """
                 utterance.rate = 1.0;
                 window.speechSynthesis.speak(utterance);
             } catch (error) {
-                alert(t('_02_err_audioguia', "Error al reproducir la audioguía:") + " " + error.message);
+                Swal.fire({ icon: 'error', title: 'Oops...', text: t('_02_err_audioguia', "Error al reproducir la audioguía:") + " " + error.message });
             }
         } else {
-            alert(t('_02_err_no_speech', "Tu navegador no soporta la función de lectura de voz."));
+
+            Swal.fire({ icon: 'warning', title: t('_02_title_atencion', 'Atención'), text: t('_02_err_no_speech', "Tu navegador no soporta la función de lectura de voz.") });
         }
     }
 
@@ -633,7 +691,8 @@ HTML_CALCULADORA_RECETAS = """
 
     async function calcularReceta() {
         if (!currentUserId) {
-            alert(t('_02_err_no_registrado', "Acción no permitida para usuarios no registrados."));
+        
+            Swal.fire({ icon: 'warning', title: t('_02_title_atencion', 'Atención'), text: t('_02_err_no_registrado', "Acción no permitida para usuarios no registrados.") });
             return;
         }
 
@@ -644,7 +703,8 @@ HTML_CALCULADORA_RECETAS = """
         const porciones = document.getElementById('porciones').value;
 
         if (!codigo || !descripcion || !receta) {
-            alert(t('_02_err_campos_vacios', "Por favor completa el código, la descripción y los ingredientes."));
+
+            Swal.fire({ icon: 'info', title: t('_02_title_vacios', 'Campos Vacíos'), text: t('_02_err_campos_vacios', "Por favor completa el código, la descripción y los ingredientes.") });
             return;
         }
 
@@ -668,7 +728,7 @@ HTML_CALCULADORA_RECETAS = """
 
             const responseText = await response.text();
             if (responseText.trim().startsWith('<')) {
-                alert(t('_02_err_servidor', "❌ El servidor falló") + " (HTTP " + response.status + ").");
+                Swal.fire({ icon: 'error', title: 'Error del Servidor', text: t('_02_err_servidor', "El servidor falló") + " (HTTP " + response.status + ")." });
                 return;
             }
 
@@ -679,10 +739,10 @@ HTML_CALCULADORA_RECETAS = """
                 renderizarTablaEditable();
                 document.getElementById('resultado-section').style.display = 'block';
             } else {
-                alert(t('_02_err_calcular', "❌ Error al calcular:") + " " + (data.error || ""));
+                Swal.fire({ icon: 'error', title: 'Error', text: t('_02_err_calcular', "Error al calcular:") + " " + (data.error || "") });
             }
         } catch (err) {
-            alert(t('_02_err_procesamiento', "❌ Error de procesamiento:") + " " + err.message);
+            Swal.fire({ icon: 'error', title: 'Error de Red', text: t('_02_err_procesamiento', "Error de procesamiento:") + " " + err.message });
         } finally {
             document.getElementById('loading').style.display = 'none';
         }
@@ -695,7 +755,7 @@ HTML_CALCULADORA_RECETAS = """
         itemsDesglosadosGlobal.forEach((item, index) => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><input type="text" class="editable-cell" value="${item.alimento || ''}" onchange="actualizarItem(${index}, 'alimento', this.value)"></td>
+                <td style="text-align:left;"><input type="text" class="editable-cell" value="${item.alimento || ''}" onchange="actualizarItem(${index}, 'alimento', this.value)"></td>
                 <td><input type="number" step="any" class="editable-cell" value="${item.peso || 0}" onchange="actualizarItem(${index}, 'peso', this.value)"></td>
                 <td><input type="number" step="any" class="editable-cell" value="${item.calorias || 0}" onchange="actualizarItem(${index}, 'calorias', this.value)"></td>
                 <td><input type="number" step="any" class="editable-cell" value="${item.proteinas || 0}" onchange="actualizarItem(${index}, 'proteinas', this.value)"></td>
@@ -737,9 +797,10 @@ HTML_CALCULADORA_RECETAS = """
         document.getElementById('totFibr').innerText = Math.round(tFibr);
     }
 
-    async function guardarEnGoogleSheets() {
-        if (!currentUserId || itemsDesglosadosGlobal.length === 0) {
-            alert(t('_02_err_sin_datos', "No hay datos calculados para guardar."));
+async function guardarEnGoogleSheets() {
+        // Cambiar currentUserId por tokenSeguro en la validación
+        if (!tokenSeguro || itemsDesglosadosGlobal.length === 0) {
+            Swal.fire({ icon: 'warning', title: 'Atención', text: t('_02_err_sin_datos', "No hay datos calculados o tu sesión expiró.") });
             return;
         }
 
@@ -759,23 +820,25 @@ HTML_CALCULADORA_RECETAS = """
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    user_id: currentUserId,
+                    token: tokenSeguro, // REEMPLAZAR user_id POR token
                     fila: filaTotalConsolidada
                 })
             });
 
+            // ... el resto de la función sigue igual ...
             const res = await response.json();
             if (response.ok) {
                 if (res.codigo_guardado) {
                     filaTotalConsolidada.nombre = res.codigo_guardado;
                     document.getElementById('codigo').value = res.codigo_guardado;
                 }
-                alert(t('_02_msg_exito_guardar', "✅ ¡Éxito!") + " " + (res.message || ""));
+
+                Swal.fire({ icon: 'success', title: t('_02_title_guardado', 'Guardado'), text: t('_02_msg_exito_guardar', "¡Éxito!") + " " + (res.message || "") });
             } else {
-                alert(t('_02_err_guardar', "❌ Error al guardar:") + " " + (res.error || ""));
+                Swal.fire({ icon: 'error', title: 'Error', text: t('_02_err_guardar', "Error al guardar:") + " " + (res.error || "") });
             }
         } catch (e) {
-            alert(t('_02_err_conexion_guardar', "Error de conexión al intentar guardar."));
+            Swal.fire({ icon: 'error', title: 'Error de Red', text: t('_02_err_conexion_guardar', "Error de conexión al intentar guardar.") });
         }
     }
 
@@ -795,9 +858,9 @@ HTML_CALCULADORA_RECETAS = """
         const textoCopiable = celdas.join('\\t');
 
         navigator.clipboard.writeText(textoCopiable).then(() => {
-            alert(t('_02_msg_copiado', "¡Fila total copiada! Podés pegarla en tu Excel con Ctrl + V."));
+            Swal.fire({ icon: 'success', title: 'Copiado', text: t('_02_msg_copiado', "¡Fila total copiada! Podés pegarla en tu Excel con Ctrl + V.") });
         }).catch(err => {
-            alert(t('_02_err_copiar', "Error al copiar al portapapeles."));
+            Swal.fire({ icon: 'error', title: 'Error', text: t('_02_err_copiar', "Error al copiar al portapapeles.") });
         });
     }
 </script>
@@ -815,17 +878,20 @@ HTML_TERMINOS_ALTA = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-var="_02_leg_tit">Términos y Condiciones - IA NutriBot</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         :root {
             --primary: #27ae60;
             --primary-dark: #219150;
-            --secondary: #2c3e50;
-            --bg-color: #f4f6f9;
-            --text-color: #2c3e50;
+            --secondary: #1e293b;
+            --bg-color: #f8fafc;
+            --text-color: #334155;
+            --border-light: #e2e8f0;
         }
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Inter', sans-serif;
             background: var(--bg-color);
             color: var(--text-color);
             margin: 0;
@@ -834,53 +900,60 @@ HTML_TERMINOS_ALTA = """
             flex-direction: column;
             min-height: 100vh;
             box-sizing: border-box;
+            align-items: center;
+            justify-content: center;
         }
         .container {
             max-width: 600px;
-            margin: auto;
+            width: 100%;
             background: white;
-            padding: 25px;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1);
         }
         h2 {
             color: var(--primary);
             text-align: center;
             margin-top: 0;
+            font-weight: 700;
+            letter-spacing: -0.5px;
         }
         .terms-box {
-            max-height: 250px;
+            max-height: 280px;
             overflow-y: auto;
-            border: 1px solid #cbd5e1;
-            padding: 15px;
-            border-radius: 6px;
-            background: #fafafa;
-            font-size: 0.9rem;
-            line-height: 1.5;
-            margin-bottom: 20px;
+            border: 1px solid var(--border-light);
+            padding: 20px;
+            border-radius: 12px;
+            background: #fcfcfc;
+            font-size: 0.95rem;
+            line-height: 1.6;
+            margin-bottom: 25px;
         }
+        .terms-box::-webkit-scrollbar { width: 6px; }
+        .terms-box::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        
         .btn-accept {
-            background-color: var(--primary);
+            background: linear-gradient(135deg, #27ae60 0%, #219150 100%);
             color: white;
             border: none;
-            padding: 12px;
+            padding: 14px;
             width: 100%;
-            border-radius: 6px;
-            font-size: 1rem;
-            font-weight: bold;
+            border-radius: 8px;
+            font-size: 1.05rem;
+            font-weight: 600;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: transform 0.2s, box-shadow 0.2s;
         }
         .btn-accept:hover {
-            background-color: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px rgba(39,174,96,0.3);
         }
+        
         #loading {
-            display: none;
-            text-align: center;
-            margin-top: 10px;
-            font-style: italic;
-            color: #7f8c8d;
+            display: none; text-align: center; margin-top: 20px;
         }
+        .spinner { border: 3px solid rgba(0,0,0,0.1); width: 28px; height: 28px; border-radius: 50%; border-left-color: var(--primary); animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; margin-right: 10px;}
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -894,7 +967,9 @@ HTML_TERMINOS_ALTA = """
     </div>
 
     <button class="btn-accept" id="btnAccept" onclick="aceptarTerminos()" data-var="_02_leg_btn_aceptar">✅ He leído y acepto los términos</button>
-    <div id="loading" data-var="_02_leg_loading">Registrando datos y conectando con el bot...</div>
+    <div id="loading">
+        <div class="spinner"></div><span data-var="_02_leg_loading" style="color:#64748b; font-weight:500;">Registrando datos y conectando...</span>
+    </div>
 </div>
 
 <script>
@@ -939,6 +1014,7 @@ HTML_TERMINOS_ALTA = """
 
     async function aceptarTerminos() {
         document.getElementById('loading').style.display = 'block';
+        document.getElementById('btnAccept').style.display = 'none'; // Ocultar boton para evitar dobles clics
         
         // Capturar zona horaria exacta y ubicación
         let tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Argentina/Buenos_Aires';
@@ -976,15 +1052,17 @@ HTML_TERMINOS_ALTA = """
                     tg.sendData("aceptado");
                     tg.close();
                 } else {
-                    alert("Términos aceptados con éxito. Volvé a Telegram para continuar.");
+                    Swal.fire({icon: 'success', title: '¡Listo!', text: 'Términos aceptados con éxito. Volvé a Telegram para continuar.'});
                 }
             } else {
-                alert("Hubo un error al registrar la aceptación. Por favor, intentá de nuevo.");
+                Swal.fire({icon: 'error', title: 'Oops...', text: 'Hubo un error al registrar la aceptación. Por favor, intentá de nuevo.'});
                 document.getElementById('loading').style.display = 'none';
+                document.getElementById('btnAccept').style.display = 'block';
             }
         } catch (err) {
-            alert("Error de conexión: " + err.message);
+            Swal.fire({icon: 'error', title: 'Error de Red', text: err.message});
             document.getElementById('loading').style.display = 'none';
+            document.getElementById('btnAccept').style.display = 'block';
         }
     }
     
@@ -1051,12 +1129,36 @@ def api_guardar_terminos():
 #              FINAL                                   PÁGINA DE TÉRMINOS Y ALTA (WEB APP TRADUCIBLE)                   FINAL
 # =====================================================================================================================================
 
+import time
+
+def validar_token_y_obtener_usuario(token):
+    """Busca el token en la BD y verifica que no esté vencido. Devuelve el user_id o None."""
+    if not token:
+        return None
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur.execute('SELECT "User ID", "expiracion_token" FROM "Usuarios" WHERE "token_calculadora" = %s', (token,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        if row and row[1]:
+            expiracion = float(row[1])
+            if expiracion > time.time():  # Si el tiempo actual es menor a la expiración, es válido
+                return str(row[0]).strip()
+    except Exception as e:
+        logger.error(f"Error validando token: {e}")
+    return None
+
 @app.route('/', methods=['GET'])
 def vista_calculadora():
-    user_id = request.args.get('user_id', '')
-    return render_template_string(HTML_CALCULADORA_RECETAS, user_id=user_id)
-
-
+    # En lugar de leer el user_id directo, leemos el token de seguridad
+    token = request.args.get('token', '')
+    user_id = validar_token_y_obtener_usuario(token)
+    
+    # Renderizamos la plantilla (si user_id es None, Jinja ocultará la calculadora sola)
+    return render_template_string(HTML_CALCULADORA_RECETAS, user_id=user_id, token_seguro=token)
+    
 @app.route('/manual.pdf', methods=['GET'])
 def servir_manual_pdf():
     try:
@@ -1132,6 +1234,13 @@ def api_usuario_idioma():
 def api_calcular_receta():
     try:
         data = request.json
+        token = data.get("token")
+        
+        # Validación estricta mediante token
+        user_id = validar_token_y_obtener_usuario(token)
+        if not user_id:
+            return jsonify({"error": "Sesión expirada o inválida. Generá un nuevo link desde Telegram."}), 403
+            
         codigo = data.get("codigo")
         descripcion = data.get("descripcion")
         receta = data.get("receta")
@@ -1209,15 +1318,16 @@ def api_calcular_receta():
 def api_guardar_comida():
     try:
         data = request.json
-        user_id = data.get('user_id')
+        token = data.get("token")
         fila = data.get('fila')
+        
+        # Validación estricta mediante token
+        user_id = validar_token_y_obtener_usuario(token)
+        if not user_id or not fila:
+            return jsonify({"error": "Sesión expirada o faltan datos de la receta."}), 403
 
         lang = obtener_idioma_usuario(user_id) if user_id else 'es'
         traducciones = obtener_traducciones_db(lang) or {}
-
-        if not user_id or not fila:
-            err_msg = traducciones.get("02_api_err_faltan_datos", "Faltan datos de usuario o de la receta.")
-            return jsonify({"error": err_msg}), 400
 
         codigo_guardado = guardar_comida_precargada_db(user_id, fila)
 
@@ -1234,5 +1344,3 @@ def api_guardar_comida():
 # =====================================================================================================================================
 #              FINAL                                  PAGINA WEB (CALCULADORA UNICA)                  FINAL
 # =====================================================================================================================================
-
-

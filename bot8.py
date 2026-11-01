@@ -20,6 +20,8 @@ from bot8a import (
     _sub_manejar_voz_actividad
 )
 import web
+import uuid
+import time
 
 from administrador import (
     cmd_desarmar_excel,
@@ -372,17 +374,29 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
     
-    web_app_url = f"https://ianutribot.com/?user_id={user_id}#calculadora"
+    # 1. Generar token único y expiración (1 hora = 3600 segundos)
+    token_seguro = str(uuid.uuid4())
+    expiracion = time.time() + 3600 
+    
+    # 2. Guardarlo en la base de datos para este usuario
+    await asyncio.to_thread(_core_guardar_usuario_db, str(user_id), {
+        "token_calculadora": token_seguro,
+        "expiracion_token": expiracion
+    })
+    
+    # 3. Armar el link con el token en lugar del user_id
+    web_app_url = f"https://ianutribot.com/?token={token_seguro}#calculadora"
     
     btn_text = traducciones.get("07_bot_btn_crear_receta", "🍳 Abrir Creador de Recetas")
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(btn_text, url=web_app_url)]
     ])
     
-    msg_tmpl = traducciones.get("07_bot_msg_cargar_receta", "👋 ¡Hola! Usá el siguiente botón para calcular los valores nutricionales de tu receta e ingresarla directamente en tu planilla personalizada:")
-    mensaje = msg_tmpl.format(user_id=user_id)
+    msg_tmpl = traducciones.get("07_bot_msg_cargar_receta", "👋 ¡Hola! Usá el siguiente botón para acceder. \n⚠️ *Nota: Por seguridad, este enlace expira en 1 hora.*")
+    mensaje = msg_tmpl.format(user_id=user_id).replace('\\n', '\n')
     
-    await update.message.reply_text(mensaje, reply_markup=keyboard)
+    await update.message.reply_text(mensaje, reply_markup=keyboard, parse_mode="Markdown")
+    
             
 # ========================================================================================================================================
 
@@ -1234,80 +1248,6 @@ async def facturar_saldo_del_mes(context: ContextTypes.DEFAULT_TYPE, user_id: in
     except Exception as e:
         logger.error(f"Error al enviar la factura prorrateada al usuario {user_id}: {e}")
         
-async def rutina_nocturna_revision(context: ContextTypes.DEFAULT_TYPE):
-    """
-    Se ejecuta de madrugada. Revisa inactividad (strikes) y manda avisos de pesaje.
-    """
-    ahora = obtener_ahora_arg()
-    hoy_str = ahora.strftime("%Y-%m-%d")
-    dia_actual = ahora.day
-
-    try:
-        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        cur.execute('SELECT "User ID", "Estado", "dias_inactivo" FROM "Usuarios" WHERE "Estado" NOT IN (\'3\', \'inactivo\', \'baja\')')
-        usuarios_activos = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        for usr in usuarios_activos:
-            user_id = str(usr[0]).split('.')[0].strip()
-            estado_actual = str(usr[1])
-            dias_inact = int(usr[2] if usr[2] is not None else 0)
-
-            u_lang = obtener_idioma_usuario(int(user_id)) or 'es'
-            u_trad = obtener_traducciones_db(u_lang) or {}
-
-            # 1. VERIFICACIÓN DE CARGAS (Sistema de Strikes) en la tabla real de ingestas
-            cargo_hoy = False
-            try:
-                conn_u, cur_u = _asegurar_tabla_y_conectar(f"User_{user_id}", tipo_tabla="comida")
-                cur_u.execute(f'SELECT COUNT(*) FROM "User_{user_id}" WHERE "Fecha" = %s', (hoy_str,))
-                if cur_u.fetchone()[0] > 0:
-                    cargo_hoy = True
-                cur_u.close()
-                conn_u.close()
-            except Exception:
-                pass 
-
-            conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-            if cargo_hoy:
-                cur_u.execute('UPDATE "Usuarios" SET "dias_inactivo" = 0 WHERE "User ID" = %s', (user_id,))
-            else:
-                dias_inact += 1
-                cur_u.execute('UPDATE "Usuarios" SET "dias_inactivo" = %s WHERE "User ID" = %s', (dias_inact, user_id))
-                
-                # Strike 1
-                if dias_inact == 1:
-                    msg_s1 = u_trad.get("10_strike_1", "⚠️ **Aviso de sistema:** Notamos que hoy no registraste comidas. Recordá que el plan requiere carga diaria para mantener la cuenta activa.")
-                    await context.bot.send_message(chat_id=int(user_id), text=msg_s1, parse_mode="Markdown")
-                # Strike 2
-                elif dias_inact == 2:
-                    msg_s2 = u_trad.get("10_strike_2", "⏳ **Último aviso:** Llevás 2 días sin registrar. Si mañana no se detecta actividad, tu cuenta pasará a estado suspendido.")
-                    await context.bot.send_message(chat_id=int(user_id), text=msg_s2, parse_mode="Markdown")
-
-                # Strike 3 (Guillotina)
-                elif dias_inact >= 3:
-                    cur_u.execute('UPDATE "Usuarios" SET "Estado" = %s WHERE "User ID" = %s', ('3', user_id))
-                    msg_s3 = u_trad.get("10_strike_3", "❌ **Cuenta suspendida** por falta de registro consecutivo.\n\nEscribí cualquier comando (ej: `/dia`) para ver las opciones de reactivación.").replace('\\n', '\n')
-                    await context.bot.send_message(chat_id=int(user_id), text=msg_s3, parse_mode="Markdown")
-
-            conn_u.commit()
-            cur_u.close()
-            conn_u.close()
-
-            # 2. RECORDATORIOS DE PESAJE (Regla de las 3 Ventanas)
-            if dia_actual == 15 and estado_actual != '3':
-                msg_peso_15 = u_trad.get("10_aviso_peso_15", "⚖️ **Control Quincenal Habilitado**\n\nYa podés ingresar tu control de peso de mitad de mes para calibrar tu metabolismo.\n👉 Escribí `/peso [tu_peso]` (ej: `/peso 85`).").replace('\\n', '\n')
-                await context.bot.send_message(chat_id=int(user_id), text=msg_peso_15, parse_mode="Markdown")
-            
-            elif dia_actual == 26 and estado_actual != '3':
-                msg_peso_26 = u_trad.get("10_aviso_peso_26", "⚖️ **Cierre de Mes Habilitado**\n\nSe habilitó el ingreso de tu peso final para cerrar el balance mensual y preparar tu próxima rutina.\n👉 Escribí `/peso [tu_peso]`.").replace('\\n', '\n')
-                await context.bot.send_message(chat_id=int(user_id), text=msg_peso_26, parse_mode="Markdown")
-
-        logger.info("Rutina nocturna finalizada con éxito.")
-    except Exception as e:
-        logger.error(f"Error en rutina nocturna: {e}")
-
 # 1. COMANDO /pagar (Menú dinámico de planes desde Supabase)
 # =========================================================================
 async def cmd_pagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3528,8 +3468,11 @@ async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         aviso_medico_alta = ""
         if prof_pendiente and prof_pendiente != "123456789":
-            aviso_medico_alta = "\n\n🩺 *Nota:* Se ha enviado una solicitud a tu médico tratante para que audite y confirme tu seguimiento. Tu cuenta ya se encuentra activa de forma autónoma."
-
+        
+            aviso_medico_alta = traducciones.get(
+    '09_ing_nota_medico_pendiente', 
+    "\n\n🩺 *Nota:* Se ha enviado una solicitud a tu médico tratante para que audite y confirme tu seguimiento. Tu cuenta ya se encuentra activa de forma autónoma."
+)
         resumen_plantilla = traducciones.get('09_ing_resumen_cuenta_lista', 
             "🎉 **¡Tu cuenta y planillas están listas!**\n\n"
             "👤 **Paciente:** {nombre} | **ID:** `{user_id}`\n"
@@ -4489,12 +4432,6 @@ def main():
                 name="recordatorio_comidas_tarde"
             )
             
-            job_queue.run_daily(
-                rutina_nocturna_revision,
-                time=time(hour=3, minute=0, second=0, tzinfo=tz),
-                name="rutina_nocturna_revision"
-            )
-
             job_queue.run_monthly(
 	            callback=proceso_masivo_cobros,
 	            when=time(hour=0, minute=5, second=0, tzinfo=tz),

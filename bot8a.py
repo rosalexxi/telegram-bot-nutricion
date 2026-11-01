@@ -194,6 +194,7 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
                     "Fibras" DOUBLE PRECISION
                 );
             """)
+
         elif tipo_tabla == "usuarios":
             cur.execute(f"""
                 CREATE TABLE IF NOT EXISTS "{tabla_real}" (
@@ -217,9 +218,15 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
                     "plan_preferido" TEXT,
                     "vencimiento_suscripcion" TEXT,
                     "saldo_estrellas" INTEGER DEFAULT 0,
-                    "profesional_pendiente" TEXT
+                    "profesional_pendiente" TEXT,
+                    "token_calculadora" TEXT,
+                    "expiracion_token" DOUBLE PRECISION,
+                    "pais" TEXT,
+                    "ciudad" TEXT,
+                    "zona_horaria" TEXT
                 );
             """)
+            
         elif tipo_tabla == "categorias_comida":
             cur.execute(f"""
                 CREATE TABLE IF NOT EXISTS "{tabla_real}" (
@@ -257,6 +264,7 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
             """)
         conn.commit()
 
+
     if tipo_tabla == "usuarios":
         try:
             cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "cadera_cm" DOUBLE PRECISION;')
@@ -265,6 +273,14 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
             cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "vencimiento_suscripcion" TEXT;')
             cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "saldo_estrellas" INTEGER DEFAULT 0;')
             cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "profesional_pendiente" TEXT;')
+            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "token_calculadora" TEXT;')
+            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "expiracion_token" DOUBLE PRECISION;')
+            
+            # --- NUEVAS COLUMNAS DE GEOLOCALIZACIÓN ---
+            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "pais" TEXT;')
+            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "ciudad" TEXT;')
+            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "zona_horaria" TEXT;')
+            
             conn.commit()
         except Exception:
             conn.rollback()
