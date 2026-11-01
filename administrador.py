@@ -269,12 +269,17 @@ async def cmd_armar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Lógica según el modo:
         if modo_agregar:
-            # Modo agregar: Nos conectamos sin hacer DROP, asegurando únicamente conexión estándar
+            # Modo agregar: Nos conectamos sin hacer DROP
             conn = _obtener_conexion_db()
             cur = conn.cursor()
         else:
-            # Modo normal: Borra la tabla y la crea de cero
-            conn, cur = _asegurar_tabla_y_conectar(nombre_tabla, df_muestra=df_trad)
+            # Modo normal: Borra la tabla y la crea de cero dinámicamente con las columnas del Excel
+            conn = _obtener_conexion_db()
+            cur = conn.cursor()
+            cur.execute(f'DROP TABLE IF EXISTS "{nombre_tabla}"')
+            columnas_creacion = ', '.join([f'"{c}" TEXT' for c in df_trad.columns])
+            cur.execute(f'CREATE TABLE "{nombre_tabla}" (id SERIAL PRIMARY KEY, {columnas_creacion})')
+            conn.commit()
 
         columnas = list(df_trad.columns)
         cols_sql = ', '.join([f'"{c}"' for c in columnas])
@@ -343,8 +348,15 @@ async def cmd_subir(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         df.columns = [str(c).strip() for c in df.columns]
 
-        conn, cur = _asegurar_tabla_y_conectar(nombre_tabla, df_muestra=df)
-
+        conn = _obtener_conexion_db()
+        cur = conn.cursor()
+        
+        # Borra la tabla vieja y la recrea dinámicamente con las columnas del Excel importado
+        cur.execute(f'DROP TABLE IF EXISTS "{nombre_tabla}"')
+        columnas_creacion = ', '.join([f'"{c}" TEXT' for c in df.columns])
+        cur.execute(f'CREATE TABLE "{nombre_tabla}" (id SERIAL PRIMARY KEY, {columnas_creacion})')
+        conn.commit()
+        
         columnas = list(df.columns)
         cols_sql = ', '.join([f'"{c}"' for c in columnas])
         placeholders = ', '.join(['%s'] * len(columnas))
