@@ -74,7 +74,8 @@ async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         }
 
         comandos_regex = '|'.join(map(re.escape, mapa_comandos_ingles.keys()))
-        patron_ph = re.compile(rf'(\[[^\]\n]+\]|\{{[^}}\n]+\}}|(?i)(?:{comandos_regex})(?!\w))')
+
+        patron_ph = re.compile(rf'(\[[^\]\n]+\]|\{{[^}}\n]+\}}|(?:{comandos_regex})(?!\w))', flags=re.IGNORECASE)
 
         mapa_variables = {}
         mapa_inverso = {}
