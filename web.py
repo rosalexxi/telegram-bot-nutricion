@@ -209,13 +209,12 @@ HTML_CALCULADORA_RECETAS = """
 <header>
     <div class="nav-container">
 
-
         <!-- Renglón 1: Logo y Título -->
-        <div class="nav-row-1">
-            <a href="https://t.me/mi_control_dieta_bot" target="_blank" style="position: absolute; left: 0; z-index: 10;">
-                <img src="{{ url_for('static', filename='logo.png') }}" class="logo-img" alt="Logo" onerror="this.style.display='none'" style="position: static;">
+        <div class="nav-row-1" style="justify-content: flex-start; padding-left: 10px;">
+            <a href="https://t.me/mi_control_dieta_bot" target="_blank" style="display: flex; align-items: center; text-decoration: none;">
+                <img src="{{ url_for('static', filename='logo.png') }}" class="logo-img" alt="Logo" onerror="this.style.display='none'" style="position: relative; margin-right: 15px;">
+                <h1 class="site-title" data-var="_02_titulo_web">IA NutriBot</h1>
             </a>
-            <h1 class="site-title" data-var="_02_titulo_web">IA NutriBot</h1>
         </div>
 
         <!-- Renglón 2: Índice de páginas -->
@@ -236,12 +235,9 @@ HTML_CALCULADORA_RECETAS = """
 
         <!-- Renglón 3: Telegram y Banderas -->
         <div class="nav-row-3">
-
             <a href="https://t.me/mi_control_dieta_bot" target="_blank" class="telegram-link">
-
-            <a href="[https://t.me/mi_control_dieta_bot](https://t.me/mi_control_dieta_bot)" target="_blank" class="telegram-link">
                 <img src="{{ url_for('static', filename='telegram.png') }}" alt="Telegram" class="tg-icon-img" onerror="this.outerHTML='<span style=\'font-size:18px;\'>✈️</span>'">
-                <span data-var="_02_menu_telegram">Abrir en Telegram</span>
+                <span>Telegram</span>
             </a>
             <div id="langFlagsContainer" style="display:flex; gap:8px;"></div>
         </div>
