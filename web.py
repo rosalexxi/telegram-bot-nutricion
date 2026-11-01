@@ -715,7 +715,7 @@ HTML_CALCULADORA_RECETAS = """
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
-                    user_id: currentUserId,
+                    token: tokenSeguro,  // <- CORRECCIÓN
                     lang: idiomaActual,
                     codigo, 
                     descripcion, 
