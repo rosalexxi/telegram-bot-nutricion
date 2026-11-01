@@ -1272,22 +1272,24 @@ def api_calcular_receta():
         try:
             model = genai.GenerativeModel(MODELO_TEXTO, system_instruction=instruccion)
             response = model.generate_content(prompt_ia, generation_config=config_gen)
-            resultado_json = json.loads(response.text)
+            texto_limpio = response.text.replace("```json", "").replace("```", "").strip()
+            resultado_json = json.loads(texto_limpio)
             
         except Exception as e_prin:
             logger.warning(f"⚠️ Falla Principal Web ({MODELO_TEXTO}): {e_prin}. Pasando a Respaldo...")
             try:
                 model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=instruccion)
                 response_resp = model_resp.generate_content(prompt_ia, generation_config=config_gen)
-                resultado_json = json.loads(response_resp.text)
+                texto_limpio = response_resp.text.replace("```json", "").replace("```", "").strip()
+                resultado_json = json.loads(texto_limpio)
                 
             except Exception as e_resp:
                 logger.warning(f"⚠️ Falla Respaldo Web ({MODELO_RESPALDO}): {e_resp}. Pasando a Emergencia...")
                 try:
                     model_emer = genai.GenerativeModel(MODELO_EMERGENCIA, system_instruction=instruccion)
                     response_emer = model_emer.generate_content(prompt_ia, generation_config=config_gen)
-                    resultado_json = json.loads(response_emer.text)
-                    
+                    texto_limpio = response_emer.text.replace("```json", "").replace("```", "").strip()
+                    resultado_json = json.loads(texto_limpio)                 
                 except Exception as e_emer:
                     logger.error(f"❌ Fallaron todos los modelos web: {e_emer}")
                     err_msg = traducciones.get("02_api_err_ia_fallo", "No se pudo conectar con los servidores de Inteligencia Artificial.")
