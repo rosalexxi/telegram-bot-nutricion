@@ -23,6 +23,7 @@ import web
 import uuid
 import time
 
+from datetime import time as dt_time
 from administrador import (
     cmd_desarmar_excel,
     cmd_armar_excel,
@@ -4423,21 +4424,21 @@ def main():
         if job_queue is not None:
             job_queue.run_daily(
                 job_recordatorio_manana, 
-                time=time(hour=9, minute=0, second=0, tzinfo=tz),
+                time=dt_time(hour=9, minute=0, second=0, tzinfo=tz),
                 name="recordatorio_comidas_manana"
             )
             job_queue.run_daily(
                 job_recordatorio_tarde, 
-                time=time(hour=18, minute=0, second=0, tzinfo=tz),
+                time=dt_time(hour=18, minute=0, second=0, tzinfo=tz),
                 name="recordatorio_comidas_tarde"
             )
             
             job_queue.run_monthly(
-	            callback=proceso_masivo_cobros,
-	            when=time(hour=0, minute=5, second=0, tzinfo=tz),
-	            day=1,
-	            name="facturacion_masiva_dia_1"
-	        )        
+                callback=proceso_masivo_cobros,
+                when=dt_time(hour=0, minute=5, second=0, tzinfo=tz),
+                day=1,
+                name="facturacion_masiva_dia_1"
+            )
         else:
             print("⚠️ Warning: job_queue is not available.")
        

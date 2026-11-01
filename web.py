@@ -233,8 +233,11 @@ HTML_CALCULADORA_RECETAS = """
             <a id="nav-calculadora" onclick="showSection('calculadora')" data-var="_02_menu_calculadora">Calculadora Web</a>
             {% endif %}
         </div>
+
         <!-- Renglón 3: Telegram y Banderas -->
         <div class="nav-row-3">
+
+            <a href="https://t.me/mi_control_dieta_bot" target="_blank" class="telegram-link">
 
             <a href="[https://t.me/mi_control_dieta_bot](https://t.me/mi_control_dieta_bot)" target="_blank" class="telegram-link">
                 <img src="{{ url_for('static', filename='telegram.png') }}" alt="Telegram" class="tg-icon-img" onerror="this.outerHTML='<span style=\'font-size:18px;\'>✈️</span>'">
