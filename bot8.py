@@ -1027,10 +1027,16 @@ async def mostrar_resumen_actividad_mes(update: Update, context: ContextTypes.DE
             await update.message.reply_text(msg_vacio, parse_mode="Markdown")
         return
 
+    import calendar
+    
     tot_kcal = abs(df_act['Calorias'].sum())
     sesiones = len(df_act)
     dias_activos = df_act['Fecha'].nunique() or 1
     tot_minutos = 0
+
+    # Calcular los días totales del mes seleccionado
+    año_str, mes_num_str = mes_str.split('-')
+    dias_del_mes = calendar.monthrange(int(año_str), int(mes_num_str))[1]
 
     detalle_lineas = []
     for _, row in df_act.sort_values('Fecha').iterrows():
@@ -1048,9 +1054,9 @@ async def mostrar_resumen_actividad_mes(update: Update, context: ContextTypes.DE
 
     txt_resumen = (
         f"🏃 **Resumen de Actividad Física ({mes_str})**\n\n"
-        f"• 🗓️ **Días activos:** `{dias_activos}` ({sesiones} sesiones)\n"
-        f"• ⏱️ **Tiempo total:** `{tot_minutos} min` (`{tot_minutos/dias_activos:.0f} min/día activo`)\n"
-        f"• 🔥 **Total quemado:** `{tot_kcal:.0f} kcal` (`{tot_kcal/dias_activos:.0f} kcal/día activo`)\n\n"
+        f"• 🗓️ **Días activos:** `{dias_activos}` de `{dias_del_mes}` ({sesiones} sesiones)\n"
+        f"• ⏱️ **Tiempo total:** `{tot_minutos} min` (`{tot_minutos/dias_del_mes:.0f} min/día`)\n"
+        f"• 🔥 **Total quemado:** `{tot_kcal:.0f} kcal` (`{tot_kcal/dias_del_mes:.0f} kcal/día`)\n\n"
         f"📋 **Detalle del período:**\n{listado_str}"
     )
 
@@ -1063,7 +1069,7 @@ async def mostrar_resumen_actividad_mes(update: Update, context: ContextTypes.DE
         await query.edit_message_text(txt_resumen, reply_markup=keyboard, parse_mode="Markdown")
     else:
         await update.message.reply_text(txt_resumen, reply_markup=keyboard, parse_mode="Markdown")
-
+        
 async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id):
     user_id = update.effective_user.id
     ahora = obtener_ahora_arg()

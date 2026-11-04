@@ -3350,13 +3350,18 @@ async def _sub_manejar_edicion_item(update, context, raw_text, chat_id):
 
     item_actual = items[item_index]
     es_plantilla = item_actual.get('es_plantilla', False)
+
     es_solo_numero = False
     
+    # Limpiamos la entrada de unidades comunes al final (g, gr, gramos, ml, etc.)
+    texto_limpio = re.sub(r'(?i)\s*(g|gr|gramos|ml|cc)$', '', raw_text).strip()
+    
     try:
-        nuevo_valor = float(raw_text.replace(',', '.').strip())
+        nuevo_valor = float(texto_limpio.replace(',', '.'))
         es_solo_numero = True
     except ValueError:
         pass
+
 
     try: await update.message.delete()
     except: pass
