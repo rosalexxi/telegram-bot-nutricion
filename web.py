@@ -29,7 +29,9 @@ HTML_CALCULADORA_RECETAS = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title id="title-app" data-var="_02_titulo_web">IA NutriBot</title>
+
+    <title id="title-app">IA NutriBot</title>
+
     <!-- Fuente Moderna de Google -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- SweetAlert2 para Notificaciones Modernas -->
