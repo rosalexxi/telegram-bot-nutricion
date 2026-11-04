@@ -1,7 +1,7 @@
 
 #===============================================================================================================
 #           VERIFICAR ERRORES ANTES DE SUBIR   python3 -m py_compile bot8a.py administrador.py profesionales.py bot8.py
-#           REEMPLAZAR DESDE LINEA DE COMANDOS  sed -i "s/or '\$1'/or 'es'/g" bot8.py bot8a.py   sed -i "s/STRING_A_REEMPLAZAR/STRING_REEMPLAZO/g" ARCHIVO1 ARCHIVO2
+# REEMPLAZAR DESDE COMANDOS  sed -i "s/or '\$1'/or 'es'/g" bot8.py bot8a.py   sed -i "s/STRING_A_REEMPLAZAR/STRING_REEMPLAZO/g" ARCHIVO1 ARCHIVO2
 #===============================================================================================================
 
 from bot8a import *
@@ -736,6 +736,334 @@ async def manejar_callback_eliminacion(update: Update, context: ContextTypes.DEF
 
 # =====================================================================================================================================
 
+# =====================================================================================================================================
+#                  INICIO                 FLUJO MANUAL Y RESUMEN MENSUAL DE ACTIVIDAD                 INICIO
+# =====================================================================================================================================
+
+@requiere_registro
+async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    # Si viene con argumento (ej: /actividad resumen o /actividad 08)
+    if context.args:
+        arg0 = context.args[0].strip().lower()
+        if arg0 in ["resumen", "mes", "summary", "month", "r", "m"]:
+            ahora = obtener_ahora_arg()
+            mes_actual_iso = ahora.strftime("%Y-%m")
+            mes_anterior_iso = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+            label_mes_actual = ahora.strftime("%m/%Y")
+            label_mes_anterior = (ahora.replace(day=1) - timedelta(days=1)).strftime("%m/%Y")
+
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton(f"📅 {label_mes_actual}", callback_data=f"act_res_mes_{mes_actual_iso}")],
+                [InlineKeyboardButton(f"📆 {label_mes_anterior}", callback_data=f"act_res_mes_{mes_anterior_iso}")],
+                [InlineKeyboardButton("🔄 📅 Otros meses", callback_data="act_res_menu_otros")]
+            ])
+            txt_tit = traducciones.get(
+                "07_bot_act_resumen_titulo", 
+                "🏃 **Resumen Mensual de Actividad Física:**\nSeleccioná el período que querés consultar:"
+            ).replace('\\n', '\n')
+            await update.message.reply_text(txt_tit, reply_markup=keyboard, parse_mode="Markdown")
+            return
+        elif arg0.isdigit() and 1 <= int(arg0) <= 12:
+            ahora = obtener_ahora_arg()
+            mes_formateado = f"{ahora.year}-{int(arg0):02d}"
+            await mostrar_resumen_actividad_mes(update, context, mes_override=mes_formateado)
+            return
+
+    # Si se llama solo con /actividad -> Inicia carga paso a paso (1. Minutos)
+    context.user_data['act_manual_step'] = 'minutos'
+    context.user_data['act_manual_data'] = {}
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("❌ Anular", callback_data="act_manual_cancelar")]
+    ])
+    txt_paso1 = traducciones.get(
+        "07_bot_act_paso1_min", 
+        "🏃 **Registro Manual de Actividad Física (1/3)**\n\n⏱️ Ingresá la cantidad de **minutos** (ej: `45`):"
+    ).replace('\\n', '\n')
+    msg = await update.message.reply_text(txt_paso1, reply_markup=keyboard, parse_mode="Markdown")
+    context.user_data['msg_act_manual_id'] = msg.message_id
+
+
+async def _sub_manejar_actividad_manual_pasos(update: Update, context: ContextTypes.DEFAULT_TYPE, raw_text: str, chat_id: int):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+    step = context.user_data.get('act_manual_step')
+
+    keyboard_cancel = InlineKeyboardMarkup([
+        [InlineKeyboardButton("❌ Anular", callback_data="act_manual_cancelar")]
+    ])
+
+    # Borramos el mensaje anterior de solicitud y el del usuario para mantener limpia la pantalla
+    msg_prev = context.user_data.pop('msg_act_manual_id', None)
+    if msg_prev:
+        try: await context.bot.delete_message(chat_id=chat_id, message_id=msg_prev)
+        except Exception: pass
+    try: await update.message.delete()
+    except Exception: pass
+
+    if step == 'minutos':
+        try:
+            minutos = int(float(raw_text.replace(',', '.')))
+            if not (1 <= minutos <= 600):
+                raise ValueError()
+            context.user_data['act_manual_data']['minutos'] = minutos
+            context.user_data['act_manual_step'] = 'calorias'
+            
+            txt_paso2 = traducciones.get(
+                "07_bot_act_paso2_kcal", 
+                "🏃 **Registro Manual de Actividad Física (2/3)**\n• Tiempo: `{minutos} min`\n\n🔥 Ingresá las **calorías quemadas** (ej: `250`):"
+            ).format(minutos=minutos).replace('\\n', '\n')
+            msg = await context.bot.send_message(chat_id=chat_id, text=txt_paso2, reply_markup=keyboard_cancel, parse_mode="Markdown")
+            context.user_data['msg_act_manual_id'] = msg.message_id
+        except ValueError:
+            txt_err = traducciones.get("07_bot_act_err_min", "⚠️ Ingresá una cantidad de minutos válida entre 1 y 600 (ej: `45`):")
+            msg = await context.bot.send_message(chat_id=chat_id, text=txt_err, reply_markup=keyboard_cancel, parse_mode="Markdown")
+            context.user_data['msg_act_manual_id'] = msg.message_id
+
+    elif step == 'calorias':
+        try:
+            calorias = abs(float(raw_text.replace(',', '.')))
+            if not (1 <= calorias <= 1000):
+                raise ValueError()
+            context.user_data['act_manual_data']['calorias'] = calorias
+            context.user_data['act_manual_step'] = 'descripcion'
+            minutos = context.user_data['act_manual_data']['minutos']
+
+            txt_paso3 = traducciones.get(
+                "07_bot_act_paso3_desc", 
+                "🏃 **Registro Manual de Actividad Física (3/3)**\n• Tiempo: `{minutos} min`\n• Calorías: `{calorias:.0f} kcal`\n\n📝 Ingresá la **descripción** de la actividad (ej: `Caminata rápida en cinta`):"
+            ).format(minutos=minutos, calorias=calorias).replace('\\n', '\n')
+            msg = await context.bot.send_message(chat_id=chat_id, text=txt_paso3, reply_markup=keyboard_cancel, parse_mode="Markdown")
+            context.user_data['msg_act_manual_id'] = msg.message_id
+        except ValueError:
+            txt_err = traducciones.get("07_bot_act_err_kcal", "⚠️ Ingresá un valor de calorías válido entre 1 y 1000 (ej: `250`):")
+            msg = await context.bot.send_message(chat_id=chat_id, text=txt_err, reply_markup=keyboard_cancel, parse_mode="Markdown")
+            context.user_data['msg_act_manual_id'] = msg.message_id
+
+    elif step == 'descripcion':
+        desc = raw_text.strip()
+        if not desc:
+            desc = "Actividad física"
+        datos = context.user_data.pop('act_manual_data', {})
+        context.user_data.pop('act_manual_step', None)
+
+        minutos = datos.get('minutos', 30)
+        calorias = datos.get('calorias', 100.0)
+        detalle_final = f"{minutos} min {desc}"
+
+        item_act = {
+            "alimento": detalle_final,
+            "alimento_display": detalle_final,
+            "peso": 0.0,
+            "calorias": -abs(calorias),
+            "proteinas": 0.0,
+            "grasas": 0.0,
+            "carbohidratos": 0.0,
+            "fibras": 0.0
+        }
+
+        fecha_hoy = obtener_ahora_arg().strftime("%Y-%m-%d")
+        context.user_data['pending_items'] = [item_act]
+        context.user_data['pending_fecha'] = fecha_hoy
+        context.user_data['pending_momento'] = "Actividad"
+
+        msg_menu = await context.bot.send_message(chat_id=chat_id, text="⏳ Preparando confirmación...")
+        context.user_data['last_menu_msg_id'] = msg_menu.message_id
+        await render_confirmation_screen(msg_menu, context)
+
+
+def generar_pdf_actividad_bytes(mes_str, df_act, user_id):
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=15, textColor=colors.HexColor('#1E3A8A'), spaceAfter=4)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor('#1E293B'))
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=9, leading=11, textColor=colors.white, fontName='Helvetica-Bold', alignment=1)
+
+    story = [
+        Paragraph(f"<b>Reporte Mensual de Actividad Física - {mes_str}</b>", title_style),
+        Paragraph(f"<b>Usuario Telegram ID:</b> {user_id}", body_style),
+        HRFlowable(width="100%", thickness=1, color=colors.HexColor('#2563EB'), spaceAfter=10)
+    ]
+
+    if df_act is None or df_act.empty:
+        story.append(Paragraph("No hay actividades registradas en este período.", body_style))
+    else:
+        table_data = [[
+            Paragraph("Fecha", header_style),
+            Paragraph("Minutos", header_style),
+            Paragraph("Actividad / Detalle", header_style),
+            Paragraph("Kcal Quemadas", header_style)
+        ]]
+
+        tot_min = 0
+        tot_kcal = 0.0
+        df_ordenado = df_act.sort_values('Fecha')
+
+        for _, r in df_ordenado.iterrows():
+            fecha_r = str(r.get('Fecha', '')).strip()
+            alim_r = str(r.get('Alimento', '')).strip()
+            kcal_r = abs(float(r.get('Calorias', 0) or 0))
+
+            m_min = re.match(r'^(\d+)', alim_r)
+            min_r = int(m_min.group(1)) if m_min else 0
+
+            tot_min += min_r
+            tot_kcal += kcal_r
+
+            table_data.append([
+                Paragraph(fecha_r, body_style),
+                Paragraph(f"{min_r} min" if min_r > 0 else "-", body_style),
+                Paragraph(alim_r, body_style),
+                Paragraph(f"{kcal_r:.0f} kcal", body_style)
+            ])
+
+        t = Table(table_data, colWidths=[80, 65, 290, 95])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563EB')),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 12))
+
+        dias_activos = df_act['Fecha'].nunique() or 1
+        story.append(Paragraph(f"• <b>Sesiones registradas:</b> {len(df_act)} sesiones ({dias_activos} días activos)", body_style))
+        story.append(Paragraph(f"• <b>Tiempo total acumulado:</b> {tot_min} min (Promedio: {tot_min/dias_activos:.0f} min/día activo)", body_style))
+        story.append(Paragraph(f"• <b>Total calorías quemadas:</b> {tot_kcal:.0f} kcal (Promedio: {tot_kcal/dias_activos:.0f} kcal/día activo)", body_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+@requiere_registro
+async def mostrar_resumen_actividad_mes(update: Update, context: ContextTypes.DEFAULT_TYPE, mes_override: str = None):
+    query = update.callback_query
+    user_id = query.from_user.id if query else update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+    ahora = obtener_ahora_arg()
+
+    if query:
+        await query.answer()
+        data = query.data
+
+        if data == "act_manual_cancelar":
+            context.user_data.pop('act_manual_step', None)
+            context.user_data.pop('act_manual_data', None)
+            context.user_data.pop('msg_act_manual_id', None)
+            await query.edit_message_text("❌ Carga manual de actividad cancelada.")
+            return
+
+        if data == "act_res_menu_otros":
+            botones = []
+            primer_dia = ahora.replace(day=1)
+            for i in range(1, 7):
+                m_iter = (primer_dia - pd.DateOffset(months=i)).strftime("%Y-%m")
+                botones.append([InlineKeyboardButton(f"🗓️ Período {m_iter}", callback_data=f"act_res_mes_{m_iter}")])
+            botones.append([InlineKeyboardButton("🔙 Volver", callback_data="act_res_volver")])
+            await query.edit_message_text("🗓️ **Seleccioná el mes de actividad que querés consultar:**", reply_markup=InlineKeyboardMarkup(botones), parse_mode="Markdown")
+            return
+
+        if data == "act_res_volver":
+            mes_actual_iso = ahora.strftime("%Y-%m")
+            mes_anterior_iso = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton(f"📅 {ahora.strftime('%m/%Y')}", callback_data=f"act_res_mes_{mes_actual_iso}")],
+                [InlineKeyboardButton(f"📆 {(ahora.replace(day=1) - timedelta(days=1)).strftime('%m/%Y')}", callback_data=f"act_res_mes_{mes_anterior_iso}")],
+                [InlineKeyboardButton("🔄 📅 Otros meses", callback_data="act_res_menu_otros")]
+            ])
+            await query.edit_message_text("🏃 **Resumen Mensual de Actividad Física:**\nSeleccioná el período que querés consultar:", reply_markup=keyboard, parse_mode="Markdown")
+            return
+
+        if data.startswith("descargar_pdf_act_"):
+            mes_pdf = data.replace("descargar_pdf_act_", "")
+            df_u = obtener_datos_usuario(user_id)
+            if not df_u.empty and 'Fecha' in df_u.columns:
+                df_m = df_u[df_u['Fecha'].astype(str).str.startswith(mes_pdf)].copy()
+                df_act = df_m[(df_m['Calorias'] < 0) | (df_m['Momento'].astype(str).str.lower().isin(['actividad', 'actividad física', 'ejercicio']))].copy()
+            else:
+                df_act = pd.DataFrame()
+            pdf_buf = await asyncio.to_thread(generar_pdf_actividad_bytes, mes_pdf, df_act, user_id)
+            await context.bot.send_document(
+                chat_id=query.message.chat_id,
+                document=pdf_buf,
+                filename=f"Actividad_{mes_pdf}.pdf",
+                caption=f"🏃 Reporte de Actividad Física - **{mes_pdf}**",
+                parse_mode="Markdown"
+            )
+            return
+
+        mes_str = data.replace("act_res_mes_", "")
+    else:
+        mes_str = mes_override or ahora.strftime("%Y-%m")
+
+    df_datos = obtener_datos_usuario(user_id)
+    if not df_datos.empty and 'Fecha' in df_datos.columns:
+        df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(mes_str)].copy()
+        df_act = df_mes[
+            (df_mes['Calorias'] < 0) | 
+            (df_mes['Momento'].astype(str).str.strip().str.lower().isin(['actividad', 'actividad física', 'ejercicio']))
+        ].copy()
+    else:
+        df_act = pd.DataFrame()
+
+    if df_act.empty:
+        msg_vacio = f"⚠️ No tenés actividades físicas registradas en el período `{mes_str}`."
+        if query:
+            await query.edit_message_text(msg_vacio, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(msg_vacio, parse_mode="Markdown")
+        return
+
+    tot_kcal = abs(df_act['Calorias'].sum())
+    sesiones = len(df_act)
+    dias_activos = df_act['Fecha'].nunique() or 1
+    tot_minutos = 0
+
+    detalle_lineas = []
+    for _, row in df_act.sort_values('Fecha').iterrows():
+        f_dia = str(row.get('Fecha', ''))[-5:]  # MM-DD
+        alim = str(row.get('Alimento', '')).strip()
+        kcal = abs(float(row.get('Calorias', 0) or 0))
+        m_min = re.match(r'^(\d+)', alim)
+        if m_min:
+            tot_minutos += int(m_min.group(1))
+        detalle_lineas.append(f"• `{f_dia}`: {alim} (`-{kcal:.0f} kcal`)")
+
+    listado_str = "\n".join(detalle_lineas[:25])
+    if len(detalle_lineas) > 25:
+        listado_str += f"\n• _...y {len(detalle_lineas) - 25} registros más (ver PDF completo)._"
+
+    txt_resumen = (
+        f"🏃 **Resumen de Actividad Física ({mes_str})**\n\n"
+        f"• 🗓️ **Días activos:** `{dias_activos}` ({sesiones} sesiones)\n"
+        f"• ⏱️ **Tiempo total:** `{tot_minutos} min` (`{tot_minutos/dias_activos:.0f} min/día activo`)\n"
+        f"• 🔥 **Total quemado:** `{tot_kcal:.0f} kcal` (`{tot_kcal/dias_activos:.0f} kcal/día activo`)\n\n"
+        f"📋 **Detalle del período:**\n{listado_str}"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📄 Descargar PDF de Actividades", callback_data=f"descargar_pdf_act_{mes_str}")],
+        [InlineKeyboardButton("🔙 Volver", callback_data="act_res_volver")]
+    ])
+
+    if query:
+        await query.edit_message_text(txt_resumen, reply_markup=keyboard, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(txt_resumen, reply_markup=keyboard, parse_mode="Markdown")
+
 async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id):
     user_id = update.effective_user.id
     ahora = obtener_ahora_arg()
@@ -923,6 +1251,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(traducciones.get("07_bot_presion_expirada", "⚠️ Los datos temporales expiraron."))
         return
 
+    if context.user_data.get("act_manual_step"):
+        await _sub_manejar_actividad_manual_pasos(update, context, raw_text, chat_id)
+        return
+        
     # --- 5. EDICIÓN DE FECHAS, ÍTEMS Y ACTIVIDADES ---
     if context.user_data.get("awaiting_custom_date"):
         await _sub_manejar_fecha_personalizada_ingesta(update, context, raw_text, chat_id)
@@ -1611,7 +1943,16 @@ async def proceso_masivo_cobros(context: ContextTypes.DEFAULT_TYPE):
 # =========================================================================================================================================
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+
+    user = update.effective_user
+    user_id = user.id
+    
+    # --- NUEVO: Capturamos al curioso apenas pisa /start ---
+    nombre_tg = user.first_name or ""
+    username_tg = f"@{user.username}" if user.username else ""
+    await asyncio.to_thread(registrar_curioso_preventa_db, user_id, nombre_tg, username_tg, "cmd_start")
+    # -------------------------------------------------------
+
     lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
     msg = traducciones.get('09_start_mensaje_bienvenida', 
@@ -3162,6 +3503,90 @@ async def ing_recibir_ocupacion(update: Update, context: ContextTypes.DEFAULT_TY
     await query.edit_message_text(txt_peso, parse_mode="Markdown")
     return ING_PESO
 
+# =========================================================================================================================================
+#                       FUNCIONES DE PREVENTA Y CAPTURA DE CURIOSOS (HASTA EL 15 DE NOVIEMBRE)
+# =========================================================================================================================================
+
+def registrar_curioso_preventa_db(user_id, nombre="", username="", origen="start"):
+    """
+    Crea la tabla 'Curiosos_Preventa' si no existe y guarda el ID del curioso.
+    Si el usuario ya estaba anotado, actualiza la fecha de su última visita sin duplicar.
+    """
+    conn = None
+    cur = None
+    try:
+        conn = _obtener_conexion_db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS "Curiosos_Preventa" (
+                id SERIAL PRIMARY KEY,
+                "User ID" TEXT UNIQUE,
+                "Nombre" TEXT,
+                "Username" TEXT,
+                "Origen" TEXT,
+                "Fecha_Registro" TEXT
+            );
+        """)
+        ahora_str = obtener_ahora_arg().strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute("""
+            INSERT INTO "Curiosos_Preventa" ("User ID", "Nombre", "Username", "Origen", "Fecha_Registro")
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT ("User ID") DO UPDATE SET
+                "Origen" = EXCLUDED."Origen",
+                "Fecha_Registro" = EXCLUDED."Fecha_Registro";
+        """, (str(user_id).strip(), str(nombre or ""), str(username or ""), str(origen), ahora_str))
+        conn.commit()
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"Error guardando curioso {user_id} en preventa: {e}")
+    finally:
+        if cur:
+            try: cur.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
+
+
+async def cmd_ingreso_start_15(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Versión temporal de /alta hasta el 15 de noviembre.
+    Si vos (ADMIN_USER_ID) o un usuario ya registrado entran, los deja pasar a cmd_ingreso_start_15.
+    Si es un curioso nuevo, lo guarda en Supabase y le muestra el cartel de expectativa.
+    """
+    user = update.effective_user
+    user_id = user.id
+    nombre_tg = user.first_name or ""
+    username_tg = f"@{user.username}" if user.username else ""
+
+    # 1. Si sos vos (el Administrador) o alguien que ya tiene cuenta en pruebas, pasa directo sin bloqueo
+    estado_usr = _verificar_estado_usuario_en_hoja(user_id)
+    if es_administrador(user_id) or estado_usr is not None:
+        return await cmd_ingreso_start_15(update, context)
+
+    # 2. Capturamos al curioso en segundo plano sin frenar el bot
+    await asyncio.to_thread(registrar_curioso_preventa_db, user_id, nombre_tg, username_tg, "cmd_alta")
+
+    # 3. Mostramos el cartel de intriga estilo Hitchcock
+    idioma_detectado = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(idioma_detectado) or {}
+
+    cartel_preventa = traducciones.get(
+        "09_ing_cartel_preventa_15nov",
+        "⏳ **¡Te adelantaste al gran estreno de IA NutriBot!**\n\n"
+        "Nos encanta tu entusiasmo. Estamos calibrando los últimos detalles de nuestros motores de Inteligencia Artificial y **te esperamos con ansias el día 15 de noviembre**, fecha en la que se habilitará el comando `/alta` para todo el mundo.\n\n"
+        "✅ **¡Ya reservamos tu lugar!** Tu acceso quedó registrado en nuestra lista de espera prioritaria.\n\n"
+        "📌 **Un consejo importante:** No borres este chat. Dejalo acá en tu Telegram, así el **15 de noviembre** te avisamos por acá mismo apenas se abran las puertas para que crees tu perfil 100% anónimo (sin tarjetas ni correos).\n\n"
+        "🌐 Mientras tanto, podés seguir espiando todos los secretos en:\n"
+        "👉 www.ianutribot.com"
+    ).replace('\\n', '\n')
+
+    await update.message.reply_text(cartel_preventa, parse_mode="Markdown")
+    return ConversationHandler.END
+
+#==================================================================================================================================================
+
 async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     idioma_detectado = obtener_idioma_usuario(user_id) or 'es'
@@ -4459,12 +4884,13 @@ def main():
         app_bot.add_handler(CommandHandler(["manual", "documentacion"], cmd_generar_manual_pdf))
         
         # =================================INGRESOS Y CONSULTAS MANUALES============================================
-        app_bot.add_handler(CommandHandler(["start", "inicio", "ayuda" , "h"], cmd_start))
+        app_bot.add_handler(CommandHandler(["actividad", "activity"], cmd_actividad))
+        app_bot.add_handler(CommandHandler(["start", "help", "ayuda" , "h"], cmd_start))
         app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
         app_bot.add_handler(CommandHandler(["perfil", "profile"], cmd_perfil))
         app_bot.add_handler(CommandHandler(["receta", "recipe"], cmd_cargar_receta))
         app_bot.add_handler(CommandHandler(["get", "GET", "factor"], cmd_factor_handler))
-        app_bot.add_handler(CommandHandler(["eliminar", "delete"], cmd_eliminar))
+        app_bot.add_handler(CommandHandler(["eliminar", "delete", "del"], cmd_eliminar))
         app_bot.add_handler(CommandHandler(["borracomida", "delmeal"], cmd_borrar_comida))
         app_bot.add_handler(CommandHandler(["peso", "weight"], cmd_peso_rapido))        
         app_bot.add_handler(CommandHandler(["presion", "presi", "p", "pressure"], cmd_presion_handler))  
@@ -4490,9 +4916,7 @@ def main():
         app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_mes, pattern="^resumen_(mes_|volver_menu)"))
         app_bot.add_handler(CallbackQueryHandler(boton_elegir_plan, pattern="^(comprar_|rescate_mensual)"))
         app_bot.add_handler(CallbackQueryHandler(manejar_callback_eliminacion, pattern="^del_(d_|mom_|reg_|borrar|salir|cambiar_fecha|volver_momentos)"))
-        
-        
-        
+               
         app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^presion_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^cancelar_presion_foto$"))
         app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
@@ -4503,7 +4927,7 @@ def main():
         # Enrutadores para el módulo profesional (listados, informes y edición por botones)
         app_bot.add_handler(CallbackQueryHandler(callback_enviar_informe_paciente, pattern="^enviar_inf_"))
         app_bot.add_handler(CallbackQueryHandler(callback_descargar_manual_usuario, pattern="^descargar_manual_user_"))        
-
+        app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_actividad_mes, pattern="^(act_res_|act_manual_cancelar|descargar_pdf_act_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_btn_momento, pattern="^set_m_"))
         app_bot.add_handler(CallbackQueryHandler(callback_btn_fechas_diario, pattern="^(set_d_|diario_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_btn_editar_item, pattern="^edit_item_"))

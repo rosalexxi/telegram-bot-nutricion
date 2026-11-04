@@ -327,6 +327,63 @@ def _core_guardar_usuario_db(user_id, campos_a_actualizar: dict):
             try: conn.close()
             except: pass
 
+def registrar_evento_web_db(pais: str, ciudad: str, es_click_telegram: bool = False):
+    """
+    Crea la tabla 'Visitas_Web' si no existe y acumula por (Pais, Ciudad):
+    - Si es_click_telegram=False: suma +1 en 'Visitas'.
+    - Si es_click_telegram=True: suma +1 en 'Clicks_Telegram'.
+    """
+    pais_limpio = str(pais or "Desconocido").strip().title()
+    ciudad_limpia = str(ciudad or "Desconocida").strip().title()
+    ahora_str = obtener_ahora_arg().strftime("%Y-%m-%d %H:%M:%S")
+
+    conn = None
+    cur = None
+    try:
+        conn = _obtener_conexion_db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS "Visitas_Web" (
+                id SERIAL PRIMARY KEY,
+                "Pais" TEXT,
+                "Ciudad" TEXT,
+                "Visitas" INTEGER DEFAULT 0,
+                "Clicks_Telegram" INTEGER DEFAULT 0,
+                "Ultima_Visita" TEXT,
+                UNIQUE ("Pais", "Ciudad")
+            );
+        """)
+
+        if es_click_telegram:
+            cur.execute("""
+                INSERT INTO "Visitas_Web" ("Pais", "Ciudad", "Visitas", "Clicks_Telegram", "Ultima_Visita")
+                VALUES (%s, %s, 1, 1, %s)
+                ON CONFLICT ("Pais", "Ciudad") DO UPDATE SET
+                    "Clicks_Telegram" = "Visitas_Web"."Clicks_Telegram" + 1,
+                    "Ultima_Visita" = EXCLUDED."Ultima_Visita";
+            """, (pais_limpio, ciudad_limpia, ahora_str))
+        else:
+            cur.execute("""
+                INSERT INTO "Visitas_Web" ("Pais", "Ciudad", "Visitas", "Clicks_Telegram", "Ultima_Visita")
+                VALUES (%s, %s, 1, 0, %s)
+                ON CONFLICT ("Pais", "Ciudad") DO UPDATE SET
+                    "Visitas" = "Visitas_Web"."Visitas" + 1,
+                    "Ultima_Visita" = EXCLUDED."Ultima_Visita";
+            """, (pais_limpio, ciudad_limpia, ahora_str))
+
+        conn.commit()
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"Error registrando estadística en Visitas_Web ({pais_limpio} - {ciudad_limpia}): {e}")
+    finally:
+        if cur:
+            try: cur.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
+
 def _core_guardar_perfil_db(user_id, mes, datos_perfil: dict):
     """
     Función central única para insertar o actualizar registros en la tabla Perfil_<user_id>
