@@ -6,8 +6,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 # Importamos solo lo necesario para el idioma y la interfaz
-from bot8a import obtener_idioma_usuario, obtener_traducciones_db, MODELO_TEXTO, MODELO_RESPALDO
 
+from bot8a import obtener_idioma_usuario, obtener_traducciones_db, MODELO_TEXTO, MODELO_RESPALDO, registrar_curioso_preventa_db
 logger = logging.getLogger(__name__)
 
 # Cargamos ambas API Keys (Groq como principal ultrarrápido y Gemini como respaldo infalible)
@@ -190,7 +190,6 @@ Esta guía resume brevemente la función principal de cada comando disponible en
 ## ⚠️ ADVERTENCIA MÉDICA IMPORTANTE
 IA NutriBot es una herramienta avanzada de cálculo automatizado orientada a sumar y restar calorías de forma práctica. El asistente no emite consejos, dietas ni recomendaciones médicas. Su función se limita estrictamente a brindar información y estimaciones cuantitativas basadas en tablas internacionales de nutrición. Todo seguimiento clínico o nutricional formal debe ser realizado exclusivamente por un profesional de la salud competente.
 """
-
 def transcribir_audio_groq(audio_bytes: bytes) -> str:
     """
     Transcribe el audio de Telegram usando Whisper en Groq (aislado del motor de comidas).
@@ -215,53 +214,20 @@ def transcribir_audio_groq(audio_bytes: bytes) -> str:
         logger.warning(f"Error transcribiendo audio en Groq Ayuda: {response.text}")
         raise Exception("Fallo en transcripción de audio de ayuda")
 
-
-async def procesar_audio_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Recibe el audio desviado desde bot8.py cuando el usuario está en modo /ayuda,
-    lo transcribe y responde la duda con el manual.
-    """
-    user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or 'es'
-    traducciones = obtener_traducciones_db(lang) or {}
-
-    msg_espera_txt = traducciones.get("09_ayuda_escuchando", "🎧 Escuchando tu consulta y buscando en el manual...")
-    msg_espera = await update.message.reply_text(msg_espera_txt, parse_mode="Markdown")
-
-    try:
-        file = await context.bot.get_file(update.message.voice.file_id)
-        audio_bytes = await file.download_as_bytearray()
-
-        # 1. Transcribimos el audio en Groq
-        consulta_texto = await asyncio.to_thread(transcribir_audio_groq, audio_bytes)
-        if not consulta_texto:
-            await msg_espera.edit_text("⚠️ No pude escuchar bien el audio. Intentá de nuevo o escribí tu consulta.")
-            return
-
-        # 2. Consultamos el manual con el texto transcripto
-        respuesta_ia = await asyncio.to_thread(solicitar_ai_rest, consulta_texto)
-        respuesta_limpia = f"🗣️ *Tu consulta:* _{consulta_texto}_\n\n" + respuesta_ia.replace("**", "*")
-
-        try:
-            await msg_espera.edit_text(respuesta_limpia, parse_mode="Markdown")
-        except Exception:
-            await msg_espera.edit_text(respuesta_limpia.replace("*", "").replace("_", ""))
-
-    except Exception as e:
-        logger.error(f"Error procesando audio en /ayuda: {e}")
-        await msg_espera.edit_text("❌ Ocurrió un error al procesar el audio de ayuda. Intentá escribiendo `/h tu consulta`.")
-
-def solicitar_ai_rest(consulta):
+def solicitar_ai_rest(consulta, lang='es'):
     """
     Intenta responder primero con Groq (modelos actualizados).
     Si Groq no está configurado o falla, pasa automáticamente a Gemini REST.
     """
     system_instruction = (
         "Sos el asistente de soporte técnico oficial de IA NutriBot. "
+        f"REGLA DE IDIOMA ESTRICTA: El usuario habla el idioma con código ISO '{lang}'. "
+        f"DEBES responder y traducir toda tu explicación ÚNICAMENTE al idioma '{lang}'. No uses palabras en español si el idioma no es español.\n"
         "Tu única tarea es responder la consulta del usuario basándote EXCLUSIVAMENTE en el siguiente manual. "
         "Si la respuesta no está en el manual, indicá amablemente que contacte al soporte técnico o al administrador. "
         "Sé claro, conciso, amable y utilizá un tono coloquial. "
-        "Usá formato simple (negritas con un solo asterisco *texto* y viñetas con •), sin inventar comandos ni funciones.\n\n"
+        "Usá formato simple (negritas con un solo asterisco *texto* y viñetas con •), sin inventar comandos ni funciones.\n"
+        "REGLA DE CIERRE: NO agregues frases de despedida genéricas (como 'Estaré aquí para ayudarte' o 'Cualquier otra duda me avisas'). Termina tu respuesta directamente con la información técnica.\n\n"
         f"MANUAL OFICIAL:\n{MANUAL_MARKDOWN}"
     )
 
@@ -304,6 +270,138 @@ def solicitar_ai_rest(consulta):
     raise Exception("No se pudo responder ni con Groq ni con Gemini (verificar API Keys).")
 
 
+async def procesar_audio_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Recibe el audio desviado desde bot8.py cuando el usuario está en modo /ayuda,
+    lo transcribe y responde la duda con el manual.
+    """
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    msg_espera_txt = traducciones.get("09_ayuda_escuchando", "🎧 Escuchando tu consulta y buscando en el manual...")
+    msg_espera = await update.message.reply_text(msg_espera_txt, parse_mode="Markdown")
+
+    try:
+        file = await context.bot.get_file(update.message.voice.file_id)
+        audio_bytes = await file.download_as_bytearray()
+
+        # 1. Transcribimos el audio en Groq
+        consulta_texto = await asyncio.to_thread(transcribir_audio_groq, audio_bytes)
+        if not consulta_texto:
+            msg_error_audio = traducciones.get("09_ayuda_error_audio", "⚠️ No pude escuchar bien el audio. Intentá de nuevo o escribí tu consulta.")
+            await msg_espera.edit_text(msg_error_audio)
+            return
+
+        # 2. Consultamos el manual con el texto transcripto PASANDO EL IDIOMA
+        respuesta_ia = await asyncio.to_thread(solicitar_ai_rest, consulta_texto, lang)
+        
+        etiqueta_consulta = traducciones.get("09_ayuda_etiqueta_consulta", "Tu consulta")
+        txt_cierre = traducciones.get("09_ayuda_cierre_h", "\n\n💡 *Para realizar otra consulta, volvé a enviar el comando /h o /soporte.*")
+        
+        respuesta_limpia = f"🗣️ *{etiqueta_consulta}:* _{consulta_texto}_\n\n" + respuesta_ia.replace("**", "*") + txt_cierre
+
+        try:
+            await msg_espera.edit_text(respuesta_limpia, parse_mode="Markdown")
+        except Exception:
+            await msg_espera.edit_text(respuesta_limpia.replace("*", "").replace("_", ""))
+
+    except Exception as e:
+        logger.error(f"Error procesando audio en /ayuda: {e}")
+        msg_error_procesar = traducciones.get("09_ayuda_error_procesar_audio", "❌ Ocurrió un error al procesar el audio de ayuda. Intentá escribiendo `/h tu consulta`.")
+        await msg_espera.edit_text(msg_error_procesar)
+
+
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra la guía estática y el botón de descarga del manual en PDF, unificando /start y /ayuda."""
+    user = update.effective_user
+    user_id = user.id
+    
+    # Capturamos al curioso apenas pisa el bot
+    nombre_tg = user.first_name or ""
+    username_tg = f"@{user.username}" if user.username else ""
+    await asyncio.to_thread(registrar_curioso_preventa_db, user_id, nombre_tg, username_tg, "cmd_start")
+    
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    # Usamos directamente la variable de ayuda que ya está unificada
+    texto_ayuda = traducciones.get('09_ayuda_mensaje_guia', 
+        "👋 *¡Guía rápida de comandos e ingresos disponibles!*\n\n"
+        "📌 *Comandos Principales:*\n"
+        "• `/actividad`: Promedio del mes. Informe en PDF.\n"
+        "• `/alta`: Apertura de cuenta ingresando los datos.\n"
+        "• `/ayuda`: Resumen de comandos y manual en PDF.\n"
+        "• `/barra`: Ingresa por código de barras un comestible.\n"
+        "• `/borracomida`: Borra una comida de la Planilla.\n"
+        "• `/comidas`: Planilla de comidas pre-cargadas y PDF.\n"
+        "• `/dia`: Ingestas seleccionando por teclado y PDF.\n"
+        "• `/eliminar`: Borra ingestas y actividades.\n"
+        "• `/mes`: Reporte mensual de calorías y PDF.\n"
+        "• `/pago`: Elegir el plan o promoción de pago vigente.\n"
+        "• `/perfil`: Actualización de datos biométricos.\n"
+        "• `/peso`: Registro o control de peso mensual.\n"
+        "• `/presi`: Registro y consulta de presión arterial.\n"
+        "• `/receta`: Calculadora Web para registrar comidas.\n"
+        "• `/semana`: Estadística semanal (calorías, fibras, etc.).\n\n"
+        "• `/h`: Consular el manual a la IA.\n"
+        "• `/x`: Cancelar último comando.\n\n"
+        "📌 *Métodos de Registro y consultas directas:*\n"
+        "• *Ingestas con IA:* 📝 Texto, 🎤 Audio, 📸 Foto.\n"
+        "• *Ingestas con IA:* 📸 Foto de un código de barras.\n"
+        "• *Ingestas sin IA:* 📝 Planilla precargada .\n"
+        "• *Presión arterial:* 📸 Foto del tensiómetro digital.\n"
+        "• *Actividad física:* 📝 Texto o 🎤 Audio.\n"
+        "🤖 *Asistente Virtual Inteligente:*\n"
+        "Si tenés una duda técnica sobre cómo usar el bot, preguntame directamente escribiendo el comando `/h` seguido de tu consulta.\n"
+        "👉 *Ejemplo:* `/h ¿cómo borro un desayuno?`\n\n"
+        "📄 También podés descargar el manual completo en PDF acá abajo:"
+    ).replace('\\n', '\n')
+    
+    import re
+    texto_final = re.sub(r'\n{2,}', '\n\n', texto_ayuda)
+    
+    btn_manual_txt = traducciones.get('09_btn_descargar_manual', "📄 Descargar Manual Completo en PDF")
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(btn_manual_txt, callback_data=f"descargar_manual_user_{lang}")]
+    ])
+    
+    await update.message.reply_text(texto_final, reply_markup=keyboard, parse_mode="Markdown")
+
+async def callback_descargar_manual_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    # Convertimos a minúsculas para igualar el formato de la web (ej: es.pdf)
+    lang_code = query.data.replace("descargar_manual_user_", "").strip().lower()
+    pdf_filename = f"{lang_code}.pdf"
+    
+    # Fallback también en minúsculas
+    if not os.path.exists(pdf_filename):
+        pdf_filename = "es.pdf"
+        
+    try:
+        if os.path.exists(pdf_filename):
+            txt_caption = traducciones.get("09_manual_usuario_caption", "📄 **Manual de Usuario**")
+            await context.bot.send_document(
+                chat_id=query.message.chat_id,
+                document=open(pdf_filename, 'rb'),
+                filename=pdf_filename,
+                caption=txt_caption,
+                parse_mode="Markdown"
+            )
+        else:
+            txt_err = traducciones.get("09_manual_err_no_encontrado", "⚠️ El archivo `{pdf_filename}` no se encuentra en el servidor.").format(pdf_filename=pdf_filename)
+            await query.message.reply_text(txt_err, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error enviando el manual de usuario en PDF: {e}")
+        txt_envio = traducciones.get("09_manual_err_envio", "❌ Ocurrió un error al intentar enviar el manual.")
+        await query.message.reply_text(txt_envio)
+            
 def solicitar_ai_rest_Gemini(consulta, system_instruction):
     """
     Respaldo aislado por REST API a Google Gemini.
@@ -351,7 +449,6 @@ async def cmd_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(texto_final, reply_markup=keyboard, parse_mode="Markdown")
 
-
 async def cmd_soporte(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Activa de inmediato la bandera de escucha/texto exclusivo para hablar con la IA de soporte."""
     user_id = update.effective_user.id
@@ -361,80 +458,13 @@ async def cmd_soporte(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Activamos la bandera exclusiva
     context.user_data['esperando_consulta_ayuda'] = True
 
-    msg_bienvenida = (
+    msg_bienvenida = traducciones.get('09_soporte_bienvenida', 
         "🤖 **Asistente de Soporte Técnico IA NutriBot**\n\n"
         "🎙️ **Grabá un mensaje de audio** contándome tu duda o **escribila acá abajo**.\n"
         "Te responderé al instante basándome en el manual oficial.\n\n"
         "*(Si querés salir de este modo sin consultar nada, escribí `/x`)*"
-    )
+    ).replace('\\n', '\n')
+
     await update.message.reply_text(msg_bienvenida, parse_mode="Markdown")
 
-async def cmd_ayuda_reserva(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or 'es'
-    traducciones = obtener_traducciones_db(lang) or {}
-
-    # Si el usuario mandó la duda junto al comando (Ej: /h como elimino comida)
-    if context.args:
-        consulta = " ".join(context.args).strip()
-        msg_espera_txt = traducciones.get("09_ayuda_consultando", "🤖 Consultando el manual de IA NutriBot...")
-        msg_espera = await update.message.reply_text(msg_espera_txt, parse_mode="Markdown")
-        
-        try:
-            respuesta_ia = await asyncio.to_thread(solicitar_ai_rest, consulta)
-            # Convertimos **negrita** de MarkdownV2/ Estándar a *negrita* de Telegram v1
-            respuesta_limpia = respuesta_ia.replace("**", "*")
-            
-            try:
-                await msg_espera.edit_text(respuesta_limpia, parse_mode="Markdown")
-            except Exception:
-                # Si algún carácter especial rompe el parser Markdown de Telegram, lo enviamos como texto limpio sin fallar
-                await msg_espera.edit_text(respuesta_ia.replace("**", ""))
-                
-        except Exception as e:
-            logger.error(f"Error procesando /ayuda con IA: {e}")
-            msg_err = traducciones.get("09_ayuda_error_ia", "❌ Ocurrió un error al consultar el manual. Por favor, intentá de nuevo más tarde.")
-            await msg_espera.edit_text(msg_err)
-        return
-
-    # Si el usuario solo escribió "/ayuda" o "/h" sin preguntar nada, mostramos LA GUÍA COMPLETA
-    texto_ayuda = traducciones.get('09_ayuda_mensaje_guia', 
-        "👋 *¡Guía rápida de comandos e ingresos disponibles!*\n\n"
-        "📌 *Comandos Principales:*\n"
-        "• `/alta`: Apertura de cuenta ingresando los datos.\n"
-        "• `/barra`: Ingresa por código de barras un comestible.\n"
-        "• `/borracomida`: Borra una comida de la Planilla.\n"
-        "• `/comidas`: Planilla de comidas precargadas y PDF.\n"
-        "• `/dia`: Ingestas seleccionando por teclado y PDF.\n"
-        "• `/eliminar`: Borra ingestas y actividades.\n"
-        "• `/ayuda`: Resumen de comandos y manual en PDF.\n"
-        "• `/pago`: Elegir el plan o promoción de pago vigente.\n"
-        "• `/perfil`: Actualización de datos biométricos.\n"
-        "• `/peso`: Registro o control de peso mensual.\n"
-        "• `/presi`: Registro y consulta de presión arterial.\n"
-        "• `/receta`: Calculadora Web para registrar comidas.\n"
-        "• `/mes`: Reporte mensual de calorías y PDF.\n"
-        "• `/semana`: Estadística semanal (calorías, fibras, etc.).\n\n"
-        "• `/x`: Cancelar comando.\n\n"
-        "📌 *Métodos de Registro y consultas directas:*\n"
-        "• *Ingestas con IA:*  📝 Texto, 🎤 Audio, 📸 Foto.\n"
-        "• *Ingestas con IA:*  📸 Foto de un código de barras.\n"
-        "• *Ingestas sin IA:*  📝 Planilla precargada .\n"
-        "• *Presión arterial:* 📸 Foto del tensiómetro digital.\n"
-        "• *Actividad física:* 📝 Texto o 🎤 Audio.\n"
-        "🤖 *Asistente Virtual Inteligente:*\n"
-        "Si tenés una duda técnica sobre cómo usar el bot, preguntame directamente escribiendo el comando seguido de tu consulta.\n"
-        "👉 *Ejemplo:* `/h ¿cómo borro un desayuno?`\n\n"
-        "📄 También podés descargar el manual completo en PDF acá abajo:"
-    ).replace('\\n', '\n')
-    
-    import re
-    texto_final = re.sub(r'\n{2,}', '\n\n', texto_ayuda)
-    
-    btn_manual_txt = traducciones.get('09_btn_descargar_manual', "📄 Descargar Manual Completo en PDF")
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(btn_manual_txt, callback_data=f"descargar_manual_user_{lang}")]
-    ])
-    
-    await update.message.reply_text(texto_final, reply_markup=keyboard, parse_mode="Markdown")
     

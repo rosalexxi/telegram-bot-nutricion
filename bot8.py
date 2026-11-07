@@ -33,7 +33,7 @@ from administrador import (
     cmd_descargar
 )
 
-from ayuda import cmd_ayuda, cmd_soporte, procesar_audio_ayuda
+from ayuda import cmd_start, cmd_soporte, procesar_audio_ayuda, callback_descargar_manual_usuario
 
 from profesionales import (
     cmd_pacientes,
@@ -1216,16 +1216,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if context.user_data.get("esperando_consulta_ayuda"):
         context.user_data.pop("esperando_consulta_ayuda", None)
-        # Reutilizamos la misma función de IA de ayuda para texto plano
         consulta = update.message.text.strip()
-        msg_esp = await update.message.reply_text("🤖 Buscando en el manual...")
+        
+        txt_buscando = traducciones.get("09_ayuda_buscando_manual", "🤖 Buscando en el manual...")
+        msg_esp = await update.message.reply_text(txt_buscando)
+        
         try:
-            resp = await asyncio.to_thread(solicitar_ai_rest, consulta)
-            await msg_esp.edit_text(resp.replace("**", "*"), parse_mode="Markdown")
+            resp = await asyncio.to_thread(solicitar_ai_rest, consulta, lang)
+            txt_cierre = traducciones.get("09_ayuda_cierre_h", "\n\n💡 *Para realizar otra consulta, volvé a enviar el comando /h o /soporte.*")
+            respuesta_final = resp.replace("**", "*") + txt_cierre
+            
+            await msg_esp.edit_text(respuesta_final, parse_mode="Markdown")
         except Exception:
-            await msg_esp.edit_text("❌ Error al consultar el manual.")
+            txt_err_manual = traducciones.get("09_ayuda_error_manual", "❌ Error al consultar el manual.")
+            await msg_esp.edit_text(txt_err_manual)
         return
-
+        
     raw_text = update.message.text.strip() if update.message and update.message.text else ""
     if not raw_text:
         return
@@ -1967,7 +1973,7 @@ async def proceso_masivo_cobros(context: ContextTypes.DEFAULT_TYPE):
 #                       INICIO                         COMANDO START                          INICIO  
 # =========================================================================================================================================
 
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_start_reserva(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user = update.effective_user
     user_id = user.id
@@ -2026,37 +2032,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error de formato Markdown en /start: {e}")
         await update.message.reply_text(texto_final, reply_markup=keyboard)
         
-async def callback_descargar_manual_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) or 'es'
-    traducciones = obtener_traducciones_db(lang) or {}
-
-    lang_code = query.data.replace("descargar_manual_user_", "").strip().upper()
-    pdf_filename = f"{lang_code}.pdf"
-    
-    if not os.path.exists(pdf_filename):
-        pdf_filename = "ES.pdf"
-        
-    try:
-        if os.path.exists(pdf_filename):
-            txt_caption = traducciones.get("09_manual_usuario_caption", "📄 **Manual de Usuario**")
-            await context.bot.send_document(
-                chat_id=query.message.chat_id,
-                document=open(pdf_filename, 'rb'),
-                filename=pdf_filename,
-                caption=txt_caption,
-                parse_mode="Markdown"
-            )
-        else:
-            txt_err = traducciones.get("09_manual_err_no_encontrado", "⚠️ El archivo `{pdf_filename}` no se encuentra en el servidor.").format(pdf_filename=pdf_filename)
-            await query.message.reply_text(txt_err, parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"Error enviando el manual de usuario en PDF: {e}")
-        txt_envio = traducciones.get("09_manual_err_envio", "❌ Ocurrió un error al intentar enviar el manual.")
-        await query.message.reply_text(txt_envio)
 
 #                   INICIO                                    COMANDO DIA COMNADO DIARIO                            INICIO  DB OK
 # =====================================================================================================================================
@@ -4929,10 +4904,10 @@ def main():
         app_bot.add_handler(CommandHandler(["ayuda", "help"], cmd_ayuda))
 
         # Un comando exclusivo y rápido para activar el soporte por audio/texto
-        app_bot.add_handler(CommandHandler(["soporte", "h", "preguntar"], cmd_soporte))
+        app_bot.add_handler(CommandHandler(["soporte", "h", "support"], cmd_soporte))
+        app_bot.add_handler(CommandHandler(["start", "ayuda", "inicio" ,"help"], cmd_start))
 
         app_bot.add_handler(CommandHandler(["actividad", "activity"], cmd_actividad))
-        app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
         app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
         app_bot.add_handler(CommandHandler(["perfil", "profile"], cmd_perfil))
         app_bot.add_handler(CommandHandler(["receta", "recipe"], cmd_cargar_receta))
