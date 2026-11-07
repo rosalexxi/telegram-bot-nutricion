@@ -191,6 +191,66 @@ Esta guía resume brevemente la función principal de cada comando disponible en
 IA NutriBot es una herramienta avanzada de cálculo automatizado orientada a sumar y restar calorías de forma práctica. El asistente no emite consejos, dietas ni recomendaciones médicas. Su función se limita estrictamente a brindar información y estimaciones cuantitativas basadas en tablas internacionales de nutrición. Todo seguimiento clínico o nutricional formal debe ser realizado exclusivamente por un profesional de la salud competente.
 """
 
+def transcribir_audio_groq(audio_bytes: bytes) -> str:
+    """
+    Transcribe el audio de Telegram usando Whisper en Groq (aislado del motor de comidas).
+    """
+    if not API_KEY_GROQ:
+        raise Exception("GROQ_API_KEY no configurada para transcribir audio de ayuda.")
+
+    url = "https://api.groq.com/openai/v1/audio/transcriptions"
+    headers = {"Authorization": f"Bearer {API_KEY_GROQ}"}
+    files = {
+        "file": ("consulta.ogg", bytes(audio_bytes), "audio/ogg")
+    }
+    data = {
+        "model": "whisper-large-v3-turbo",
+        "language": "es",
+        "response_format": "json"
+    }
+    response = requests.post(url, headers=headers, files=files, data=data, timeout=15)
+    if response.status_code == 200:
+        return response.json().get("text", "").strip()
+    else:
+        logger.warning(f"Error transcribiendo audio en Groq Ayuda: {response.text}")
+        raise Exception("Fallo en transcripción de audio de ayuda")
+
+
+async def procesar_audio_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Recibe el audio desviado desde bot8.py cuando el usuario está en modo /ayuda,
+    lo transcribe y responde la duda con el manual.
+    """
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    msg_espera_txt = traducciones.get("09_ayuda_escuchando", "🎧 Escuchando tu consulta y buscando en el manual...")
+    msg_espera = await update.message.reply_text(msg_espera_txt, parse_mode="Markdown")
+
+    try:
+        file = await context.bot.get_file(update.message.voice.file_id)
+        audio_bytes = await file.download_as_bytearray()
+
+        # 1. Transcribimos el audio en Groq
+        consulta_texto = await asyncio.to_thread(transcribir_audio_groq, audio_bytes)
+        if not consulta_texto:
+            await msg_espera.edit_text("⚠️ No pude escuchar bien el audio. Intentá de nuevo o escribí tu consulta.")
+            return
+
+        # 2. Consultamos el manual con el texto transcripto
+        respuesta_ia = await asyncio.to_thread(solicitar_ai_rest, consulta_texto)
+        respuesta_limpia = f"🗣️ *Tu consulta:* _{consulta_texto}_\n\n" + respuesta_ia.replace("**", "*")
+
+        try:
+            await msg_espera.edit_text(respuesta_limpia, parse_mode="Markdown")
+        except Exception:
+            await msg_espera.edit_text(respuesta_limpia.replace("*", "").replace("_", ""))
+
+    except Exception as e:
+        logger.error(f"Error procesando audio en /ayuda: {e}")
+        await msg_espera.edit_text("❌ Ocurrió un error al procesar el audio de ayuda. Intentá escribiendo `/h tu consulta`.")
+
 def solicitar_ai_rest(consulta):
     """
     Intenta responder primero con Groq (modelos actualizados).
@@ -272,8 +332,44 @@ def solicitar_ai_rest_Gemini(consulta, system_instruction):
 
     raise Exception("Fallo en todos los modelos de respaldo de Google Gemini")
 
-
 async def cmd_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra exclusivamente la guía estática y el botón de descarga del manual en PDF."""
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    # Limpiamos por las dudas cualquier bandera de soporte activa
+    context.user_data.pop('esperando_consulta_ayuda', None)
+
+    texto_ayuda = traducciones.get('09_ayuda_mensaje_guia', ...).replace('\\n', '\n')
+    texto_final = re.sub(r'\n{2,}', '\n\n', texto_ayuda)
+    
+    btn_manual_txt = traducciones.get('09_btn_descargar_manual', "📄 Descargar Manual Completo en PDF")
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(btn_manual_txt, callback_data=f"descargar_manual_user_{lang}")]
+    ])
+    
+    await update.message.reply_text(texto_final, reply_markup=keyboard, parse_mode="Markdown")
+
+
+async def cmd_soporte(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Activa de inmediato la bandera de escucha/texto exclusivo para hablar con la IA de soporte."""
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    # Activamos la bandera exclusiva
+    context.user_data['esperando_consulta_ayuda'] = True
+
+    msg_bienvenida = (
+        "🤖 **Asistente de Soporte Técnico IA NutriBot**\n\n"
+        "🎙️ **Grabá un mensaje de audio** contándome tu duda o **escribila acá abajo**.\n"
+        "Te responderé al instante basándome en el manual oficial.\n\n"
+        "*(Si querés salir de este modo sin consultar nada, escribí `/x`)*"
+    )
+    await update.message.reply_text(msg_bienvenida, parse_mode="Markdown")
+
+async def cmd_ayuda_reserva(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}

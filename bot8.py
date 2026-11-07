@@ -33,7 +33,8 @@ from administrador import (
     cmd_descargar
 )
 
-from ayuda import cmd_ayuda
+from ayuda import cmd_ayuda, cmd_soporte, procesar_audio_ayuda
+
 from profesionales import (
     cmd_pacientes,
     cmd_enviar_informe_actual,
@@ -1213,6 +1214,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = obtener_idioma_usuario(user_id) or "es"
     traducciones = obtener_traducciones_db(lang) or {}
 
+    if context.user_data.get("esperando_consulta_ayuda"):
+        context.user_data.pop("esperando_consulta_ayuda", None)
+        # Reutilizamos la misma función de IA de ayuda para texto plano
+        consulta = update.message.text.strip()
+        msg_esp = await update.message.reply_text("🤖 Buscando en el manual...")
+        try:
+            resp = await asyncio.to_thread(solicitar_ai_rest, consulta)
+            await msg_esp.edit_text(resp.replace("**", "*"), parse_mode="Markdown")
+        except Exception:
+            await msg_esp.edit_text("❌ Error al consultar el manual.")
+        return
+
     raw_text = update.message.text.strip() if update.message and update.message.text else ""
     if not raw_text:
         return
@@ -1421,6 +1434,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) or "es"
     traducciones = obtener_traducciones_db(lang) or {}
+
+    if context.user_data.pop("esperando_consulta_ayuda", False):
+        return await procesar_audio_ayuda(update, context)
 
     txt_escuchando = traducciones.get("07_bot_escuchando_audio", "🎙️ Escuchando y procesando audio...")
     msg = await update.message.reply_text(txt_escuchando)
@@ -4908,9 +4924,15 @@ def main():
         app_bot.add_handler(CommandHandler(["manual", "documentacion"], cmd_generar_manual_pdf))
         
         # =================================INGRESOS Y CONSULTAS MANUALES============================================
+
+        # El comando tradicional solo muestra la guía
+        app_bot.add_handler(CommandHandler(["ayuda", "help"], cmd_ayuda))
+
+        # Un comando exclusivo y rápido para activar el soporte por audio/texto
+        app_bot.add_handler(CommandHandler(["soporte", "h", "preguntar"], cmd_soporte))
+
         app_bot.add_handler(CommandHandler(["actividad", "activity"], cmd_actividad))
         app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
-        app_bot.add_handler(CommandHandler(["ayuda", "help", "h"], cmd_ayuda))    
         app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
         app_bot.add_handler(CommandHandler(["perfil", "profile"], cmd_perfil))
         app_bot.add_handler(CommandHandler(["receta", "recipe"], cmd_cargar_receta))
