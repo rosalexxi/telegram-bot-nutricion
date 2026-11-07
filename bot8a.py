@@ -399,6 +399,233 @@ def registrar_evento_web_db(pais: str, ciudad: str, es_click_telegram: bool = Fa
 #              INICIO                              FUNCIONES USUARIOS                       
 # =============================================================================================================================================
 
+def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
+    ahora = obtener_ahora_arg()
+    dia_actual = ahora.day
+    mes_actual_str = ahora.strftime("%Y-%m")
+    if not mes:
+        mes = mes_actual_str
+
+    peso_ingresado = float(peso or 0.0)
+    if peso_ingresado > 1000:
+        peso_ingresado /= 1000.0
+
+    # --- Obtener idioma del usuario para las respuestas multilenguaje ---
+    lang_usuario = 'es'
+    try:
+        conn_l, cur_l = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur_l.execute('SELECT "Idioma" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id).strip(),))
+        row_l = cur_l.fetchone()
+        if row_l and row_l[0]:
+            lang_usuario = str(row_l[0]).strip().lower()
+        cur_l.close()
+        conn_l.close()
+    except Exception:
+        pass
+
+    # Obtener traducciones de la tabla 'multi' de forma segura
+    traducciones_msj = {}
+    try:
+        conn_m, cur_m = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
+        cur_m.execute('SELECT variables, "{0}" FROM "multi"'.format(lang_usuario.upper()))
+        filas_m = cur_m.fetchall()
+        traducciones_msj = {row[0].strip().lower(): row[1] for row in filas_m if row[0] and row[1]}
+        cur_m.close()
+        conn_m.close()
+    except Exception:
+        pass
+
+    def msg_t(clave, fallback):
+        return traducciones_msj.get(clave.lower(), fallback)
+
+    conn = None
+    cur = None
+    try:
+        tabla_nombre = f"Perfil_{user_id}"
+        conn, cur = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
+        cur.execute(f'ALTER TABLE "{tabla_nombre}" ADD COLUMN IF NOT EXISTS "peso_actual" DOUBLE PRECISION;')
+        conn.commit()
+
+        # Obtenemos el nombre exacto de la tabla en Supabase
+        cur.execute("""
+            SELECT table_name FROM information_schema.tables 
+            WHERE table_schema = 'public' AND LOWER(table_name) = LOWER(%s)
+        """, (tabla_nombre,))
+        row_t = cur.fetchone()
+        tabla_real = row_t[0] if row_t else tabla_nombre
+
+        cur.execute(f'SELECT "EDAD", "ALTURA", "GENERO", "ocupacion", "PESO", "peso_actual", "Fecha_Actualizacion" FROM "{tabla_real}" WHERE TRIM("MES") = %s ORDER BY id DESC LIMIT 1', (str(mes).strip(),))
+        fila_previa = cur.fetchone()
+        
+        fecha_act_ant = str(fila_previa[6] or "").strip() if fila_previa else ""
+        dia_ultima_act = 0
+        mes_ultima_act = ""
+        if fecha_act_ant:
+            for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"):
+                try:
+                    dt_parsed = datetime.strptime(fecha_act_ant, fmt)
+                    dia_ultima_act = dt_parsed.day
+                    mes_ultima_act = dt_parsed.strftime("%Y-%m")
+                    break
+                except ValueError:
+                    continue
+                    
+    except Exception as e:
+        logger.error(f"Error preliminar en guardar_perfil_db para {user_id}: {e}")
+        return {"error": True, "mensaje": msg_t("03_bot_err_db", "❌ Error al consultar la base de datos.")}
+    finally:
+        if cur:
+            try: cur.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
+
+    edad_val = int(float(edad)) if edad is not None else (int(float(fila_previa[0])) if fila_previa and fila_previa[0] else 64)
+    altura_val = float(altura) if altura is not None else (float(fila_previa[1]) if fila_previa and fila_previa[1] else 170.0)
+    if altura_val > 1000: altura_val /= 1000.0
+    genero_val = str(genero) if genero else (str(fila_previa[2]) if fila_previa and fila_previa[2] else "M")
+    
+    factor_previo = float(ocupacion) if ocupacion is not None else (float(fila_previa[3]) if fila_previa and fila_previa[3] else 1.375)
+    if factor_previo > 10: factor_previo /= 1000.0
+
+    peso_base_mes = float(fila_previa[4]) if fila_previa and fila_previa[4] else 0.0
+    if peso_base_mes > 1000: peso_base_mes /= 1000.0
+
+    # --- Función interna para recalcular factor ---
+    def recalcular_factor_diluido(peso_base, peso_nuevo_ingreso):
+        try:
+            df_datos = obtener_datos_usuario(user_id) 
+            if df_datos.empty or 'Fecha' not in df_datos.columns:
+                return factor_previo
+                
+            df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(str(mes))].copy()
+            if df_mes.empty:
+                return factor_previo
+                
+            dias_registrados = df_mes['Fecha'].nunique()
+            if dias_registrados < 1:
+                return factor_previo
+
+            delta_peso = peso_nuevo_ingreso - peso_base
+            tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
+            tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in df_mes.columns else 0.0
+
+            prom_cons = tot_cons_mes / dias_registrados
+            prom_quem = tot_quem_mes / dias_registrados
+
+            tmb_pura, _ = calcular_tmb_y_get(peso_actual=peso_base, altura_cm=altura_val, edad=edad_val, genero=genero_val, actividad=1.0)
+            if tmb_pura <= 0: tmb_pura = 1813.0
+
+            balance_diario_objetivo = (delta_peso * 7700.0) / dias_registrados
+            get_real_necesario = prom_cons - prom_quem - balance_diario_objetivo
+            
+            factor_calculado = get_real_necesario / tmb_pura
+            factor_calculado_acotado = max(0.50, min(5.00, factor_calculado))
+
+            d_trans = min(30, max(1, dia_actual))
+            peso_nw = d_trans
+            peso_prv = 30 - d_trans
+            
+            factor_ponderado = ((factor_calculado_acotado * peso_nw) + (factor_previo * peso_prv)) / 30.0
+            return round(factor_ponderado, 6)
+        except Exception as err:
+            logger.error(f"Error recalculando factor: {err}")
+            return factor_previo
+
+    # --- REGLA DE LAS 3 VENTANAS ---
+    fecha_hoy_iso = ahora.strftime("%Y-%m-%d")
+
+    try:
+        if dia_actual <= 14:
+            # Solo bloquea si ya hubo una actualización real dentro de este mismo mes (no por fila heredada con fecha vacía o del mes anterior)
+            ya_actualizo_este_mes = (dia_ultima_act > 0 and mes_ultima_act == str(mes).strip())
+            if ya_actualizo_este_mes and peso_base_mes > 0:
+                msg_default = "⚖️ Ya tenemos registrado tu peso base del mes. Para que la tendencia sea real y no refleje retención de líquidos, podrás ingresar tu próximo control a partir del día 15."
+                return {"error": True, "mensaje": msg_t("03_peso_ya_registrado", msg_default)}
+            
+            _core_guardar_perfil_db(user_id, str(mes), {
+                "EDAD": str(edad_val), 
+                "PESO": peso_ingresado, 
+                "peso_actual": peso_ingresado, 
+                "ALTURA": altura_val, 
+                "GENERO": genero_val, 
+                "ocupacion": factor_previo, 
+                "Fecha_Actualizacion": fecha_hoy_iso
+            })
+            _core_guardar_usuario_db(user_id, {"Ultimo Mes Peso": fecha_hoy_iso})
+            
+            msg_default = f"✅ **¡Peso base del mes registrado correctamente!**\n\n• Peso inicial ({mes}): `{peso_ingresado:.1f} kg`"
+            template = msg_t("03_peso_base_ok", msg_default)
+            return {"error": False, "mensaje": template.format(mes=mes, peso=f"{peso_ingresado:.1f}")}
+
+        elif 15 <= dia_actual <= 25:
+            ya_actualizo_quincena = (dia_ultima_act >= 15 and mes_ultima_act == str(mes).strip())
+            if ya_actualizo_quincena:
+                msg_default = "⚖️ Control quincenal ya registrado correctamente. Tu próximo ingreso estará habilitado a partir del día 26 para el cierre del mes."
+                return {"error": True, "mensaje": msg_t("03_control_quincenal_hecho", msg_default)}
+            
+            peso_base_efectivo = peso_base_mes if peso_base_mes > 0 else peso_ingresado
+            nuevo_factor = recalcular_factor_diluido(peso_base_efectivo, peso_ingresado)
+            delta_peso = peso_ingresado - peso_base_efectivo
+            
+            campos_upd = {
+                "peso_actual": peso_ingresado, 
+                "ocupacion": nuevo_factor, 
+                "Fecha_Actualizacion": fecha_hoy_iso
+            }
+            if peso_base_mes <= 0:
+                campos_upd["PESO"] = peso_ingresado
+
+            _core_guardar_perfil_db(user_id, str(mes), campos_upd)
+            _core_guardar_usuario_db(user_id, {"Ultimo Mes Peso": fecha_hoy_iso})
+            guardar_ocupacion_db(user_id, nuevo_factor, str(mes))
+            
+            msg_default = f"✅ **¡Control quincenal guardado y factor calibrado!**\n\n• Variación detectada: `{delta_peso:+.1f} kg`\n• Nuevo factor de actividad: `{nuevo_factor:.4f}`"
+            template = msg_t("03_control_quincenal_ok", msg_default)
+            return {"error": False, "mensaje": template.format(variacion=f"{delta_peso:+.1f}", factor=f"{nuevo_factor:.4f}")}
+
+        else: # dia_actual >= 26
+            ya_actualizo_cierre = (dia_ultima_act >= 26 and mes_ultima_act == str(mes).strip())
+            if ya_actualizo_cierre:
+                msg_default = "⚖️ Ya registraste tu peso de cierre de mes. El sistema ya preparó tu ficha para el mes que viene. Tu próximo pesaje se habilitará el día 15."
+                return {"error": True, "mensaje": msg_t("03_cierre_mes_hecho", msg_default)}
+            
+            peso_base_efectivo = peso_base_mes if peso_base_mes > 0 else peso_ingresado
+            nuevo_factor = recalcular_factor_diluido(peso_base_efectivo, peso_ingresado)
+            
+            # 1. Actualiza mes actual con el balance final
+            _core_guardar_perfil_db(user_id, str(mes), {
+                "peso_actual": peso_ingresado, 
+                "ocupacion": nuevo_factor, 
+                "Fecha_Actualizacion": fecha_hoy_iso
+            })
+            guardar_ocupacion_db(user_id, nuevo_factor, str(mes))
+            
+            # 2. Pre-carga el mes siguiente
+            mes_proximo_dt = ahora.replace(day=28) + timedelta(days=5)
+            mes_proximo_str = mes_proximo_dt.strftime("%Y-%m")
+            _core_guardar_perfil_db(user_id, mes_proximo_str, {
+                "EDAD": str(edad_val), 
+                "PESO": peso_ingresado, 
+                "peso_actual": peso_ingresado, 
+                "ALTURA": altura_val, 
+                "GENERO": genero_val, 
+                "ocupacion": nuevo_factor, 
+                "Fecha_Actualizacion": fecha_hoy_iso
+            })
+            
+            _core_guardar_usuario_db(user_id, {"Ultimo Mes Peso": fecha_hoy_iso})
+            
+            msg_default = f"✅ **¡Cierre de mes registrado impecable!**\n\nEl balance del período se ha consolidado y ya configuramos automáticamente tu perfil base para el inicio del próximo mes con `{peso_ingresado:.1f} kg`."
+            template = msg_t("03_cierre_mes_ok", msg_default)
+            return {"error": False, "mensaje": template.format(peso=f"{peso_ingresado:.1f}")}
+
+    except Exception as e_save:
+        logger.error(f"Error guardando peso en Supabase para {user_id}: {e_save}")
+        return {"error": True, "mensaje": f"❌ Error al grabar en la base de datos: {e_save}"}
+        
+
 def _core_guardar_usuario_db(user_id, campos_a_actualizar: dict):
     """
     Actualiza la tabla 'Usuarios' en Supabase asegurando coincidencia de User ID.
