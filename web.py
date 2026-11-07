@@ -643,11 +643,9 @@ HTML_CALCULADORA_RECETAS = """
     }
 
     window.addEventListener('DOMContentLoaded', () => {
-        inicializarIdiomaWeb();
-        if (window.location.hash === '#calculadora') {
-            showSection('calculadora');
-        }
+    registrarEstadisticaWeb();
     });
+
 
     async function reproducirAudioguia() {
         if ('speechSynthesis' in window) {

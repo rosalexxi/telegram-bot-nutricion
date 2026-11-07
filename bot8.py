@@ -4,6 +4,7 @@
 # REEMPLAZAR DESDE COMANDOS  sed -i "s/or '\$1'/or 'es'/g" bot8.py bot8a.py   sed -i "s/STRING_A_REEMPLAZAR/STRING_REEMPLAZO/g" ARCHIVO1 ARCHIVO2
 #===============================================================================================================
 
+
 from bot8a import *
 from bot8a import (
     _asegurar_tabla_y_conectar,
@@ -16,9 +17,10 @@ from bot8a import (
     _sub_manejar_texto_actividad,
     _sub_manejar_edicion_item,
     _sub_manejar_plantilla_comida,
-    _sub_manejar_voz_ingesta,
-    _sub_manejar_voz_actividad
+    _sub_manejar_voz_actividad,
+    obtener_precio_plan_mensual
 )
+
 import web
 import uuid
 import time
@@ -31,6 +33,7 @@ from administrador import (
     cmd_descargar
 )
 
+from ayuda import cmd_ayuda
 from profesionales import (
     cmd_pacientes,
     cmd_enviar_informe_actual,
@@ -4891,7 +4894,8 @@ def main():
         
         # =================================INGRESOS Y CONSULTAS MANUALES============================================
         app_bot.add_handler(CommandHandler(["actividad", "activity"], cmd_actividad))
-        app_bot.add_handler(CommandHandler(["start", "help", "ayuda" , "h"], cmd_start))
+        app_bot.add_handler(CommandHandler(["start", "inicio"], cmd_start))
+        app_bot.add_handler(CommandHandler(["ayuda", "help", "h"], cmd_ayuda))    
         app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
         app_bot.add_handler(CommandHandler(["perfil", "profile"], cmd_perfil))
         app_bot.add_handler(CommandHandler(["receta", "recipe"], cmd_cargar_receta))

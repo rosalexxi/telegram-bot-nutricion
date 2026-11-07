@@ -345,7 +345,7 @@ async def callback_gestion_solicitud_medico(update: Update, context: ContextType
                 f"✅ **Paciente aceptado con éxito.**\n\n"
                 f"El usuario con ID `{target_user_id}` ha sido vinculado oficialmente a su cuenta. "
                 f"Se han generado sus valores clínicos iniciales para el período `{mes_actual}`. "
-                f"Ya puede revisarlos o modificarlos desde el comando `/editar_valores`.",
+                f"Ya puede revisarlos o modificarlos desde el comando `/valores`.",
                 parse_mode="Markdown"
             )
             
@@ -385,7 +385,7 @@ async def cmd_editar_valores_clinicos(update: Update, context: ContextTypes.DEFA
     """
     Comando para que el médico despliegue el menú de pacientes y seleccione 
     a cuál desea revisarle o modificarle los valores clínicos.
-    Uso: /editar_valores
+    Uso: /valores
     """
     prof_id = str(update.effective_user.id).strip()
     
@@ -812,7 +812,7 @@ async def cmd_enviar_nota_paciente(update: Update, context: ContextTypes.DEFAULT
     """
     Comando interactivo por botones para que el profesional seleccione al paciente 
     al que desea enviarle una nota o indicación médica.
-    Uso: /nota o /enviar_nota
+    Uso: /nota 
     """
     prof_id = str(update.effective_user.id).strip()
     
@@ -911,8 +911,8 @@ async def cmd_generar_manual_pdf(update: Update, context: ContextTypes.DEFAULT_T
         "🩺 **Panel de Control — Guía de Comandos Profesionales**\n\n"
         "• `/pacientes`: Genera un reporte clínico consolidado en PDF con el historial de los últimos 6 meses de tus pacientes.\n"
         "• `/informe`: Despliega un menú táctil para auditar y reenviar el informe mensual individual en PDF.\n"
-        "• `/editar_valores`: Panel interactivo para consultar y corregir las metas clínicas (TMB, GET, macros, peso de etapa).\n"
-        "• `/nota` (o `/enviar_nota`): Despliega los botones con tus pacientes para enviarles notas clínicas o directivas directas.\n"
+        "• `/valores`: Panel interactivo para consultar y corregir las metas clínicas (TMB, GET, macros, peso de etapa).\n"
+        "• `/nota` : Despliega los botones con tus pacientes para enviarles notas clínicas o directivas directas.\n"
         "• `/manual`: Muestra esta guía rápida y adjunta el manual completo en PDF.\n\n"
         "📄 *A continuación se adjunta el documento técnico operativo completo:*"
     )
@@ -975,7 +975,7 @@ async def cmd_generar_manual_pdf(update: Update, context: ContextTypes.DEFAULT_T
              Paragraph("<b>Descripción y Alcance Operativo</b>", ParagraphStyle('Th2', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold'))],
             [Paragraph("<b>/pacientes</b>", body_style), Paragraph("Genera un reporte PDF clínico con el historial de los últimos 6 meses de todos los pacientes asignados.", body_style)],
             [Paragraph("<b>/informe</b>", body_style), Paragraph("Despliega botones interactivos con nombres e IDs para reenviar el informe mensual en PDF de manera individual.", body_style)],
-            [Paragraph("<b>/editar_valores</b>", body_style), Paragraph("Panel táctil interactivo para visualizar metas actuales (TMB, GET, peso de etapa) y corregirlas al instante.", body_style)],
+            [Paragraph("<b>/valores</b>", body_style), Paragraph("Panel táctil interactivo para visualizar metas actuales (TMB, GET, peso de etapa) y corregirlas al instante.", body_style)],
             [Paragraph("<b>/nota</b>", body_style), Paragraph("Despliega botones interactivos con tus pacientes para enviarles notas o indicaciones médicas directas.", body_style)],
             [Paragraph("<b>/manual</b>", body_style), Paragraph("Muestra el resumen de comandos en pantalla y adjunta el manual completo en PDF.", body_style)]
         ]

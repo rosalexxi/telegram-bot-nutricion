@@ -952,7 +952,6 @@ def eliminar_registro_por_id(user_id, item_id):
             except: pass
     return True
 
-
 def obtener_datos_usuario_general(user_id):
     """Obtiene los datos generales del usuario desde la tabla 'Usuarios'."""
     try:
@@ -979,6 +978,27 @@ def obtener_datos_usuario_general(user_id):
     except Exception as e:
         logger.error(f"Error al obtener datos generales de usuario para {user_id}: {e}")
         return {}
+
+def obtener_precio_plan_mensual() -> int:
+    """Obtiene el precio en estrellas del plan base '1_mes' desde la tabla Planes en Supabase."""
+    conn = None
+    cur = None
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Planes", tipo_tabla="planes")
+        cur.execute('SELECT "estrellas" FROM "Planes" WHERE "plan_id" = %s', ('1_mes',))
+        fila = cur.fetchone()
+        if fila and fila[0] is not None:
+            return int(fila[0])
+    except Exception as e:
+        logger.error(f"Error al obtener el precio del plan mensual: {e}")
+    finally:
+        if cur:
+            try: cur.close()
+            except Exception: pass
+        if conn:
+            try: conn.close()
+            except Exception: pass
+    return 250  # Valor de respaldo coherente con boton_elegir_plan
 
 #              INICIO                                   FUNCIONES GUARDAR                        
 # =============================================================================================================================================
@@ -1318,15 +1338,16 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         return {"error": False, "mensaje": template.format(peso=f"{peso_ingresado:.1f}")}
                                                          
 def guardar_ocupacion_db(user_id, nuevo_factor, mes_actual, reloj_actualizado=None):
-    """Actualiza el factor de ocupación en la tabla Perfil_<user_id> y el control en Usuarios."""
+    """Actualiza el factor de ocupación en la tabla Perfil_<user_id> y el control del reloj en Usuarios."""
     user_id_str = str(user_id).strip()
-    mes_marca = str(reloj_actualizado) if reloj_actualizado else str(mes_actual)
 
-    _core_guardar_usuario_db(user_id_str, {
-        "ocupacion": float(nuevo_factor or 1.375),
-        "reloj_actualizado_mes": mes_marca
-    })
+    # Solo actualizamos 'reloj_actualizado_mes' en la tabla Usuarios si viene informado (ej: comando /GET)
+    if reloj_actualizado:
+        _core_guardar_usuario_db(user_id_str, {
+            "reloj_actualizado_mes": str(reloj_actualizado)
+        })
 
+    # La columna 'ocupacion' vive en la tabla Perfil_<user_id>
     _core_guardar_perfil_db(user_id, str(mes_actual), {
         "ocupacion": float(nuevo_factor or 1.375)
     })
@@ -3547,18 +3568,6 @@ def parsear_fecha_flexible(raw_text):
     except Exception: pass
     return None
     
-async def _sub_manejar_voz_ingesta(update, context, transcription, msg):
-    user_id = update.effective_user.id
-    try:
-        data = await analizar_con_ia(transcription, user_id)
-        await procesar_y_mostrar_confirmacion(data, msg, context)
-    except Exception as e:
-        lang = obtener_idioma_usuario(user_id) or 'es'
-        traducciones = obtener_traducciones_db(lang) or {}
-        txt_err_aud = traducciones.get('06_bot_error_audio', "❌ Error al procesar el audio con IA: {e}").format(e=e)
-        logger.error(f"Error procesando voz de ingesta: {e}")
-        await msg.edit_text(txt_err_aud)
-
 async def _sub_manejar_voz_actividad(update, context, transcription, msg):
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) or 'es'
