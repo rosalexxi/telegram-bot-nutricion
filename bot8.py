@@ -3493,9 +3493,9 @@ async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username_tg = f"@{user.username}" if user.username else ""
 
     # 1. Si sos vos (el Administrador) o alguien que ya tiene cuenta en pruebas, pasa directo sin bloqueo
-    estado_usr = _verificar_estado_usuario_en_hoja(user_id)
-    if es_administrador(user_id) or estado_usr is not None:
-        return await cmd_ingreso_start(update, context)
+    #estado_usr = _verificar_estado_usuario_en_hoja(user_id)
+    #if es_administrador(user_id) or estado_usr is not None:
+    #    return await cmd_ingreso_start(update, context)
 
     # 2. Capturamos al curioso en segundo plano sin frenar el bot
     await asyncio.to_thread(registrar_curioso_preventa_db, user_id, nombre_tg, username_tg, "cmd_alta")
