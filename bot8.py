@@ -724,7 +724,12 @@ async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
-    # Si viene con argumento (ej: /actividad resumen o /actividad 08)
+    # Limpiamos cualquier paso manual que haya quedado abierto previamente
+    context.user_data.pop('act_manual_step', None)
+    context.user_data.pop('act_manual_data', None)
+    context.user_data.pop('msg_act_manual_id', None)
+
+    # Si viene con argumento directo (ej: /actividad resumen o /actividad 08)
     if context.args:
         arg0 = context.args[0].strip().lower()
         if arg0 in ["resumen", "mes", "summary", "month", "r", "m"]:
@@ -737,7 +742,8 @@ async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton(f"📅 {label_mes_actual}", callback_data=f"act_res_mes_{mes_actual_iso}")],
                 [InlineKeyboardButton(f"📆 {label_mes_anterior}", callback_data=f"act_res_mes_{mes_anterior_iso}")],
-                [InlineKeyboardButton("🔄 📅 Otros meses", callback_data="act_res_menu_otros")]
+                [InlineKeyboardButton("🔄 📅 Otros meses", callback_data="act_res_menu_otros")],
+                [InlineKeyboardButton("🔙 Menú Actividad", callback_data="act_menu_principal")]
             ])
             txt_tit = traducciones.get(
                 "07_bot_act_resumen_titulo", 
@@ -751,21 +757,24 @@ async def cmd_actividad(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await mostrar_resumen_actividad_mes(update, context, mes_override=mes_formateado)
             return
 
-    # Si se llama solo con /actividad -> Inicia carga paso a paso (1. Minutos)
-    context.user_data['act_manual_step'] = 'minutos'
-    context.user_data['act_manual_data'] = {}
+    # Si se llama solo con /actividad -> Muestra menú interactivo con ambas opciones
+    btn_cargar = traducciones.get("07_bot_act_btn_cargar", "➕ Registrar Actividad Manual")
+    btn_resumen = traducciones.get("07_bot_act_btn_resumen", "📊 Resumen Mensual y PDF")
+    btn_salir = traducciones.get("07_bot_act_btn_salir", "❌ Cerrar")
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("❌ Anular", callback_data="act_manual_cancelar")]
+        [InlineKeyboardButton(btn_cargar, callback_data="act_iniciar_manual")],
+        [InlineKeyboardButton(btn_resumen, callback_data="act_res_volver")],
+        [InlineKeyboardButton(btn_salir, callback_data="act_manual_cancelar")]
     ])
-    txt_paso1 = traducciones.get(
-        "07_bot_act_paso1_min", 
-        "🏃 **Registro Manual de Actividad Física (1/3)**\n\n⏱️ Ingresá la cantidad de **minutos** (ej: `45`):"
+
+    txt_menu = traducciones.get(
+        "07_bot_act_menu_principal",
+        "🏃 **Módulo de Actividad Física**\n\nSeleccioná qué deseás realizar:"
     ).replace('\\n', '\n')
-    msg = await update.message.reply_text(txt_paso1, reply_markup=keyboard, parse_mode="Markdown")
-    context.user_data['msg_act_manual_id'] = msg.message_id
 
-
+    await update.message.reply_text(txt_menu, reply_markup=keyboard, parse_mode="Markdown")
+    
 async def _sub_manejar_actividad_manual_pasos(update: Update, context: ContextTypes.DEFAULT_TYPE, raw_text: str, chat_id: int):
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) or 'es'
@@ -854,7 +863,6 @@ async def _sub_manejar_actividad_manual_pasos(update: Update, context: ContextTy
         context.user_data['last_menu_msg_id'] = msg_menu.message_id
         await render_confirmation_screen(msg_menu, context)
 
-
 def generar_pdf_actividad_bytes(mes_str, df_act, user_id):
     lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
@@ -941,7 +949,44 @@ async def mostrar_resumen_actividad_mes(update: Update, context: ContextTypes.DE
             context.user_data.pop('act_manual_step', None)
             context.user_data.pop('act_manual_data', None)
             context.user_data.pop('msg_act_manual_id', None)
-            await query.edit_message_text("❌ Carga manual de actividad cancelada.")
+            txt_canc = traducciones.get("07_bot_act_cancelada", "❌ Operación de actividad finalizada.")
+            await query.edit_message_text(txt_canc)
+            return
+
+        if data == "act_menu_principal":
+            context.user_data.pop('act_manual_step', None)
+            context.user_data.pop('act_manual_data', None)
+            context.user_data.pop('msg_act_manual_id', None)
+
+            btn_cargar = traducciones.get("07_bot_act_btn_cargar", "➕ Registrar Actividad Manual")
+            btn_resumen = traducciones.get("07_bot_act_btn_resumen", "📊 Resumen Mensual y PDF")
+            btn_salir = traducciones.get("07_bot_act_btn_salir", "❌ Cerrar")
+
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton(btn_cargar, callback_data="act_iniciar_manual")],
+                [InlineKeyboardButton(btn_resumen, callback_data="act_res_volver")],
+                [InlineKeyboardButton(btn_salir, callback_data="act_manual_cancelar")]
+            ])
+            txt_menu = traducciones.get(
+                "07_bot_act_menu_principal",
+                "🏃 **Módulo de Actividad Física**\n\nSeleccioná qué deseás realizar:"
+            ).replace('\\n', '\n')
+            await query.edit_message_text(txt_menu, reply_markup=keyboard, parse_mode="Markdown")
+            return
+
+        if data == "act_iniciar_manual":
+            context.user_data['act_manual_step'] = 'minutos'
+            context.user_data['act_manual_data'] = {}
+
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("❌ Anular", callback_data="act_manual_cancelar")]
+            ])
+            txt_paso1 = traducciones.get(
+                "07_bot_act_paso1_min", 
+                "🏃 **Registro Manual de Actividad Física (1/3)**\n\n⏱️ Ingresá la cantidad de **minutos** (ej: `45`):"
+            ).replace('\\n', '\n')
+            await query.edit_message_text(txt_paso1, reply_markup=keyboard, parse_mode="Markdown")
+            context.user_data['msg_act_manual_id'] = query.message.message_id
             return
 
         if data == "act_res_menu_otros":
@@ -960,9 +1005,14 @@ async def mostrar_resumen_actividad_mes(update: Update, context: ContextTypes.DE
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton(f"📅 {ahora.strftime('%m/%Y')}", callback_data=f"act_res_mes_{mes_actual_iso}")],
                 [InlineKeyboardButton(f"📆 {(ahora.replace(day=1) - timedelta(days=1)).strftime('%m/%Y')}", callback_data=f"act_res_mes_{mes_anterior_iso}")],
-                [InlineKeyboardButton("🔄 📅 Otros meses", callback_data="act_res_menu_otros")]
+                [InlineKeyboardButton("🔄 📅 Otros meses", callback_data="act_res_menu_otros")],
+                [InlineKeyboardButton("🔙 Menú Actividad", callback_data="act_menu_principal")]
             ])
-            await query.edit_message_text("🏃 **Resumen Mensual de Actividad Física:**\nSeleccioná el período que querés consultar:", reply_markup=keyboard, parse_mode="Markdown")
+            txt_tit = traducciones.get(
+                "07_bot_act_resumen_titulo", 
+                "🏃 **Resumen Mensual de Actividad Física:**\nSeleccioná el período que querés consultar:"
+            ).replace('\\n', '\n')
+            await query.edit_message_text(txt_tit, reply_markup=keyboard, parse_mode="Markdown")
             return
 
         if data.startswith("descargar_pdf_act_"):
@@ -999,10 +1049,11 @@ async def mostrar_resumen_actividad_mes(update: Update, context: ContextTypes.DE
 
     if df_act.empty:
         msg_vacio = f"⚠️ No tenés actividades físicas registradas en el período `{mes_str}`."
+        keyboard_vacio = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="act_res_volver")]])
         if query:
-            await query.edit_message_text(msg_vacio, parse_mode="Markdown")
+            await query.edit_message_text(msg_vacio, reply_markup=keyboard_vacio, parse_mode="Markdown")
         else:
-            await update.message.reply_text(msg_vacio, parse_mode="Markdown")
+            await update.message.reply_text(msg_vacio, reply_markup=keyboard_vacio, parse_mode="Markdown")
         return
 
     import calendar
@@ -1012,7 +1063,6 @@ async def mostrar_resumen_actividad_mes(update: Update, context: ContextTypes.DE
     dias_activos = df_act['Fecha'].nunique() or 1
     tot_minutos = 0
 
-    # Calcular los días totales del mes seleccionado
     año_str, mes_num_str = mes_str.split('-')
     dias_del_mes = calendar.monthrange(int(año_str), int(mes_num_str))[1]
 
@@ -1033,14 +1083,14 @@ async def mostrar_resumen_actividad_mes(update: Update, context: ContextTypes.DE
     txt_resumen = (
         f"🏃 **Resumen de Actividad Física ({mes_str})**\n\n"
         f"• 🗓️ **Días activos:** `{dias_activos}` de `{dias_del_mes}` ({sesiones} sesiones)\n"
-        f"• ⏱️ **Tiempo total:** `{tot_minutos} min` (`{tot_minutos/dias_del_mes:.0f} min/día`)\n"
-        f"• 🔥 **Total quemado:** `{tot_kcal:.0f} kcal` (`{tot_kcal/dias_del_mes:.0f} kcal/día`)\n\n"
+        f"• ⏱️ **Tiempo total:** `{tot_minutos} min` (Promedio mensual: `{tot_minutos/dias_del_mes:.0f} min/día`)\n"
+        f"• 🔥 **Total quemado:** `{tot_kcal:.0f} kcal` (Promedio mensual: `{tot_kcal/dias_del_mes:.0f} kcal/día`)\n\n"
         f"📋 **Detalle del período:**\n{listado_str}"
     )
 
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📄 Descargar PDF de Actividades", callback_data=f"descargar_pdf_act_{mes_str}")],
-        [InlineKeyboardButton("🔙 Volver", callback_data="act_res_volver")]
+        [InlineKeyboardButton("🔙 Volver a Meses", callback_data="act_res_volver")]
     ])
 
     if query:
@@ -4906,7 +4956,9 @@ def main():
         # Enrutadores para el módulo profesional (listados, informes y edición por botones)
         app_bot.add_handler(CallbackQueryHandler(callback_enviar_informe_paciente, pattern="^enviar_inf_"))
         app_bot.add_handler(CallbackQueryHandler(callback_descargar_manual_usuario, pattern="^descargar_manual_user_"))        
-        app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_actividad_mes, pattern="^(act_res_|act_manual_cancelar|descargar_pdf_act_)"))
+
+        app_bot.add_handler(CallbackQueryHandler(mostrar_resumen_actividad_mes, pattern="^(act_res_|act_iniciar_manual|act_menu_principal|act_manual_cancelar|descargar_pdf_act_)"))
+
         app_bot.add_handler(CallbackQueryHandler(callback_btn_momento, pattern="^set_m_"))
         app_bot.add_handler(CallbackQueryHandler(callback_btn_fechas_diario, pattern="^(set_d_|diario_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_btn_editar_item, pattern="^edit_item_"))
