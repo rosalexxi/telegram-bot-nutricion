@@ -4,6 +4,7 @@ import json
 import logging
 import google.generativeai as genai
 import time
+import requests
 
 # Importamos la instancia de Flask y las funciones necesarias del núcleo
 from bot8a import	 (
@@ -1067,17 +1068,10 @@ HTML_TERMINOS_ALTA = """
         }
     });
 
-
-
-
-
-
-
     async function aceptarTerminos() {
         document.getElementById('loading').style.display = 'block';
-        document.getElementById('btnAccept').style.display = 'none'; // Ocultar boton para evitar dobles clics
-        
-        // Capturar zona horaria exacta y ubicación
+        document.getElementById('btnAccept').style.display = 'none';
+
         let tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Argentina/Buenos_Aires';
         let pais = 'Desconocido';
         let ciudad = 'Desconocida';
@@ -1090,43 +1084,24 @@ HTML_TERMINOS_ALTA = """
                 ciudad = dataGeo.city || 'Desconocida';
             }
         } catch (e) {
-            console.log("No se pudo obtener geolocalización por IP.");
+            console.log("Bloqueado por el navegador.");
         }
 
-        const urlParams = new URLSearchParams(window.location.search);
-        const userId = urlParams.get('user_id');
+        let payload = JSON.stringify({
+            status: "aceptado",
+            pais: pais,
+            ciudad: ciudad,
+            zona_horaria: tz
+        });
 
-        try {
-            let response = await fetch('/api/guardar-terminos', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    user_id: userId,
-                    pais: pais,
-                    ciudad: ciudad,
-                    zona_horaria: tz
-                })
-            });
-
-            if (response.ok) {
-                if (tg && tg.sendData) {
-                    tg.sendData("aceptado");
-                    tg.close();
-                } else {
-                    Swal.fire({icon: 'success', title: '¡Listo!', text: 'Términos aceptados con éxito. Volvé a Telegram para continuar.'});
-                }
-            } else {
-                Swal.fire({icon: 'error', title: 'Oops...', text: 'Hubo un error al registrar la aceptación. Por favor, intentá de nuevo.'});
-                document.getElementById('loading').style.display = 'none';
-                document.getElementById('btnAccept').style.display = 'block';
-            }
-        } catch (err) {
-            Swal.fire({icon: 'error', title: 'Error de Red', text: err.message});
-            document.getElementById('loading').style.display = 'none';
-            document.getElementById('btnAccept').style.display = 'block';
+        if (tg && tg.sendData) {
+            tg.sendData(payload);
+            tg.close();
+        } else {
+            Swal.fire({icon: 'success', title: '¡Listo!', text: 'Términos aceptados con éxito. Volvé a Telegram para continuar.'});
         }
     }
-    
+
 </script>
 </body>
 </html>
@@ -1136,7 +1111,6 @@ HTML_TERMINOS_ALTA = """
 def vista_terminos():
     return render_template_string(HTML_TERMINOS_ALTA)
 
-@app.route('/api/guardar-terminos', methods=['POST'])
 def api_guardar_terminos():
     try:
         data = request.json
@@ -1416,7 +1390,63 @@ def api_registrar_visita():
         logger.error(f"Error en api_registrar_visita: {e}")
         return jsonify({"error": str(e)}), 500
 
+import requests
 
+def obtener_geo_ip(request_obj):
+    ip = request_obj.headers.get('X-Forwarded-For', request_obj.remote_addr)
+    if ip and ',' in ip:
+        ip = ip.split(',')[0].strip()
+    
+    if not ip or ip == '127.0.0.1':
+        return 'Desconocido', 'Desconocida'
+        
+    try:
+        res = requests.get(f"http://ip-api.com/json/{ip}", timeout=3)
+        if res.status_code == 200:
+            data = res.json()
+            return data.get("country", "Desconocido"), data.get("city", "Desconocida")
+    except:
+        pass
+    return 'Desconocido', 'Desconocida'
+
+@app.route('/api/registrar-visita', methods=['POST'])
+def api_registrar_visita():
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        pais = data.get('pais', 'Desconocido')
+        ciudad = data.get('ciudad', 'Desconocida')
+        
+        if pais == 'Desconocido':
+            pais_srv, ciudad_srv = obtener_geo_ip(request)
+            if pais_srv != 'Desconocido':
+                pais = pais_srv
+                ciudad = ciudad_srv
+
+        registrar_evento_web_db(pais, ciudad, es_click_telegram=False)
+        return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        logger.error(f"Error en api_registrar_visita: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/registrar-click-telegram', methods=['POST'])
+def api_registrar_click_telegram():
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        pais = data.get('pais', 'Desconocido')
+        ciudad = data.get('ciudad', 'Desconocida')
+        
+        if pais == 'Desconocido':
+            pais_srv, ciudad_srv = obtener_geo_ip(request)
+            if pais_srv != 'Desconocido':
+                pais = pais_srv
+                ciudad = ciudad_srv
+
+        registrar_evento_web_db(pais, ciudad, es_click_telegram=True)
+        return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        logger.error(f"Error en api_registrar_click_telegram: {e}")
+        return jsonify({"error": str(e)}), 500
+        
 @app.route('/api/registrar-click-telegram', methods=['POST'])
 def api_registrar_click_telegram():
     try:

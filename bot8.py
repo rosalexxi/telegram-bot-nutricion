@@ -3507,48 +3507,6 @@ async def ing_recibir_ocupacion(update: Update, context: ContextTypes.DEFAULT_TY
 #                       FUNCIONES DE PREVENTA Y CAPTURA DE CURIOSOS (HASTA EL 15 DE NOVIEMBRE)
 # =========================================================================================================================================
 
-def registrar_curioso_preventa_db(user_id, nombre="", username="", origen="start"):
-    """
-    Crea la tabla 'Curiosos_Preventa' si no existe y guarda el ID del curioso.
-    Si el usuario ya estaba anotado, actualiza la fecha de su última visita sin duplicar.
-    """
-    conn = None
-    cur = None
-    try:
-        conn = _obtener_conexion_db()
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS "Curiosos_Preventa" (
-                id SERIAL PRIMARY KEY,
-                "User ID" TEXT UNIQUE,
-                "Nombre" TEXT,
-                "Username" TEXT,
-                "Origen" TEXT,
-                "Fecha_Registro" TEXT
-            );
-        """)
-        ahora_str = obtener_ahora_arg().strftime("%Y-%m-%d %H:%M:%S")
-        cur.execute("""
-            INSERT INTO "Curiosos_Preventa" ("User ID", "Nombre", "Username", "Origen", "Fecha_Registro")
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT ("User ID") DO UPDATE SET
-                "Origen" = EXCLUDED."Origen",
-                "Fecha_Registro" = EXCLUDED."Fecha_Registro";
-        """, (str(user_id).strip(), str(nombre or ""), str(username or ""), str(origen), ahora_str))
-        conn.commit()
-    except Exception as e:
-        if conn:
-            conn.rollback()
-        logger.error(f"Error guardando curioso {user_id} en preventa: {e}")
-    finally:
-        if cur:
-            try: cur.close()
-            except: pass
-        if conn:
-            try: conn.close()
-            except: pass
-
-
 async def cmd_ingreso_start_15(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Versión temporal de /alta hasta el 15 de noviembre.
@@ -3640,13 +3598,29 @@ async def ing_aceptar_terminos(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if update.effective_message and update.effective_message.web_app_data:
         data_web = update.effective_message.web_app_data.data
-        if "aceptado" in data_web:
+        
+        # Parsear el JSON proveniente de la Web App
+        try:
+            datos = json.loads(data_web)
+            es_aceptado = (datos.get("status") == "aceptado")
+            if es_aceptado:
+                context.user_data['ing_pais'] = datos.get("pais", "Desconocido")
+                context.user_data['ing_ciudad'] = datos.get("ciudad", "Desconocida")
+                context.user_data['ing_zona_horaria'] = datos.get("zona_horaria", "America/Argentina/Buenos_Aires")
+        except json.JSONDecodeError:
+            # Respaldo por si llega solo la palabra "aceptado" en crudo
+            es_aceptado = ("aceptado" in data_web)
+            if es_aceptado:
+                context.user_data['ing_pais'] = "Desconocido"
+                context.user_data['ing_ciudad'] = "Desconocida"
+                context.user_data['ing_zona_horaria'] = "America/Argentina/Buenos_Aires"
+        
+        if es_aceptado:
             txt_terminos_ok = traducciones.get(
                 "09_ing_terminos_ok", 
                 "✅ **Términos aceptados correctamente.**\n\n🔑 **Apertura de Ficha - Validación de Profesional**\n\nPara comenzar el registro, por favor ingresá el **ID de Telegram del profesional**.\n*(Si no tenés un profesional asignado y querés usar el asistente de forma independiente, ingresá 123456789)*:"
             ).replace('\\n', '\n')
             
-            # Quitamos el teclado inferior con ReplyKeyboardRemove()
             await update.message.reply_text(txt_terminos_ok, reply_markup=ReplyKeyboardRemove(), parse_mode="Markdown")
             return ING_PROFESIONAL
             
@@ -3866,7 +3840,10 @@ async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "idioma": lang,
         "ocupacion": context.user_data.get('ing_ocupacion', 1.375),
         "peso": context.user_data.get('ing_peso'),
-        "altura": context.user_data.get('ing_altura')
+        "altura": context.user_data.get('ing_altura'),
+        "pais": context.user_data.get('ing_pais', 'Desconocido'),
+        "ciudad": context.user_data.get('ing_ciudad', 'Desconocida'),
+        "zona_horaria": context.user_data.get('ing_zona_horaria', 'America/Argentina/Buenos_Aires')
     }
 
     datos_usuario["edad"] = calcular_edad_desde_cumple(datos_usuario["cumple"]) if 'calcular_edad_desde_cumple' in globals() else 40
@@ -3995,6 +3972,11 @@ def cmd_nuevo_usuario(datos_usuario):
     ocupacion = float(datos_usuario.get("ocupacion", 1.375))
     peso = float(datos_usuario.get("peso", 0))
     altura = float(datos_usuario.get("altura", 0))
+    
+    # Nuevas variables de ubicación
+    pais = str(datos_usuario.get("pais", "Desconocido"))
+    ciudad = str(datos_usuario.get("ciudad", "Desconocida"))
+    zona_horaria = str(datos_usuario.get("zona_horaria", "America/Argentina/Buenos_Aires"))
 
     edad = calcular_edad_desde_cumple(cumple)
     mes_actual = datetime.now(ARG_TZ).strftime("%Y-%m")
@@ -4003,7 +3985,6 @@ def cmd_nuevo_usuario(datos_usuario):
     try:
         conn_u, cur_u = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
         
-        # Asegurar que exista la columna profesional_pendiente por seguridad
         try:
             cur_u.execute('ALTER TABLE "Usuarios" ADD COLUMN IF NOT EXISTS "profesional_pendiente" TEXT;')
             conn_u.commit()
@@ -4019,16 +4000,17 @@ def cmd_nuevo_usuario(datos_usuario):
                     "Nombre" = %s, "Estado" = %s, "Ultimo Mes Peso" = %s, "Notificaciones" = %s,
                     "Fecha Alta" = %s, "Sexo" = %s, "cumple" = %s, "profesional" = %s,
                     "profesional_pendiente" = %s, "cintura_cm" = %s, "cuello_cm" = %s, 
-                    "cadera_cm" = %s, "ritmo_preferido" = %s, "Idioma" = %s
+                    "cadera_cm" = %s, "ritmo_preferido" = %s, "Idioma" = %s,
+                    "pais" = %s, "ciudad" = %s, "zona_horaria" = %s
                 WHERE "User ID" = %s
             """
-            valores_usr = (nombre, 0, mes_actual, "Si", fecha_alta, sexo, cumple, profesional, profesional_pendiente, cintura, cuello, cadera, ritmo, idioma, str(user_id))
+            valores_usr = (nombre, 0, mes_actual, "Si", fecha_alta, sexo, cumple, profesional, profesional_pendiente, cintura, cuello, cadera, ritmo, idioma, pais, ciudad, zona_horaria, str(user_id))
         else:
             query_usr = """
-                INSERT INTO "Usuarios" ("User ID", "Nombre", "Estado", "Ultimo Mes Peso", "Notificaciones", "Fecha Alta", "Sexo", "cumple", "profesional", "profesional_pendiente", "cintura_cm", "cuello_cm", "cadera_cm", "ritmo_preferido", "Idioma")
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO "Usuarios" ("User ID", "Nombre", "Estado", "Ultimo Mes Peso", "Notificaciones", "Fecha Alta", "Sexo", "cumple", "profesional", "profesional_pendiente", "cintura_cm", "cuello_cm", "cadera_cm", "ritmo_preferido", "Idioma", "pais", "ciudad", "zona_horaria")
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
-            valores_usr = (str(user_id), nombre, 0, mes_actual, "Si", fecha_alta, sexo, cumple, profesional, profesional_pendiente, cintura, cuello, cadera, ritmo, idioma)
+            valores_usr = (str(user_id), nombre, 0, mes_actual, "Si", fecha_alta, sexo, cumple, profesional, profesional_pendiente, cintura, cuello, cadera, ritmo, idioma, pais, ciudad, zona_horaria)
 
         cur_u.execute(query_usr, valores_usr)
         conn_u.commit()
@@ -4049,7 +4031,7 @@ def cmd_nuevo_usuario(datos_usuario):
         conn_p.close()
     except Exception as e:
         logger.error(f"Error alta tabla Perfil: {e}")
-
+        
 #                       INICIO                        COMANDOS PERFIL                           INICIO
 # ======================================================================================================================================
         

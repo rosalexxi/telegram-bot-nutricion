@@ -292,7 +292,48 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
             conn.rollback()
 
     return conn, cur
-    
+
+def registrar_curioso_preventa_db(user_id, nombre="", username="", origen="start"):
+    """
+    Crea la tabla 'Curiosos_Preventa' si no existe y guarda el ID del curioso.
+    Si el usuario ya estaba anotado, actualiza la fecha de su última visita sin duplicar.
+    """
+    conn = None
+    cur = None
+    try:
+        conn = _obtener_conexion_db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS "Curiosos_Preventa" (
+                id SERIAL PRIMARY KEY,
+                "User ID" TEXT UNIQUE,
+                "Nombre" TEXT,
+                "Username" TEXT,
+                "Origen" TEXT,
+                "Fecha_Registro" TEXT
+            );
+        """)
+        ahora_str = obtener_ahora_arg().strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute("""
+            INSERT INTO "Curiosos_Preventa" ("User ID", "Nombre", "Username", "Origen", "Fecha_Registro")
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT ("User ID") DO UPDATE SET
+                "Origen" = EXCLUDED."Origen",
+                "Fecha_Registro" = EXCLUDED."Fecha_Registro";
+        """, (str(user_id).strip(), str(nombre or ""), str(username or ""), str(origen), ahora_str))
+        conn.commit()
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"Error guardando curioso {user_id} en preventa: {e}")
+    finally:
+        if cur:
+            try: cur.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
+            
 #              INICIO                           FUNCIONES CENTRALES DE ESCRITURA 
 # =============================================================================================================================================
 
