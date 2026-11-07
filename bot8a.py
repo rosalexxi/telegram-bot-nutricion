@@ -41,6 +41,12 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, HRFlowable
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, WebAppInfo
+from telegram import (
+    Update, InlineKeyboardButton, InlineKeyboardMarkup, 
+    LabeledPrice, WebAppInfo, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
+)
+
+
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,

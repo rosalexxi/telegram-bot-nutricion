@@ -6,16 +6,13 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 # Importamos solo lo necesario para el idioma y la interfaz
-from bot8a import obtener_idioma_usuario, obtener_traducciones_db, MODELO_TEXTO
+from bot8a import obtener_idioma_usuario, obtener_traducciones_db, MODELO_TEXTO, MODELO_RESPALDO
 
 logger = logging.getLogger(__name__)
 
-
-# Intentamos cargar la API Key gratuita específica. Si no existe, usamos la principal por seguridad.
-# API_KEY_AYUDA = os.getenv("GEMINI_API_KEY_AYUDA") or os.getenv("GEMINI_API_KEY")
-
-# Cargar la API Key de Groq
-API_KEY_AYUDA = os.getenv("GROQ_API_KEY")
+# Cargamos ambas API Keys (Groq como principal ultrarrápido y Gemini como respaldo infalible)
+API_KEY_GROQ = os.getenv("GROQ_API_KEY")
+API_KEY_GEMINI = os.getenv("GEMINI_API_KEY_AYUDA") or os.getenv("GEMINI_API_KEY")
 
 MANUAL_MARKDOWN = """
 # 🍏 BIENVENIDO A IA NUTRIBOT
@@ -196,108 +193,115 @@ IA NutriBot es una herramienta avanzada de cálculo automatizado orientada a sum
 
 def solicitar_ai_rest(consulta):
     """
-    Función aislada que envía el prompt por REST API a Groq con sistema de respaldo.
+    Intenta responder primero con Groq (modelos actualizados).
+    Si Groq no está configurado o falla, pasa automáticamente a Gemini REST.
     """
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {API_KEY_AYUDA}"
-    }
-    
     system_instruction = (
         "Sos el asistente de soporte técnico oficial de IA NutriBot. "
         "Tu única tarea es responder la consulta del usuario basándote EXCLUSIVAMENTE en el siguiente manual. "
         "Si la respuesta no está en el manual, indicá amablemente que contacte al soporte técnico o al administrador. "
-        "Sé claro, conciso, amable y utilizá un tono coloquial. Respondé en formato Markdown, sin inventar comandos ni funciones.\n\n"
+        "Sé claro, conciso, amable y utilizá un tono coloquial. "
+        "Usá formato simple (negritas con un solo asterisco *texto* y viñetas con •), sin inventar comandos ni funciones.\n\n"
         f"MANUAL OFICIAL:\n{MANUAL_MARKDOWN}"
     )
 
-    # Lista de modelos de Groq ordenados por prioridad (Principal -> Respaldos)
-    modelos_groq = [
-        "llama-3.1-70b-versatile", # Principal: Inteligente y rapidísimo
-        "llama-3.1-8b-instant",    # Respaldo 1: Ultrarrápido, ideal si el primero satura
-        "mixtral-8x7b-32768"       # Respaldo 2: Excelente manejo de contexto largo
-    ]
-    
-    for modelo in modelos_groq:
-        payload = {
-            "model": modelo,
-            "messages": [
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": consulta}
-            ],
-            "temperature": 0.2
+    # 1. INTENTO CON GROQ (Si existe GROQ_API_KEY)
+    if API_KEY_GROQ:
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {API_KEY_GROQ}"
         }
+        # Modelos vigentes en Groq
+        modelos_groq = [
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant"
+        ]
         
-        try:
-            # Timeout corto porque Groq responde en menos de 2 segundos normalmente
-            response = requests.post(url, headers=headers, json=payload, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                return data['choices'][0]['message']['content']
-            else:
-                logger.warning(f"Fallo en API Groq Ayuda con modelo {modelo}: {response.text}")
-                
-        except Exception as e:
-            logger.warning(f"Error de conexión con el modelo {modelo}: {e}")
-    
-    logger.error("Todos los modelos de Groq fallaron en el módulo ayuda.")
-    raise Exception("Fallo en la API de Groq tras intentar con los modelos de respaldo")
-    
-def solicitar_ai_rest_Gemini(consulta):
+        for modelo in modelos_groq:
+            payload = {
+                "model": modelo,
+                "messages": [
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": consulta}
+                ],
+                "temperature": 0.2
+            }
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    return data['choices'][0]['message']['content']
+                else:
+                    logger.warning(f"Fallo en API Groq Ayuda con modelo {modelo}: {response.text}")
+            except Exception as e:
+                logger.warning(f"Error de conexión con Groq ({modelo}): {e}")
+
+    # 2. RESPALDO AUTOMÁTICO CON GEMINI REST
+    if API_KEY_GEMINI:
+        return solicitar_ai_rest_Gemini(consulta, system_instruction)
+
+    raise Exception("No se pudo responder ni con Groq ni con Gemini (verificar API Keys).")
+
+
+def solicitar_ai_rest_Gemini(consulta, system_instruction):
     """
-    Función aislada que envía el prompt por REST API a Google. 
-    NO usa google.generativeai para evitar conflictos globales.
+    Respaldo aislado por REST API a Google Gemini.
     """
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODELO_TEXTO}:generateContent?key={API_KEY_AYUDA}"
-    
-    system_instruction = (
-        "Sos el asistente de soporte técnico oficial de IA NutriBot. "
-        "Tu única tarea es responder la consulta del usuario basándote EXCLUSIVAMENTE en el siguiente manual. "
-        "Si la respuesta no está en el manual, indicá amablemente que contacte al soporte técnico o al administrador. "
-        "Sé claro, conciso, amable y utilizá un tono coloquial. Respondé en formato Markdown, sin inventar comandos ni funciones.\n\n"
-        f"MANUAL OFICIAL:\n{MANUAL_MARKDOWN}"
-    )
+    modelos_gemini = [MODELO_TEXTO, MODELO_RESPALDO, "gemini-2.5-flash", "gemini-2.0-flash"]
     
     payload = {
         "system_instruction": {"parts": [{"text": system_instruction}]},
         "contents": [{"parts": [{"text": consulta}]}],
         "generationConfig": {"temperature": 0.2}
     }
-    
-    response = requests.post(url, json=payload, timeout=15)
-    
-    if response.status_code == 200:
-        data = response.json()
-        return data['candidates'][0]['content']['parts'][0]['text']
-    else:
-        logger.error(f"Error en API Gemini Ayuda: {response.text}")
-        raise Exception("Fallo en la API de Google")
+
+    for mod in modelos_gemini:
+        if not mod:
+            continue
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{mod}:generateContent?key={API_KEY_GEMINI}"
+        try:
+            response = requests.post(url, json=payload, timeout=15)
+            if response.status_code == 200:
+                data = response.json()
+                return data['candidates'][0]['content']['parts'][0]['text']
+            else:
+                logger.warning(f"Error en API Gemini Ayuda ({mod}): {response.text}")
+        except Exception as e:
+            logger.warning(f"Excepción en API Gemini Ayuda ({mod}): {e}")
+
+    raise Exception("Fallo en todos los modelos de respaldo de Google Gemini")
+
 
 async def cmd_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
-    # Si el usuario mandó la duda junto al comando (Ej: /ayuda como elimino comida)
+    # Si el usuario mandó la duda junto al comando (Ej: /h como elimino comida)
     if context.args:
         consulta = " ".join(context.args).strip()
         msg_espera_txt = traducciones.get("09_ayuda_consultando", "🤖 Consultando el manual de IA NutriBot...")
         msg_espera = await update.message.reply_text(msg_espera_txt, parse_mode="Markdown")
         
         try:
-            # Mandamos la consulta en un hilo separado para no trabar el bot
             respuesta_ia = await asyncio.to_thread(solicitar_ai_rest, consulta)
-            await msg_espera.edit_text(respuesta_ia, parse_mode="Markdown")
+            # Convertimos **negrita** de MarkdownV2/ Estándar a *negrita* de Telegram v1
+            respuesta_limpia = respuesta_ia.replace("**", "*")
+            
+            try:
+                await msg_espera.edit_text(respuesta_limpia, parse_mode="Markdown")
+            except Exception:
+                # Si algún carácter especial rompe el parser Markdown de Telegram, lo enviamos como texto limpio sin fallar
+                await msg_espera.edit_text(respuesta_ia.replace("**", ""))
+                
         except Exception as e:
             logger.error(f"Error procesando /ayuda con IA: {e}")
             msg_err = traducciones.get("09_ayuda_error_ia", "❌ Ocurrió un error al consultar el manual. Por favor, intentá de nuevo más tarde.")
             await msg_espera.edit_text(msg_err)
         return
 
-    # Si el usuario solo escribió "/ayuda" sin preguntar nada, mostramos LA GUÍA COMPLETA
+    # Si el usuario solo escribió "/ayuda" o "/h" sin preguntar nada, mostramos LA GUÍA COMPLETA
     texto_ayuda = traducciones.get('09_ayuda_mensaje_guia', 
         "👋 *¡Guía rápida de comandos e ingresos disponibles!*\n\n"
         "📌 *Comandos Principales:*\n"
@@ -322,7 +326,7 @@ async def cmd_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• *Ingestas sin IA:*  📝 Planilla precargada .\n"
         "• *Presión arterial:* 📸 Foto del tensiómetro digital.\n"
         "• *Actividad física:* 📝 Texto o 🎤 Audio.\n"
-        "🤖 **Asistente Virtual Inteligente:**\n"
+        "🤖 *Asistente Virtual Inteligente:*\n"
         "Si tenés una duda técnica sobre cómo usar el bot, preguntame directamente escribiendo el comando seguido de tu consulta.\n"
         "👉 *Ejemplo:* `/h ¿cómo borro un desayuno?`\n\n"
         "📄 También podés descargar el manual completo en PDF acá abajo:"
@@ -337,3 +341,4 @@ async def cmd_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
     
     await update.message.reply_text(texto_final, reply_markup=keyboard, parse_mode="Markdown")
+    

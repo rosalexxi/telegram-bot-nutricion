@@ -3627,30 +3627,38 @@ async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
 
     texto_advertencia = traducciones.get('09_ing_advertencia_legal', 
-        "⚖️ **TÉRMINOS Y CONDICIONES DE USO**\n\nPara continuar con la apertura de tu cuenta, por favor hacé clic en el botón de abajo para leer las condiciones y aceptar los términos en nuestra plataforma:"
+        "⚖️ **TÉRMINOS Y CONDICIONES DE USO**\n\nPara continuar con la apertura de tu cuenta, por favor hacé clic en el botón de abajo (en la parte inferior de tu pantalla) para leer las condiciones y aceptar los términos:"
     )
     btn_terminos_text = traducciones.get('09_btn_aceptar_terminos', "✅ Leer y Aceptar Términos")
     
-    # Aquí configuramos la URL de tu Web App desplegada en Flask (ej: https://tu-sitio.onrender.com/terminos)
     url_webapp = f"https://ianutribot.com/terminos?user_id={user_id}"
     
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(btn_terminos_text, web_app=WebAppInfo(url=url_webapp))]])
+    # IMPORTANTE: ReplyKeyboardMarkup permite que tg.sendData() vuelva al bot automáticamente
+    keyboard = ReplyKeyboardMarkup(
+        [[KeyboardButton(text=btn_terminos_text, web_app=WebAppInfo(url=url_webapp))]],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
     await update.message.reply_text(texto_advertencia.replace('\\n', '\n'), reply_markup=keyboard, parse_mode="Markdown")
     return ING_TERMINOS
+
 
 async def ing_aceptar_terminos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = context.user_data.get('ing_idioma', 'es')
     traducciones = obtener_traducciones_db(lang) or {}
 
-    # Verificamos si la señal viene de la Web App o de un mensaje de texto con los datos devueltos
     if update.effective_message and update.effective_message.web_app_data:
         data_web = update.effective_message.web_app_data.data
         if "aceptado" in data_web:
-            txt_terminos_ok = traducciones.get("09_ing_terminos_ok", "✅ **Términos aceptados correctamente.**\n\n🔑 **Apertura de Ficha - Validación de Profesional**\n\nPara comenzar el registro, por favor ingresá el **ID de Telegram del profesional**.\n*(Si no tenés un profesional asignado y querés usar el asistente de forma independiente, ingresá 123456789)*:").replace('\\n', '\n')
-            await update.message.reply_text(txt_terminos_ok, parse_mode="Markdown")
+            txt_terminos_ok = traducciones.get(
+                "09_ing_terminos_ok", 
+                "✅ **Términos aceptados correctamente.**\n\n🔑 **Apertura de Ficha - Validación de Profesional**\n\nPara comenzar el registro, por favor ingresá el **ID de Telegram del profesional**.\n*(Si no tenés un profesional asignado y querés usar el asistente de forma independiente, ingresá 123456789)*:"
+            ).replace('\\n', '\n')
+            
+            # Quitamos el teclado inferior con ReplyKeyboardRemove()
+            await update.message.reply_text(txt_terminos_ok, reply_markup=ReplyKeyboardRemove(), parse_mode="Markdown")
             return ING_PROFESIONAL
             
-    # Si por alguna razón entra mal o cancela, se mantiene en el estado
     return ING_TERMINOS
     
 async def ing_recibir_profesional(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4929,7 +4937,7 @@ def main():
                
         app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^presion_"))
         app_bot.add_handler(CallbackQueryHandler(callback_handler_presion_foto, pattern="^cancelar_presion_foto$"))
-        app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
+        # app_bot.add_handler(CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$"))
         app_bot.add_handler(CallbackQueryHandler(callback_confirmar_factor, pattern="^confirmar_factor_"))
         app_bot.add_handler(CallbackQueryHandler(generar_y_enviar_pdf_resumen, pattern="^(descargar_pdf_resumen_|pdf_mes_)"))
         app_bot.add_handler(CallbackQueryHandler(callback_editar_valor_clinico_menu, pattern="^(edit_val_calorias|edit_val_proteinas|edit_val_peso|edit_val_volver)$"))
