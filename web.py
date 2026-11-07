@@ -643,11 +643,28 @@ HTML_CALCULADORA_RECETAS = """
         await cambiarIdioma('es');
     }
 
+    let geoDatosVisitante = { pais: 'Desconocido', ciudad: 'Desconocida' };
+
+    async function registrarEstadisticaWeb() {
+        try {
+            await fetch('/api/registrar-visita', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(geoDatosVisitante)
+            });
+        } catch (e) {
+            console.error("Error registrando visita:", e);
+        }
+    }    
+    
     window.addEventListener('DOMContentLoaded', () => {
-    registrarEstadisticaWeb();
+        inicializarIdiomaWeb();
+        registrarEstadisticaWeb();
+        if (window.location.hash === '#calculadora') {
+            showSection('calculadora');
+        }
     });
-
-
+    
     async function reproducirAudioguia() {
         if ('speechSynthesis' in window) {
             window.speechSynthesis.cancel();
@@ -977,7 +994,6 @@ HTML_TERMINOS_ALTA = """
     let tg = window.Telegram.WebApp;
     tg.expand();
 
-    // Cargar idioma del usuario automáticamente al abrir la Web App
     async function inicializarTraduccionWebApp() {
         const urlParams = new URLSearchParams(window.location.search);
         const userId = urlParams.get('user_id');
@@ -1013,61 +1029,6 @@ HTML_TERMINOS_ALTA = """
 
     window.addEventListener('DOMContentLoaded', inicializarTraduccionWebApp);
 
-    let geoDatosVisitante = { pais: 'Desconocido', ciudad: 'Desconocida' };
-
-    async function registrarEstadisticaWeb() {
-        try {
-            // Obtenemos País y Ciudad por IP del visitante
-            const resGeo = await fetch('https://ipapi.co/json/');
-            if (resGeo.ok) {
-                const dataGeo = await resGeo.json();
-                geoDatosVisitante.pais = dataGeo.country_name || dataGeo.country || 'Desconocido';
-                geoDatosVisitante.ciudad = dataGeo.city || 'Desconocida';
-            }
-        } catch (e) {
-            console.log("No se pudo detectar ubicación por IP.");
-        }
-
-        // 1. Registramos el ingreso a la página (solo 1 vez por sesión de navegador para no inflar si refresca con F5)
-        if (!sessionStorage.getItem('visita_contabilizada')) {
-            fetch('/api/registrar-visita', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(geoDatosVisitante)
-            }).catch(() => {});
-            sessionStorage.setItem('visita_contabilizada', '1');
-        }
-
-        // 2. Interceptamos todos los enlaces que apuntan a t.me para contar el clic
-        document.querySelectorAll('a[href*="t.me/"]').forEach(enlace => {
-            enlace.addEventListener('click', () => {
-                if (!sessionStorage.getItem('click_tg_contabilizado')) {
-                    const payload = JSON.stringify(geoDatosVisitante);
-                    if (navigator.sendBeacon) {
-                        const blob = new Blob([payload], { type: 'application/json' });
-                        navigator.sendBeacon('/api/registrar-click-telegram', blob);
-                    } else {
-                        fetch('/api/registrar-click-telegram', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: payload,
-                            keepalive: true
-                        }).catch(() => {});
-                    }
-                    sessionStorage.setItem('click_tg_contabilizado', '1');
-                }
-            });
-        });
-    }
-
-    window.addEventListener('DOMContentLoaded', () => {
-        inicializarIdiomaWeb();
-        registrarEstadisticaWeb(); // <-- LLAMADA AL CONTADOR
-        if (window.location.hash === '#calculadora') {
-            showSection('calculadora');
-        }
-    });
-
     async function aceptarTerminos() {
         document.getElementById('loading').style.display = 'block';
         document.getElementById('btnAccept').style.display = 'none';
@@ -1101,8 +1062,8 @@ HTML_TERMINOS_ALTA = """
             Swal.fire({icon: 'success', title: '¡Listo!', text: 'Términos aceptados con éxito. Volvé a Telegram para continuar.'});
         }
     }
-
 </script>
+
 </body>
 </html>
 """
@@ -1111,9 +1072,10 @@ HTML_TERMINOS_ALTA = """
 def vista_terminos():
     return render_template_string(HTML_TERMINOS_ALTA)
 
+@app.route('/api/guardar-terminos', methods=['POST'])
 def api_guardar_terminos():
     try:
-        data = request.json
+        data = request.json or {}
         user_id = data.get('user_id')
         pais = data.get('pais', 'Desconocido')
         ciudad = data.get('ciudad', 'Desconocida')
@@ -1378,20 +1340,6 @@ def api_guardar_comida():
         logger.error(f"Error en api_guardar_comida: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/registrar-visita', methods=['POST'])
-def api_registrar_visita():
-    try:
-        data = request.get_json(force=True, silent=True) or {}
-        pais = data.get('pais', 'Desconocido')
-        ciudad = data.get('ciudad', 'Desconocida')
-        registrar_evento_web_db(pais, ciudad, es_click_telegram=False)
-        return jsonify({"status": "ok"}), 200
-    except Exception as e:
-        logger.error(f"Error en api_registrar_visita: {e}")
-        return jsonify({"error": str(e)}), 500
-
-import requests
-
 def obtener_geo_ip(request_obj):
     ip = request_obj.headers.get('X-Forwarded-For', request_obj.remote_addr)
     if ip and ',' in ip:
@@ -1441,18 +1389,6 @@ def api_registrar_click_telegram():
                 pais = pais_srv
                 ciudad = ciudad_srv
 
-        registrar_evento_web_db(pais, ciudad, es_click_telegram=True)
-        return jsonify({"status": "ok"}), 200
-    except Exception as e:
-        logger.error(f"Error en api_registrar_click_telegram: {e}")
-        return jsonify({"error": str(e)}), 500
-        
-@app.route('/api/registrar-click-telegram', methods=['POST'])
-def api_registrar_click_telegram():
-    try:
-        data = request.get_json(force=True, silent=True) or {}
-        pais = data.get('pais', 'Desconocido')
-        ciudad = data.get('ciudad', 'Desconocida')
         registrar_evento_web_db(pais, ciudad, es_click_telegram=True)
         return jsonify({"status": "ok"}), 200
     except Exception as e:

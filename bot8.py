@@ -33,7 +33,13 @@ from administrador import (
     cmd_descargar
 )
 
-from ayuda import cmd_start, cmd_soporte, procesar_audio_ayuda, callback_descargar_manual_usuario
+from ayuda import (
+    cmd_start,
+    cmd_soporte,
+    procesar_audio_ayuda,
+    callback_descargar_manual_usuario,
+    solicitar_ai_rest
+)
 
 from profesionales import (
     cmd_pacientes,
@@ -51,38 +57,6 @@ from profesionales import (
     procesar_texto_nota_informe,
     procesar_texto_nota_medica
 )
-
-@requiere_registro
-async def callback_handler_reportes_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    user_id = query.from_user.id
-    
-    lang = obtener_idioma_usuario(user_id) or 'es'
-    traducciones = obtener_traducciones_db(lang) or {}
-
-    if data.startswith("resumen_mes_") or data in ["resumen_volver_menu", "resumen_mes_menu_otros"]:
-        await mostrar_resumen_mes(update, context)
-    elif data.startswith("descargar_pdf_resumen_"):
-        await generar_y_enviar_pdf_resumen(query, context)
-    elif data.startswith("descargar_pdf_diario_"):
-        f_str = data.replace("descargar_pdf_diario_", "")
-        df = obtener_datos_usuario(user_id)
-        pdf = generar_pdf_diario_bytes(f_str, df[df['Fecha'] == f_str] if not df.empty else pd.DataFrame(), user_id)
-        prefijo_d = traducciones.get('06_bot_pdf_diario_prefijo', 'D_')
-        await context.bot.send_document(chat_id=query.message.chat_id, document=pdf, filename=f"📄 {prefijo_d}{f_str}.pdf")
-    elif data.startswith("descargar_pdf_presion_"):
-        mes_str = data.replace("descargar_pdf_presion_", "")
-        df_p = obtener_datos_presion_db(user_id)
-        pdf_p = generar_pdf_presion_bytes(mes_str, df_p[df_p['Fecha_Dia'].str.startswith(mes_str)] if not df_p.empty else pd.DataFrame(), user_id)
-        prefijo_p = traducciones.get('06_bot_pdf_presion_prefijo', 'P_')
-        await context.bot.send_document(chat_id=query.message.chat_id, document=pdf_p, filename=f"📄 {prefijo_p}{mes_str}.pdf")
-    elif data.startswith("enviar_inf_"):
-        target_user_id = int(data.replace("enviar_inf_", ""))
-        ahora = obtener_ahora_arg()
-        mes_target = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m") if ahora.day <= 7 else ahora.strftime("%Y-%m")
-        await procesar_y_enviar_informe_mensual(context, target_user_id, target_user_id, mes_target, False, True)
 
 async def _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id):
     user_id = update.effective_user.id
@@ -3521,7 +3495,7 @@ async def cmd_ingreso_start_15(update: Update, context: ContextTypes.DEFAULT_TYP
     # 1. Si sos vos (el Administrador) o alguien que ya tiene cuenta en pruebas, pasa directo sin bloqueo
     estado_usr = _verificar_estado_usuario_en_hoja(user_id)
     if es_administrador(user_id) or estado_usr is not None:
-        return await cmd_ingreso_start_15(update, context)
+        return await cmd_ingreso_start(update, context)
 
     # 2. Capturamos al curioso en segundo plano sin frenar el bot
     await asyncio.to_thread(registrar_curioso_preventa_db, user_id, nombre_tg, username_tg, "cmd_alta")
@@ -4883,11 +4857,15 @@ def main():
         # =================================INGRESOS Y CONSULTAS MANUALES============================================
 
         # El comando tradicional solo muestra la guía
-        app_bot.add_handler(CommandHandler(["ayuda", "help"], cmd_ayuda))
 
         # Un comando exclusivo y rápido para activar el soporte por audio/texto
         app_bot.add_handler(CommandHandler(["soporte", "h", "support"], cmd_soporte))
         app_bot.add_handler(CommandHandler(["start", "ayuda", "inicio" ,"help"], cmd_start))
+
+        app_bot.add_handler(CommandHandler(["dia", "diario", "d", "day"], cmd_diario))
+        app_bot.add_handler(CommandHandler(["mes", "resumen", "m", "month"], cmd_resumen))
+        app_bot.add_handler(CommandHandler(["pagar", "pago", "pay"], cmd_pagar))
+
 
         app_bot.add_handler(CommandHandler(["actividad", "activity"], cmd_actividad))
         app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
@@ -4898,14 +4876,11 @@ def main():
         app_bot.add_handler(CommandHandler(["borracomida", "delmeal"], cmd_borrar_comida))
         app_bot.add_handler(CommandHandler(["peso", "weight"], cmd_peso_rapido))        
         app_bot.add_handler(CommandHandler(["presion", "presi", "p", "pressure"], cmd_presion_handler))  
-        app_bot.add_handler(CommandHandler(["dia", "d", "day"], cmd_diario))
-        app_bot.add_handler(CommandHandler(["mes", "m", "month"], cmd_resumen))
         app_bot.add_handler(CommandHandler(["semana", "s", "w", "week"], cmd_mensaje))
         app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
         app_bot.add_handler(CommandHandler(["cancelar", "exit", "x"], cmd_cancelar_conversacion))
         
         # =================================FACTURACIÓN Y PAGOS (TELEGRAM STARS)======================
-        app_bot.add_handler(CommandHandler(["pagar", "pay"], cmd_pagar))
         app_bot.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
 
         # =================================ADMINISTRADOR============================================

@@ -1,13 +1,21 @@
 import os
+import re
 import logging
 import requests
 import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-# Importamos solo lo necesario para el idioma y la interfaz
+# En la línea 10 de ayuda.py, agregá MODELO_EMERGENCIA al import:
+from bot8a import (
+    obtener_idioma_usuario, 
+    obtener_traducciones_db, 
+    MODELO_TEXTO, 
+    MODELO_RESPALDO, 
+    MODELO_EMERGENCIA, 
+    registrar_curioso_preventa_db
+)
 
-from bot8a import obtener_idioma_usuario, obtener_traducciones_db, MODELO_TEXTO, MODELO_RESPALDO, registrar_curioso_preventa_db
 logger = logging.getLogger(__name__)
 
 # Cargamos ambas API Keys (Groq como principal ultrarrápido y Gemini como respaldo infalible)
@@ -269,7 +277,6 @@ def solicitar_ai_rest(consulta, lang='es'):
 
     raise Exception("No se pudo responder ni con Groq ni con Gemini (verificar API Keys).")
 
-
 async def procesar_audio_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Recibe el audio desviado desde bot8.py cuando el usuario está en modo /ayuda,
@@ -310,7 +317,6 @@ async def procesar_audio_ayuda(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Error procesando audio en /ayuda: {e}")
         msg_error_procesar = traducciones.get("09_ayuda_error_procesar_audio", "❌ Ocurrió un error al procesar el audio de ayuda. Intentá escribiendo `/h tu consulta`.")
         await msg_espera.edit_text(msg_error_procesar)
-
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Muestra la guía estática y el botón de descarga del manual en PDF, unificando /start y /ayuda."""
@@ -376,24 +382,32 @@ async def callback_descargar_manual_usuario(update: Update, context: ContextType
     lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
-    # Convertimos a minúsculas para igualar el formato de la web (ej: es.pdf)
+    # Convertimos a minúsculas para igualar el formato de la carpeta static (ej: static/es.pdf)
     lang_code = query.data.replace("descargar_manual_user_", "").strip().lower()
     pdf_filename = f"{lang_code}.pdf"
     
-    # Fallback también en minúsculas
-    if not os.path.exists(pdf_filename):
-        pdf_filename = "es.pdf"
+    # Buscamos primero en static/ y luego en la raíz como respaldo
+    rutas_posibles = [
+        os.path.join("static", pdf_filename),
+        pdf_filename,
+        os.path.join("static", "es.pdf"),
+        "es.pdf",
+        os.path.join("static", "manual.pdf")
+    ]
+    
+    ruta_encontrada = next((r for r in rutas_posibles if os.path.exists(r)), None)
         
     try:
-        if os.path.exists(pdf_filename):
+        if ruta_encontrada:
             txt_caption = traducciones.get("09_manual_usuario_caption", "📄 **Manual de Usuario**")
-            await context.bot.send_document(
-                chat_id=query.message.chat_id,
-                document=open(pdf_filename, 'rb'),
-                filename=pdf_filename,
-                caption=txt_caption,
-                parse_mode="Markdown"
-            )
+            with open(ruta_encontrada, 'rb') as f_pdf:
+                await context.bot.send_document(
+                    chat_id=query.message.chat_id,
+                    document=f_pdf,
+                    filename=f"Manual_IA_NutriBot_{lang_code.upper()}.pdf",
+                    caption=txt_caption,
+                    parse_mode="Markdown"
+                )
         else:
             txt_err = traducciones.get("09_manual_err_no_encontrado", "⚠️ El archivo `{pdf_filename}` no se encuentra en el servidor.").format(pdf_filename=pdf_filename)
             await query.message.reply_text(txt_err, parse_mode="Markdown")
@@ -401,12 +415,12 @@ async def callback_descargar_manual_usuario(update: Update, context: ContextType
         logger.error(f"Error enviando el manual de usuario en PDF: {e}")
         txt_envio = traducciones.get("09_manual_err_envio", "❌ Ocurrió un error al intentar enviar el manual.")
         await query.message.reply_text(txt_envio)
-            
+        
 def solicitar_ai_rest_Gemini(consulta, system_instruction):
     """
-    Respaldo aislado por REST API a Google Gemini.
+    Respaldo aislado por REST API a Google Gemini usando exclusivamente la línea 3.x definida en bot8a.py.
     """
-    modelos_gemini = [MODELO_TEXTO, MODELO_RESPALDO, "gemini-2.5-flash", "gemini-2.0-flash"]
+    modelos_gemini = [MODELO_TEXTO, MODELO_RESPALDO, MODELO_EMERGENCIA]
     
     payload = {
         "system_instruction": {"parts": [{"text": system_instruction}]},
@@ -429,26 +443,7 @@ def solicitar_ai_rest_Gemini(consulta, system_instruction):
             logger.warning(f"Excepción en API Gemini Ayuda ({mod}): {e}")
 
     raise Exception("Fallo en todos los modelos de respaldo de Google Gemini")
-
-async def cmd_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Muestra exclusivamente la guía estática y el botón de descarga del manual en PDF."""
-    user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or 'es'
-    traducciones = obtener_traducciones_db(lang) or {}
-
-    # Limpiamos por las dudas cualquier bandera de soporte activa
-    context.user_data.pop('esperando_consulta_ayuda', None)
-
-    texto_ayuda = traducciones.get('09_ayuda_mensaje_guia', ...).replace('\\n', '\n')
-    texto_final = re.sub(r'\n{2,}', '\n\n', texto_ayuda)
     
-    btn_manual_txt = traducciones.get('09_btn_descargar_manual', "📄 Descargar Manual Completo en PDF")
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(btn_manual_txt, callback_data=f"descargar_manual_user_{lang}")]
-    ])
-    
-    await update.message.reply_text(texto_final, reply_markup=keyboard, parse_mode="Markdown")
-
 async def cmd_soporte(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Activa de inmediato la bandera de escucha/texto exclusivo para hablar con la IA de soporte."""
     user_id = update.effective_user.id
