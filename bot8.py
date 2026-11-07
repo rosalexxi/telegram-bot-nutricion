@@ -3481,7 +3481,7 @@ async def ing_recibir_ocupacion(update: Update, context: ContextTypes.DEFAULT_TY
 #                       FUNCIONES DE PREVENTA Y CAPTURA DE CURIOSOS (HASTA EL 15 DE NOVIEMBRE)
 # =========================================================================================================================================
 
-async def cmd_ingreso_start_15(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Versión temporal de /alta hasta el 15 de noviembre.
     Si vos (ADMIN_USER_ID) o un usuario ya registrado entran, los deja pasar a cmd_ingreso_start_15.
@@ -3519,7 +3519,7 @@ async def cmd_ingreso_start_15(update: Update, context: ContextTypes.DEFAULT_TYP
 
 #==================================================================================================================================================
 
-async def cmd_ingreso_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_ingreso_start_15(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     idioma_detectado = obtener_idioma_usuario(user_id) or 'es'
     context.user_data['ing_idioma'] = idioma_detectado
