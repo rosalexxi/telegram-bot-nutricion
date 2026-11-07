@@ -4210,7 +4210,11 @@ async def cmd_cancelar_conversacion(update: Update, context: ContextTypes.DEFAUL
     txt_cancelada = traducciones.get("09_bot_operacion_cancelada", "❌ Operación cancelada.")
 
     if update.message:
-        await update.message.reply_text(txt_cancelada, parse_mode="Markdown")
+        await update.message.reply_text(
+            txt_cancelada, 
+            reply_markup=ReplyKeyboardRemove(), 
+            parse_mode="Markdown"
+        )
     elif update.callback_query:
         await update.callback_query.answer()
         await update.callback_query.edit_message_text(txt_cancelada, parse_mode="Markdown")
@@ -4833,8 +4837,10 @@ async def job_recordatorio_tarde(context):
 conv_handler_ingreso = ConversationHandler(
     entry_points=[CommandHandler(["alta", "register", "nuevo_usuario"], cmd_ingreso_start)],
     states={
-
-        ING_TERMINOS: [MessageHandler(filters.StatusUpdate.WEB_APP_DATA, ing_aceptar_terminos), CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$")],
+        ING_TERMINOS: [
+            MessageHandler(filters.StatusUpdate.WEB_APP_DATA, ing_aceptar_terminos), 
+            CallbackQueryHandler(ing_aceptar_terminos, pattern="^aceptar_terminos_ok$")
+        ],
         ING_PROFESIONAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_profesional)],
         ING_NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ing_recibir_nombre)],
         ING_SEXO: [CallbackQueryHandler(ing_recibir_sexo, pattern="^sexo_")],
@@ -4848,7 +4854,8 @@ conv_handler_ingreso = ConversationHandler(
         ING_RITMO: [CallbackQueryHandler(ing_recibir_ritmo, pattern="^ritmo_")],
         ING_IDIOMA: [CallbackQueryHandler(ing_recibir_idioma, pattern="^set_lang_")]
     },
-    fallbacks=[CommandHandler("cancelar", cmd_cancelar_conversacion)]
+    fallbacks=[CommandHandler(["cancelar", "exit", "x"], cmd_cancelar_conversacion)],
+    allow_reentry=True
 )
 
 def main():
