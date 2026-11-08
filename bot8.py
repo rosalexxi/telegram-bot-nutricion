@@ -73,16 +73,21 @@ async def _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id):
 
     if fecha_parseada:
         context.user_data.update({'del_fecha': fecha_parseada, 'awaiting_del_custom_date': False})
+        
         class DummyQuery:
-            def __init__(self, msg): self.message = msg
+            def __init__(self, msg): 
+                self.message = msg
+                self.from_user = msg.from_user  # <- ATRIBUTO AGREGADO AQUÍ
+                
             async def edit_message_text(self, text, reply_markup=None, parse_mode=None):
                 await self.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+                
         await mostrar_selector_momento_eliminar(DummyQuery(update.message), context)
     else:
         txt_err_fec = traducciones.get('06_bot_error_fecha_inv', "⚠️ Formato de fecha inválido. Ingrese nuevamente (Ej: `2026-08-15` o `15/08`):")
         msg_err = await update.message.reply_text(txt_err_fec, parse_mode="Markdown")
         context.user_data['msg_solicitud_del_fecha_id'] = msg_err.message_id
-
+        
 async def _sub_manejar_fecha_diario(update, context, raw_text, chat_id):
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) or 'es'
@@ -1108,86 +1113,157 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
     lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
+    def fmt_seguro(plantilla, **kwargs):
+        txt = str(plantilla)
+        for k, v in kwargs.items():
+            txt = re.sub(r'\{' + re.escape(k) + r'(?::[^}]*)?\}', str(v), txt)
+        return txt.replace('\\n', '\n')
+
+    # Borramos el mensajito de solicitud ("Por favor ingresá tu nuevo...") si existía
+    msg_solic = context.user_data.pop('msg_solicitud_perfil_id', None)
+    if msg_solic:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg_solic)
+        except Exception:
+            pass
+
     if context.user_data.get('awaiting_edit_perfil_peso'):
+        context.user_data['awaiting_edit_perfil_peso'] = False
         try:
             nuevo_val = float(raw_text.replace(',', '.'))
+            if not (30 <= nuevo_val <= 300):
+                raise ValueError()
+        except ValueError:
+            msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido. Ingresá números.")
+            await update.message.reply_text(msg_err)
+            return
+
+        try:
             res_cal = await asyncio.to_thread(guardar_perfil_db, user_id, peso=nuevo_val, mes=mes_actual)
             if isinstance(res_cal, dict) and res_cal.get("error"):
                 await update.message.reply_text(res_cal["mensaje"], parse_mode="Markdown")
             else:
-                msg_ok = traducciones.get("07_bot_peso_actualizado", "✅ Peso actualizado a `{nuevo_val} kg`.").format(nuevo_val=nuevo_val)
+                tpl_ok = traducciones.get("07_bot_peso_actualizado", "✅ Peso actualizado a `{nuevo_val} kg`.")
+                msg_ok = fmt_seguro(tpl_ok, nuevo_val=f"{nuevo_val:.1f}")
                 mensaje_exito = res_cal["mensaje"] if isinstance(res_cal, dict) and "mensaje" in res_cal else msg_ok
                 cambio_biometrico = True
-        except Exception:
-            msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido. Ingresá números.")
-            await update.message.reply_text(msg_err)
-        context.user_data['awaiting_edit_perfil_peso'] = False
+        except Exception as e:
+            logger.error(f"Error guardando peso desde perfil para {user_id}: {e}")
+            await update.message.reply_text(f"❌ Error al actualizar el peso: {e}")
 
     elif context.user_data.get('awaiting_edit_perfil_altura'):
+        context.user_data['awaiting_edit_perfil_altura'] = False
         try:
             nuevo_val = float(raw_text.replace(',', '.'))
-            await asyncio.to_thread(_core_guardar_perfil_db, user_id, mes_actual, {"ALTURA": nuevo_val})
-            mensaje_exito = traducciones.get("07_bot_altura_actualizada", "✅ Altura actualizada a `{nuevo_val} cm`.").format(nuevo_val=nuevo_val)
-            cambio_biometrico = True
-        except Exception:
+            if not (100 <= nuevo_val <= 240):
+                raise ValueError()
+        except ValueError:
             msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido. Ingresá números.")
             await update.message.reply_text(msg_err)
-        context.user_data['awaiting_edit_perfil_altura'] = False
+            return
+
+        try:
+            await asyncio.to_thread(_core_guardar_perfil_db, user_id, mes_actual, {"ALTURA": nuevo_val})
+            tpl_ok = traducciones.get("07_bot_altura_actualizada", "✅ Altura actualizada a `{nuevo_val} cm`.")
+            mensaje_exito = fmt_seguro(tpl_ok, nuevo_val=f"{nuevo_val:.1f}")
+            cambio_biometrico = True
+        except Exception as e:
+            logger.error(f"Error guardando altura para {user_id}: {e}")
+            await update.message.reply_text(f"❌ Error al actualizar la altura: {e}")
 
     elif context.user_data.get('awaiting_edit_perfil_cintura'):
+        context.user_data['awaiting_edit_perfil_cintura'] = False
         try:
             nuevo_val = float(raw_text.replace(',', '.'))
-            await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"cintura_cm": nuevo_val})
-            mensaje_exito = traducciones.get("07_bot_cintura_actualizada", "✅ Cintura actualizada a `{nuevo_val} cm`.").format(nuevo_val=nuevo_val)
-            cambio_biometrico = True
-        except Exception:
+            if not (40 <= nuevo_val <= 220):
+                raise ValueError()
+        except ValueError:
             msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido.")
             await update.message.reply_text(msg_err)
-        context.user_data['awaiting_edit_perfil_cintura'] = False
+            return
+
+        try:
+            await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"cintura_cm": nuevo_val})
+            tpl_ok = traducciones.get("07_bot_cintura_actualizada", "✅ Cintura actualizada a `{nuevo_val} cm`.")
+            mensaje_exito = fmt_seguro(tpl_ok, nuevo_val=f"{nuevo_val:.1f}")
+            cambio_biometrico = True
+        except Exception as e:
+            logger.error(f"Error guardando cintura para {user_id}: {e}")
+            await update.message.reply_text(f"❌ Error al actualizar la cintura: {e}")
 
     elif context.user_data.get('awaiting_edit_perfil_cuello'):
+        context.user_data['awaiting_edit_perfil_cuello'] = False
         try:
             nuevo_val = float(raw_text.replace(',', '.'))
-            await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"cuello_cm": nuevo_val})
-            mensaje_exito = traducciones.get("07_bot_cuello_actualizado", "✅ Cuello actualizado a `{nuevo_val} cm`.").format(nuevo_val=nuevo_val)
-            cambio_biometrico = True
-        except Exception:
+            if not (20 <= nuevo_val <= 70):
+                raise ValueError()
+        except ValueError:
             msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido.")
             await update.message.reply_text(msg_err)
-        context.user_data['awaiting_edit_perfil_cuello'] = False
+            return
+
+        try:
+            await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"cuello_cm": nuevo_val})
+            tpl_ok = traducciones.get("07_bot_cuello_actualizado", "✅ Cuello actualizado a `{nuevo_val} cm`.")
+            mensaje_exito = fmt_seguro(tpl_ok, nuevo_val=f"{nuevo_val:.1f}")
+            cambio_biometrico = True
+        except Exception as e:
+            logger.error(f"Error guardando cuello para {user_id}: {e}")
+            await update.message.reply_text(f"❌ Error al actualizar el cuello: {e}")
 
     elif context.user_data.get('awaiting_edit_perfil_cadera'):
+        context.user_data['awaiting_edit_perfil_cadera'] = False
         try:
             nuevo_val = float(raw_text.replace(',', '.'))
-            await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"cadera_cm": nuevo_val})
-            mensaje_exito = traducciones.get("07_bot_cadera_actualizada", "✅ Cadera actualizada a `{nuevo_val} cm`.").format(nuevo_val=nuevo_val)
-            cambio_biometrico = True
-        except Exception:
+            if not (50 <= nuevo_val <= 220):
+                raise ValueError()
+        except ValueError:
             msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido.")
             await update.message.reply_text(msg_err)
-        context.user_data['awaiting_edit_perfil_cadera'] = False
+            return
+
+        try:
+            await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"cadera_cm": nuevo_val})
+            tpl_ok = traducciones.get("07_bot_cadera_actualizada", "✅ Cadera actualizada a `{nuevo_val} cm`.")
+            mensaje_exito = fmt_seguro(tpl_ok, nuevo_val=f"{nuevo_val:.1f}")
+            cambio_biometrico = True
+        except Exception as e:
+            logger.error(f"Error guardando cadera para {user_id}: {e}")
+            await update.message.reply_text(f"❌ Error al actualizar la cadera: {e}")
 
     elif context.user_data.get('awaiting_edit_perfil_nombre'):
-        try:
-            nuevo_val = str(raw_text).strip()
-            await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"Nombre": nuevo_val})
-            msg_ok = traducciones.get("07_bot_nombre_actualizado", "✅ Nombre actualizado a `{nuevo_val}`.").format(nuevo_val=nuevo_val)
-            await update.message.reply_text(msg_ok.replace('\\n', '\n'), parse_mode="Markdown")
-        except Exception:
+        context.user_data['awaiting_edit_perfil_nombre'] = False
+        nuevo_val = str(raw_text).strip()
+        if not nuevo_val:
             msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido.")
             await update.message.reply_text(msg_err)
-        context.user_data['awaiting_edit_perfil_nombre'] = False
+            return
+
+        try:
+            await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"Nombre": nuevo_val})
+            tpl_ok = traducciones.get("07_bot_nombre_actualizado", "✅ Nombre actualizado a `{nuevo_val}`.")
+            msg_ok = fmt_seguro(tpl_ok, nuevo_val=nuevo_val)
+            await update.message.reply_text(msg_ok, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Error guardando nombre para {user_id}: {e}")
+            await update.message.reply_text(f"❌ Error al actualizar el nombre: {e}")
 
     elif context.user_data.get('awaiting_edit_perfil_prof'):
-        try:
-            nuevo_val = str(raw_text).strip()
-            await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"profesional": nuevo_val})
-            msg_ok = traducciones.get("07_bot_profesional_actualizado", "✅ Profesional actualizado a `{nuevo_val}`.").format(nuevo_val=nuevo_val)
-            await update.message.reply_text(msg_ok.replace('\\n', '\n'), parse_mode="Markdown")
-        except Exception:
+        context.user_data['awaiting_edit_perfil_prof'] = False
+        nuevo_val = str(raw_text).strip()
+        if not nuevo_val:
             msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido.")
             await update.message.reply_text(msg_err)
-        context.user_data['awaiting_edit_perfil_prof'] = False
+            return
+
+        try:
+            await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"profesional": nuevo_val})
+            tpl_ok = traducciones.get("07_bot_profesional_actualizado", "✅ Profesional actualizado a `{nuevo_val}`.")
+            msg_ok = fmt_seguro(tpl_ok, nuevo_val=nuevo_val)
+            await update.message.reply_text(msg_ok, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Error guardando profesional para {user_id}: {e}")
+            await update.message.reply_text(f"❌ Error al actualizar el profesional: {e}")
 
     # --- RECÁLCULO DINÁMICO INMEDIATO ---
     if cambio_biometrico and mensaje_exito:
@@ -1201,7 +1277,8 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
                 genero = str(perfil.get('GENERO', perfil.get('Sexo', 'M')))
                 
                 ocupacion = parse_raw_val(perfil.get('ocupacion', perfil.get('OCUPACION', 1.375)))
-                if ocupacion > 10: ocupacion /= 1000.0
+                if ocupacion > 10:
+                    ocupacion /= 1000.0
                 
                 cadera = perfil.get('cadera_cm', 0.0)
                 ritmo = perfil.get('ritmo_preferido', 'moderado')
@@ -1212,16 +1289,15 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
 
                 msg_recalculo = traducciones.get(
                     "07_bot_metricas_recalculadas",
-                    "{mensaje_exito}\n\n🔄 **Nuevas métricas calculadas:**\n• TMB (Metabolismo Basal): `{tmb} kcal/día`\n• GET (Gasto Energético): `{get_val} kcal/día`\n• Meta / Peso Etapa: `{peso_etapa} kg`"
-                ).replace('\\n', '\n')
+                    "{mensaje_exito}\n\n🔄 **Nuevas métricas calculadas:**\n• Factor de Ocupación: `{factor}`\n• TMB (Metabolismo Basal): `{tmb} kcal/día`\n• GET (Gasto Energético): `{get_val} kcal/día`\n• Meta / Peso Etapa: `{peso_etapa} kg`"
+                )
                 
-                # Reemplazamos formatos complejos si quedaron en la base de datos vieja
-                msg_recalculo = msg_recalculo.replace("{tmb:.0f}", "{tmb}").replace("{get_val:.0f}", "{get_val}").replace("{peso_etapa:.1f}", "{peso_etapa}")
-                
-                txt_recalculo = msg_recalculo.format(
-                    mensaje_exito=mensaje_exito, 
-                    tmb=f"{tmb:.0f}", 
-                    get_val=f"{get_val:.0f}", 
+                txt_recalculo = fmt_seguro(
+                    msg_recalculo,
+                    mensaje_exito=mensaje_exito,
+                    factor=f"{ocupacion:.3f}",
+                    tmb=f"{tmb:.0f}",
+                    get_val=f"{get_val:.0f}",
                     peso_etapa=f"{peso_etapa:.1f}"
                 )
 
@@ -1231,6 +1307,9 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
         except Exception as e:
             logger.error(f"Error recalculando métricas en vivo para {user_id}: {e}")
             await update.message.reply_text(mensaje_exito.replace('\\n', '\n'), parse_mode="Markdown")
+            
+            
+
         
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):

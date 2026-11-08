@@ -478,46 +478,49 @@ def _core_guardar_perfil_db(user_id, mes, datos_perfil: dict):
         if conn:
             try: conn.close()
             except: pass
-            
+ 
 def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
+    """
+    1. Recibe el peso sin bloquear por día del mes.
+    2. Calcula el factor real del mes anterior (según ingestas, actividad, TMB y delta de peso) y actualiza el mes anterior.
+    3. Calcula el promedio de los factores de ocupación de los últimos 3 meses y se lo asigna al mes actual.
+    4. Guarda el peso y la fecha de actualización en Perfil_<id> y en Usuarios (habilitando resúmenes).
+    """
     ahora = obtener_ahora_arg()
-    dia_actual = ahora.day
+    fecha_hoy_iso = ahora.strftime("%Y-%m-%d")
     mes_actual_str = ahora.strftime("%Y-%m")
     if not mes:
         mes = mes_actual_str
+
+    # Calculamos cuál es el mes inmediato anterior (YYYY-MM)
+    primer_dia_mes_actual = ahora.replace(day=1)
+    mes_anterior_str = (primer_dia_mes_actual - timedelta(days=1)).strftime("%Y-%m")
 
     peso_ingresado = float(peso or 0.0)
     if peso_ingresado > 1000:
         peso_ingresado /= 1000.0
 
-    # --- Obtener idioma del usuario para las respuestas multilenguaje ---
-    lang_usuario = 'es'
-    try:
-        conn_l, cur_l = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        cur_l.execute('SELECT "Idioma" FROM "Usuarios" WHERE "User ID" = %s', (str(user_id).strip(),))
-        row_l = cur_l.fetchone()
-        if row_l and row_l[0]:
-            lang_usuario = str(row_l[0]).strip().lower()
-        cur_l.close()
-        conn_l.close()
-    except Exception:
-        pass
-
-    # Obtener traducciones de la tabla 'multi' de forma segura
-    traducciones_msj = {}
-    try:
-        conn_m, cur_m = _asegurar_tabla_y_conectar("multi", tipo_tabla="comidas_precargadas")
-        cur_m.execute('SELECT variables, "{0}" FROM "multi"'.format(lang_usuario.upper()))
-        filas_m = cur_m.fetchall()
-        traducciones_msj = {row[0].strip().lower(): row[1] for row in filas_m if row[0] and row[1]}
-        cur_m.close()
-        conn_m.close()
-    except Exception:
-        pass
+    # --- Idioma y traducciones ---
+    lang_usuario = obtener_idioma_usuario(user_id) or 'es'
+    traducciones_msj = obtener_traducciones_db(lang_usuario) or {}
 
     def msg_t(clave, fallback):
-        return traducciones_msj.get(clave.lower(), fallback)
+        return traducciones_msj.get(clave.lower(), traducciones_msj.get(clave, fallback))
 
+    def formatear_seguro(plantilla, **kwargs_fmt):
+        txt = str(plantilla)
+        for k, v in kwargs_fmt.items():
+            txt = re.sub(r'\{' + re.escape(k) + r'(?::[^}]*)?\}', str(v), txt)
+        return txt.replace('\\n', '\n')
+
+    # --- PASO 2: Recalcular y actualizar el factor real del mes anterior ---
+    _calcular_y_actualizar_factor_mes_anterior(
+        user_id, 
+        mes_anterior_str, 
+        peso_fin_mes_override=peso_ingresado
+    )
+
+    # --- PASO 3: Leer historial de Perfil_<user_id> y promediar los últimos 3 meses ---
     conn = None
     cur = None
     try:
@@ -526,7 +529,6 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         cur.execute(f'ALTER TABLE "{tabla_nombre}" ADD COLUMN IF NOT EXISTS "peso_actual" DOUBLE PRECISION;')
         conn.commit()
 
-        # Obtenemos el nombre exacto de la tabla en Supabase
         cur.execute("""
             SELECT table_name FROM information_schema.tables 
             WHERE table_schema = 'public' AND LOWER(table_name) = LOWER(%s)
@@ -534,24 +536,15 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         row_t = cur.fetchone()
         tabla_real = row_t[0] if row_t else tabla_nombre
 
-        cur.execute(f'SELECT "EDAD", "ALTURA", "GENERO", "ocupacion", "PESO", "peso_actual", "Fecha_Actualizacion" FROM "{tabla_real}" WHERE TRIM("MES") = %s ORDER BY id DESC LIMIT 1', (str(mes).strip(),))
-        fila_previa = cur.fetchone()
-        
-        fecha_act_ant = str(fila_previa[6] or "").strip() if fila_previa else ""
-        dia_ultima_act = 0
-        mes_ultima_act = ""
-        if fecha_act_ant:
-            for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d/%m/%y"):
-                try:
-                    dt_parsed = datetime.strptime(fecha_act_ant, fmt)
-                    dia_ultima_act = dt_parsed.day
-                    mes_ultima_act = dt_parsed.strftime("%Y-%m")
-                    break
-                except ValueError:
-                    continue
-                    
+        # Traemos todas las filas ordenadas cronológicamente
+        cur.execute(f'''
+            SELECT "EDAD", "ALTURA", "GENERO", "ocupacion", "PESO", "peso_actual", "Fecha_Actualizacion", "MES"
+            FROM "{tabla_real}"
+            ORDER BY "MES" ASC, id ASC
+        ''')
+        filas = cur.fetchall()
     except Exception as e:
-        logger.error(f"Error preliminar en guardar_perfil_db para {user_id}: {e}")
+        logger.error(f"Error consultando Perfil_{user_id} en guardar_perfil_db: {e}")
         return {"error": True, "mensaje": msg_t("03_bot_err_db", "❌ Error al consultar la base de datos.")}
     finally:
         if cur:
@@ -561,149 +554,76 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
             try: conn.close()
             except: pass
 
-    edad_val = int(float(edad)) if edad is not None else (int(float(fila_previa[0])) if fila_previa and fila_previa[0] else 64)
-    altura_val = float(altura) if altura is not None else (float(fila_previa[1]) if fila_previa and fila_previa[1] else 170.0)
-    if altura_val > 1000: altura_val /= 1000.0
-    genero_val = str(genero) if genero else (str(fila_previa[2]) if fila_previa and fila_previa[2] else "M")
-    
-    factor_previo = float(ocupacion) if ocupacion is not None else (float(fila_previa[3]) if fila_previa and fila_previa[3] else 1.375)
-    if factor_previo > 10: factor_previo /= 1000.0
+    fila_actual = None
+    ultima_fila_conocida = filas[-1] if filas else None
+    factores_por_mes = {}
 
-    peso_base_mes = float(fila_previa[4]) if fila_previa and fila_previa[4] else 0.0
-    if peso_base_mes > 1000: peso_base_mes /= 1000.0
+    for f in filas:
+        m_str = str(f[7] or "").strip()
+        if m_str == str(mes).strip():
+            fila_actual = f
+        else:
+            # Guardamos los factores de los meses anteriores para el promedio de 3 meses
+            val_oc = float(f[3] or 0.0)
+            if val_oc > 10:
+                val_oc /= 1000.0
+            if val_oc > 0 and m_str:
+                factores_por_mes[m_str] = val_oc
 
-    # --- Función interna para recalcular factor ---
-    def recalcular_factor_diluido(peso_base, peso_nuevo_ingreso):
-        try:
-            df_datos = obtener_datos_usuario(user_id) 
-            if df_datos.empty or 'Fecha' not in df_datos.columns:
-                return factor_previo
-                
-            df_mes = df_datos[df_datos['Fecha'].astype(str).str.startswith(str(mes))].copy()
-            if df_mes.empty:
-                return factor_previo
-                
-            dias_registrados = df_mes['Fecha'].nunique()
-            if dias_registrados < 1:
-                return factor_previo
+    ref_fila = fila_actual if fila_actual else ultima_fila_conocida
 
-            delta_peso = peso_nuevo_ingreso - peso_base
-            tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
-            tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in df_mes.columns else 0.0
+    edad_val = int(float(edad)) if edad is not None else (int(float(ref_fila[0])) if ref_fila and ref_fila[0] else 64)
+    altura_val = float(altura) if altura is not None else (float(ref_fila[1]) if ref_fila and ref_fila[1] else 170.0)
+    if altura_val > 1000:
+        altura_val /= 1000.0
+    genero_val = str(genero) if genero else (str(ref_fila[2]) if ref_fila and ref_fila[2] else "M")
 
-            prom_cons = tot_cons_mes / dias_registrados
-            prom_quem = tot_quem_mes / dias_registrados
+    # Tomamos los últimos 3 meses anteriores (ordenados por MES) para hacer el promedio
+    meses_previos_ordenados = sorted(factores_por_mes.keys())[-3:]
+    if meses_previos_ordenados:
+        valores_ultimos_3 = [factores_por_mes[m] for m in meses_previos_ordenados]
+        nuevo_factor_promedio = round(sum(valores_ultimos_3) / len(valores_ultimos_3), 3)
+    else:
+        # Si es su primer mes y no tiene meses anteriores, usa el factor ingresado o el de su fila actual
+        fac_fallback = float(ocupacion) if ocupacion is not None else (float(ref_fila[3]) if ref_fila and ref_fila[3] else 1.375)
+        if fac_fallback > 10:
+            fac_fallback /= 1000.0
+        nuevo_factor_promedio = round(fac_fallback if fac_fallback > 0 else 1.375, 3)
 
-            tmb_pura, _ = calcular_tmb_y_get(peso_actual=peso_base, altura_cm=altura_val, edad=edad_val, genero=genero_val, actividad=1.0)
-            if tmb_pura <= 0: tmb_pura = 1813.0
-
-            balance_diario_objetivo = (delta_peso * 7700.0) / dias_registrados
-            get_real_necesario = prom_cons - prom_quem - balance_diario_objetivo
-            
-            factor_calculado = get_real_necesario / tmb_pura
-            factor_calculado_acotado = max(0.50, min(5.00, factor_calculado))
-
-            d_trans = min(30, max(1, dia_actual))
-            peso_nw = d_trans
-            peso_prv = 30 - d_trans
-            
-            factor_ponderado = ((factor_calculado_acotado * peso_nw) + (factor_previo * peso_prv)) / 30.0
-            return round(factor_ponderado, 6)
-        except Exception as err:
-            logger.error(f"Error recalculando factor: {err}")
-            return factor_previo
-
-    # --- REGLA DE LAS 3 VENTANAS ---
-    fecha_hoy_iso = ahora.strftime("%Y-%m-%d")
-
+    # --- PASO 4: Guardar el peso y el factor promedio en el mes actual (sin semáforos de día) ---
     try:
-        if dia_actual <= 14:
-            # Solo bloquea si ya hubo una actualización real dentro de este mismo mes (no por fila heredada con fecha vacía o del mes anterior)
-            ya_actualizo_este_mes = (dia_ultima_act > 0 and mes_ultima_act == str(mes).strip())
-            if ya_actualizo_este_mes and peso_base_mes > 0:
-                msg_default = "⚖️ Ya tenemos registrado tu peso base del mes. Para que la tendencia sea real y no refleje retención de líquidos, podrás ingresar tu próximo control a partir del día 15."
-                return {"error": True, "mensaje": msg_t("03_peso_ya_registrado", msg_default)}
-            
-            _core_guardar_perfil_db(user_id, str(mes), {
-                "EDAD": str(edad_val), 
-                "PESO": peso_ingresado, 
-                "peso_actual": peso_ingresado, 
-                "ALTURA": altura_val, 
-                "GENERO": genero_val, 
-                "ocupacion": factor_previo, 
-                "Fecha_Actualizacion": fecha_hoy_iso
-            })
-            _core_guardar_usuario_db(user_id, {"Ultimo Mes Peso": fecha_hoy_iso})
-            
-            msg_default = f"✅ **¡Peso base del mes registrado correctamente!**\n\n• Peso inicial ({mes}): `{peso_ingresado:.1f} kg`"
-            template = msg_t("03_peso_base_ok", msg_default)
-            return {"error": False, "mensaje": template.format(mes=mes, peso=f"{peso_ingresado:.1f}")}
+        _core_guardar_perfil_db(user_id, str(mes), {
+            "EDAD": str(edad_val),
+            "PESO": peso_ingresado,
+            "peso_actual": peso_ingresado,
+            "ALTURA": altura_val,
+            "GENERO": genero_val,
+            "ocupacion": nuevo_factor_promedio,
+            "Fecha_Actualizacion": fecha_hoy_iso
+        })
 
-        elif 15 <= dia_actual <= 25:
-            ya_actualizo_quincena = (dia_ultima_act >= 15 and mes_ultima_act == str(mes).strip())
-            if ya_actualizo_quincena:
-                msg_default = "⚖️ Control quincenal ya registrado correctamente. Tu próximo ingreso estará habilitado a partir del día 26 para el cierre del mes."
-                return {"error": True, "mensaje": msg_t("03_control_quincenal_hecho", msg_default)}
-            
-            peso_base_efectivo = peso_base_mes if peso_base_mes > 0 else peso_ingresado
-            nuevo_factor = recalcular_factor_diluido(peso_base_efectivo, peso_ingresado)
-            delta_peso = peso_ingresado - peso_base_efectivo
-            
-            campos_upd = {
-                "peso_actual": peso_ingresado, 
-                "ocupacion": nuevo_factor, 
-                "Fecha_Actualizacion": fecha_hoy_iso
-            }
-            if peso_base_mes <= 0:
-                campos_upd["PESO"] = peso_ingresado
+        # Actualizamos la fecha en la tabla Usuarios para habilitar los resúmenes
+        _core_guardar_usuario_db(user_id, {"Ultimo Mes Peso": fecha_hoy_iso})
 
-            _core_guardar_perfil_db(user_id, str(mes), campos_upd)
-            _core_guardar_usuario_db(user_id, {"Ultimo Mes Peso": fecha_hoy_iso})
-            guardar_ocupacion_db(user_id, nuevo_factor, str(mes))
-            
-            msg_default = f"✅ **¡Control quincenal guardado y factor calibrado!**\n\n• Variación detectada: `{delta_peso:+.1f} kg`\n• Nuevo factor de actividad: `{nuevo_factor:.4f}`"
-            template = msg_t("03_control_quincenal_ok", msg_default)
-            return {"error": False, "mensaje": template.format(variacion=f"{delta_peso:+.1f}", factor=f"{nuevo_factor:.4f}")}
-
-        else: # dia_actual >= 26
-            ya_actualizo_cierre = (dia_ultima_act >= 26 and mes_ultima_act == str(mes).strip())
-            if ya_actualizo_cierre:
-                msg_default = "⚖️ Ya registraste tu peso de cierre de mes. El sistema ya preparó tu ficha para el mes que viene. Tu próximo pesaje se habilitará el día 15."
-                return {"error": True, "mensaje": msg_t("03_cierre_mes_hecho", msg_default)}
-            
-            peso_base_efectivo = peso_base_mes if peso_base_mes > 0 else peso_ingresado
-            nuevo_factor = recalcular_factor_diluido(peso_base_efectivo, peso_ingresado)
-            
-            # 1. Actualiza mes actual con el balance final
-            _core_guardar_perfil_db(user_id, str(mes), {
-                "peso_actual": peso_ingresado, 
-                "ocupacion": nuevo_factor, 
-                "Fecha_Actualizacion": fecha_hoy_iso
-            })
-            guardar_ocupacion_db(user_id, nuevo_factor, str(mes))
-            
-            # 2. Pre-carga el mes siguiente
-            mes_proximo_dt = ahora.replace(day=28) + timedelta(days=5)
-            mes_proximo_str = mes_proximo_dt.strftime("%Y-%m")
-            _core_guardar_perfil_db(user_id, mes_proximo_str, {
-                "EDAD": str(edad_val), 
-                "PESO": peso_ingresado, 
-                "peso_actual": peso_ingresado, 
-                "ALTURA": altura_val, 
-                "GENERO": genero_val, 
-                "ocupacion": nuevo_factor, 
-                "Fecha_Actualizacion": fecha_hoy_iso
-            })
-            
-            _core_guardar_usuario_db(user_id, {"Ultimo Mes Peso": fecha_hoy_iso})
-            
-            msg_default = f"✅ **¡Cierre de mes registrado impecable!**\n\nEl balance del período se ha consolidado y ya configuramos automáticamente tu perfil base para el inicio del próximo mes con `{peso_ingresado:.1f} kg`."
-            template = msg_t("03_cierre_mes_ok", msg_default)
-            return {"error": False, "mensaje": template.format(peso=f"{peso_ingresado:.1f}")}
+        msg_default = (
+            f"✅ **¡Peso registrado correctamente!**\n\n"
+            f"• Peso actual ({mes}): `{peso_ingresado:.1f} kg`\n"
+            f"• Factor de ocupación (promedio últ. 3 meses): `{nuevo_factor_promedio:.3f}`"
+        )
+        template = msg_t("03_peso_base_ok", msg_default)
+        mensaje_final = formatear_seguro(
+            template,
+            mes=mes,
+            peso=f"{peso_ingresado:.1f}",
+            nuevo_val=f"{peso_ingresado:.1f}",
+            factor=f"{nuevo_factor_promedio:.3f}",
+            variacion="0.0"
+        )
+        return {"error": False, "mensaje": mensaje_final}
 
     except Exception as e_save:
         logger.error(f"Error guardando peso en Supabase para {user_id}: {e_save}")
-        return {"error": True, "mensaje": f"❌ Error al grabar en la base de datos: {e_save}"}
+        return {"error": True, "mensaje": f"❌ Error al grabar en la base de datos: {e_save}"} 
         
 def _core_guardar_usuario_db(user_id, campos_a_actualizar: dict):
     """
@@ -1873,7 +1793,8 @@ def _obtener_biometria_encapsulada(sexo_arg=None, altura_arg=None, peso_arg=None
     except Exception:
         uid = None
     finally:
-        del frame
+        if 'frame' in locals():
+            del frame
 
     if not uid:
         return datos
@@ -1927,7 +1848,7 @@ def _obtener_biometria_encapsulada(sexo_arg=None, altura_arg=None, peso_arg=None
         logger.error(f"Error en _obtener_biometria_encapsulada para {uid}: {e}")
 
     return datos
-
+    
 # 6. ESTIMACIÓN DE GRASA Y MASA MAGRA (MARINA EE.UU. EXCLUSIVA ADULTOS)
 def calcular_grasa_y_magra(sexo: str, altura_cm: float, cintura_cm: float, cuello_cm: float, peso_actual: float, cadera_cm: float = None, edad: int = 30) -> tuple[Optional[float], Optional[float]]:
     if edad is not None and edad < 18:
@@ -2079,6 +2000,11 @@ def obtener_ultimo_peso(user_id: int) -> dict:
         return None
           
 def _calcular_y_actualizar_factor_mes_anterior(user_id, mes_anterior_str, peso_fin_mes_override=None):
+    """
+    Calcula el factor de ocupación REAL que tuvo el usuario en 'mes_anterior_str'
+    en base a sus calorías consumidas, quemadas por actividad, TMB y variación de peso,
+    y actualiza la columna 'ocupacion' de ese mes anterior en Perfil_<user_id>.
+    """
     try:
         df_datos = obtener_datos_usuario(user_id) 
         if df_datos.empty or 'Fecha' not in df_datos.columns:
@@ -2089,8 +2015,8 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, mes_anterior_str, peso_f
             return None
 
         dias_registrados = df_mes['Fecha'].nunique()
-        if dias_registrados == 0:
-            dias_registrados = 1
+        if dias_registrados <= 0:
+            return None
 
         tot_cons_mes = float(df_mes[df_mes['Calorias'] > 0]['Calorias'].sum()) if 'Calorias' in df_mes.columns else 0.0
         tot_quem_mes = float(abs(df_mes[df_mes['Calorias'] < 0]['Calorias'].sum())) if 'Calorias' in df_mes.columns else 0.0
@@ -2098,91 +2024,59 @@ def _calcular_y_actualizar_factor_mes_anterior(user_id, mes_anterior_str, peso_f
         ingesta_diaria = tot_cons_mes / dias_registrados
         ejercicio_diario = tot_quem_mes / dias_registrados
 
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_anterior_str) or {}
+        perfil = obtener_perfil_usuario(user_id, mes_target=mes_anterior_str)
+        if not perfil or str(perfil.get('Mes', '')).strip() != mes_anterior_str:
+            return None
         
-        peso_actual = float(perfil.get('Peso', perfil.get('peso', 108.5)))
-        if peso_actual > 1000: peso_actual /= 1000.0
+        peso_inicio_mes = float(perfil.get('Peso', perfil.get('peso', 0.0)) or 0.0)
+        if peso_inicio_mes > 1000:
+            peso_inicio_mes /= 1000.0
+        if peso_inicio_mes <= 0:
+            return None
         
-        altura = float(perfil.get('Altura', perfil.get('altura', 1.72)))
-        if altura > 1000: altura /= 1000.0
+        altura = float(perfil.get('Altura', perfil.get('altura', 170.0)) or 170.0)
+        if altura > 1000:
+            altura /= 1000.0
         
-        edad = int(perfil.get('Edad', perfil.get('edad', 64)))
+        edad = int(float(perfil.get('Edad', perfil.get('edad', 64)) or 64))
         genero = str(perfil.get('GENERO', perfil.get('genero', 'M'))).strip()
 
         tmb_pura, _ = calcular_tmb_y_get(
-            peso_actual=peso_actual, altura_cm=altura, edad=edad, genero=genero, actividad=1.0
+            peso_actual=peso_inicio_mes, altura_cm=altura, edad=edad, genero=genero, actividad=1.0
         )
         if tmb_pura <= 0:
             tmb_pura = 1813.0
 
-        delta_peso = 0.0
-        tabla_nombre = f"Perfil_{user_id}"
-        
-        conn_p = None
-        cur_p = None
-        try:
-            conn_p, cur_p = _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="perfil")
-            query_perfil = f'SELECT "MES", "PESO" FROM "{tabla_nombre}" ORDER BY id ASC'
-            cur_p.execute(query_perfil)
-            filas_perfil = cur_p.fetchall()
-            
-            pesos_por_mes = {}
-            for fila in filas_perfil:
-                m_val = str(fila[0] or "").strip()
-                p_val = fila[1]
-                if m_val and p_val is not None:
-                    try:
-                        p_num = float(str(p_val).replace(',', '.'))
-                        if p_num > 1000: p_num /= 1000.0
-                        pesos_por_mes[m_val] = p_num
-                    except ValueError:
-                        pass
-            
-            meses_ordenados = sorted(pesos_por_mes.keys())
-            if mes_anterior_str in meses_ordenados:
-                peso_inicio_mes = pesos_por_mes[mes_anterior_str]
-                
-                if peso_fin_mes_override is not None:
-                    peso_fin_mes = float(peso_fin_mes_override)
-                    if peso_fin_mes > 1000: peso_fin_mes /= 1000.0
-                    delta_peso = peso_fin_mes - peso_inicio_mes
-                else:
-                    idx_actual = meses_ordenados.index(mes_anterior_str)
-                    if idx_actual + 1 < len(meses_ordenados):
-                        mes_siguiente = meses_ordenados[idx_actual + 1]
-                        peso_fin_mes = pesos_por_mes[mes_siguiente]
-                        delta_peso = peso_fin_mes - peso_inicio_mes
-                    else:
-                        delta_peso = 0.0
-        except Exception as e_delta:
-            logger.error(f"Error calculando delta de peso dinámico en Supabase para User {user_id}: {e_delta}")
+        if peso_fin_mes_override is not None and float(peso_fin_mes_override) > 0:
+            peso_fin_mes = float(peso_fin_mes_override)
+            if peso_fin_mes > 1000:
+                peso_fin_mes /= 1000.0
+            delta_peso = peso_fin_mes - peso_inicio_mes
+        else:
             delta_peso = 0.0
-        finally:
-            if cur_p:
-                try: cur_p.close()
-                except: pass
-            if conn_p:
-                try: conn_p.close()
-                except: pass
 
+        # Gasto diario total real = Ingesta promedio - (Variación de peso en kcal / días registrados)
         gasto_diario_total = ingesta_diaria - ((delta_peso * 7700.0) / dias_registrados)
-        factor_limpio = (gasto_diario_total - ejercicio_diario) / tmb_pura
+        factor_real = (gasto_diario_total - ejercicio_diario) / tmb_pura
         
-        factor_limpio = max(1.20, min(1.85, factor_limpio))
-        ocupacion_db = float(round(factor_limpio, 3))
+        # Acotamos dentro de márgenes biológicos lógicos (1.20 a 1.85)
+        factor_real = max(1.20, min(1.85, factor_real))
+        ocupacion_real_db = float(round(factor_real, 3))
 
+        # 2. Actualizamos la fila del MES ANTERIOR con su factor real
         _core_guardar_perfil_db(user_id, str(mes_anterior_str), {
-            "ocupacion": ocupacion_db
+            "ocupacion": ocupacion_real_db
         })
 
-        return factor_limpio
+        return ocupacion_real_db
 
     except Exception as e:
-        logger.error(f"Error al calcular factor limpio del mes anterior en Supabase para User {user_id}: {e}")
-        return None               
+        logger.error(f"Error al calcular factor real del mes anterior en Supabase para User {user_id}: {e}")
+        return None
 
 def calcular_peso_etapa(peso_actual: float, peso_ideal: float, ritmo_preferido: str = "moderado") -> float:
-    if peso_actual <= peso_ideal:
+    # Si ya está en su peso ideal (con un margen de 500 gramos), se mantiene.
+    if abs(peso_actual - peso_ideal) <= 0.5:
         return round(peso_actual, 1)
     
     ritmo_clean = str(ritmo_preferido).strip().lower()
@@ -2194,9 +2088,10 @@ def calcular_peso_etapa(peso_actual: float, peso_ideal: float, ritmo_preferido: 
         factor_actual = 0.85
         
     factor_ideal = 1.0 - factor_actual
+    # Esta misma fórmula sirve tanto para déficit (bajar) como superávit (subir)
     peso_etapa = (peso_actual * factor_actual) + (peso_ideal * factor_ideal)
     return round(peso_etapa, 1)
-
+    
 # 8. CÁLCULO DE TMB Y GET (SCHOFIELD OMS EN NIÑOS, KATCH/MIFFLIN AJUSTADO EN ADULTOS)
 def calcular_tmb_y_get(peso_actual: float, altura_cm: float, edad: int, genero: str = "masculino", actividad: float = 1.375, masa_magra: float = None, peso_ideal: float = None, cadera_cm: float = None) -> tuple[float, float]:
     try:
@@ -2295,11 +2190,9 @@ async def _validar_peso_mes_actual(update: Update = None, context: ContextTypes.
     mes_anterior_str = (ahora.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
     fecha_hoy_str = ahora.strftime("%Y-%m-%d")
 
-    # 1. Garantizar fila del mes actual (si no existía y había peso post-día 24, ya lo migra y valida)
+    # 1. Garantizar que exista la fila del mes actual en Perfil_<uid>, pero sin autovalidar el pesaje si aún no se pesó
     if '_garantizar_fila_mes_actual' in globals():
-        autovalidado = _garantizar_fila_mes_actual(uid, ahora)
-        if autovalidado:
-            return True
+        _garantizar_fila_mes_actual(uid, ahora)
 
     # 2. Verificar en Usuarios si ya figura actualizado en el mes actual
     try:
