@@ -188,8 +188,8 @@ HTML_CALCULADORA_RECETAS = """
             background: rgba(30, 41, 59, 0.95); backdrop-filter: blur(10px); color: white; 
             text-align: center; padding: 25px 20px; flex-shrink: 0; font-size: 0.85rem; margin-top: auto;
         }
-        .footer-links { margin-bottom: 15px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 15px; }
-        .footer-link { padding: 8px; border-radius: 12px; transition: all 0.2s ease; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+        .footer-links { margin-bottom: 15px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; }
+        .footer-link { padding: 5px; border-radius: 12px; transition: all 0.2s ease; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
         .footer-link:hover { background: rgba(255,255,255,0.1); transform: translateY(-3px); }
         .footer-icon-img { width: 28px; height: 28px; object-fit: contain; display: block; opacity: 0.85; transition: opacity 0.2s;}
         .footer-link:hover .footer-icon-img { opacity: 1; }
@@ -217,7 +217,7 @@ HTML_CALCULADORA_RECETAS = """
         <div class="nav-row-1" style="justify-content: flex-start; padding-left: 10px;">
             <a href="https://t.me/mi_control_dieta_bot" target="_blank" style="display: flex; align-items: center; text-decoration: none;">
                 <img src="{{ url_for('static', filename='logo.png') }}" class="logo-img" alt="Logo" onerror="this.style.display='none'" style="position: relative; margin-right: 15px;">
-                <h1 class="site-title" data-var="_02_titulo_web">IA NutriBot</h1>
+                <h1 class="site-title">IA NutriBot</h1>
             </a>
         </div>
 

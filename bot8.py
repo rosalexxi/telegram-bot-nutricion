@@ -127,7 +127,14 @@ async def callback_btn_fechas_diario(update: Update, context: ContextTypes.DEFAU
         await render_confirmation_screen(query, context)
     elif data in ["set_d_otro", "set_d_custom"]:
         context.user_data['awaiting_custom_date'] = True
-        txt_fec_ing = traducciones.get('06_bot_solic_fecha_ingesta', "📅 ✏️ Ingresá la fecha deseada para la ingesta (Ej: `2026-08-15` o `15/08`):")
+        
+        # --- SOLUCIÓN: CARTEL ESPECÍFICO SEGÚN EL TIPO DE INGRESO ---
+        momento = context.user_data.get('pending_momento', 'Comida')
+        if momento == 'Actividad':
+            txt_fec_ing = traducciones.get('06_bot_solic_fecha_actividad', "📅 ✏️ Ingresá la fecha deseada para la actividad (Ej: `2026-08-15` o `15/08`):")
+        else:
+            txt_fec_ing = traducciones.get('06_bot_solic_fecha_ingesta', "📅 ✏️ Ingresá la fecha deseada para la ingesta (Ej: `2026-08-15` o `15/08`):")
+            
         msg = await query.message.reply_text(txt_fec_ing, parse_mode="Markdown")
         context.user_data['msg_solicitud_fecha_id'] = msg.message_id
     elif data == "diario_hoy":
@@ -139,7 +146,7 @@ async def callback_btn_fechas_diario(update: Update, context: ContextTypes.DEFAU
         txt_diar_cons = traducciones.get('06_bot_solic_diario_consulta', "🗓️ Ingresá la fecha del diario que querés consultar (Ej: `2026-08-15` o `15/08`):")
         msg = await query.message.reply_text(txt_diar_cons, parse_mode="Markdown")
         context.user_data['msg_solicitud_diario_fecha_id'] = msg.message_id
-
+        
 # ==================================================================================================================================
 #                  INICIO                 COMANDOS COMIDAS Y COMANDOS ACTIVIDAD                       INICIO  
 # ==================================================================================================================================
@@ -1069,7 +1076,11 @@ async def mostrar_resumen_actividad_mes(update: Update, context: ContextTypes.DE
     tot_minutos = 0
 
     año_str, mes_num_str = mes_str.split('-')
-    dias_del_mes = calendar.monthrange(int(año_str), int(mes_num_str))[1]
+    
+    if mes_str == ahora.strftime("%Y-%m"):
+        dias_divisor = max(1, ahora.day - 1)
+    else:
+        dias_divisor = calendar.monthrange(int(año_str), int(mes_num_str))[1]
 
     detalle_lineas = []
     for _, row in df_act.sort_values('Fecha').iterrows():
@@ -1081,15 +1092,18 @@ async def mostrar_resumen_actividad_mes(update: Update, context: ContextTypes.DE
             tot_minutos += int(m_min.group(1))
         detalle_lineas.append(f"• `{f_dia}`: {alim} (`-{kcal:.0f} kcal`)")
 
+    promedio_act_min = tot_minutos / dias_divisor
+    promedio_act_kcal = tot_kcal / dias_divisor
+
     listado_str = "\n".join(detalle_lineas[:25])
     if len(detalle_lineas) > 25:
         listado_str += f"\n• _...y {len(detalle_lineas) - 25} registros más (ver PDF completo)._"
 
     txt_resumen = (
         f"🏃 **Resumen de Actividad Física ({mes_str})**\n\n"
-        f"• 🗓️ **Días activos:** `{dias_activos}` de `{dias_del_mes}` ({sesiones} sesiones)\n"
-        f"• ⏱️ **Tiempo total:** `{tot_minutos} min` (Promedio mensual: `{tot_minutos/dias_del_mes:.0f} min/día`)\n"
-        f"• 🔥 **Total quemado:** `{tot_kcal:.0f} kcal` (Promedio mensual: `{tot_kcal/dias_del_mes:.0f} kcal/día`)\n\n"
+        f"• 🗓️ **Días activos:** `{dias_activos}` (Total: {sesiones} sesiones)\n"
+        f"• ⏱️ **Tiempo promedio:** `{promedio_act_min:.0f} min/día`\n"
+        f"• 🔥 **Gasto promedio:** `{promedio_act_kcal:.0f} kcal/día`\n\n"
         f"📋 **Detalle del período:**\n{listado_str}"
     )
 
@@ -1101,7 +1115,7 @@ async def mostrar_resumen_actividad_mes(update: Update, context: ContextTypes.DE
     if query:
         await query.edit_message_text(txt_resumen, reply_markup=keyboard, parse_mode="Markdown")
     else:
-        await update.message.reply_text(txt_resumen, reply_markup=keyboard, parse_mode="Markdown")
+        await update.message.reply_text(txt_resumen, reply_markup=keyboard, parse_mode="Markdown")[cite: 1]
         
 async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id):
     user_id = update.effective_user.id
@@ -1742,7 +1756,8 @@ async def cmd_pagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard.append([InlineKeyboardButton(f"{nombre_plan} ({estrellas} ⭐)", callback_data=f"comprar_{plan_id}")])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
-        msg_titulo = traducciones.get("10_pagar_titulo", "⭐ **Seleccioná el plan con el que deseás abonar o renovar tu suscripción:**")
+        msg_titulo = traducciones.get("10_pagar_titulo", "⭐ **Seleccioná el plan con el que deseás abonar o renovar tu suscripción:**\n\n"
+            "_(Estimación referencial: 100 ⭐ equivalen aprox. a 2.00 USD)_")
         await update.message.reply_text(
             msg_titulo,
             reply_markup=reply_markup,
@@ -2667,6 +2682,7 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
         
+
 async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         query = update.callback_query
@@ -2777,6 +2793,18 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         perfil = obtener_perfil_usuario(user_id, mes_target=mes_str) or {}
         m = calcular_metricas_mensuales(df_mes, perfil, user_id=user_id, mes_str=mes_str)
 
+        if m.get('dias_registrados', 0) < 10:
+            msg_10_dias = traducciones.get(
+                "08_inf_mes_min_10_dias",
+                "⚠️ **Registros insuficientes:** Se requiere un mínimo de 10 días efectivos con ingestas para generar el reporte mensual. Actualmente tenés `{dias}` días registrados."
+            ).format(dias=m.get('dias_registrados', 0))
+            
+            if query:
+                await query.edit_message_text(msg_10_dias, parse_mode="Markdown")
+            else:
+                await update.message.reply_text(msg_10_dias, parse_mode="Markdown")
+            return
+
         peso_act_val = float(m.get('peso_actual', 0))
         peso_ref_val = float(m.get('peso_referencia', 0))
         if 'calcular_rango_actividad_fisica' in globals():
@@ -2794,7 +2822,6 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         cambio_peso_val = float(m.get('cambio_peso_kg', 0))
         texto_variacion_peso = f"`{obtener_mensaje_variacion_peso(cambio_peso_val, traducciones)}`"
 
-        # --- DEFINIR TEXTO ACLARATORIO ---
         es_personalizado = m.get('valores_personalizados', False)
         id_prof = str(perfil.get('profesional', '123456789')).strip()
         
@@ -2841,7 +2868,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
             f_min=m.get('fibr_min', 0),
             act=m.get('prom_minutos_act', 0),
             act_min=act_min_val, act_max=act_max_val,
-            nota_sistema=nota_sistema  # <--- INYECTAMOS LA NOTA ACÁ
+            nota_sistema=nota_sistema
         )
 
         pie_txt = traducciones.get("08_inf_mes_pie_pdf", "\n\n📄 Podés descargar el informe completo en PDF abajo:")
@@ -2864,9 +2891,8 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         if update.callback_query:
             await update.callback_query.edit_message_text(msg_err)
         else:
-            await update.message.reply_text(msg_err)
-                                            
-    
+            await update.message.reply_text(msg_err)[cite: 1]
+            
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -3046,6 +3072,7 @@ async def recordatorio_lunes_presion(context):
     except Exception as e:
         logger.error(f"Error en la ejecución del recordatorio semanal de presión: {e}")
 
+
 async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, momento: str):
     registros_usuarios = obtener_todos_usuarios()
     if not registros_usuarios:
@@ -3157,7 +3184,6 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
                 registros_u = obtener_registros_usuario(user_id)
                 dias_validos = evaluar_dias_validos(registros_u, inicio_check, fin_check)
                 
-                # --- NUEVA LÓGICA: AUDITORÍA DE CALIDAD CLÍNICA (FILTRO ANTI-TROLL) ---
                 promedio_irreal = False
                 promedio_calorico = 0
                 if dias_validos > 0:
@@ -3239,6 +3265,13 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
                             ultimo_dia_mes_anterior = primer_dia_mes_actual - timedelta(days=1)
                             mes_target_str = ultimo_dia_mes_anterior.strftime("%Y-%m")
                             es_auto_15 = False
+                            
+                            # --- NUEVA LÓGICA DE CIERRE: CÁLCULO DEL FACTOR REAL DEL MES ---
+                            perfil_cierre = obtener_perfil_usuario(user_id, mes_target=mes_target_str)
+                            if perfil_cierre:
+                                peso_fin = float(perfil_cierre.get('peso_actual', perfil_cierre.get('Peso', 0)))
+                                if peso_fin > 0:
+                                    _calcular_y_actualizar_factor_mes_anterior(user_id, mes_target_str, peso_fin_mes_override=peso_fin)
                         else:
                             mes_target_str = hoy.strftime("%Y-%m")
                             es_auto_15 = True
@@ -3281,12 +3314,10 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
 
             faltantes = []
             
-            # Textos para los días
             txt_de_anteayer = traducciones.get("08_notif_de_anteayer", "de anteayer")
             txt_de_ayer = traducciones.get("08_notif_de_ayer", "de ayer")
             txt_de_hoy = traducciones.get("08_notif_de_hoy", "de hoy")
             
-            # Función para traducir el nombre del momento (Desayuno, Almuerzo, etc)
             def traducir_momento(m):
                 mapa = {
                     "Desayuno": traducciones.get("08_inf_diario_momento_desayuno", "Desayuno"),
@@ -3330,7 +3361,7 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
 
         except Exception as e:
             logger.error(f"Error procesando usuario {user_id}: {e}")
-              
+            
 # ======================================================================================================================================
 #                   FINAL                                    COMANDOS INFORMES                                   FINAL
 # =====================================================================================================================================
@@ -3979,14 +4010,14 @@ async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE)
         _, pdf_buf = await procesar_informe_inicial(datos_usuario) if 'procesar_informe_inicial' in globals() else (None, None)
         
         await msg_espera.delete()
-        
+
         aviso_medico_alta = ""
         if prof_pendiente and prof_pendiente != "123456789":
-        
             aviso_medico_alta = traducciones.get(
-    '09_ing_nota_medico_pendiente', 
-    "\n\n🩺 *Nota:* Se ha enviado una solicitud a tu médico tratante para que audite y confirme tu seguimiento. Tu cuenta ya se encuentra activa de forma autónoma."
-)
+                '09_ing_nota_medico_pendiente', 
+                "\n\n🩺 *Nota:* Se ha enviado una solicitud a tu médico tratante para que audite y confirme tu seguimiento. Tu cuenta ya se encuentra activa de forma autónoma."
+            )
+            
         resumen_plantilla = traducciones.get('09_ing_resumen_cuenta_lista', 
             "🎉 **¡Tu cuenta y planillas están listas!**\n\n"
             "👤 **Paciente:** {nombre} | **ID:** `{user_id}`\n"
@@ -4003,6 +4034,7 @@ async def ing_recibir_altura(update: Update, context: ContextTypes.DEFAULT_TYPE)
             tmb_rnd=round(tmb),
             get_rnd=round(get_calorias)
         ).replace('\\n', '\n')
+
 
         # NUEVO: Agregamos el aviso corto del plan gratuito a continuación
         aviso_plan_corto = traducciones.get(
@@ -4316,7 +4348,6 @@ def actualizar_idioma_usuario(user_id, nuevo_idioma):
     except Exception as e:
         logger.error(f"Error al actualizar idioma para {user_id}: {e}")
 
-
 @requiere_registro
 async def callback_handler_editar_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -4327,9 +4358,26 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
     traducciones = obtener_traducciones_db(lang) or {}
 
     if data == "edit_perfil_peso":
+        ahora = obtener_ahora_arg()
+        
+        # --- BLOQUEO TEMPORAL: Solo se permite carga de peso nuevo o si estamos entre los días 25 y 5 ---
+        if 5 < ahora.day < 25:
+            mes_actual = ahora.strftime("%Y-%m")
+            perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
+            fecha_act = str(perfil.get('Fecha_Actualizacion', '')).strip() if perfil else ''
+            
+            if fecha_act and fecha_act != 'S/D':
+                msg_bloqueo = traducciones.get(
+                    '09_perfil_peso_bloqueado', 
+                    "⏳ Ya calibraste tu peso para este ciclo. La actualización para el próximo mes se habilitará a partir del día 25."
+                )
+                await query.answer(msg_bloqueo, show_alert=True)
+                return
+                
         context.user_data['awaiting_edit_perfil_peso'] = True
         msg = await query.message.reply_text(traducciones.get('09_solic_peso', "⚖️ Por favor, ingresá tu nuevo peso en kg (ej: `78.5`):"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+        
     elif data == "edit_perfil_altura":
         context.user_data['awaiting_edit_perfil_altura'] = True
         msg = await query.message.reply_text(traducciones.get('09_solic_altura', "📏 Por favor, ingresá tu nueva altura en cm (ej: `175`):"), parse_mode="Markdown")

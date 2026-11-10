@@ -1,0 +1,18 @@
+1. Lecturas de datos (obtener_datos_usuario, obtener_comidas_usuario, obtener_datos_presion_db):Mal: df = obtener_datos_usuario(user_id)   Bien: df = await asyncio.to_thread(obtener_datos_usuario, user_id)Mal: comidas = obtener_comidas_usuario(user_id)   Bien: comidas = await asyncio.to_thread(obtener_comidas_usuario, user_id)2. Escrituras en la base de datos (guardar_presion_db, guardar_perfil_db, guardar_ingesta_db, actualizar_estado_usuario):Mal: guardar_presion_db(user_id, alta, baja, pulsaciones, nota)   Bien: await asyncio.to_thread(guardar_presion_db, user_id, alta, baja, pulsaciones, nota)Mal: res_cal = guardar_perfil_db(user_id, peso=nuevo_peso, mes=mes_actual)   Bien: res_cal = await asyncio.to_thread(guardar_perfil_db, user_id, peso=nuevo_peso, mes=mes_actual)
+
+
+obtener_comidas_usuario
+
+obtener_datos_presion_db
+
+guardar_presion_db
+
+guardar_perfil_db
+
+guardar_ingesta_db
+
+actualizar_estado_usuario
+
+Verificá el entorno asíncrono: Asegurate de que la función donde estás pegando el await empiece con async def (como los handlers de Telegram). Si por casualidad la reemplazás dentro de un def normal (síncrono), Python te va a tirar un error de sintaxis porque no permite usar await ahí.
+
+Cuidado con los nombres de las variables: Si en alguna parte del código llamaste a la función con otro argumento, como obtener_datos_usuario(uid) o obtener_datos_usuario(int(user_id)), la búsqueda exacta de texto se la va a saltear. Te conviene buscar solo obtener_datos_usuario( y ajustar la sintaxis manualmente según los parámetros que tenga adentro.

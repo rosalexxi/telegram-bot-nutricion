@@ -481,10 +481,9 @@ def _core_guardar_perfil_db(user_id, mes, datos_perfil: dict):
  
 def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=None, ocupacion=None, *args, **kwargs):
     """
-    1. Recibe el peso sin bloquear por día del mes.
-    2. Calcula el factor real del mes anterior (según ingestas, actividad, TMB y delta de peso) y actualiza el mes anterior.
-    3. Calcula el promedio de los factores de ocupación de los últimos 3 meses y se lo asigna al mes actual.
-    4. Guarda el peso y la fecha de actualización en Perfil_<id> y en Usuarios (habilitando resúmenes).
+    1. Recibe el peso de la ventana habilitada.
+    2. Calcula el promedio de los factores de ocupación de los últimos 3 meses y se lo asigna al mes actual.
+    3. Guarda el peso y la fecha de actualización en Perfil_<id> y en Usuarios (habilitando resúmenes).
     """
     ahora = obtener_ahora_arg()
     fecha_hoy_iso = ahora.strftime("%Y-%m-%d")
@@ -492,15 +491,10 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
     if not mes:
         mes = mes_actual_str
 
-    # Calculamos cuál es el mes inmediato anterior (YYYY-MM)
-    primer_dia_mes_actual = ahora.replace(day=1)
-    mes_anterior_str = (primer_dia_mes_actual - timedelta(days=1)).strftime("%Y-%m")
-
     peso_ingresado = float(peso or 0.0)
     if peso_ingresado > 1000:
         peso_ingresado /= 1000.0
 
-    # --- Idioma y traducciones ---
     lang_usuario = obtener_idioma_usuario(user_id) or 'es'
     traducciones_msj = obtener_traducciones_db(lang_usuario) or {}
 
@@ -513,14 +507,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
             txt = re.sub(r'\{' + re.escape(k) + r'(?::[^}]*)?\}', str(v), txt)
         return txt.replace('\\n', '\n')
 
-    # --- PASO 2: Recalcular y actualizar el factor real del mes anterior ---
-    _calcular_y_actualizar_factor_mes_anterior(
-        user_id, 
-        mes_anterior_str, 
-        peso_fin_mes_override=peso_ingresado
-    )
-
-    # --- PASO 3: Leer historial de Perfil_<user_id> y promediar los últimos 3 meses ---
+    # --- Leer historial de Perfil_<user_id> y promediar los últimos 3 meses ---
     conn = None
     cur = None
     try:
@@ -536,7 +523,6 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         row_t = cur.fetchone()
         tabla_real = row_t[0] if row_t else tabla_nombre
 
-        # Traemos todas las filas ordenadas cronológicamente
         cur.execute(f'''
             SELECT "EDAD", "ALTURA", "GENERO", "ocupacion", "PESO", "peso_actual", "Fecha_Actualizacion", "MES"
             FROM "{tabla_real}"
@@ -563,7 +549,6 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         if m_str == str(mes).strip():
             fila_actual = f
         else:
-            # Guardamos los factores de los meses anteriores para el promedio de 3 meses
             val_oc = float(f[3] or 0.0)
             if val_oc > 10:
                 val_oc /= 1000.0
@@ -578,19 +563,16 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
         altura_val /= 1000.0
     genero_val = str(genero) if genero else (str(ref_fila[2]) if ref_fila and ref_fila[2] else "M")
 
-    # Tomamos los últimos 3 meses anteriores (ordenados por MES) para hacer el promedio
     meses_previos_ordenados = sorted(factores_por_mes.keys())[-3:]
     if meses_previos_ordenados:
         valores_ultimos_3 = [factores_por_mes[m] for m in meses_previos_ordenados]
         nuevo_factor_promedio = round(sum(valores_ultimos_3) / len(valores_ultimos_3), 3)
     else:
-        # Si es su primer mes y no tiene meses anteriores, usa el factor ingresado o el de su fila actual
         fac_fallback = float(ocupacion) if ocupacion is not None else (float(ref_fila[3]) if ref_fila and ref_fila[3] else 1.375)
         if fac_fallback > 10:
             fac_fallback /= 1000.0
         nuevo_factor_promedio = round(fac_fallback if fac_fallback > 0 else 1.375, 3)
 
-    # --- PASO 4: Guardar el peso y el factor promedio en el mes actual (sin semáforos de día) ---
     try:
         _core_guardar_perfil_db(user_id, str(mes), {
             "EDAD": str(edad_val),
@@ -602,7 +584,6 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
             "Fecha_Actualizacion": fecha_hoy_iso
         })
 
-        # Actualizamos la fecha en la tabla Usuarios para habilitar los resúmenes
         _core_guardar_usuario_db(user_id, {"Ultimo Mes Peso": fecha_hoy_iso})
 
         msg_default = (
@@ -623,7 +604,7 @@ def guardar_perfil_db(user_id, peso, mes=None, edad=None, altura=None, genero=No
 
     except Exception as e_save:
         logger.error(f"Error guardando peso en Supabase para {user_id}: {e_save}")
-        return {"error": True, "mensaje": f"❌ Error al grabar en la base de datos: {e_save}"} 
+        return {"error": True, "mensaje": f"❌ Error al grabar en la base de datos: {e_save}"}
         
 def _core_guardar_usuario_db(user_id, campos_a_actualizar: dict):
     """
