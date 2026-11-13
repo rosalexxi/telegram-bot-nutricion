@@ -1620,11 +1620,12 @@ def calcular_metricas_mensuales(df_mes, perfil_dict, user_id=None, mes_str=None)
         cal_etapa_objetivo = get_real * (peso_referencia / peso_actual)
         cal_min = int(round(min(cal_etapa_objetivo, get_meta) - 50))
         cal_max = int(round(max(cal_etapa_objetivo, get_meta) + 50))
+
         # Si la diferencia entre cal_min y cal_max quedó muy estrecha, aseguramos al menos 150 kcal de banda
-        if (cal_max - cal_min) < 150:
+        if (cal_max - cal_min) < 200:
             centro = int(round(cal_etapa_objetivo))
             cal_min = centro - 100
-            cal_max = centro + 50
+            cal_max = centro + 100
     else:
         # Si ya está en su peso ideal (peso_actual == peso_referencia), damos margen de mantenimiento (+/- 100 kcal)
         val_get_meta = int(round(get_meta))

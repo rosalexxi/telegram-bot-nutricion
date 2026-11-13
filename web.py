@@ -491,7 +491,7 @@ HTML_CALCULADORA_RECETAS = """
         <a href="https://tiktok.com/@ianutribot" target="_blank" class="footer-link" title="TikTok">
             <img src="{{ url_for('static', filename='tiktok.png') }}" alt="TikTok" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px;\'>🎵</span>'">
         </a>
-        <a href="https://facebook.com/ianutribot" target="_blank" class="footer-link" title="Facebook">
+        <a href="https://facebook.com/IANutriBot" target="_blank" class="footer-link" title="Facebook">
             <img src="{{ url_for('static', filename='facebook.png') }}" alt="Facebook" class="footer-icon-img" onerror="this.outerHTML='<span style=\'font-size:24px;\'>📘</span>'">
         </a>
         <a href="https://youtube.com/@ianutribot" target="_blank" class="footer-link" title="YouTube">

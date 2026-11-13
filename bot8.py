@@ -3072,6 +3072,32 @@ async def recordatorio_lunes_presion(context):
     except Exception as e:
         logger.error(f"Error en la ejecución del recordatorio semanal de presión: {e}")
 
+def evaluar_perdon_alta(fecha_alta_str: str, fecha_auditoria) -> bool:
+    """
+    Evalúa si el usuario es nuevo (menos de 30 días en el sistema).
+    Retorna True (se perdona la suspensión) o False (se aplica la suspensión).
+    """
+    if not fecha_alta_str:
+        return False  # Ante la duda o falta de datos, no hay perdón
+        
+    try:
+        from datetime import datetime
+        # Limpiamos el string y lo convertimos a fecha
+        fecha_alta = datetime.strptime(str(fecha_alta_str).strip()[:10], "%Y-%m-%d").date()
+        fecha_actual = fecha_auditoria.date() if hasattr(fecha_auditoria, 'date') else fecha_auditoria
+        
+        dias_antiguedad = (fecha_actual - fecha_alta).days
+        
+        # Si tiene 30 días o menos en el sistema, lo salvamos en esta auditoría
+        if dias_antiguedad <= 30:
+            return True
+            
+        return False
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error en evaluar_perdon_alta: {e}")
+        return False
+        
 
 async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, momento: str):
     registros_usuarios = obtener_todos_usuarios()
@@ -3197,38 +3223,49 @@ async def ejecutar_recordatorio_comidas(context: ContextTypes.DEFAULT_TYPE, mome
                         promedio_irreal = True
                 
                 if dias_validos < 20 or promedio_irreal:
-                    actualizar_estado_usuario(str(user_id), "3")
                     
-                    _, dias_en_mes = calendar.monthrange(hoy.year, hoy.month)
-                    dias_restantes = dias_en_mes - hoy.day 
-                    precio_base_estrellas = obtener_precio_plan_mensual() if 'obtener_precio_plan_mensual' in globals() else 100
-                    estrellas_prorrateadas = int(round((precio_base_estrellas / dias_en_mes) * dias_restantes))
-                    costo_usd_prorrateado = estrellas_prorrateadas * 0.02
+                    # --- NUEVO: LLAMADO A LA FUNCIÓN DE PERDÓN ---
+                    fecha_alta_usuario = u.get("Fecha Alta", "")
+                    tiene_perdon = evaluar_perdon_alta(fecha_alta_usuario, hoy)
                     
-                    if 'facturar_saldo_del_mes' in globals():
-                        await facturar_saldo_del_mes(context, user_id, dias_restantes, estrellas_prorrateadas)
-                    
-                    if promedio_irreal and dias_validos >= 20:
-                        msg_fin = traducciones.get(
-                            "08_notif_freemium_fin20_irreal",
-                            "❌ **Seguimiento pausado.**\n\nHemos detectado un patrón de registros anómalos o irreales en tus ingestas (promedio diario de `{promedio_calorico:.0f} kcal`, fuera del rango vital permitido). Tu plan gratuito ha sido cancelado para mantener la integridad del sistema.\n\nPara reactivarlo y usar el bot sin interrupciones hasta fin de mes, hemos emitido una factura proporcional por los días restantes (aprox. {costo_usd} USD / {estrellas} ⭐️)."
-                        ).format(
-                            promedio_calorico=promedio_calorico,
-                            costo_usd=f"{costo_usd_prorrateado:.2f}", 
-                            estrellas=estrellas_prorrateadas
-                        ).replace('\\n', '\n')
+                    # Si el usuario hace trampa con calorías irreales, NO hay perdón. 
+                    # Si no llegó a los 20 días pero es su primer mes (tiene_perdon = True), lo salvamos.
+                    if promedio_irreal or not tiene_perdon:
+                        actualizar_estado_usuario(str(user_id), "3")
+                        
+                        _, dias_en_mes = calendar.monthrange(hoy.year, hoy.month)
+                        dias_restantes = dias_en_mes - hoy.day 
+                        precio_base_estrellas = obtener_precio_plan_mensual() if 'obtener_precio_plan_mensual' in globals() else 100
+                        estrellas_prorrateadas = int(round((precio_base_estrellas / dias_en_mes) * dias_restantes))
+                        costo_usd_prorrateado = estrellas_prorrateadas * 0.02
+                        
+                        if 'facturar_saldo_del_mes' in globals():
+                            await facturar_saldo_del_mes(context, user_id, dias_restantes, estrellas_prorrateadas)
+                        
+                        if promedio_irreal and dias_validos >= 20:
+                            msg_fin = traducciones.get(
+                                "08_notif_freemium_fin20_irreal",
+                                "❌ **Seguimiento pausado.**\n\nHemos detectado un patrón de registros anómalos o irreales en tus ingestas (promedio diario de `{promedio_calorico:.0f} kcal`, fuera del rango vital permitido). Tu plan gratuito ha sido cancelado para mantener la integridad del sistema.\n\nPara reactivarlo y usar el bot sin interrupciones hasta fin de mes, hemos emitido una factura proporcional por los días restantes (aprox. {costo_usd} USD / {estrellas} ⭐️)."
+                            ).format(
+                                promedio_calorico=promedio_calorico,
+                                costo_usd=f"{costo_usd_prorrateado:.2f}", 
+                                estrellas=estrellas_prorrateadas
+                            ).replace('\\n', '\n')
+                        else:
+                            msg_fin = traducciones.get(
+                                "08_notif_freemium_fin20",
+                                "❌ **Período de prueba finalizado.**\nNo alcanzaste el objetivo mínimo de constancia (20 días) para mantener la cuenta gratuita y el seguimiento fue pausado.\n\nPara reactivarlo y usar el bot sin interrupciones hasta fin de mes, hemos emitido una factura proporcional por los días restantes (aprox. {costo_usd} USD / {estrellas} ⭐️).\n\nA fin de mes podrás elegir tu plan definitivo."
+                            ).format(
+                                costo_usd=f"{costo_usd_prorrateado:.2f}", 
+                                estrellas=estrellas_prorrateadas
+                            ).replace('\\n', '\n') 
+    
+                        await context.bot.send_message(chat_id=user_id, text=msg_fin, parse_mode="Markdown")
                     else:
-                        msg_fin = traducciones.get(
-                            "08_notif_freemium_fin20",
-                            "❌ **Período de prueba finalizado.**\nNo alcanzaste el objetivo mínimo de constancia (20 días) para mantener la cuenta gratuita y el seguimiento fue pausado.\n\nPara reactivarlo y usar el bot sin interrupciones hasta fin de mes, hemos emitido una factura proporcional por los días restantes (aprox. {costo_usd} USD / {estrellas} ⭐️).\n\nA fin de mes podrás elegir tu plan definitivo."
-                        ).format(
-                            costo_usd=f"{costo_usd_prorrateado:.2f}", 
-                            estrellas=estrellas_prorrateadas
-                        ).replace('\\n', '\n') 
-
-                    await context.bot.send_message(chat_id=user_id, text=msg_fin, parse_mode="Markdown")
-                    continue
-
+                        logger.info(f"El usuario {user_id} no llegó a los 20 días, pero se le aplica el perdón por ser usuario nuevo (alta en los últimos 30 días).")
+                    
+                    continue # Pasa al siguiente usuario
+                    
             if es_lunes_manana:
                 await _validar_peso_mes_actual(context=context, user_id=user_id)
 
@@ -4348,19 +4385,29 @@ def actualizar_idioma_usuario(user_id, nuevo_idioma):
     except Exception as e:
         logger.error(f"Error al actualizar idioma para {user_id}: {e}")
 
-@requiere_registro
 async def callback_handler_editar_perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    
+    # Evita que el botón se quede cargando en Telegram
     await query.answer()
+    
+    user_id = str(query.from_user.id)
     data = query.data
-    user_id = query.from_user.id
-    lang = obtener_idioma_usuario(user_id) or 'es'
-    traducciones = obtener_traducciones_db(lang) or {}
+    
+    # Recuperamos las traducciones del usuario (ajustá esto a tu función real si se llama distinto)
+    idioma = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
+    traducciones = obtener_traducciones(idioma) if 'obtener_traducciones' in globals() else {}
 
-    if data == "edit_perfil_peso":
+    # 1. Agrupamos TODOS los botones biométricos para aplicarles el mismo candado
+    botones_biometricos = [
+        "edit_perfil_peso", "edit_perfil_altura", 
+        "edit_perfil_cintura", "edit_perfil_cuello", "edit_perfil_cadera"
+    ]
+    
+    if data in botones_biometricos:
         ahora = obtener_ahora_arg()
         
-        # --- BLOQUEO TEMPORAL: Solo se permite carga de peso nuevo o si estamos entre los días 25 y 5 ---
+        # --- BLOQUEO TEMPORAL: Congelamos el perfil físico del día 6 al 24 ---
         if 5 < ahora.day < 25:
             mes_actual = ahora.strftime("%Y-%m")
             perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
@@ -4368,68 +4415,85 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
             
             if fecha_act and fecha_act != 'S/D':
                 msg_bloqueo = traducciones.get(
-                    '09_perfil_peso_bloqueado', 
-                    "⏳ Ya calibraste tu peso para este ciclo. La actualización para el próximo mes se habilitará a partir del día 25."
+                    '09_perfil_biometria_bloqueada', 
+                    "⏳ Los datos biométricos ya están calibrados para este ciclo. Podrás actualizarlos a partir del día 25."
                 )
                 await query.answer(msg_bloqueo, show_alert=True)
                 return
-                
-        context.user_data['awaiting_edit_perfil_peso'] = True
-        msg = await query.message.reply_text(traducciones.get('09_solic_peso', "⚖️ Por favor, ingresá tu nuevo peso en kg (ej: `78.5`):"), parse_mode="Markdown")
-        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
-        
-    elif data == "edit_perfil_altura":
-        context.user_data['awaiting_edit_perfil_altura'] = True
-        msg = await query.message.reply_text(traducciones.get('09_solic_altura', "📏 Por favor, ingresá tu nueva altura en cm (ej: `175`):"), parse_mode="Markdown")
-        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
-    elif data == "edit_perfil_cintura":
-        context.user_data['awaiting_edit_perfil_cintura'] = True
-        msg = await query.message.reply_text(traducciones.get('09_solic_cintura', "📏 Por favor, ingresá el nuevo perímetro de tu cintura en cm (ej: `84`):"), parse_mode="Markdown")
-        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
-    elif data == "edit_perfil_cuello":
-        context.user_data['awaiting_edit_perfil_cuello'] = True
-        msg = await query.message.reply_text(traducciones.get('09_solic_cuello', "📐 Por favor, ingresá el nuevo perímetro de tu cuello en cm (ej: `37`):"), parse_mode="Markdown")
-        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
-    elif data == "edit_perfil_cadera":
-        context.user_data['awaiting_edit_perfil_cadera'] = True
-        msg = await query.message.reply_text(traducciones.get('09_solic_cadera', "📐 Por favor, ingresá el nuevo perímetro de tu cadera en cm (ej: `104`):"), parse_mode="Markdown")
-        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+
+        # Si pasa el candado, vemos qué botón específico tocó para pedirle el dato
+        if data == "edit_perfil_peso":
+            context.user_data['awaiting_edit_perfil_peso'] = True
+            msg = await query.message.reply_text(traducciones.get('09_solic_peso', "⚖️ Por favor, ingresá tu nuevo peso en kg (ej: `78.5`):"), parse_mode="Markdown")
+            context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+            
+        elif data == "edit_perfil_altura":
+            context.user_data['awaiting_edit_perfil_altura'] = True
+            msg = await query.message.reply_text(traducciones.get('09_solic_altura', "📏 Por favor, ingresá tu nueva altura en cm (ej: `175`):"), parse_mode="Markdown")
+            context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+            
+        elif data == "edit_perfil_cintura":
+            context.user_data['awaiting_edit_perfil_cintura'] = True
+            msg = await query.message.reply_text(traducciones.get('09_solic_cintura', "📏 Por favor, ingresá el nuevo perímetro de tu cintura en cm (ej: `84`):"), parse_mode="Markdown")
+            context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+            
+        elif data == "edit_perfil_cuello":
+            context.user_data['awaiting_edit_perfil_cuello'] = True
+            msg = await query.message.reply_text(traducciones.get('09_solic_cuello', "📐 Por favor, ingresá el nuevo perímetro de tu cuello en cm (ej: `37`):"), parse_mode="Markdown")
+            context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+            
+        elif data == "edit_perfil_cadera":
+            context.user_data['awaiting_edit_perfil_cadera'] = True
+            msg = await query.message.reply_text(traducciones.get('09_solic_cadera', "📐 Por favor, ingresá el nuevo perímetro de tu cadera en cm (ej: `104`):"), parse_mode="Markdown")
+            context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+
+    # 2. Los demás campos del perfil (Variables que NO afectan el cálculo matemático biométrico del mes)
     elif data == "edit_perfil_nombre":
         context.user_data['awaiting_edit_perfil_nombre'] = True
-        msg = await query.message.reply_text(traducciones.get('09_solic_nombre', "👤 Por favor, ingresá tu nuevo Nombre y Apellido:"), parse_mode="Markdown")
+        msg = await query.message.reply_text(traducciones.get('09_solic_nombre', "👤 Por favor, ingresá tu nombre o apodo:"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
-    elif data == "edit_perfil_prof":
-        context.user_data['awaiting_edit_perfil_prof'] = True
-        msg = await query.message.reply_text(traducciones.get('09_solic_prof', "🩺 Por favor, ingresá el ID de Telegram de tu nuevo profesional:"), parse_mode="Markdown")
-        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
-    elif data == "edit_perfil_ritmo":
-        btn_r1 = traducciones.get('09_btn_ritmo_tranquilo', "🟢 Tranquilo / Lento")
-        btn_r2 = traducciones.get('09_btn_ritmo_moderado', "🟡 Moderado")
-        btn_r3 = traducciones.get('09_btn_ritmo_intenso', "🔴 Intenso / Rápido")
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton(btn_r1, callback_data="set_ritmo_1")],
-            [InlineKeyboardButton(btn_r2, callback_data="set_ritmo_2")],
-            [InlineKeyboardButton(btn_r3, callback_data="set_ritmo_3")]
-        ])
-        await query.message.reply_text(traducciones.get('09_solic_ritmo', "🎯 Seleccioná tu nuevo ritmo de avance deseado:"), reply_markup=keyboard, parse_mode="Markdown")
-    elif data == "edit_perfil_idioma":
-        idiomas_disp = await obtener_idiomas_disponibles_db() if 'obtener_idiomas_disponibles_db' in globals() else [{'codigo': 'es', 'nombre': 'Español', 'bandera': '🇪🇸'}, {'codigo': 'en', 'nombre': 'English', 'bandera': '🇺🇸'}]
-        b_list = [[InlineKeyboardButton(f"{i['bandera']} {i['nombre']}", callback_data=f"set_lang_{i['codigo']}")] for i in idiomas_disp]
-        await query.message.reply_text(traducciones.get('09_solic_idioma', "🌐 Seleccioná tu idioma preferido:"), reply_markup=InlineKeyboardMarkup(b_list), parse_mode="Markdown")
-    elif data.startswith("set_ritmo_"):
-        val_r = data.replace("set_ritmo_", "")
-        ritmos_map = {"1": "tranquilo", "2": "moderado", "3": "intenso"}
-        ritmo_txt = ritmos_map.get(val_r, "moderado")
-        actualizar_ritmo_usuario(user_id, ritmo_txt)
-        msg_ok = traducciones.get('09_ritmo_actualizado_ok', "✅ ¡Ritmo actualizado exitosamente a *{ritmo}*!").format(ritmo=ritmo_txt.capitalize())
-        await query.edit_message_text(msg_ok, parse_mode="Markdown")
-    elif data.startswith("set_lang_"):
-        nuevo_lang = data.replace("set_lang_", "")
-        actualizar_idioma_usuario(user_id, nuevo_lang)
-        trad_nuevas = obtener_traducciones_db(nuevo_lang) if 'obtener_traducciones_db' in globals() else traducciones
-        msg_ok = trad_nuevas.get('09_idioma_actualizado_ok', "✅ ¡Idioma actualizado exitosamente a *{lang}*!").format(lang=nuevo_lang.upper())
-        await query.edit_message_text(msg_ok, parse_mode="Markdown")
         
+    elif data == "edit_perfil_edad":
+        context.user_data['awaiting_edit_perfil_edad'] = True
+        msg = await query.message.reply_text(traducciones.get('09_solic_edad', "🎂 Por favor, ingresá tu edad en años (ej: `35`):"), parse_mode="Markdown")
+        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+        
+    elif data == "edit_perfil_sexo":
+        context.user_data['awaiting_edit_perfil_sexo'] = True
+        msg = await query.message.reply_text(traducciones.get('09_solic_sexo', "🚻 Por favor, ingresá tu sexo biológico (M para masculino, F para femenino):"), parse_mode="Markdown")
+        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+
+    elif data == "edit_perfil_actividad":
+        context.user_data['awaiting_edit_perfil_actividad'] = True
+        msg = await query.message.reply_text(traducciones.get('09_solic_actividad', "🏃‍♂️ Por favor, seleccioná tu nivel de actividad (1: Sedentario, 2: Ligero, 3: Moderado, 4: Activo, 5: Muy activo):"), parse_mode="Markdown")
+        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+
+    elif data == "edit_perfil_objetivo":
+        context.user_data['awaiting_edit_perfil_objetivo'] = True
+        msg = await query.message.reply_text(traducciones.get('09_solic_objetivo', "🎯 Por favor, ingresá tu objetivo (1: Bajar, 2: Mantener, 3: Subir):"), parse_mode="Markdown")
+        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+
+    elif data == "edit_perfil_ritmo":
+        context.user_data['awaiting_edit_perfil_ritmo'] = True
+        msg = await query.message.reply_text(traducciones.get('09_solic_ritmo', "⏱ Por favor, ingresá el ritmo deseado (1: Tranquilo, 2: Moderado, 3: Intenso):"), parse_mode="Markdown")
+        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+        
+    elif data == "perfil_volver":
+        # Limpiamos estados pendientes si el usuario se arrepiente y decide volver atrás
+        teclas_pendientes = [
+            'awaiting_edit_perfil_peso', 'awaiting_edit_perfil_altura', 'awaiting_edit_perfil_cintura',
+            'awaiting_edit_perfil_cuello', 'awaiting_edit_perfil_cadera', 'awaiting_edit_perfil_nombre',
+            'awaiting_edit_perfil_edad', 'awaiting_edit_perfil_sexo', 'awaiting_edit_perfil_actividad',
+            'awaiting_edit_perfil_objetivo', 'awaiting_edit_perfil_ritmo', 'msg_solicitud_perfil_id'
+        ]
+        for key in teclas_pendientes:
+            if key in context.user_data:
+                del context.user_data[key]
+                
+        # Llamar a la función principal de perfil para refrescar la pantalla
+        if 'cmd_perfil' in globals():
+            await cmd_perfil(update, context)
+            
 #                       INICIO                        COMANDOS BIOMETRICOS                           INICIO
 # ======================================================================================================================================
 
