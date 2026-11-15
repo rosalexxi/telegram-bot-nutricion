@@ -58,7 +58,6 @@ def generar_audio_memoria(texto: str, lang: str = 'es'):
     
     return buffer
 
-
 def transcribir_audio_groq(audio_bytes: bytes) -> str:
     """
     Transcribe el audio de Telegram usando Whisper en Groq (aislado del motor de comidas).
@@ -113,9 +112,9 @@ def solicitar_ai_rest(consulta, lang='es'):
     
     # Escalera de modelos en Groq: 1° Principal (70B), 2° Respaldo rápido (8B), 3° Emergencia (Gemma 2)
     modelos_groq = [
-        "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
-        "gemma2-9b-it"
+        "GPT-OSS 120B",
+        "GPT-OSS 20B",
+        "Qwen 3.8 27B"
     ]
     
     for modelo in modelos_groq:
