@@ -58,6 +58,7 @@ def generar_audio_memoria(texto: str, lang: str = 'es'):
     
     return buffer
 
+
 def transcribir_audio_groq(audio_bytes: bytes) -> str:
     """
     Transcribe el audio de Telegram usando Whisper en Groq (aislado del motor de comidas).
@@ -84,8 +85,8 @@ def transcribir_audio_groq(audio_bytes: bytes) -> str:
 
 def solicitar_ai_rest(consulta, lang='es'):
     """
-    Responde únicamente utilizando modelos de Groq en cascada (Principal -> Respaldo 1 -> Respaldo 2).
-    El respaldo de Gemini queda desactivado.
+    Intenta responder primero con Groq (modelos actualizados).
+    Si Groq no está configurado o falla, pasa automáticamente a Gemini REST.
     """
     manual_texto = leer_manual_md()
     
@@ -101,47 +102,46 @@ def solicitar_ai_rest(consulta, lang='es'):
         f"MANUAL OFICIAL:\n{manual_texto}"
     )
 
-    if not API_KEY_GROQ:
-        raise Exception("GROQ_API_KEY no está configurada en el servidor.")
-
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {API_KEY_GROQ}"
-    }
-    
-    # Escalera de modelos en Groq: 1° Principal (70B), 2° Respaldo rápido (8B), 3° Emergencia (Gemma 2)
-    modelos_groq = [
-        "GPT-OSS 120B",
-        "GPT-OSS 20B",
-        "Qwen 3.8 27B"
-    ]
-    
-    for modelo in modelos_groq:
-        payload = {
-            "model": modelo,
-            "messages": [
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": consulta}
-            ],
-            "temperature": 0.2
+    # 1. INTENTO CON GROQ (Si existe GROQ_API_KEY)
+    if API_KEY_GROQ:
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {API_KEY_GROQ}"
         }
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                return data['choices'][0]['message']['content']
-            else:
-                logger.warning(f"Fallo en API Groq Ayuda con modelo {modelo}: {response.text}")
-        except Exception as e:
-            logger.warning(f"Error de conexión con Groq ({modelo}): {e}")
+        # Modelos vigentes en Groq
 
-    # RESPALDO GEMINI DESACTIVADO PARA PRUEBAS
-    # if API_KEY_GEMINI:
-    #     return solicitar_ai_rest_Gemini(consulta, system_instruction)
+        modelos_groq = [
+            "openai/gpt-oss-120b",
+            "qwen/qwen3.8-27b",
+            "openai/gpt-oss-20b"
+        ]
+        
+        for modelo in modelos_groq:
+            payload = {
+                "model": modelo,
+                "messages": [
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": consulta}
+                ],
+                "temperature": 0.2
+            }
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    return data['choices'][0]['message']['content']
+                else:
+                    logger.warning(f"Fallo en API Groq Ayuda con modelo {modelo}: {response.text}")
+            except Exception as e:
+                logger.warning(f"Error de conexión con Groq ({modelo}): {e}")
 
-    raise Exception("No se pudo responder con ninguno de los modelos de Groq disponibles.")
-    
+    # 2. RESPALDO AUTOMÁTICO CON GEMINI REST
+    if API_KEY_GEMINI:
+        return solicitar_ai_rest_Gemini(consulta, system_instruction)
+
+    raise Exception("No se pudo responder ni con Groq ni con Gemini (verificar API Keys).")
+
 async def procesar_audio_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Recibe el audio (o texto) desviado desde bot8.py cuando el usuario está en modo /ayuda,
