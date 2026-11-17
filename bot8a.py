@@ -2890,9 +2890,50 @@ async def limpiar_teclado_anterior(update: Update, context: ContextTypes.DEFAULT
             pass
             
 def requiere_registro(func):
-    """Decorador que verifica registro y bloquea usuarios en Estado 3 ofreciendo reactivación prorrateada."""
+    """Decorador que verifica registro, controla timeouts globales y bloquea usuarios suspendidos."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        
+        # --- 1. EL GUARDIÁN DE TIEMPO (2 minutos = 120 segundos) ---
+        tiempo_actual = time_mod.time()
+        ultimo_acceso = context.user_data.get('ultimo_acceso', tiempo_actual)
+        
+        # Lista de banderas que indican que el usuario dejó una operación a medias
+        estados_pendientes = [
+            'awaiting_edit_item_val', 'editing_item_idx', 'awaiting_custom_date',
+            'awaiting_del_custom_date', 'awaiting_diario_custom_date',
+            'awaiting_presion_nota', 'pending_presion_foto', 'msg_solicitud_perfil_id',
+            'awaiting_edit_perfil_peso', 'awaiting_edit_perfil_altura', 'awaiting_edit_perfil_cintura',
+            'awaiting_edit_perfil_cuello', 'awaiting_edit_perfil_cadera', 'awaiting_edit_perfil_nombre',
+            'awaiting_edit_perfil_edad', 'awaiting_edit_perfil_sexo', 'awaiting_edit_perfil_actividad',
+            'awaiting_edit_perfil_objetivo', 'awaiting_edit_perfil_ritmo', 'msg_solicitud_edit_id',
+            'pending_items'
+        ]
+        
+        tenia_algo_pendiente = any(key in context.user_data for key in estados_pendientes)
+        
+        # Si pasaron más de 120 segundos y tenía algo a medias
+        if tenia_algo_pendiente and (tiempo_actual - ultimo_acceso > 120):
+            # Limpiamos todo
+            for key in estados_pendientes:
+                context.user_data.pop(key, None)
+            context.user_data.pop('last_menu_msg_id', None)
+            
+            msg_timeout = "⏳ Tiempo de espera agotado. La operación fue cancelada. Por favor, reingresá tus datos."
+            
+            if update.callback_query:
+                await update.callback_query.answer(msg_timeout, show_alert=True)
+            elif update.message:
+                await update.message.reply_text(msg_timeout, parse_mode="Markdown")
+                
+            # Actualizamos la hora y CORTAMOS acá para que deba empezar de cero
+            context.user_data['ultimo_acceso'] = tiempo_actual
+            return
+            
+        # Actualizamos la hora de este nuevo ingreso para la próxima vez
+        context.user_data['ultimo_acceso'] = tiempo_actual
+        # -------------------------------------------------------------
+
         if 'limpiar_teclado_anterior' in globals():
             await limpiar_teclado_anterior(update, context)
             
@@ -2977,7 +3018,7 @@ def requiere_registro(func):
 
         return await func(update, context, *args, **kwargs)
     return wrapper
-    
+        
 # =============================================================================================================================================
 #              FINAL                          FUNCIONES AUXILIARES INTERNAS                  FINAL
 # =============================================================================================================================================

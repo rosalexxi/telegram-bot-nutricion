@@ -2495,8 +2495,8 @@ def _generar_texto_resumen_semanal(user_id, inicio_rango, fin_rango, etiqueta_pe
         act_min_val, act_max_val = 30, 60
 
     dias_efectivos = df_semana['Fecha_dt'].nunique()
-    if dias_efectivos <= 0:
-        dias_efectivos = 1
+    if dias_efectivos <= 5:
+        return None, None
 
     minutos_totales_actividad = 0
     if 'Momento' in df_semana.columns and 'Alimento' in df_semana.columns:
@@ -4429,7 +4429,7 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
     
     # Recuperamos las traducciones del usuario (ajustá esto a tu función real si se llama distinto)
     idioma = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones(idioma) if 'obtener_traducciones' in globals() else {}
+    traducciones = obtener_traducciones_db(idioma) if 'obtener_traducciones' in globals() else {}
 
     # 1. Agrupamos TODOS los botones biométricos para aplicarles el mismo candado
     botones_biometricos = [
