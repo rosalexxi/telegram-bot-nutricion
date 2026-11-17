@@ -11,13 +11,16 @@ from telegram.ext import ContextTypes
 from bot8a import (
     obtener_idioma_usuario, 
     obtener_traducciones_db, 
+    _asegurar_tabla_y_conectar,
+    obtener_datos_usuario,
+    obtener_ahora_arg,
+    _CONTADOR_DIARIO_IA,
     MODELO_TEXTO, 
     MODELO_RESPALDO, 
     MODELO_EMERGENCIA, 
     registrar_curioso_preventa_db,
     notificar_fallo_modelo_admin
 )
-
 logger = logging.getLogger(__name__)
 
 # Cargamos ambas API Keys (Groq como principal ultrarrápido y Gemini como respaldo infalible)
@@ -84,34 +87,127 @@ def transcribir_audio_groq(audio_bytes: bytes) -> str:
         logger.warning(f"Error transcribiendo audio en Groq Ayuda: {response.text}")
         raise Exception("Fallo en transcripción de audio de ayuda")
 
-def solicitar_ai_rest(consulta, lang='es'):
+# ==========================================
+# NUEVA FUNCIÓN: RECOPILADOR DE CONTEXTO DE USUARIO
+# ==========================================
+def obtener_contexto_para_ia(user_id):
     """
-    Intenta responder primero con Groq (modelos actualizados).
-    Si Groq no está configurado o falla, pasa automáticamente a Gemini REST.
+    Recopila de forma invisible el estado técnico, biométrico y de límites diarios
+    del usuario para inyectarlo al prompt de la IA de soporte.
+    """
+    uid = str(user_id).strip()
+    ahora = obtener_ahora_arg()
+    mes_actual = ahora.strftime("%Y-%m")
+    hoy_str = ahora.strftime("%Y-%m-%d")
+    
+    contexto = {
+        "user_id": uid,
+        "nombre": "Usuario",
+        "estado": "Activo",
+        "consultas_texto_hoy": 0,
+        "fotos_hoy": 0,
+        "calorias_hoy": 0.0,
+        "peso_mes_actual_cargado": False,
+        "dias_registrados_mes": 0,
+        "fecha_alta": "",
+        "vencimiento_suscripcion": "Gratuito / Sin fecha"
+    }
+    
+    try:
+        # 1. Datos básicos de la tabla Usuarios
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        cur.execute('SELECT "Nombre", "Estado", "Ultimo Mes Peso", "Fecha Alta", "vencimiento_suscripcion" FROM "Usuarios" WHERE "User ID" = %s', (uid,))
+        fila = cur.fetchone()
+        if fila:
+            contexto["nombre"] = str(fila[0] or "Usuario").strip()
+            estado_val = str(fila[1] if fila[1] is not None else "0").strip().lower()
+            if estado_val == '3':
+                contexto["estado"] = "Suspendido / Fin de prueba (Estado 3)"
+            elif estado_val in ['baja', 'suspendido']:
+                contexto["estado"] = "Suspendido / Inactivo"
+            else:
+                contexto["estado"] = "Activo"
+                
+            ultimo_mes_peso = str(fila[2] or "").strip()
+            if mes_actual in ultimo_mes_peso or ahora.strftime("%m/%Y") in ultimo_mes_peso:
+                contexto["peso_mes_actual_cargado"] = True
+                
+            contexto["fecha_alta"] = str(fila[3] or "").strip()
+            contexto["vencimiento_suscripcion"] = str(fila[4] or "Gratuito").strip()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error recopilando contexto de usuario {uid} en ayuda.py: {e}")
+
+    # 2. Límites diarios de IA desde el contador global
+    try:
+        datos_ia = _CONTADOR_DIARIO_IA.get(uid)
+        if datos_ia and datos_ia.get("fecha") == hoy_str:
+            contexto["consultas_texto_hoy"] = datos_ia.get("texto", 0)
+            contexto["fotos_hoy"] = datos_ia.get("foto", 0)
+    except Exception:
+        pass
+
+    # 3. Calorías acumuladas hoy y días registrados en el mes actual
+    try:
+        df_u = obtener_datos_usuario(uid)
+        if not df_u.empty and 'Fecha' in df_u.columns:
+            df_hoy = df_u[(df_u['Fecha'].astype(str).str.strip() == hoy_str) & (df_u['Calorias'] > 0)]
+            contexto["calorias_hoy"] = float(df_hoy['Calorias'].sum())
+            
+            df_mes = df_u[df_u['Fecha'].astype(str).str.startswith(mes_actual)]
+            if not df_mes.empty and 'Fecha' in df_mes.columns:
+                contexto["dias_registrados_mes"] = int(df_mes['Fecha'].nunique())
+    except Exception:
+        pass
+
+    # Formatear el bloque que lee la IA
+    texto_resumen = (
+        f"- Nombre/Apodo: {contexto['nombre']}\n"
+        f"- Estado de cuenta: {contexto['estado']}\n"
+        f"- Consultas de texto hoy: {contexto['consultas_texto_hoy']}/20 (Límite diario)\n"
+        f"- Fotos enviadas hoy: {contexto['fotos_hoy']}/10 (Límite diario)\n"
+        f"- Calorías registradas hoy: {contexto['calorias_hoy']:.0f} kcal (Tope antispam 6000 kcal)\n"
+        f"- Peso del mes actual cargado: {'Sí' if contexto['peso_mes_actual_cargado'] else 'No (Pendiente)'}\n"
+        f"- Días con registros en el mes actual: {contexto['dias_registrados_mes']} días (Mínimo 10 para manual, 20 para automático)\n"
+        f"- Fecha de alta: {contexto['fecha_alta']}\n"
+        f"- Vencimiento de suscripción: {contexto['vencimiento_suscripcion']}"
+    )
+    return texto_resumen
+
+
+# ==========================================
+# ACTUALIZACIÓN DE SOLICITUD A IA CON CONTEXTO
+# ==========================================
+def solicitar_ai_rest(consulta, lang='es', contexto_usuario=""):
+    """
+    Intenta responder primero con Groq incorporando el contexto técnico del usuario.
+    Si falla, pasa automáticamente a Gemini REST.
     """
     manual_texto = leer_manual_md()
     
     system_instruction = (
         "Sos el asistente de soporte técnico oficial de IA NutriBot. "
         f"REGLA DE IDIOMA ESTRICTA: El usuario habla el idioma con código ISO '{lang}'. "
-        f"DEBES responder y traducir toda tu explicación ÚNICAMENTE al idioma '{lang}'. No uses palabras en español si el idioma no es español.\n"
-        "Tu única tarea es responder la consulta del usuario basándote EXCLUSIVAMENTE en el siguiente manual. "
-        "Si la respuesta no está en el manual, indicá amablemente que contacte al soporte técnico o al administrador. "
-        "Sé claro, conciso, amable y utilizá un tono coloquial. "
-        "Usá formato simple (negritas con un solo asterisco *texto* y viñetas con •), sin inventar comandos ni funciones.\n"
-        "REGLA DE CIERRE: NO agregues frases de despedida genéricas (como 'Estaré aquí para ayudarte' o 'Cualquier otra duda me avisas'). Termina tu respuesta directamente con la información técnica.\n\n"
+        f"DEBES responder y traducir toda tu explicación ÚNICAMENTE al idioma '{lang}'.\n"
+        "Adoptá un tono empático, cálido, resolutivo y usá el 'vos' argentino (cercano y amigable).\n\n"
+        "**DATOS Y ESTADO TÉCNICO ACTUAL DEL USUARIO:**\n"
+        f"{contexto_usuario}\n\n"
+        "**REGLA DE PERSONALIDAD Y PROACTIVIDAD:** Saludá siempre al usuario por su nombre de forma cálida. "
+        "Si detectás que su problema o bloqueo está directamente relacionado con sus datos actuales (ej: límite diario de fotos alcanzado, "
+        "falta de carga de peso mensual, cuenta suspendida en Estado 3, o exceso calórico diario), explicaselo proactivamente diciendo "
+        "'Estuve revisando tu ficha y noté que...'. No menciones estos datos internos si no tienen relación directa con su consulta.\n\n"
+        "Tu única tarea es responder la consulta basándote en el manual y este contexto técnico. "
+        "Sé claro, conciso y terminá tu respuesta directamente con la información técnica sin despedidas genéricas.\n\n"
         f"MANUAL OFICIAL:\n{manual_texto}"
     )
 
-    # 1. INTENTO CON GROQ (Si existe GROQ_API_KEY)
     if API_KEY_GROQ:
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {API_KEY_GROQ}"
         }
-        # Modelos vigentes en Groq
-
         modelos_groq = [
             "openai/gpt-oss-120b",
             "qwen/qwen3.8-27b",
@@ -139,26 +235,27 @@ def solicitar_ai_rest(consulta, lang='es'):
                 logger.warning(f"Error de conexión con Groq ({modelo}): {e}")
                 notificar_fallo_modelo_admin("Groq", modelo, "Ayuda (/h)", str(e))
             
-    # 2. RESPALDO AUTOMÁTICO CON GEMINI REST
     if API_KEY_GEMINI:
         return solicitar_ai_rest_Gemini(consulta, system_instruction)
 
     raise Exception("No se pudo responder ni con Groq ni con Gemini (verificar API Keys).")
 
+
+# ==========================================
+# ACTUALIZACIÓN DE PROCESAR AUDIO/MENSAJE AYUDA
+# ==========================================
 async def procesar_audio_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Recibe el audio (o texto) desviado desde bot8.py cuando el usuario está en modo /ayuda,
-    lo transcribe, responde la duda con el manual y genera un audio de respuesta.
+    Recibe el audio (o texto) de ayuda, recopila el contexto del usuario y responde con voz y texto.
     """
     user_id = update.effective_user.id
     lang = obtener_idioma_usuario(user_id) or 'es'
     traducciones = obtener_traducciones_db(lang) or {}
 
-    msg_espera_txt = traducciones.get("09_ayuda_escuchando", "🎧 Escuchando tu consulta y buscando en el manual...")
+    msg_espera_txt = traducciones.get("09_ayuda_escuchando", "🎧 Escuchando tu consulta y revisando tu ficha...")
     msg_espera = await update.message.reply_text(msg_espera_txt, parse_mode="Markdown")
 
     try:
-        # Extraemos el texto a consultar (sea dictado por voz o tipeado si la bandera estaba activa)
         if update.message.voice:
             file = await context.bot.get_file(update.message.voice.file_id)
             audio_bytes = await file.download_as_bytearray()
@@ -171,23 +268,23 @@ async def procesar_audio_ayuda(update: Update, context: ContextTypes.DEFAULT_TYP
             await msg_espera.edit_text(msg_error_audio)
             return
 
-        # 2. Consultamos el manual con el texto (PASANDO EL IDIOMA)
-        respuesta_ia = await asyncio.to_thread(solicitar_ai_rest, consulta_texto, lang)
+        # 1. Recopilamos todo el contexto técnico e histórico del usuario en segundo plano
+        contexto_usuario = await asyncio.to_thread(obtener_contexto_para_ia, user_id)
+
+        # 2. Consultamos la IA pasándole tanto la consulta como el contexto del usuario
+        respuesta_ia = await asyncio.to_thread(solicitar_ai_rest, consulta_texto, lang, contexto_usuario)
         
         etiqueta_consulta = traducciones.get("09_ayuda_etiqueta_consulta", "Tu consulta")
         txt_cierre = traducciones.get("09_ayuda_cierre_h", "\n\n💡 *Para realizar otra consulta, volvé a enviar el comando /h o /soporte.*")
         
         respuesta_limpia = f"🗣️ *{etiqueta_consulta}:* _{consulta_texto}_\n\n" + respuesta_ia.replace("**", "*") + txt_cierre
 
-        # Enviamos el texto editado
         try:
             await msg_espera.edit_text(respuesta_limpia, parse_mode="Markdown")
         except Exception:
             await msg_espera.edit_text(respuesta_limpia.replace("*", "").replace("_", ""))
 
-        # 3. Generamos y enviamos el audio con la respuesta limpia de la IA
         try:
-            # Procesamos el audio de la IA en un hilo secundario para no frenar el bot
             audio_buffer = await asyncio.to_thread(generar_audio_memoria, respuesta_ia, lang)
             await context.bot.send_voice(chat_id=user_id, voice=audio_buffer)
         except Exception as e_audio:
@@ -197,7 +294,7 @@ async def procesar_audio_ayuda(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Error procesando consulta en /ayuda: {e}")
         msg_error_procesar = traducciones.get("09_ayuda_error_procesar_audio", "❌ Ocurrió un error al procesar tu consulta de ayuda.")
         await msg_espera.edit_text(msg_error_procesar)
-
+        
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Muestra la guía estática y el botón de descarga del manual en PDF, unificando /start y /ayuda."""
     user = update.effective_user
