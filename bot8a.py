@@ -2910,10 +2910,18 @@ def requiere_registro(func):
             'pending_items'
         ]
         
-        tenia_algo_pendiente = any(key in context.user_data for key in estados_pendientes)
-        
+        tenia_algo_pendiente = any(key in context.user_data for key in estados_pendientes)         
+
         # Si pasaron más de 120 segundos y tenía algo a medias
         if tenia_algo_pendiente and (tiempo_actual - ultimo_acceso > 120):
+            
+            # --- PARA BORRAR LOS BOTONES ZOMBIES ---
+            msg_zombie = context.user_data.get('last_menu_msg_id') or context.user_data.get('msg_solicitud_edit_id') or context.user_data.get('msg_solicitud_perfil_id')
+            if msg_zombie and update.effective_chat:
+                try: await context.bot.edit_message_reply_markup(chat_id=update.effective_chat.id, message_id=msg_zombie, reply_markup=None)
+                except Exception: pass
+            # ---------------------------------------------------
+
             # Limpiamos todo
             for key in estados_pendientes:
                 context.user_data.pop(key, None)

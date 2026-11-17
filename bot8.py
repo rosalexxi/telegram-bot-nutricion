@@ -1395,8 +1395,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "awaiting_edit_perfil_peso", "awaiting_edit_perfil_altura",
         "awaiting_edit_perfil_cintura", "awaiting_edit_perfil_cuello",
         "awaiting_edit_perfil_cadera", "awaiting_edit_perfil_nombre",
-        "awaiting_edit_perfil_prof"
-    ]
+        "awaiting_edit_perfil_prof", "awaiting_edit_perfil_ritmo",
+        "awaiting_edit_perfil_idioma", "awaiting_edit_perfil_edad",
+        "awaiting_edit_perfil_sexo", "awaiting_edit_perfil_actividad"
+    ]		
+
     if any(context.user_data.get(st) for st in estados_perfil):
         await _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
         return
@@ -4446,12 +4449,10 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
             perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
             fecha_act = str(perfil.get('Fecha_Actualizacion', '')).strip() if perfil else ''
             
+            
             if fecha_act and fecha_act != 'S/D':
-                msg_bloqueo = traducciones.get(
-                    '09_perfil_biometria_bloqueada', 
-                    "⏳ Los datos biométricos ya están calibrados para este ciclo. Podrás actualizarlos a partir del día 25."
-                )
-                await query.answer(msg_bloqueo, show_alert=True)
+                msg_bloqueo = traducciones.get('09_perfil_biometria_bloqueada', "⏳ Los datos biométricos ya están calibrados para este ciclo. Podrás actualizarlos a partir del día 25.")
+                await query.message.reply_text(msg_bloqueo, parse_mode="Markdown")
                 return
 
         # Si pasa el candado, vemos qué botón específico tocó para pedirle el dato
