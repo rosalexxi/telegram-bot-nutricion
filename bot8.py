@@ -1,6 +1,6 @@
 
 #===============================================================================================================
-#           VERIFICAR ERRORES ANTES DE SUBIR   python3 -m py_compile bot8a.py administrador.py profesionales.py bot8.py
+#           VERIFICAR ERRORES ANTES DE SUBIR   python3 -m py_compile bot8a.py administrador.py profesionales.py bot8.py ayuda.py web.py
 # REEMPLAZAR DESDE COMANDOS  sed -i "s/or '\$1'/or 'es'/g" bot8.py bot8a.py   sed -i "s/STRING_A_REEMPLAZAR/STRING_REEMPLAZO/g" ARCHIVO1 ARCHIVO2
 #===============================================================================================================
 
@@ -26,11 +26,13 @@ import uuid
 import time
 
 from datetime import time as dt_time
+
 from administrador import (
     cmd_desarmar_excel,
     cmd_armar_excel,
     cmd_subir,
-    cmd_descargar
+    cmd_descargar,
+    cmd_bloquear_usuario
 )
 
 from ayuda import (
@@ -392,45 +394,72 @@ async def cmd_cargar_receta(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ========================================================================================================================================
 
 def detectar_y_leer_codigo_barras_ia(base64_image: str) -> str:
+    api_key_groq = os.getenv("GROQ_API_KEY")
+    if not api_key_groq:
+        logger.error("❌ GROQ_API_KEY no configurada para leer código de barras.")
+        return ""
+
     prompt = (
-        "Analiza esta imagen de un producto comercial. Busca el código de barras"
-        " y lee atentamente los números impresos debajo. Responde ÚNICAMENTE en"
-        ' formato JSON:\n{"tiene_numeros": true/false, "codigo_numerico":'
-        ' "escribe_aqui_solo_los_numeros_o_vacio"}'
+        "Analiza esta imagen de un producto comercial. Busca el código de barras "
+        "y lee atentamente los números impresos debajo. Responde ÚNICAMENTE en "
+        'formato JSON:\n{"tiene_numeros": true, "codigo_numerico": '
+        '"escribe_aqui_solo_los_numeros_o_vacio"}'
     )
 
-    imagen_data = {"mime_type": "image/jpeg", "data": base64.b64decode(base64_image)}
-    configuracion_gen = {"response_mime_type": "application/json", "temperature": 0.0}
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key_groq}"
+    }
 
-    try:
-        model = genai.GenerativeModel(MODELO_FOTO)
-        response = model.generate_content([prompt, imagen_data], generation_config=configuracion_gen)
-        texto_limpio = response.text.replace("```json", "").replace("```", "").strip()
-        resultado = json.loads(texto_limpio)
-        if resultado.get("tiene_numeros"): return str(resultado.get("codigo_numerico", "")).strip()
-        return ""
-    except Exception as e_prin:
-        logger.warning(f"⚠️ Falla Principal Código Barras ({MODELO_FOTO}): {e_prin}")
+    # Modelos de Groq con capacidad de Visión (leen imágenes)
+    modelos_groq = [
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "meta-llama/llama-4-maverick-17b-128e-instruct",
+        "llama-3.2-11b-vision-preview"
+    ]
 
-    try:
-        model_respaldo = genai.GenerativeModel(MODELO_RESPALDO)
-        response_respaldo = model_respaldo.generate_content([prompt, imagen_data], generation_config=configuracion_gen)
-        texto_limpio = response_respaldo.text.replace("```json", "").replace("```", "").strip()
-        resultado = json.loads(texto_limpio)
-        if resultado.get("tiene_numeros"): return str(resultado.get("codigo_numerico", "")).strip()
-    except Exception as e_respaldo:
-        logger.warning(f"⚠️ Falla Respaldo Código Barras ({MODELO_RESPALDO}): {e_respaldo}")
+    for modelo in modelos_groq:
+        payload = {
+            "model": modelo,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                        }
+                    ]
+                }
+            ],
+            "temperature": 0.0,
+            "response_format": {"type": "json_object"}
+        }
 
-    try:
-        model_emerg = genai.GenerativeModel(MODELO_FOTO_EMERGENCIA)
-        response_emerg = model_emerg.generate_content([prompt, imagen_data], generation_config=configuracion_gen)
-        texto_limpio = response_emerg.text.replace("```json", "").replace("```", "").strip()
-        resultado = json.loads(texto_limpio)
-        if resultado.get("tiene_numeros"): return str(resultado.get("codigo_numerico", "")).strip()
-    except Exception as e_emergencia:
-        logger.error(f"❌ Error crítico en código de barras. Fallaron todos: {e_emergencia}")
-
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=10)
+            if response.status_code == 200:
+                res_json = response.json()
+                texto_limpio = res_json["choices"][0]["message"]["content"].strip()
+                texto_limpio = texto_limpio.replace("```json", "").replace("```", "").strip()
+                resultado = json.loads(texto_limpio)
+                if resultado.get("tiene_numeros"):
+                    codigo = re.sub(r'\D', '', str(resultado.get("codigo_numerico", "")))
+                    return codigo
+                return ""
+            else:
+                logger.warning(f"⚠️ Falla Groq Código Barras ({modelo}): {response.text}")
+                notificar_fallo_modelo_admin("Groq", modelo, "Código de Barras", f"HTTP {response.status_code}: {response.text}")
+        except Exception as e:
+            logger.warning(f"⚠️ Excepción en Groq Código Barras ({modelo}): {e}")
+            notificar_fallo_modelo_admin("Groq", modelo, "Código de Barras", str(e))
+        
+    logger.error("❌ Error crítico en código de barras. Fallaron todos los modelos de Groq.")
     return ""
+    
+
   
 async def procesar_codigo_ingresado(message_obj, context, barcode_text: str):
     user_id = message_obj.from_user.id
@@ -1322,9 +1351,6 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
             logger.error(f"Error recalculando métricas en vivo para {user_id}: {e}")
             await update.message.reply_text(mensaje_exito.replace('\\n', '\n'), parse_mode="Markdown")
             
-            
-
-        
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, chat_id = update.effective_user.id, update.effective_chat.id
@@ -1436,6 +1462,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data = await analizar_con_ia(raw_text, user_id, msg_obj=msg)
         tipo = str(data.get("tipo", "")).strip().upper()
 
+        if tipo == "LIMITE":
+            return
+
         if tipo == "ERROR_IA":
             msg_err_ia = traducciones.get("07_bot_error_ia_texto", "⚠️ No se pudo conectar con la Inteligencia Artificial. Por favor, reintentá en unos segundos.")
             await msg.edit_text(msg_err_ia)
@@ -1446,7 +1475,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception: pass
             return
 
-        # Seguro idéntico para texto: si es actividad y la IA devolvió una sola palabra, corregimos el formato con los minutos adelante
         if tipo == "ACTIVIDAD" and data.get("items"):
             for item in data["items"]:
                 alim = str(item.get("alimento", "")).strip()
@@ -1475,7 +1503,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = obtener_idioma_usuario(user_id) or "es"
     traducciones = obtener_traducciones_db(lang) or {}
 
-    # NUEVO: Capturamos el texto que escribís al pie de la foto
     caption = update.message.caption.strip() if update.message.caption else ""
 
     txt_analizando_img = traducciones.get("07_bot_analizando_imagen", "📸 Analizando imagen...")
@@ -1492,15 +1519,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             retval, points = detector.detect(img)
             if retval: tiene_codigo_local = True
 
-        # COMPRESIÓN OPTIMIZADA PARA IA (Mantiene nitidez en textos y pantallas)
         if img is not None:
             h, w = img.shape[:2]
-            max_dim = 1280  # Límite superior de seguridad (Telegram suele mandar como mucho 1280px)
+            max_dim = 1280
             if max(h, w) > max_dim:
                 scale = max_dim / float(max(h, w))
                 img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
             
-            # Calidad 90 evita artefactos de compresión alrededor de las letras
             success, encoded_img = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
             photo_bytes_comprimidos = encoded_img.tobytes() if success else photo_bytes_originales
         else:
@@ -1509,6 +1534,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         base64_image = base64.b64encode(photo_bytes_comprimidos).decode("utf-8")
 
         if tiene_codigo_local:
+            permitido, msg_limite = verificar_limite_diario_ia(user_id, tipo="foto")
+            if not permitido:
+                try: await msg.edit_text(msg_limite, parse_mode="Markdown")
+                except Exception: pass
+                return
+
             try: await msg.edit_text(traducciones.get("07_bot_barra_detectada", "🔍 Código de barras detectado. Leyendo números..."))
             except Exception: pass
             
@@ -1522,16 +1553,16 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception: pass
                 return
         
-        # 1. ARRANCAMOS EL MOTOR DE ANIMACIÓN EN PARALELO
         tarea_animacion = asyncio.create_task(animar_carga(msg, traducciones))
         try:
-            # NUEVO: Le pasamos el caption a la IA
             data = await analizar_imagen_con_ia(base64_image, user_id, msg_obj=msg, caption=caption)
         finally:
-            # 3. APENAS TERMINA LA IA, APAGAMOS LA ANIMACIÓN SÍ O SÍ
             tarea_animacion.cancel()
             
         tipo = str(data.get("tipo", "")).strip().upper()
+
+        if tipo == "LIMITE":
+            return
 
         if tipo == "ERROR_IA":
             await msg.edit_text(traducciones.get('07_bot_error_imagen_fallida', "⚠️ No se pudo conectar con la Inteligencia Artificial. Reintentá en unos segundos."), parse_mode="Markdown")
@@ -1560,6 +1591,11 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if context.user_data.pop("esperando_consulta_ayuda", False):
         return await procesar_audio_ayuda(update, context)
+
+    permitido, msg_limite = verificar_limite_diario_ia(user_id, tipo="texto")
+    if not permitido:
+        await update.message.reply_text(msg_limite, parse_mode="Markdown")
+        return
 
     txt_escuchando = traducciones.get("07_bot_escuchando_audio", "🎙️ Escuchando y procesando audio...")
     msg = await update.message.reply_text(txt_escuchando)
@@ -1664,18 +1700,15 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.edit_text(msg_rechazado)
             return
 
-        # Seguro para garantizar formato: "XX min detalle completo" en Actividades
         if tipo == "ACTIVIDAD" and data.get("items"):
             for item in data["items"]:
                 alim = str(item.get("alimento", "")).strip()
-                # Si la IA no empezó con un número o resumió a 1 o 2 palabras, lo armamos desde la transcripción
                 if not re.match(r'^\d+', alim) or len(alim.split()) <= 2:
                     m_min = re.search(r'(\d+)\s*(?:minutos|minuto|min|m\b|horas|hora|hs|h\b)', transcription, re.IGNORECASE)
                     if m_min:
                         num_val = int(m_min.group(1))
                         if 'hora' in m_min.group(0).lower() or 'h' in m_min.group(0).lower():
                             num_val *= 60
-                        # Quitamos la frase del tiempo del medio para pasarla adelante limpia
                         resto = (transcription[:m_min.start()] + transcription[m_min.end():]).strip()
                         resto = re.sub(r'\b(de|por|durante)\s*$', '', transcription[:m_min.start()], flags=re.IGNORECASE).strip() + " " + re.sub(r'^\s*(de|por|durante)\b', '', transcription[m_min.end():], flags=re.IGNORECASE).strip()
                         resto = re.sub(r'\s+', ' ', resto).strip()
@@ -4497,70 +4530,6 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
 #                       INICIO                        COMANDOS BIOMETRICOS                           INICIO
 # ======================================================================================================================================
 
-@requiere_registro
-async def cmd_peso_rapido(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = obtener_idioma_usuario(user_id) or 'es'
-    traducciones = obtener_traducciones_db(lang) or {}
-
-    texto_mensaje = update.message.text.strip() if update.message and update.message.text else ""
-    raw_text = ""
-    for cmd in ['/peso', '/weight']:
-        if texto_mensaje.lower().startswith(cmd):
-            raw_text = texto_mensaje[len(cmd):].strip()
-            break
-
-    ahora = obtener_ahora_arg()
-    mes_actual = ahora.strftime("%Y-%m")
-
-    if '_garantizar_fila_mes_actual' in globals():
-        _garantizar_fila_mes_actual(user_id, ahora)
-
-    if not raw_text:
-        perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual) or {}
-        peso_base = parse_raw_val(perfil.get('PESO', perfil.get('Peso', 0))) if perfil else 0
-        ultimo_informado = parse_raw_val(perfil.get('peso_actual', 0)) if perfil else 0
-        
-        if peso_base > 0:
-            txt_peso_base = traducciones.get('09_peso_base_reg', "⚖️ **Peso base registrado ({mes}):** `{peso:.1f} kg`").format(mes=mes_actual, peso=peso_base)
-            txt_actual = f"{txt_peso_base}\n"
-            if ultimo_informado > 0 and ultimo_informado != peso_base:
-                txt_ult_inf = traducciones.get('09_peso_ult_inf', "📊 **Último peso informado en el mes:** `{peso:.1f} kg`").format(peso=ultimo_informado)
-                txt_actual += f"{txt_ult_inf}\n"
-            
-            dia_actual = ahora.day
-            if dia_actual <= 14:
-                txt_prox = traducciones.get('09_peso_prox_quincena', "\n⏳ *Tu próximo control de peso se habilitará a partir del día 15.*")
-                txt_actual += txt_prox
-            elif 15 <= dia_actual <= 25:
-                txt_ing_quinc = traducciones.get('09_peso_ingreso_quincenal', "\nPara ingresar tu control quincenal y calibrar tu factor, escribí:\n`/peso [nuevo_peso]` (ejemplo: `/peso 96`)")
-                txt_actual += txt_ing_quinc
-            else:
-                txt_ing_cierre = traducciones.get('09_peso_ingreso_cierre', "\nPara ingresar tu peso de cierre de mes, escribí:\n`/peso [nuevo_peso]` (ejemplo: `/peso 96`)")
-                txt_actual += txt_ing_cierre
-        else:
-            txt_actual = traducciones.get('09_peso_no_registrado', "⚠️ No tenés un peso registrado para este mes.\n\nPara registrarlo, escribí:\n`/peso [tu_peso]` (ejemplo: `/peso 100`)")
-        
-        await update.message.reply_text(txt_actual.replace('\\n', '\n'), parse_mode="Markdown")
-        return
-
-    try:
-        texto_limpio = raw_text.split()[0].replace(',', '.')
-        nuevo_peso = float(texto_limpio)
-        
-        if not (30 <= nuevo_peso <= 300):
-            raise ValueError()
-
-        res_cal = guardar_perfil_db(user_id, peso=nuevo_peso, mes=mes_actual)
-        await update.message.reply_text(res_cal["mensaje"], parse_mode="Markdown")
-
-    except ValueError:
-        txt_err = traducciones.get('09_peso_error_valido', "⚠️ Por favor, ingresá un peso válido en kg entre 30 y 300 (ejemplo: `/peso 82.5`).")
-        await update.message.reply_text(txt_err, parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"Error en cmd_peso_rapido para {user_id}: {e}")
-        txt_err_guardar = traducciones.get('09_peso_error_guardar', "❌ Error al guardar el peso: {e}").format(e=e)
-        await update.message.reply_text(txt_err_guardar)
                                       
 async def mostrar_resumen_presion_mes(query_or_update, user_id, mes_str):
     lang = obtener_idioma_usuario(user_id) or 'es'
@@ -5115,7 +5084,6 @@ def main():
         app_bot.add_handler(CommandHandler(["get", "GET", "factor"], cmd_factor_handler))
         app_bot.add_handler(CommandHandler(["eliminar", "delete", "del"], cmd_eliminar))
         app_bot.add_handler(CommandHandler(["borracomida", "delmeal"], cmd_borrar_comida))
-        app_bot.add_handler(CommandHandler(["peso", "weight"], cmd_peso_rapido))        
         app_bot.add_handler(CommandHandler(["presion", "presi", "p", "pressure"], cmd_presion_handler))  
         app_bot.add_handler(CommandHandler(["semana", "s", "w", "week"], cmd_mensaje))
         app_bot.add_handler(CommandHandler(["barra", "barcode"], cmd_barra))
@@ -5125,6 +5093,7 @@ def main():
         app_bot.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
 
         # =================================ADMINISTRADOR============================================
+        app_bot.add_handler(CommandHandler(["bloquear", "desbloquear"], cmd_bloquear_usuario))
         app_bot.add_handler(CommandHandler("cobrar", cmd_forzar_cobro))
         app_bot.add_handler(CommandHandler(["descargar","bajar"], cmd_descargar))
         app_bot.add_handler(CommandHandler(["cargar","subir"], cmd_subir))

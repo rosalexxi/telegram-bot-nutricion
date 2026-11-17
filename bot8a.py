@@ -1474,6 +1474,139 @@ def es_administrador(user_id) -> bool:
         return False
     return str(user_id).strip() == str(ADMIN_USER_ID).strip()
 
+# --- INICIO CONTROL DE LÍMITE DIARIO DE IA Y AVISO AL ADMIN ---
+_CONTADOR_DIARIO_IA = {}
+
+def notificar_abuso_admin(user_id, motivo: str):
+    """Envía una alerta silenciosa al Telegram del Administrador cuando un usuario supera un límite."""
+    if not ADMIN_USER_ID or not TELEGRAM_TOKEN:
+        return
+    try:
+        uid = str(user_id).strip()
+        # Intentamos obtener el nombre para que el aviso sea más claro
+        nombre_usr = "Desconocido"
+        try:
+            conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+            cur.execute('SELECT "Nombre" FROM "Usuarios" WHERE "User ID" = %s', (uid,))
+            fila = cur.fetchone()
+            cur.close()
+            conn.close()
+            if fila and fila[0]:
+                nombre_usr = str(fila[0]).strip()
+        except Exception:
+            pass
+
+        ahora_str = obtener_ahora_arg().strftime("%Y-%m-%d %H:%M")
+        texto_alerta = (
+            f"🚨 *ALERTA DE LÍMITE / ABUSO*\n\n"
+            f"• 👤 *Usuario:* {nombre_usr}\n"
+            f"• 🆔 *ID:* `{uid}`\n"
+            f"• ⚠️ *Motivo:* {motivo}\n"
+            f"• 🕒 *Hora:* `{ahora_str}`\n\n"
+            f"💡 _Si es reincidente, podés suspenderlo enviando:_\n"
+            f"`/bloquear {uid}`"
+        )
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        requests.post(
+            url, 
+            json={"chat_id": ADMIN_USER_ID, "text": texto_alerta, "parse_mode": "Markdown"}, 
+            timeout=4
+        )
+    except Exception as e:
+        logger.error(f"Error enviando alerta de abuso al admin: {e}")
+
+# Memoria para no repetir la alerta del mismo modelo caído en el mismo día
+_ALERTAS_MODELOS_HOY = set()
+
+def notificar_fallo_modelo_admin(proveedor: str, modelo_fallido: str, modulo: str, detalle_error: str = ""):
+    """Envía una alerta al Administrador (1 vez al día por modelo) cuando una IA se queda sin tokens o falla."""
+    if not ADMIN_USER_ID or not TELEGRAM_TOKEN:
+        return
+    try:
+        hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
+        clave_alerta = f"{hoy_str}_{proveedor}_{modelo_fallido}_{modulo}"
+        
+        # Si ya te avisó hoy de este modelo en este módulo, no te vuelve a spamear
+        if clave_alerta in _ALERTAS_MODELOS_HOY:
+            return
+        _ALERTAS_MODELOS_HOY.add(clave_alerta)
+
+        ahora_str = obtener_ahora_arg().strftime("%Y-%m-%d %H:%M")
+        detalle_corto = str(detalle_error)[:180].replace("`", "'").replace("*", "")
+        
+        texto_alerta = (
+            f"⚠️ *AVISO DE MOTOR IA (CAMBIO A RESPALDO)*\n\n"
+            f"• 🛠️ *Módulo:* {modulo}\n"
+            f"• 🏢 *Proveedor:* {proveedor}\n"
+            f"• 🤖 *Modelo agotado/fallido:* `{modelo_fallido}`\n"
+            f"• 🔄 *Acción:* Saltando automáticamente al siguiente modelo de respaldo.\n"
+            f"• 🕒 *Hora:* `{ahora_str}`\n"
+            f"• 📋 *Detalle:* `{detalle_corto}`"
+        )
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        requests.post(
+            url, 
+            json={"chat_id": ADMIN_USER_ID, "text": texto_alerta, "parse_mode": "Markdown"}, 
+            timeout=4
+        )
+    except Exception as e:
+        logger.error(f"Error enviando alerta de fallo de modelo al admin: {e}")
+        
+def verificar_limite_diario_ia(user_id, tipo="texto") -> tuple[bool, str]:
+    """
+    Permite hasta 20 consultas de texto/audio y 10 fotos por día por usuario.
+    Si se bloquea, envía un único aviso diario al Administrador.
+    """
+    if not user_id:
+        return True, ""
+
+    uid = str(user_id).strip()
+    hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
+
+    datos_usr = _CONTADOR_DIARIO_IA.get(uid)
+    if not datos_usr or datos_usr.get("fecha") != hoy_str:
+        datos_usr = {
+            "fecha": hoy_str, 
+            "texto": 0, 
+            "foto": 0, 
+            "notificado_texto": False, 
+            "notificado_foto": False
+        }
+
+    lang = obtener_idioma_usuario(uid) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    if tipo == "foto":
+        if datos_usr["foto"] >= 10:
+            if not datos_usr.get("notificado_foto"):
+                datos_usr["notificado_foto"] = True
+                _CONTADOR_DIARIO_IA[uid] = datos_usr
+                notificar_abuso_admin(uid, "Alcanzó el límite diario de FOTOS (10/10)")
+            msg = traducciones.get(
+                "06_bot_limite_fotos_diario",
+                "⛔ **Límite diario de imágenes alcanzado (10/10).**\n\n"
+                "Podés seguir registrando tus ingestas por texto, con comidas precargadas (`*CODIGO`) o volver a enviar fotos mañana."
+            ).replace('\\n', '\n')
+            return False, msg
+        datos_usr["foto"] += 1
+    else:
+        if datos_usr["texto"] >= 20:
+            if not datos_usr.get("notificado_texto"):
+                datos_usr["notificado_texto"] = True
+                _CONTADOR_DIARIO_IA[uid] = datos_usr
+                notificar_abuso_admin(uid, "Alcanzó el límite diario de TEXTO/AUDIO IA (20/20)")
+            msg = traducciones.get(
+                "06_bot_limite_texto_diario",
+                "⛔ **Límite diario de consultas a la IA alcanzado (20/20).**\n\n"
+                "Podés seguir utilizando tus comidas precargadas (`*CODIGO`), los comandos manuales (`/actividad`, `/presi`, `/dia`) o volver a consultar mañana."
+            ).replace('\\n', '\n')
+            return False, msg
+        datos_usr["texto"] += 1
+
+    _CONTADOR_DIARIO_IA[uid] = datos_usr
+    return True, ""
+# --- FIN CONTROL DE LÍMITE DIARIO DE IA Y AVISO AL ADMIN ---
+
 def parse_raw_val(val):
     if val is None or val == "":
         return 0.0
@@ -2933,8 +3066,15 @@ def obtener_nombre_lenguaje_ia(user_id=None):
     except Exception as e:
         logger.error(f"Error obteniendo lenguaje IA para {user_id}: {e}")
     return "Español"
-    
+
 async def analizar_con_ia(prompt_text, user_id=None, msg_obj=None):
+    permitido, msg_limite = verificar_limite_diario_ia(user_id, tipo="texto")
+    if not permitido:
+        if msg_obj:
+            try: await msg_obj.edit_text(msg_limite, parse_mode="Markdown")
+            except Exception: pass
+        return {"tipo": "LIMITE"}
+
     nombre_lenguaje = obtener_idioma_usuario(user_id) or "es"
     traducciones = obtener_traducciones_db(nombre_lenguaje) or {}
     ahora = obtener_ahora_arg()
@@ -2996,6 +3136,13 @@ async def analizar_con_ia(prompt_text, user_id=None, msg_obj=None):
                 return {"items": [], "tipo": "Error_IA"}
 
 async def analizar_imagen_con_ia(base64_image: str, user_id=None, msg_obj=None, caption=""):
+    permitido, msg_limite = verificar_limite_diario_ia(user_id, tipo="foto")
+    if not permitido:
+        if msg_obj:
+            try: await msg_obj.edit_text(msg_limite, parse_mode="Markdown")
+            except Exception: pass
+        return {"tipo": "LIMITE"}
+
     nombre_lenguaje = obtener_idioma_usuario(user_id) or "es"
     ahora = obtener_ahora_arg()
     fecha_hoy = ahora.strftime("%Y-%m-%d")
@@ -3014,7 +3161,6 @@ async def analizar_imagen_con_ia(base64_image: str, user_id=None, msg_obj=None, 
 
     imagen_data = {"mime_type": "image/jpeg", "data": base64.b64decode(base64_image)}
     
-    # NUEVO: Incorporamos tu texto al prompt si enviaste algo
     if caption:
         prompt_usuario = f"El usuario proporcionó esta descripción o peso exacto: '{caption}'. Usa OBLIGATORIAMENTE estos datos para identificar los alimentos, ajustar tu análisis y distribuir el peso total. Realiza el desglose científico de la imagen."
     else:
@@ -3030,7 +3176,6 @@ async def analizar_imagen_con_ia(base64_image: str, user_id=None, msg_obj=None, 
         
     except Exception as e_prin:
         logger.warning(f"⚠️ Falla Principal Foto ({MODELO_FOTO}): {e_prin}. Pasando a Respaldo...")
-        # Eliminamos el msg_obj.edit_text para que no interrumpa la animación visual del usuario
         
         try:
             model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=system_prompt)
@@ -3040,7 +3185,6 @@ async def analizar_imagen_con_ia(base64_image: str, user_id=None, msg_obj=None, 
             
         except Exception as e_resp:
             logger.warning(f"⚠️ Falla Respaldo Foto ({MODELO_RESPALDO}): {e_resp}. Pasando a Emergencia...")
-            # Eliminamos el msg_obj.edit_text acá también
             
             try:
                 model_emerg = genai.GenerativeModel(MODELO_FOTO_EMERGENCIA, system_instruction=system_prompt)
@@ -3291,6 +3435,7 @@ async def procesar_y_mostrar_confirmacion(data_json, msg_obj, context):
                 calorias_acumuladas = df_dia['Calorias'].sum()
                 
                 if (calorias_acumuladas + magnitud_calorica) > 6000:
+                    notificar_abuso_admin(user_id, f"Superó tope 6.000 kcal ({magnitud_calorica:.0f} kcal a {calorias_acumuladas:.0f} kcal)")
                     txt_spam = traducciones.get(
                         "06_bot_limite_diario_spam",
                         "⛔ **Límite calórico diario excedido**\n\n"

@@ -14,7 +14,8 @@ from bot8a import (
     MODELO_TEXTO, 
     MODELO_RESPALDO, 
     MODELO_EMERGENCIA, 
-    registrar_curioso_preventa_db
+    registrar_curioso_preventa_db,
+    notificar_fallo_modelo_admin
 )
 
 logger = logging.getLogger(__name__)
@@ -133,9 +134,11 @@ def solicitar_ai_rest(consulta, lang='es'):
                     return data['choices'][0]['message']['content']
                 else:
                     logger.warning(f"Fallo en API Groq Ayuda con modelo {modelo}: {response.text}")
+                    notificar_fallo_modelo_admin("Groq", modelo, "Ayuda (/h)", f"HTTP {response.status_code}: {response.text}")
             except Exception as e:
                 logger.warning(f"Error de conexión con Groq ({modelo}): {e}")
-
+                notificar_fallo_modelo_admin("Groq", modelo, "Ayuda (/h)", str(e))
+            
     # 2. RESPALDO AUTOMÁTICO CON GEMINI REST
     if API_KEY_GEMINI:
         return solicitar_ai_rest_Gemini(consulta, system_instruction)

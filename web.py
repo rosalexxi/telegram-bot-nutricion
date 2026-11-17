@@ -7,7 +7,7 @@ import time
 import requests
 
 # Importamos la instancia de Flask y las funciones necesarias del núcleo
-from bot8a import	 (
+from bot8a import (
     app, 
     logger, 
     _asegurar_tabla_y_conectar, 
@@ -15,9 +15,11 @@ from bot8a import	 (
     obtener_idioma_usuario, 
     guardar_comida_precargada_db,
     registrar_evento_web_db,   
+    verificar_limite_diario_ia,
     MODELO_TEXTO, 
     MODELO_RESPALDO, 
-    MODELO_EMERGENCIA
+    MODELO_EMERGENCIA,
+    notificar_fallo_modelo_admin
 )
 
 # =====================================================================================================================================
@@ -1238,6 +1240,10 @@ def api_calcular_receta():
         if not user_id:
             return jsonify({"error": "Sesión expirada o inválida. Generá un nuevo link desde Telegram."}), 403
             
+        permitido, msg_limite = verificar_limite_diario_ia(user_id, tipo="texto")
+        if not permitido:
+            return jsonify({"error": msg_limite.replace("**", "").replace("`", "")}), 429
+
         codigo = data.get("codigo")
         descripcion = data.get("descripcion")
         receta = data.get("receta")
@@ -1246,6 +1252,12 @@ def api_calcular_receta():
         lang = data.get("lang", "es")
         
         traducciones = obtener_traducciones_db(lang) or {}
+
+        api_key_groq = os.getenv("GROQ_API_KEY")
+        if not api_key_groq:
+            logger.error("❌ GROQ_API_KEY no configurada en el servidor para la calculadora web.")
+            err_msg = traducciones.get("02_api_err_ia_fallo", "No se pudo conectar con los servidores de Inteligencia Artificial.")
+            return jsonify({"error": err_msg}), 500
 
         prompt_ia = (
             f"Analiza la siguiente receta o listado de ingredientes: '{receta}'. "
@@ -1258,40 +1270,56 @@ def api_calcular_receta():
             f"- Los carbohidratos en gramos ('carbohidratos')\n"
             f"- Las fibras en gramos ('fibras')\n\n"
             "REGLA MATEMÁTICA: Las calorías deben coincidir con la suma aproximada de (Proteínas*4) + (Carbohidratos*4) + (Grasas*9).\n"
-            "Devuelve ÚNICAMENTE un JSON con esta estructura exacta:\n"
+            "Devuelve ÚNICAMENTE un objeto JSON válido con esta estructura exacta:\n"
             '{"items": [{"alimento": "...", "peso": 0.0, "calorias": 0.0, "proteinas": 0.0, "grasas": 0.0, "carbohidratos": 0.0, "fibras": 0.0}]}'
         )
 
-        instruccion = "Eres un nutricionista clínico experto en análisis de recetas y desglose de macronutrientes."
-        config_gen = {"response_mime_type": "application/json", "temperature": 0.1}
+        instruccion = "Eres un nutricionista clínico experto en análisis de recetas y desglose de macronutrientes. Respondes siempre en formato JSON estricto."
+
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key_groq}"
+        }
+
+        # Los mismos 3 modelos probados en ayuda.py
+        modelos_groq = [
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "gemma2-9b-it"
+        ]
 
         resultado_json = None
 
-        try:
-            model = genai.GenerativeModel(MODELO_TEXTO, system_instruction=instruccion)
-            response = model.generate_content(prompt_ia, generation_config=config_gen)
-            texto_limpio = response.text.replace("```json", "").replace("```", "").strip()
-            resultado_json = json.loads(texto_limpio)
-            
-        except Exception as e_prin:
-            logger.warning(f"⚠️ Falla Principal Web ({MODELO_TEXTO}): {e_prin}. Pasando a Respaldo...")
+        for modelo in modelos_groq:
+            payload = {
+                "model": modelo,
+                "messages": [
+                    {"role": "system", "content": instruccion},
+                    {"role": "user", "content": prompt_ia}
+                ],
+                "temperature": 0.1,
+                "response_format": {"type": "json_object"}
+            }
             try:
-                model_resp = genai.GenerativeModel(MODELO_RESPALDO, system_instruction=instruccion)
-                response_resp = model_resp.generate_content(prompt_ia, generation_config=config_gen)
-                texto_limpio = response_resp.text.replace("```json", "").replace("```", "").strip()
-                resultado_json = json.loads(texto_limpio)
-                
-            except Exception as e_resp:
-                logger.warning(f"⚠️ Falla Respaldo Web ({MODELO_RESPALDO}): {e_resp}. Pasando a Emergencia...")
-                try:
-                    model_emer = genai.GenerativeModel(MODELO_EMERGENCIA, system_instruction=instruccion)
-                    response_emer = model_emer.generate_content(prompt_ia, generation_config=config_gen)
-                    texto_limpio = response_emer.text.replace("```json", "").replace("```", "").strip()
-                    resultado_json = json.loads(texto_limpio)                 
-                except Exception as e_emer:
-                    logger.error(f"❌ Fallaron todos los modelos web: {e_emer}")
-                    err_msg = traducciones.get("02_api_err_ia_fallo", "No se pudo conectar con los servidores de Inteligencia Artificial.")
-                    return jsonify({"error": err_msg}), 500
+                response = requests.post(url, headers=headers, json=payload, timeout=15)
+                if response.status_code == 200:
+                    res_data = response.json()
+                    texto_limpio = res_data["choices"][0]["message"]["content"].strip()
+                    texto_limpio = texto_limpio.replace("```json", "").replace("```", "").strip()
+                    resultado_json = json.loads(texto_limpio)
+                    break
+                else:
+                    logger.warning(f"⚠️ Falla Groq Web ({modelo}): {response.text}")
+                    notificar_fallo_modelo_admin("Groq", modelo, "Calculadora Web", f"HTTP {response.status_code}: {response.text}")
+            except Exception as e_groq:
+                logger.warning(f"⚠️ Excepción en Groq Web ({modelo}): {e_groq}")
+                notificar_fallo_modelo_admin("Groq", modelo, "Calculadora Web", str(e_groq))
+            
+        if not resultado_json:
+            logger.error("❌ Fallaron todos los modelos de Groq en la calculadora web.")
+            err_msg = traducciones.get("02_api_err_ia_fallo", "No se pudo conectar con los servidores de Inteligencia Artificial.")
+            return jsonify({"error": err_msg}), 500
 
         items = resultado_json.get("items", [])
 
@@ -1312,7 +1340,7 @@ def api_calcular_receta():
     except Exception as e:
         logger.error(f"Error crítico en api_calcular_receta: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
-            
+        
 @app.route('/api/guardar-comida', methods=['POST'])
 def api_guardar_comida():
     try:

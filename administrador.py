@@ -17,6 +17,42 @@ logger = logging.getLogger(__name__)
 # =============================================================================================================================================
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------
+# COMANDO DE TELEGRAM: /bloquear y /desbloquear (Suspende o rehabilita permanentemente a un usuario abusivo)
+# CÓMO SE USA EN TELEGRAM: /bloquear 123456789   o   /desbloquear 123456789
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+async def cmd_bloquear_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not es_administrador(user_id):
+        return
+
+    if not context.args:
+        await update.message.reply_text("⚠️ Uso: `/bloquear <user_id>` o `/desbloquear <user_id>`", parse_mode="Markdown")
+        return
+
+    target_id = str(context.args[0]).strip()
+    comando = update.message.text.split()[0].lower()
+    nuevo_estado = "0" if "desbloquear" in comando else "suspendido"
+
+    try:
+        conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
+        # Aseguramos que la columna Estado soporte texto o números
+        cur.execute('ALTER TABLE "Usuarios" ALTER COLUMN "Estado" TYPE TEXT;')
+        cur.execute('UPDATE "Usuarios" SET "Estado" = %s WHERE "User ID" = %s', (nuevo_estado, target_id))
+        afectados = cur.rowcount
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        if afectados > 0:
+            accion = "rehabilitado (Estado = 0)" if nuevo_estado == "0" else "SUSPENDIDO permanentemente"
+            await update.message.reply_text(f"✅ El usuario `{target_id}` fue **{accion}**.", parse_mode="Markdown")
+        else:
+            await update.message.reply_text(f"⚠️ No se encontró ningún usuario con el ID `{target_id}` en la tabla Usuarios.", parse_mode="Markdown")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error al cambiar estado del usuario: `{e}`", parse_mode="Markdown")
+        
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------
 # COMANDO DE TELEGRAM: /desarmar (PASO 1 para traducir el Excel afuera sin romper variables)
 # CÓMO SE USA EN TELEGRAM: /desarmar
 # ¿QUÉ HACE?:
