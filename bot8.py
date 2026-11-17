@@ -27,12 +27,25 @@ import time
 
 from datetime import time as dt_time
 
-from administrador import (
-    cmd_desarmar_excel,
-    cmd_armar_excel,
-    cmd_subir,
-    cmd_descargar,
-    cmd_bloquear_usuario
+from profesionales import (
+    cmd_pacientes,
+    cmd_enviar_informe_actual,
+    cmd_enviar_nota_paciente,
+    cmd_editar_valores_clinicos,
+    cmd_generar_manual_pdf,
+    callback_editar_valor_clinico_menu,
+    callback_gestion_solicitud_medico,
+    callback_seleccionar_paciente_clinico,
+    callback_enviar_informe_paciente,
+    callback_acciones_informe,
+    callback_seleccionar_paciente_nota,
+    procesar_cambio_valor_clinico,
+    procesar_texto_nota_informe,
+    procesar_texto_nota_medica,
+    cmd_anuncio_general,      
+    cmd_alertas_clinicas,     
+    cmd_epicrisis_inicio,     
+    callback_generar_epicrisis
 )
 
 from ayuda import (
@@ -413,10 +426,11 @@ def detectar_y_leer_codigo_barras_ia(base64_image: str) -> str:
     }
 
     # Modelos de Groq con capacidad de Visión (leen imágenes)
+
     modelos_groq = [
-        "Qwen 3.8 27B",
-        "GPT-OSS 20B",
-        "GPT-OSS 120B"
+        "qwen/qwen3.8-27b",
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b"
     ]
 
     for modelo in modelos_groq:
@@ -1308,6 +1322,47 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
             logger.error(f"Error guardando profesional para {user_id}: {e}")
             await update.message.reply_text(f"❌ Error al actualizar el profesional: {e}")
 
+    elif context.user_data.get('awaiting_edit_perfil_ritmo'):
+        context.user_data['awaiting_edit_perfil_ritmo'] = False
+        nuevo_val = str(raw_text).strip().lower()
+        
+        # Mapeamos los números a texto
+        mapa_ritmo = {"1": "tranquilo", "2": "moderado", "3": "intenso"}
+        ritmo_final = mapa_ritmo.get(nuevo_val, nuevo_val)
+        
+        if ritmo_final not in ["tranquilo", "moderado", "intenso"]:
+            msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido. Ingresá 1, 2 o 3.")
+            await update.message.reply_text(msg_err)
+            return
+
+        try:
+            await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"ritmo_preferido": ritmo_final})
+            tpl_ok = traducciones.get("07_bot_ritmo_actualizado", "✅ Ritmo actualizado a `{nuevo_val}`.")
+            mensaje_exito = fmt_seguro(tpl_ok, nuevo_val=ritmo_final.capitalize())
+            # Forzamos recálculo de etapa
+            cambio_biometrico = True
+        except Exception as e:
+            logger.error(f"Error guardando ritmo para {user_id}: {e}")
+            await update.message.reply_text(f"❌ Error al actualizar el ritmo: {e}")
+
+    elif context.user_data.get('awaiting_edit_perfil_idioma'):
+        context.user_data['awaiting_edit_perfil_idioma'] = False
+        nuevo_val = str(raw_text).strip().upper()
+        
+        if len(nuevo_val) != 2:
+            msg_err = traducciones.get("07_bot_valor_invalido", "❌ Valor inválido. Ingresá el código de 2 letras (ej: ES, EN).")
+            await update.message.reply_text(msg_err)
+            return
+
+        try:
+            await asyncio.to_thread(_core_guardar_usuario_db, user_id, {"Idioma": nuevo_val.lower()})
+            tpl_ok = traducciones.get("07_bot_idioma_actualizado", "✅ Idioma actualizado a `{nuevo_val}`.")
+            msg_ok = fmt_seguro(tpl_ok, nuevo_val=nuevo_val)
+            await update.message.reply_text(msg_ok, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Error guardando idioma para {user_id}: {e}")
+            await update.message.reply_text(f"❌ Error al actualizar el idioma: {e}")
+
     # --- RECÁLCULO DINÁMICO INMEDIATO ---
     if cambio_biometrico and mensaje_exito:
         try:
@@ -1497,8 +1552,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         msg_err_proc = traducciones.get("07_bot_error_procesar_texto", "❌ Error al procesar el texto: {e}")
         try: await msg.edit_text(msg_err_proc.format(e=e))
-        except Exception: pass
-     
+        except Exception: pass             
 
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4430,9 +4484,9 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
     user_id = str(query.from_user.id)
     data = query.data
     
-    # Recuperamos las traducciones del usuario (ajustá esto a tu función real si se llama distinto)
-    idioma = obtener_idioma_usuario(user_id) if 'obtener_idioma_usuario' in globals() else 'es'
-    traducciones = obtener_traducciones_db(idioma) if 'obtener_traducciones' in globals() else {}
+    # Recuperamos las traducciones del usuario con la función correcta
+    idioma = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(idioma) or {}
 
     # 1. Agrupamos TODOS los botones biométricos para aplicarles el mismo candado
     botones_biometricos = [
@@ -4448,7 +4502,6 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
             mes_actual = ahora.strftime("%Y-%m")
             perfil = obtener_perfil_usuario(user_id, mes_target=mes_actual)
             fecha_act = str(perfil.get('Fecha_Actualizacion', '')).strip() if perfil else ''
-            
             
             if fecha_act and fecha_act != 'S/D':
                 msg_bloqueo = traducciones.get('09_perfil_biometria_bloqueada', "⏳ Los datos biométricos ya están calibrados para este ciclo. Podrás actualizarlos a partir del día 25.")
@@ -4512,13 +4565,24 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
         msg = await query.message.reply_text(traducciones.get('09_solic_ritmo', "⏱ Por favor, ingresá el ritmo deseado (1: Tranquilo, 2: Moderado, 3: Intenso):"), parse_mode="Markdown")
         context.user_data['msg_solicitud_perfil_id'] = msg.message_id
         
+    elif data == "edit_perfil_idioma":
+        context.user_data['awaiting_edit_perfil_idioma'] = True 
+        msg = await query.message.reply_text(traducciones.get('09_solic_idioma', "🌐 Por favor, ingresá el código de 2 letras de tu idioma (ej: ES, EN, IT):"), parse_mode="Markdown")
+        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+        
+    elif data == "edit_perfil_prof":
+        context.user_data['awaiting_edit_perfil_prof'] = True
+        msg = await query.message.reply_text(traducciones.get('09_solic_profesional', "🩺 Por favor, ingresá el ID de tu profesional (o 123456789 si no tenés):"), parse_mode="Markdown")
+        context.user_data['msg_solicitud_perfil_id'] = msg.message_id
+        
     elif data == "perfil_volver":
         # Limpiamos estados pendientes si el usuario se arrepiente y decide volver atrás
         teclas_pendientes = [
             'awaiting_edit_perfil_peso', 'awaiting_edit_perfil_altura', 'awaiting_edit_perfil_cintura',
             'awaiting_edit_perfil_cuello', 'awaiting_edit_perfil_cadera', 'awaiting_edit_perfil_nombre',
             'awaiting_edit_perfil_edad', 'awaiting_edit_perfil_sexo', 'awaiting_edit_perfil_actividad',
-            'awaiting_edit_perfil_objetivo', 'awaiting_edit_perfil_ritmo', 'msg_solicitud_perfil_id'
+            'awaiting_edit_perfil_objetivo', 'awaiting_edit_perfil_ritmo', 'awaiting_edit_perfil_idioma',
+            'awaiting_edit_perfil_prof', 'msg_solicitud_perfil_id'
         ]
         for key in teclas_pendientes:
             if key in context.user_data:
@@ -4528,6 +4592,7 @@ async def callback_handler_editar_perfil(update: Update, context: ContextTypes.D
         if 'cmd_perfil' in globals():
             await cmd_perfil(update, context)
             
+                        
 #                       INICIO                        COMANDOS BIOMETRICOS                           INICIO
 # ======================================================================================================================================
 
@@ -5064,7 +5129,11 @@ def main():
         app_bot.add_handler(CommandHandler(["nota"], cmd_enviar_nota_paciente))
         app_bot.add_handler(CommandHandler(["valores"], cmd_editar_valores_clinicos))
         app_bot.add_handler(CommandHandler(["manual", "documentacion"], cmd_generar_manual_pdf))
-        
+        app_bot.add_handler(CommandHandler(["anuncio"], cmd_anuncio_general))
+        app_bot.add_handler(CommandHandler(["alertas"], cmd_alertas_clinicas))
+        app_bot.add_handler(CommandHandler(["epicrisis", "obrasocial"], cmd_epicrisis_inicio))
+        app_bot.add_handler(CallbackQueryHandler(callback_generar_epicrisis, pattern="^epicsel_"))
+       
         # =================================INGRESOS Y CONSULTAS MANUALES============================================
 
         # El comando tradicional solo muestra la guía

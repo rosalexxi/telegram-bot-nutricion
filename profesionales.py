@@ -30,7 +30,196 @@ from bot8a import (
 )
 
 logger = logging.getLogger(__name__)
+
 # =======================================================================================================================================
+#               INICIO                 NUEVAS FUNCIONES INDEPENDIENTES (ANUNCIO, ALERTAS, EPICRISIS)             INICIO
+# =======================================================================================================================================
+
+async def cmd_anuncio_general(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Comando /anuncio: Envía un mensaje masivo a todos los pacientes activos del profesional.
+    Uso: /anuncio [mensaje]
+    """
+    prof_id = str(update.effective_user.id).strip()
+    especialidad_prof = obtener_especialidad_profesional(prof_id)
+    
+    if not especialidad_prof:
+        await update.message.reply_text("⛔ **Acceso denegado:** Este comando es exclusivo para profesionales registrados.", parse_mode="Markdown")
+        return
+
+    # Extraemos el texto después del comando
+    import re
+    texto_anuncio = re.sub(r'^/(anuncio|notageneral)\s*', '', update.message.text, flags=re.IGNORECASE).strip()
+    
+    if not texto_anuncio:
+        await update.message.reply_text("⚠️ **Uso incorrecto.**\nPara enviar un mensaje a todos tus pacientes, escribí el comando seguido de tu texto.\nEjemplo: `/anuncio El consultorio permanecerá cerrado la próxima semana.`", parse_mode="Markdown")
+        return
+
+    pacientes = obtener_pacientes_por_medico(prof_id)
+    if not pacientes:
+        await update.message.reply_text("📋 No tenés pacientes activos para enviar este anuncio.", parse_mode="Markdown")
+        return
+
+    enviados = 0
+    msg_espera = await update.message.reply_text(f"⏳ **Enviando anuncio masivo a {len(pacientes)} paciente(s)...**", parse_mode="Markdown")
+
+    for pac in pacientes:
+        try:
+            mensaje = f"📢 **Anuncio de tu médico tratante ({especialidad_prof}):**\n\n\"{texto_anuncio}\""
+            await context.bot.send_message(chat_id=int(pac['user_id']), text=mensaje, parse_mode="Markdown")
+            enviados += 1
+        except Exception as e:
+            logger.error(f"Error enviando anuncio a {pac['user_id']}: {e}")
+
+    await msg_espera.edit_text(f"✅ **¡Anuncio enviado correctamente!**\nEntregado a `{enviados}` paciente(s).", parse_mode="Markdown")
+
+async def cmd_alertas_clinicas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Comando /alertas: Analiza en vivo a todos los pacientes y devuelve un panel de texto 
+    con aquellos que presenten desvíos o inactividad.
+    """
+    prof_id = str(update.effective_user.id).strip()
+    especialidad_prof = obtener_especialidad_profesional(prof_id)
+    
+    if not especialidad_prof:
+        await update.message.reply_text("⛔ **Acceso denegado.**", parse_mode="Markdown")
+        return
+
+    msg_espera = await update.message.reply_text("⏳ **Analizando registros clínicos de toda tu cartera de pacientes...**", parse_mode="Markdown")
+    
+    pacientes = obtener_pacientes_por_medico(prof_id)
+    if not pacientes:
+        await msg_espera.edit_text("📋 No tenés pacientes activos asignados en este momento.", parse_mode="Markdown")
+        return
+
+    ahora = obtener_ahora_arg()
+    mes_actual = ahora.strftime("%Y-%m")
+    lista_alertas = []
+
+    for pac in pacientes:
+        uid = pac['user_id']
+        nombre = pac['nombre']
+        alertas_pac = []
+
+        # Analizar mes actual
+        df_u = obtener_datos_usuario(uid)
+        perfil = obtener_perfil_usuario(uid, mes_target=mes_actual) or {}
+        
+        if not df_u.empty and 'Fecha' in df_u.columns:
+            df_m = df_u[df_u['Fecha'].str.slice(0, 7) == mes_actual]
+            if not df_m.empty:
+                m = calcular_metricas_mensuales(df_m, perfil, user_id=uid, mes_str=mes_actual)
+                bal_neto = m.get('prom_bal_neto', 0)
+                c_min = m.get('cal_min', 0)
+                c_max = m.get('cal_max', 0)
+                dias_reg = m.get('dias_registrados', 0)
+                
+                # Reglas de alertas:
+                if bal_neto > c_max:
+                    alertas_pac.append(f"Exceso calórico ({bal_neto} vs máx {c_max} kcal)")
+                elif bal_neto < c_min:
+                    alertas_pac.append(f"Déficit excesivo ({bal_neto} vs mín {c_min} kcal)")
+                
+                if dias_reg < 3 and ahora.day > 10:
+                    alertas_pac.append("Alta inactividad (Faltan registros)")
+            else:
+                if ahora.day > 5:
+                    alertas_pac.append("Inactivo este mes.")
+        else:
+            if ahora.day > 5:
+                alertas_pac.append("Sin registros alimenticios.")
+
+        if alertas_pac:
+            bloque_texto = f"👤 **{nombre}** (ID: `{uid}`)\n" + "\n".join([f"  ⚠️ {a}" for a in alertas_pac])
+            lista_alertas.append(bloque_texto)
+
+    if lista_alertas:
+        texto_final = "🚨 **Panel Rápido de Alertas Clínicas**\n\n" + "\n\n".join(lista_alertas)
+    else:
+        texto_final = "✅ **Panel de Alertas:** ¡Todo en orden! Todos tus pacientes están dentro de los parámetros o no presentan anomalías graves."
+
+    await msg_espera.edit_text(texto_final, parse_mode="Markdown")
+
+async def cmd_epicrisis_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Despliega menú para exportar la epicrisis/informe de obra social."""
+    prof_id = str(update.effective_user.id).strip()
+    if not obtener_especialidad_profesional(prof_id):
+        await update.message.reply_text("⛔ **Acceso denegado.**", parse_mode="Markdown")
+        return
+
+    pacientes = obtener_pacientes_por_medico(prof_id)
+    if not pacientes:
+        await update.message.reply_text("📋 No tenés pacientes.", parse_mode="Markdown")
+        return
+
+    keyboard = []
+    for pac in pacientes:
+        btn_text = f"📄 {pac['nombre']} (ID: {pac['user_id']})"
+        keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"epicsel_{pac['user_id']}")])
+
+    await update.message.reply_text(
+        "🏥 **Exportación de Epicrisis / Obra Social**\n\nSeleccioná el paciente para generar su historia clínica en PDF:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
+async def callback_generar_epicrisis(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Genera el documento formal de evolución en formato Markdown (editable en Word)."""
+    query = update.callback_query
+    await query.answer()
+    
+    if not query.data.startswith("epicsel_"):
+        return
+        
+    uid = query.data.replace("epicsel_", "").strip()
+    prof_id = str(query.from_user.id).strip()
+    especialidad = obtener_especialidad_profesional(prof_id)
+    
+    await query.edit_message_text(f"⏳ **Generando documento oficial (Epicrisis) para el paciente `{uid}`...**", parse_mode="Markdown")
+    
+    try:
+        ahora = obtener_ahora_arg()
+        perfil = obtener_ultimo_perfil_dict(uid)
+        nombre_pac = perfil.get('Nombre', f'Paciente {uid}')
+        edad_pac = perfil.get('Edad', 'S/D')
+        peso_pac = perfil.get('Peso', 'S/D')
+        
+        # Armamos el texto en Markdown puro
+        contenido_md = (
+            f"# RESUMEN DE HISTORIA CLÍNICA / EVOLUCIÓN NUTRICIONAL\n\n"
+            f"---\n\n"
+            f"**Fecha de emisión:** {ahora.strftime('%d/%m/%Y')}\n"
+            f"**Profesional a cargo:** Dr./Lic. (ID Telegram: {prof_id}) - {especialidad}\n\n"
+            f"## DATOS DEL PACIENTE:\n"
+            f"* **Nombre:** {nombre_pac}\n"
+            f"* **Edad:** {edad_pac} años\n"
+            f"* **Peso Actual Registrado:** {peso_pac} kg\n"
+            f"* **ID Sistema:** {uid}\n\n"
+            f"---\n\n"
+            f"Constancia de tratamiento automatizado a través del sistema IA NutriBot. "
+            f"El paciente se encuentra bajo seguimiento y monitoreo de las variables calóricas y de macronutrientes "
+            f"detalladas en el sistema.\n\n"
+            f"---\n\n\n\n"
+            f"____________________________________________________\n"
+            f"**Firma y Sello del Profesional**\n"
+        )
+        
+        # Cargamos el texto en un archivo en memoria
+        buffer = io.BytesIO(contenido_md.encode('utf-8'))
+        buffer.seek(0)
+        
+        await query.message.reply_document(
+            document=buffer,
+            filename=f"Epicrisis_{uid}_{ahora.strftime('%Y%m%d')}.md",
+            caption=f"📄 **Resumen de Historia Clínica (Epicrisis)** generado para el paciente `{uid}`.\n\n_Tip: Este archivo `.md` se puede abrir directamente con Microsoft Word para editar el formato, agregar membrete y firmar._",
+            parse_mode="Markdown"
+        )
+        await query.delete_message()
+    except Exception as e:
+        logger.error(f"Error generando epicrisis en Markdown: {e}")
+        await query.edit_message_text(f"❌ Error al generar el documento: {e}")
+        
+#======================================================================================================================================
 #                    INICIO                      FUNCIONES PROFESIONALES                     
 # =======================================================================================================================================
 
