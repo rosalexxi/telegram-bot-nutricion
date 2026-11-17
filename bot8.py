@@ -27,6 +27,8 @@ import time
 
 from datetime import time as dt_time
 
+from administrador import *
+
 from profesionales import (
     cmd_pacientes,
     cmd_enviar_informe_actual,
@@ -54,23 +56,6 @@ from ayuda import (
     procesar_audio_ayuda,
     callback_descargar_manual_usuario,
     solicitar_ai_rest
-)
-
-from profesionales import (
-    cmd_pacientes,
-    cmd_enviar_informe_actual,
-    cmd_enviar_nota_paciente,
-    cmd_editar_valores_clinicos,
-    cmd_generar_manual_pdf,
-    callback_editar_valor_clinico_menu,
-    callback_gestion_solicitud_medico,
-    callback_seleccionar_paciente_clinico,
-    callback_enviar_informe_paciente,
-    callback_acciones_informe,
-    callback_seleccionar_paciente_nota,
-    procesar_cambio_valor_clinico,
-    procesar_texto_nota_informe,
-    procesar_texto_nota_medica
 )
 
 async def _sub_manejar_fecha_eliminacion(update, context, raw_text, chat_id):
