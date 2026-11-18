@@ -27,34 +27,23 @@ logger = logging.getLogger(__name__)
 API_KEY_GROQ = os.getenv("GROQ_API_KEY")
 API_KEY_GEMINI = os.getenv("GEMINI_API_KEY_AYUDA") or os.getenv("GEMINI_API_KEY")
 
+
 def leer_manual_md(es_profesional: bool = False):
-    """Lee manual.md desde static. Si es profesional, anexa profesional.md en memoria."""
-    ruta_usuario = os.path.join("static", "manual.md")
-    contenido = ""
-    try:
-        with open(ruta_usuario, 'r', encoding='utf-8') as f:
-            contenido = f.read()
-    except Exception as e:
-        logger.error(f"Error al leer el archivo manual.md: {e}")
-        contenido = "El manual de usuario no se encuentra disponible en este momento."
-
+    """Si es profesional lee solo profesional.md; si es usuario lee solo manual.md."""
     if es_profesional:
-        rutas_prof = [os.path.join("static", "profesional.md"), "profesional.md"]
-        ruta_prof_ok = next((r for r in rutas_prof if os.path.exists(r)), None)
-        if ruta_prof_ok:
-            try:
-                with open(ruta_prof_ok, 'r', encoding='utf-8') as f_prof:
-                    contenido_prof = f_prof.read()
-                contenido += (
-                    "\n\n==================================================\n"
-                    "MANUAL EXCLUSIVO PARA PROFESIONALES DE LA SALUD:\n"
-                    "==================================================\n\n"
-                    f"{contenido_prof}"
-                )
-            except Exception as e_prof:
-                logger.error(f"Error al leer profesional.md: {e_prof}")
+        rutas = [os.path.join("static", "profesional.md"), "profesional.md"]
+    else:
+        rutas = [os.path.join("static", "manual.md"), "manual.md"]
 
-    return contenido
+    ruta_ok = next((r for r in rutas if os.path.exists(r)), None)
+    if ruta_ok:
+        try:
+            with open(ruta_ok, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"Error al leer {ruta_ok}: {e}")
+
+    return "El manual no se encuentra disponible en este momento."
 
 
 def generar_audio_memoria(texto: str, lang: str = 'es'):
