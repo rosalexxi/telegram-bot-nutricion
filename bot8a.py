@@ -140,9 +140,7 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
     """, (tabla_nombre,))
     row = cur.fetchone()
 
-    if row:
-        tabla_real = row[0]
-    else:
+    if not row:
         tabla_real = tabla_nombre
 
         if tipo_tabla == "comida":
@@ -166,6 +164,7 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
                     id SERIAL PRIMARY KEY,
                     "EDAD" TEXT,
                     "PESO" DOUBLE PRECISION,
+                    "peso_actual" DOUBLE PRECISION,
                     "ALTURA" DOUBLE PRECISION,
                     "GENERO" TEXT,
                     "ocupacion" DOUBLE PRECISION,
@@ -279,27 +278,6 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
                 );
             """)
         conn.commit()
-
-    if tipo_tabla == "usuarios":
-        try:
-            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "cadera_cm" DOUBLE PRECISION;')
-            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "dias_inactivo" INTEGER DEFAULT 0;')
-            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "plan_preferido" TEXT;')
-            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "plan_activo" TEXT;')
-            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "vencimiento_suscripcion" TEXT;')
-            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "saldo_estrellas" INTEGER DEFAULT 0;')
-            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "profesional_pendiente" TEXT;')
-            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "token_calculadora" TEXT;')
-            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "expiracion_token" DOUBLE PRECISION;')
-            
-            # --- NUEVAS COLUMNAS DE GEOLOCALIZACIÓN ---
-            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "pais" TEXT;')
-            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "ciudad" TEXT;')
-            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "zona_horaria" TEXT;')
-            
-            conn.commit()
-        except Exception:
-            conn.rollback()
 
     return conn, cur
 
