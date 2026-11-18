@@ -141,7 +141,7 @@ async def cmd_alertas_clinicas(update: Update, context: ContextTypes.DEFAULT_TYP
     await msg_espera.edit_text(texto_final, parse_mode="Markdown")
 
 async def cmd_epicrisis_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Despliega menú para exportar la epicrisis/informe de obra social."""
+    """Despliega menú para exportar la epicrisis/informe de obra social en formato editable."""
     prof_id = str(update.effective_user.id).strip()
     if not obtener_especialidad_profesional(prof_id):
         await update.message.reply_text("⛔ **Acceso denegado.**", parse_mode="Markdown")
@@ -149,7 +149,7 @@ async def cmd_epicrisis_inicio(update: Update, context: ContextTypes.DEFAULT_TYP
 
     pacientes = obtener_pacientes_por_medico(prof_id)
     if not pacientes:
-        await update.message.reply_text("📋 No tenés pacientes.", parse_mode="Markdown")
+        await update.message.reply_text("📋 No tenés pacientes activos asignados.", parse_mode="Markdown")
         return
 
     keyboard = []
@@ -158,11 +158,11 @@ async def cmd_epicrisis_inicio(update: Update, context: ContextTypes.DEFAULT_TYP
         keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"epicsel_{pac['user_id']}")])
 
     await update.message.reply_text(
-        "🏥 **Exportación de Epicrisis / Obra Social**\n\nSeleccioná el paciente para generar su historia clínica en PDF:",
+        "🏥 **Exportación de Epicrisis / Obra Social**\n\nSeleccioná el paciente para generar su resumen de historia clínica editable (`.md` compatible con Word):",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
-
+    
 async def callback_generar_epicrisis(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Genera el documento formal de evolución en formato Markdown (editable en Word)."""
     query = update.callback_query
@@ -1085,8 +1085,8 @@ async def procesar_texto_nota_medica(update: Update, context: ContextTypes.DEFAU
 
 async def cmd_generar_manual_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Comando /manual: Muestra por pantalla el resumen de comandos disponibles para el profesional 
-    y adjunta el manual operativo oficial en PDF de 3 páginas.
+    Comando /manual: Muestra el resumen de comandos profesionales en pantalla
+    y envía el archivo profesional.pdf directamente por Telegram.
     """
     prof_id = str(update.effective_user.id).strip()
     
@@ -1095,142 +1095,40 @@ async def cmd_generar_manual_pdf(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text("⛔ **Acceso denegado:** Este comando es exclusivo para profesionales registrados.", parse_mode="Markdown")
         return
 
-    # 1. Enviar el resumen interactivo de comandos disponibles en pantalla
     resumen_comandos = (
         "🩺 **Panel de Control — Guía de Comandos Profesionales**\n\n"
-        "• `/pacientes`: Genera un reporte clínico consolidado en PDF con el historial de los últimos 6 meses de tus pacientes.\n"
-        "• `/informe`: Despliega un menú táctil para auditar y reenviar el informe mensual individual en PDF.\n"
-        "• `/valores`: Panel interactivo para consultar y corregir las metas clínicas (TMB, GET, macros, peso de etapa).\n"
-        "• `/nota` : Despliega los botones con tus pacientes para enviarles notas clínicas o directivas directas.\n"
-        "• `/manual`: Muestra esta guía rápida y adjunta el manual completo en PDF.\n\n"
-        "📄 *A continuación se adjunta el documento técnico operativo completo:*"
+        "• `/pacientes`: Reporte clínico consolidado en PDF (últimos 6 meses).\n"
+        "• `/alertas`: Escáner en vivo solo con pacientes que presentan desvíos o inactividad.\n"
+        "• `/informe`: Previsualiza y reenvía el informe mensual en PDF (con o sin nota).\n"
+        "• `/valores`: Consulta metas actuales y modifica Calorías/GET, Proteínas y Peso de Etapa.\n"
+        "• `/nota`: Envía indicaciones médicas directas y unidireccionales a un paciente.\n"
+        "• `/anuncio`: Envía un mensaje masivo a todos tus pacientes activos.\n"
+        "• `/epicrisis` (o `/obrasocial`): Genera el resumen de historia clínica editable (`.md` para Word).\n"
+        "• `/manual`: Muestra esta guía y descarga el manual completo en PDF."
     )
     await update.message.reply_text(resumen_comandos, parse_mode="Markdown")
 
-    # 2. Generar y enviar el PDF completo
-    msg_espera = await update.message.reply_text("⏳ **Generando el manual operativo oficial de 3 páginas...**", parse_mode="Markdown")
+    import os
+    rutas_posibles = [
+        os.path.join("static", "profesional.pdf"),
+        "profesional.pdf"
+    ]
+    ruta_encontrada = next((r for r in rutas_posibles if os.path.exists(r)), None)
 
-    try:
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(
-            buffer, 
-            pagesize=letter, 
-            rightMargin=36, 
-            leftMargin=36, 
-            topMargin=36, 
-            bottomMargin=36
-        )
-        
-        styles = getSampleStyleSheet()
-        c_primario = colors.HexColor('#1E3A8A')
-        c_secundario = colors.HexColor('#2563EB')
-        c_texto = colors.HexColor('#1E293B')
-        c_fondo_tbl = colors.HexColor('#F8FAFC')
-        
-        title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=c_primario, spaceAfter=4, alignment=1)
-        subtitle_style = ParagraphStyle('SubTitleStyle', parent=styles['Normal'], fontSize=10, leading=13, textColor=c_secundario, spaceAfter=10, alignment=1)
-        h1_style = ParagraphStyle('H1Style', parent=styles['Heading2'], fontSize=12, leading=15, textColor=c_primario, spaceBefore=8, spaceAfter=4)
-        body_style = ParagraphStyle('BodyStyle', parent=styles['Normal'], fontSize=8.5, leading=11.5, textColor=c_texto, spaceAfter=5)
-        bullet_style = ParagraphStyle('BulletStyle', parent=styles['Normal'], fontSize=8.5, leading=11.5, textColor=c_texto, leftIndent=10, spaceAfter=3)
-        
-        story = []
-
-        # PÁGINA 1
-        story.append(Paragraph("<b>IA NutriBot — Sistema de Gestión y Supervisión Clínica</b>", title_style))
-        story.append(Paragraph("<b>Manual Operativo y Especificaciones Técnicas para Profesionales</b>", subtitle_style))
-        story.append(HRFlowable(width="100%", thickness=1.2, color=c_secundario, spaceAfter=8))
-        
-        story.append(Paragraph("<b>1. Resumen de Ventajas y Propuesta de Valor</b>", h1_style))
-        story.append(Paragraph("IA NutriBot combina la accesibilidad masiva de Telegram con una potente capa clínica de supervisión:", body_style))
-        
-        ventajas = [
-            "<b>• Supremacía Clínica:</b> El bot respeta estrictamente los criterios del médico tratante por sobre las fórmulas matemáticas estándar.",
-            "<b>• Protección del Tiempo Profesional:</b> Canales de salida <b>unidireccionales</b> (notas y recetas) para evitar saturación de consultas.",
-            "<b>• Alertas de Desvío Automáticas:</b> Al cierre mensual, el sistema audita registros y reenvía una copia con alertas si el paciente sale de rango.",
-            "<b>• Autogestión Segura:</b> Calibración mediante relojes inteligentes acotada estrictamente a partir del día 15 y con topes del 20%.",
-            "<b>• Trazabilidad de 6 Meses:</b> Arquitectura robusta en Python y Supabase para almacenar historiales clínicos consolidados."
-        ]
-        for v in ventajas:
-            story.append(Paragraph(v, bullet_style))
-        
-        story.append(PageBreak())
-
-        # PÁGINA 2
-        story.append(Paragraph("<b>2. Guía de Comandos y Funciones del Módulo Profesional</b>", h1_style))
-        story.append(Paragraph("El profesional opera de forma directa mediante comandos de texto y menús interactivos táctiles:", body_style))
-        
-        tabla_funciones = [
-            [Paragraph("<b>Comando</b>", ParagraphStyle('Th', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold')), 
-             Paragraph("<b>Descripción y Alcance Operativo</b>", ParagraphStyle('Th2', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold'))],
-            [Paragraph("<b>/pacientes</b>", body_style), Paragraph("Genera un reporte PDF clínico con el historial de los últimos 6 meses de todos los pacientes asignados.", body_style)],
-            [Paragraph("<b>/informe</b>", body_style), Paragraph("Despliega botones interactivos con nombres e IDs para reenviar el informe mensual en PDF de manera individual.", body_style)],
-            [Paragraph("<b>/valores</b>", body_style), Paragraph("Panel táctil interactivo para visualizar metas actuales (TMB, GET, peso de etapa) y corregirlas al instante.", body_style)],
-            [Paragraph("<b>/nota</b>", body_style), Paragraph("Despliega botones interactivos con tus pacientes para enviarles notas o indicaciones médicas directas.", body_style)],
-            [Paragraph("<b>/manual</b>", body_style), Paragraph("Muestra el resumen de comandos en pantalla y adjunta el manual completo en PDF.", body_style)]
-        ]
-        
-        t_func = Table(tabla_funciones, colWidths=[110, 430])
-        t_func.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), c_primario),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, c_fondo_tbl]),
-            ('TOPPADDING', (0, 0), (-1, -1), 5),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ]))
-        story.append(t_func)
-        
-        story.append(PageBreak())
-
-
-
-
-        # PÁGINA 3
-        story.append(Paragraph("<b>3. Base de Datos: Valores_Clinicos_Profesional</b>", h1_style))
-        story.append(Paragraph("La persistencia de los valores clínicos personalizados se administra mediante la siguiente estructura relacional:", body_style))
-        
-        tabla_db = [
-            [Paragraph("<b>Columna SQL</b>", ParagraphStyle('Th3', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold')), 
-             Paragraph("<b>Tipo</b>", ParagraphStyle('Th4', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold')),
-             Paragraph("<b>Descripción del Parámetro Clínico</b>", ParagraphStyle('Th5', parent=body_style, textColor=colors.white, fontName='Helvetica-Bold'))],
-            [Paragraph("`user_id` / `prof_id`", body_style), Paragraph("TEXT", body_style), Paragraph("Identificadores de Telegram vinculados.", body_style)],
-            [Paragraph("`mes`", body_style), Paragraph("VARCHAR", body_style), Paragraph("Período de validez en formato `YYYY-MM`.", body_style)],
-            [Paragraph("`tmb` / `get_val`", body_style), Paragraph("NUMERIC", body_style), Paragraph("Tasa metabólica basal y gasto energético total.", body_style)],
-            [Paragraph("`peso_etapa`", body_style), Paragraph("NUMERIC", body_style), Paragraph("Meta de peso establecida para la etapa.", body_style)],
-            [Paragraph("`calorias_min/max`", body_style), Paragraph("NUMERIC", body_style), Paragraph("Topes de control calórico permitidos.", body_style)],
-            [Paragraph("`proteinas/hidratos/grasas`", body_style), Paragraph("NUMERIC", body_style), Paragraph("Rangos de macronutrientes asignados.", body_style)]
-        ]
-        
-        t_db = Table(tabla_db, colWidths=[120, 70, 350])
-        t_db.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), c_secundario),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, c_fondo_tbl]),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ]))
-        story.append(t_db)
-        story.append(Spacer(1, 15))
-        story.append(Paragraph("<b>Sistema Operativo:</b> 100% Sincronizado y Funcional (Módulos 08, 09 y 11)", ParagraphStyle('Firma', parent=body_style, textColor=colors.HexColor('#64748B'))))
-
-        doc.build(story)
-        buffer.seek(0)
-
-        await msg_espera.delete()
-        await update.message.reply_document(
-            document=buffer,
-            filename="Manual_Profesional_IA_NutriBot.pdf",
-            caption="📄 **Aquí tenés el manual oficial completo en PDF.**",
-            parse_mode="Markdown"
-        )
-
-    except Exception as e:
-        logger.error(f"Error al generar el manual PDF para el profesional {prof_id}: {e}")
-        await msg_espera.edit_text(f"❌ Ocurrió un error al generar el documento PDF: {e}")
-        
+    if ruta_encontrada:
+        try:
+            with open(ruta_encontrada, 'rb') as f_pdf:
+                await update.message.reply_document(
+                    document=f_pdf,
+                    filename="Manual_Profesional_IA_NutriBot.pdf",
+                    caption="📄 **Manual Operativo Oficial para Profesionales (PDF).**",
+                    parse_mode="Markdown"
+                )
+        except Exception as e:
+            logger.error(f"Error enviando profesional.pdf a {prof_id}: {e}")
+            await update.message.reply_text("❌ Ocurrió un error al enviar el archivo PDF.")
+    else:
+        await update.message.reply_text("⚠️ El archivo `profesional.pdf` aún no se encuentra cargado en el servidor.", parse_mode="Markdown")
 # ==========================================================================================================================================
 #                    FINAL                      COMANDOS PROFESIONALES                               FINAL  
 # ==========================================================================================================================================

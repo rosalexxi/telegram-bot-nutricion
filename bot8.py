@@ -153,6 +153,78 @@ async def callback_btn_fechas_diario(update: Update, context: ContextTypes.DEFAU
 #                  INICIO                     FUNCIONES COMIDAS                                       INICIO
 # =============================================================================================================================================
 
+@requiere_registro
+async def cmd_ingesta_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    lang = obtener_idioma_usuario(user_id) or 'es'
+    traducciones = obtener_traducciones_db(lang) or {}
+
+    # Extraemos el texto limpio después del comando (/menu, /ingesta o /ing)
+    raw_text = re.sub(r'^/(menu|ingesta|ing)\w*(@\w+)?', '', update.message.text, flags=re.IGNORECASE).strip()
+
+    txt_ayuda = (
+        "📝 **Ingreso Manual de Ingesta (Sin IA)**\n\n"
+        "Usá este comando para registrar comidas manualmente sin límite.\n"
+        "Formato exacto: `/menu [Descripción], [Peso en g], [Calorías], [Proteínas en g]`\n\n"
+        "Ejemplo: `/menu 2 Tostadas con mermelada, 100, 250, 5`\n\n"
+        "⚠️ _Nota: La descripción debe tener al menos 10 caracteres. Podés poner 0 en los valores numéricos si no los sabés._"
+    )
+
+    if not raw_text:
+        await update.message.reply_text(txt_ayuda, parse_mode="Markdown")
+        return
+
+    # Separar los datos ingresados por comas
+    partes = [p.strip() for p in raw_text.split(',')]
+    
+    # Validación 1: Tienen que ser exactamente 4 partes
+    if len(partes) != 4:
+        await update.message.reply_text(f"⚠️ **Error de formato:** Faltan o sobran datos separados por coma.\n\n{txt_ayuda}", parse_mode="Markdown")
+        return
+
+    alimento = partes[0]
+    
+    # Validación 2: Descripción de al menos 10 caracteres
+    if len(alimento) < 10:
+        await update.message.reply_text("⚠️ **Error:** La descripción de la comida debe tener al menos 10 caracteres para ser un registro válido.", parse_mode="Markdown")
+        return
+    
+    # Validación 3: Que los últimos 3 campos sean números (pueden ser 0)
+    try:
+        peso = float(partes[1].replace(',', '.'))
+        calorias = float(partes[2].replace(',', '.'))
+        proteinas = float(partes[3].replace(',', '.'))
+    except ValueError:
+        await update.message.reply_text("⚠️ **Error de formato:** Asegurate de usar números para el peso, calorías y proteínas.\nEjemplo: `/menu 2 Tostadas con mermelada, 100, 250, 5`", parse_mode="Markdown")
+        return
+        
+    # Armamos el diccionario idéntico al que devuelve la IA
+    item_manual = {
+        "alimento": alimento,
+        "alimento_display": alimento,
+        "peso": max(0.0, peso),
+        "calorias": max(0.0, calorias),
+        "proteinas": max(0.0, proteinas),
+        "grasas": 0.0,
+        "carbohidratos": 0.0,
+        "fibras": 0.0,
+        "fuente": "Manual"
+    }
+    
+    # Obtenemos la fecha y el momento por defecto según la hora actual
+    fecha_auto, momento_auto = obtener_momento_y_fecha_auto()
+    
+    # Inyectamos los datos en el contexto para que el menú los levante
+    context.user_data['pending_items'] = [item_manual]
+    context.user_data['pending_fecha'] = fecha_auto
+    context.user_data['pending_momento'] = momento_auto
+    
+    msg_menu = await update.message.reply_text("⏳ Preparando menú de confirmación...")
+    context.user_data['last_menu_msg_id'] = msg_menu.message_id
+    
+    # Disparamos la pantalla interactiva
+    await render_confirmation_screen(msg_menu, context)
+        
 def consultar_codigo_barras(barcode: str, txt_desconocido="Producto desconocido") -> dict | bool:
     url = f"https://world.openfoodfacts.org/api/v2/product/{barcode.strip()}.json"
     headers = {"User-Agent": "BotNutricionTelegram/1.0 (contacto@tudominio.com)"}
@@ -1143,7 +1215,7 @@ async def mostrar_resumen_actividad_mes(update: Update, context: ContextTypes.DE
     if query:
         await query.edit_message_text(txt_resumen, reply_markup=keyboard, parse_mode="Markdown")
     else:
-        await update.message.reply_text(txt_resumen, reply_markup=keyboard, parse_mode="Markdown")[cite: 1]
+        await update.message.reply_text(txt_resumen, reply_markup=keyboard, parse_mode="Markdown")
         
 async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id):
     user_id = update.effective_user.id
@@ -1390,7 +1462,7 @@ async def _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
         except Exception as e:
             logger.error(f"Error recalculando métricas en vivo para {user_id}: {e}")
             await update.message.reply_text(mensaje_exito.replace('\\n', '\n'), parse_mode="Markdown")
-            
+
 @requiere_registro
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id, chat_id = update.effective_user.id, update.effective_chat.id
@@ -1399,16 +1471,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if context.user_data.get("esperando_consulta_ayuda"):
         context.user_data.pop("esperando_consulta_ayuda", None)
-        consulta = update.message.text.strip()
         
+        permitido, msg_limite = verificar_limite_diario_ia(user_id, tipo="texto")
+        if not permitido:
+            await update.message.reply_text(msg_limite, parse_mode="Markdown")
+            return
+        
+        consulta = update.message.text.strip()
         txt_buscando = traducciones.get("09_ayuda_buscando_manual", "🤖 Buscando en el manual...")
         msg_esp = await update.message.reply_text(txt_buscando)
         
         try:
-            resp = await asyncio.to_thread(solicitar_ai_rest, consulta, lang)
+        
+        
+            resp = await asyncio.to_thread(solicitar_ai_rest, consulta, lang, "", user_id)
+
             txt_cierre = traducciones.get("09_ayuda_cierre_h", "\n\n💡 *Para realizar otra consulta, volvé a enviar el comando /h o /soporte.*")
             respuesta_final = resp.replace("**", "*") + txt_cierre
-            
             await msg_esp.edit_text(respuesta_final, parse_mode="Markdown")
         except Exception:
             txt_err_manual = traducciones.get("09_ayuda_error_manual", "❌ Error al consultar el manual.")
@@ -1438,7 +1517,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "awaiting_edit_perfil_prof", "awaiting_edit_perfil_ritmo",
         "awaiting_edit_perfil_idioma", "awaiting_edit_perfil_edad",
         "awaiting_edit_perfil_sexo", "awaiting_edit_perfil_actividad"
-    ]		
+    ]
 
     if any(context.user_data.get(st) for st in estados_perfil):
         await _sub_manejar_edicion_perfil_inputs(update, context, raw_text, chat_id)
@@ -1537,7 +1616,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         msg_err_proc = traducciones.get("07_bot_error_procesar_texto", "❌ Error al procesar el texto: {e}")
         try: await msg.edit_text(msg_err_proc.format(e=e))
-        except Exception: pass             
+        except Exception: pass
 
 @requiere_registro
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2081,9 +2160,10 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
         nuevo_vencimiento = (hoy + relativedelta(months=meses_a_sumar)).strftime("%Y-%m-%d")
 
         cur.execute(
-            'UPDATE "Usuarios" SET "vencimiento_suscripcion" = %s, "plan_preferido" = NULL, "Estado" = %s WHERE "User ID" = %s',
-            (nuevo_vencimiento, "10", user_id)
+            'UPDATE "Usuarios" SET "vencimiento_suscripcion" = %s, "plan_preferido" = NULL, "plan_activo" = %s, "Estado" = %s WHERE "User ID" = %s',
+            (nuevo_vencimiento, plan_id, "10", user_id)
         )
+
         conn.commit()
         cur.close()
         conn.close()
@@ -2966,7 +3046,7 @@ async def mostrar_resumen_mes(update: Update, context: ContextTypes.DEFAULT_TYPE
         if update.callback_query:
             await update.callback_query.edit_message_text(msg_err)
         else:
-            await update.message.reply_text(msg_err)[cite: 1]
+            await update.message.reply_text(msg_err)
             
 async def generar_y_enviar_pdf_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -5121,17 +5201,14 @@ def main():
        
         # =================================INGRESOS Y CONSULTAS MANUALES============================================
 
-        # El comando tradicional solo muestra la guía
-
-        # Un comando exclusivo y rápido para activar el soporte por audio/texto
         app_bot.add_handler(CommandHandler(["soporte", "h", "support"], cmd_soporte))
         app_bot.add_handler(CommandHandler(["start", "ayuda", "inicio" ,"help"], cmd_start))
 
         app_bot.add_handler(CommandHandler(["dia", "diario", "d", "day"], cmd_diario))
         app_bot.add_handler(CommandHandler(["mes", "resumen", "m", "month"], cmd_resumen))
-        app_bot.add_handler(CommandHandler(["pagar", "pago", "pay"], cmd_pagar))
-
-
+        app_bot.add_handler(CommandHandler(["planes", "plan", "plans", "pagar", "pago", "pay"], cmd_pagar))
+        
+        app_bot.add_handler(CommandHandler(["menu", "ingesta", "ing"], cmd_ingesta_manual))
         app_bot.add_handler(CommandHandler(["actividad", "activity"], cmd_actividad))
         app_bot.add_handler(CommandHandler(["comidas","c","meals","food"], cmd_comidas))
         app_bot.add_handler(CommandHandler(["perfil", "profile"], cmd_perfil))

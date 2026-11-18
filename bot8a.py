@@ -200,7 +200,6 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
                     "Fibras" DOUBLE PRECISION
                 );
             """)
-
         elif tipo_tabla == "usuarios":
             cur.execute(f"""
                 CREATE TABLE IF NOT EXISTS "{tabla_real}" (
@@ -222,6 +221,7 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
                     "ritmo_preferido" TEXT,
                     "dias_inactivo" INTEGER DEFAULT 0,
                     "plan_preferido" TEXT,
+                    "plan_activo" TEXT,
                     "vencimiento_suscripcion" TEXT,
                     "saldo_estrellas" INTEGER DEFAULT 0,
                     "profesional_pendiente" TEXT,
@@ -232,7 +232,6 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
                     "zona_horaria" TEXT
                 );
             """)
-            
         elif tipo_tabla == "categorias_comida":
             cur.execute(f"""
                 CREATE TABLE IF NOT EXISTS "{tabla_real}" (
@@ -268,14 +267,25 @@ def _asegurar_tabla_y_conectar(tabla_nombre, tipo_tabla="comida"):
                     "activo" BOOLEAN DEFAULT TRUE
                 );
             """)
+        elif tipo_tabla == "uso_ia":
+            cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS "{tabla_real}" (
+                    id SERIAL PRIMARY KEY,
+                    "user_id" TEXT,
+                    "fecha" TEXT,
+                    "fotos" INTEGER DEFAULT 0,
+                    "textos" INTEGER DEFAULT 0,
+                    UNIQUE ("user_id", "fecha")
+                );
+            """)
         conn.commit()
-
 
     if tipo_tabla == "usuarios":
         try:
             cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "cadera_cm" DOUBLE PRECISION;')
             cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "dias_inactivo" INTEGER DEFAULT 0;')
             cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "plan_preferido" TEXT;')
+            cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "plan_activo" TEXT;')
             cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "vencimiento_suscripcion" TEXT;')
             cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "saldo_estrellas" INTEGER DEFAULT 0;')
             cur.execute(f'ALTER TABLE "{tabla_real}" ADD COLUMN IF NOT EXISTS "profesional_pendiente" TEXT;')
@@ -1553,58 +1563,105 @@ def notificar_fallo_modelo_admin(proveedor: str, modelo_fallido: str, modulo: st
         logger.error(f"Error enviando alerta de fallo de modelo al admin: {e}")
         
 def verificar_limite_diario_ia(user_id, tipo="texto") -> tuple[bool, str]:
-    """
-    Permite hasta 20 consultas de texto/audio y 10 fotos por día por usuario.
-    Si se bloquea, envía un único aviso diario al Administrador.
-    """
     if not user_id:
         return True, ""
 
-    uid = str(user_id).strip()
-    hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
+    uid = str(user_id).split('.')[0].strip()
+    ahora = obtener_ahora_arg()
+    hoy_str = ahora.strftime("%Y-%m-%d")
 
-    datos_usr = _CONTADOR_DIARIO_IA.get(uid)
-    if not datos_usr or datos_usr.get("fecha") != hoy_str:
-        datos_usr = {
-            "fecha": hoy_str, 
-            "texto": 0, 
-            "foto": 0, 
-            "notificado_texto": False, 
-            "notificado_foto": False
-        }
+    conn = None
+    cur = None
+    try:
+        # Aseguramos la tabla de estadísticas diarias
+        conn, cur = _asegurar_tabla_y_conectar("Uso_IA_Diario", tipo_tabla="uso_ia")
+        
+ 
+         # 1. Obtener el plan activo del usuario (por defecto 'basico')
+        cur.execute('SELECT "plan_activo" FROM "Usuarios" WHERE "User ID" = %s', (uid,))
+        fila_plan = cur.fetchone()
+        plan_activo = str(fila_plan[0]).strip().lower() if fila_plan and fila_plan[0] else "basico"
+        
+        # 2. Asignar los topes según el plan
+        if "premium" in plan_activo:
+            limite_fotos = 40
+            limite_textos = 80
+        elif "intermedio" in plan_activo:
+            limite_fotos = 20
+            limite_textos = 40
+        elif "free" in plan_activo:
+            limite_fotos = 0
+            limite_textos = 0
+        else:
+            # Plan Básico por defecto
+            limite_fotos = 10
+            limite_textos = 20
+ 
+        lang = obtener_idioma_usuario(uid) or 'es'
+        traducciones = obtener_traducciones_db(lang) or {}
 
-    lang = obtener_idioma_usuario(uid) or 'es'
-    traducciones = obtener_traducciones_db(lang) or {}
-
-    if tipo == "foto":
-        if datos_usr["foto"] >= 10:
-            if not datos_usr.get("notificado_foto"):
-                datos_usr["notificado_foto"] = True
-                _CONTADOR_DIARIO_IA[uid] = datos_usr
-                notificar_abuso_admin(uid, "Alcanzó el límite diario de FOTOS (10/10)")
-            msg = traducciones.get(
-                "06_bot_limite_fotos_diario",
-                "⛔ **Límite diario de imágenes alcanzado (10/10).**\n\n"
-                "Podés seguir registrando tus ingestas por texto, con comidas precargadas (`*CODIGO`) o volver a enviar fotos mañana."
+        # Si es plan Free (0 consultas de IA), frenamos acá sin tocar el contador ni alertar abuso
+        if limite_fotos == 0 and limite_textos == 0:
+            msg_free = traducciones.get(
+                "06_bot_plan_free_sin_ia",
+                "🔒 **Tu plan actual es Gratuito (Sin IA).**\n\n"
+                "Podés registrar todo de forma manual e ilimitada usando `/menu`, `/actividad`, `/presi` o tus comidas precargadas (`*CODIGO`).\n\n"
+                "⭐ Si querés analizar fotos, audios y textos con Inteligencia Artificial, elegí un plan con `/planes`."
             ).replace('\\n', '\n')
-            return False, msg
-        datos_usr["foto"] += 1
-    else:
-        if datos_usr["texto"] >= 20:
-            if not datos_usr.get("notificado_texto"):
-                datos_usr["notificado_texto"] = True
-                _CONTADOR_DIARIO_IA[uid] = datos_usr
-                notificar_abuso_admin(uid, "Alcanzó el límite diario de TEXTO/AUDIO IA (20/20)")
-            msg = traducciones.get(
-                "06_bot_limite_texto_diario",
-                "⛔ **Límite diario de consultas a la IA alcanzado (20/20).**\n\n"
-                "Podés seguir utilizando tus comidas precargadas (`*CODIGO`), los comandos manuales (`/actividad`, `/presi`, `/dia`) o volver a consultar mañana."
-            ).replace('\\n', '\n')
-            return False, msg
-        datos_usr["texto"] += 1
+            return False, msg_free
 
-    _CONTADOR_DIARIO_IA[uid] = datos_usr
-    return True, ""
+        # 3. Crear el registro del día si no existe (No duplica gracias al UNIQUE)
+        cur.execute("""
+            INSERT INTO "Uso_IA_Diario" ("user_id", "fecha", "fotos", "textos")
+            VALUES (%s, %s, 0, 0)
+            ON CONFLICT ("user_id", "fecha") DO NOTHING;
+        """, (uid, hoy_str))
+        conn.commit()
+        
+        # 4. Leer el consumo de hoy
+        cur.execute('SELECT "fotos", "textos" FROM "Uso_IA_Diario" WHERE "user_id" = %s AND "fecha" = %s', (uid, hoy_str))
+        consumo = cur.fetchone()
+        fotos_usadas = consumo[0] if consumo else 0
+        textos_usados = consumo[1] if consumo else 0
+
+        # 5. Evaluar límite e incrementar contador en Supabase
+        if tipo == "foto":
+            if fotos_usadas >= limite_fotos:
+                if fotos_usadas == limite_fotos: # Solo notifica 1 vez para no spamear al Admin
+                    notificar_abuso_admin(uid, f"Límite diario FOTOS ({plan_activo}) alcanzado: {limite_fotos}/{limite_fotos}")
+                msg = traducciones.get(
+                    "06_bot_limite_fotos_diario",
+                    f"⛔ **Límite diario de imágenes alcanzado ({limite_fotos}/{limite_fotos}).**\n\nPodés seguir registrando tus ingestas manualmente con `/menu` o volver a enviar fotos mañana."
+                ).replace('\\n', '\n')
+                return False, msg
+            
+            cur.execute('UPDATE "Uso_IA_Diario" SET "fotos" = "fotos" + 1 WHERE "user_id" = %s AND "fecha" = %s', (uid, hoy_str))
+            
+        else:
+            if textos_usados >= limite_textos:
+                if textos_usados == limite_textos:
+                    notificar_abuso_admin(uid, f"Límite diario TEXTO ({plan_activo}) alcanzado: {limite_textos}/{limite_textos}")
+                msg = traducciones.get(
+                    "06_bot_limite_texto_diario",
+                    f"⛔ **Límite diario de consultas a la IA alcanzado ({limite_textos}/{limite_textos}).**\n\nPodés seguir utilizando tus comandos manuales (`/menu`, `/actividad`, `/presi`) o volver a consultar mañana."
+                ).replace('\\n', '\n')
+                return False, msg
+            
+            cur.execute('UPDATE "Uso_IA_Diario" SET "textos" = "textos" + 1 WHERE "user_id" = %s AND "fecha" = %s', (uid, hoy_str))
+
+        conn.commit()
+        return True, ""
+
+    except Exception as e:
+        logger.error(f"Error en verificar_limite_diario_ia con Supabase para {uid}: {e}")
+        return True, "" # Failsafe: Si Supabase cae, dejamos pasar para no bloquear el bot a los usuarios pagos
+    finally:
+        if cur:
+            try: cur.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
 # --- FIN CONTROL DE LÍMITE DIARIO DE IA Y AVISO AL ADMIN ---
 
 def parse_raw_val(val):
@@ -3342,11 +3399,18 @@ async def render_confirmation_screen(msg_or_query, context):
 
     for idx, item in enumerate(items, start=1):
         nombre_corto = item.get('alimento', item.get('nombre', ''))[:10]
-        keyboard.append([
-            InlineKeyboardButton(f"#{idx} {nombre_corto}", callback_data=f"noop_{idx}"),
-            InlineKeyboardButton("📝", callback_data=f"edit_item_{idx}"),
-            InlineKeyboardButton("❌", callback_data=f"del_item_{idx}")
-        ])
+        
+        # Armamos la fila base con el nombre del ítem
+        fila_botones = [InlineKeyboardButton(f"#{idx} {nombre_corto}", callback_data=f"noop_{idx}")]
+        
+        # Solo agregamos el botón de editar (📝) si la fuente NO es manual
+        if item.get('fuente') != 'Manual':
+            fila_botones.append(InlineKeyboardButton("📝", callback_data=f"edit_item_{idx}"))
+            
+        # El botón de eliminar (❌) siempre va
+        fila_botones.append(InlineKeyboardButton("❌", callback_data=f"del_item_{idx}"))
+        
+        keyboard.append(fila_botones)
 
     ahora_arg = obtener_ahora_arg() if 'obtener_ahora_arg' in globals() else datetime.now()
     hoy_str = ahora_arg.strftime("%Y-%m-%d")

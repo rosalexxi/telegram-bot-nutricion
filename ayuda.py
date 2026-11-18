@@ -27,16 +27,34 @@ logger = logging.getLogger(__name__)
 API_KEY_GROQ = os.getenv("GROQ_API_KEY")
 API_KEY_GEMINI = os.getenv("GEMINI_API_KEY_AYUDA") or os.getenv("GEMINI_API_KEY")
 
-
-def leer_manual_md():
-    """Lee el contenido del manual.md desde la carpeta static."""
-    ruta = os.path.join("static", "manual.md")
+def leer_manual_md(es_profesional: bool = False):
+    """Lee manual.md desde static. Si es profesional, anexa profesional.md en memoria."""
+    ruta_usuario = os.path.join("static", "manual.md")
+    contenido = ""
     try:
-        with open(ruta, 'r', encoding='utf-8') as f:
-            return f.read()
+        with open(ruta_usuario, 'r', encoding='utf-8') as f:
+            contenido = f.read()
     except Exception as e:
         logger.error(f"Error al leer el archivo manual.md: {e}")
-        return "El manual no se encuentra disponible en este momento."
+        contenido = "El manual de usuario no se encuentra disponible en este momento."
+
+    if es_profesional:
+        rutas_prof = [os.path.join("static", "profesional.md"), "profesional.md"]
+        ruta_prof_ok = next((r for r in rutas_prof if os.path.exists(r)), None)
+        if ruta_prof_ok:
+            try:
+                with open(ruta_prof_ok, 'r', encoding='utf-8') as f_prof:
+                    contenido_prof = f_prof.read()
+                contenido += (
+                    "\n\n==================================================\n"
+                    "MANUAL EXCLUSIVO PARA PROFESIONALES DE LA SALUD:\n"
+                    "==================================================\n\n"
+                    f"{contenido_prof}"
+                )
+            except Exception as e_prof:
+                logger.error(f"Error al leer profesional.md: {e_prof}")
+
+    return contenido
 
 
 def generar_audio_memoria(texto: str, lang: str = 'es'):
@@ -92,8 +110,8 @@ def transcribir_audio_groq(audio_bytes: bytes) -> str:
 # ==========================================
 def obtener_contexto_para_ia(user_id):
     """
-    Recopila de forma invisible el estado técnico, biométrico y de límites diarios
-    del usuario para inyectarlo al prompt de la IA de soporte.
+    Recopila de forma invisible el estado técnico, biométrico, plan activo y límites diarios
+    reales desde Supabase para inyectarlos al prompt de la IA de soporte.
     """
     uid = str(user_id).strip()
     ahora = obtener_ahora_arg()
@@ -104,6 +122,9 @@ def obtener_contexto_para_ia(user_id):
         "user_id": uid,
         "nombre": "Usuario",
         "estado": "Activo",
+        "plan_activo": "basico",
+        "limite_textos": 20,
+        "limite_fotos": 10,
         "consultas_texto_hoy": 0,
         "fotos_hoy": 0,
         "calorias_hoy": 0.0,
@@ -114,9 +135,9 @@ def obtener_contexto_para_ia(user_id):
     }
     
     try:
-        # 1. Datos básicos de la tabla Usuarios
+        # 1. Datos básicos y plan activo desde la tabla Usuarios
         conn, cur = _asegurar_tabla_y_conectar("Usuarios", tipo_tabla="usuarios")
-        cur.execute('SELECT "Nombre", "Estado", "Ultimo Mes Peso", "Fecha Alta", "vencimiento_suscripcion" FROM "Usuarios" WHERE "User ID" = %s', (uid,))
+        cur.execute('SELECT "Nombre", "Estado", "Ultimo Mes Peso", "Fecha Alta", "vencimiento_suscripcion", "plan_activo" FROM "Usuarios" WHERE "User ID" = %s', (uid,))
         fila = cur.fetchone()
         if fila:
             contexto["nombre"] = str(fila[0] or "Usuario").strip()
@@ -134,19 +155,34 @@ def obtener_contexto_para_ia(user_id):
                 
             contexto["fecha_alta"] = str(fila[3] or "").strip()
             contexto["vencimiento_suscripcion"] = str(fila[4] or "Gratuito").strip()
+            
+            plan_db = str(fila[5]).strip().lower() if fila[5] else "basico"
+            contexto["plan_activo"] = plan_db
+            if "premium" in plan_db:
+                contexto["limite_fotos"], contexto["limite_textos"] = 40, 80
+            elif "intermedio" in plan_db:
+                contexto["limite_fotos"], contexto["limite_textos"] = 20, 40
+            elif "free" in plan_db:
+                contexto["limite_fotos"], contexto["limite_textos"] = 0, 0
+            else:
+                contexto["limite_fotos"], contexto["limite_textos"] = 10, 20
         cur.close()
         conn.close()
     except Exception as e:
         logger.error(f"Error recopilando contexto de usuario {uid} en ayuda.py: {e}")
 
-    # 2. Límites diarios de IA desde el contador global
+    # 2. Límites diarios de IA reales desde la tabla Uso_IA_Diario en Supabase
     try:
-        datos_ia = _CONTADOR_DIARIO_IA.get(uid)
-        if datos_ia and datos_ia.get("fecha") == hoy_str:
-            contexto["consultas_texto_hoy"] = datos_ia.get("texto", 0)
-            contexto["fotos_hoy"] = datos_ia.get("foto", 0)
-    except Exception:
-        pass
+        conn_ia, cur_ia = _asegurar_tabla_y_conectar("Uso_IA_Diario", tipo_tabla="uso_ia")
+        cur_ia.execute('SELECT "fotos", "textos" FROM "Uso_IA_Diario" WHERE "user_id" = %s AND "fecha" = %s', (uid, hoy_str))
+        consumo = cur_ia.fetchone()
+        if consumo:
+            contexto["fotos_hoy"] = int(consumo[0] or 0)
+            contexto["consultas_texto_hoy"] = int(consumo[1] or 0)
+        cur_ia.close()
+        conn_ia.close()
+    except Exception as e_ia:
+        logger.error(f"Error leyendo Uso_IA_Diario para {uid} en ayuda.py: {e_ia}")
 
     # 3. Calorías acumuladas hoy y días registrados en el mes actual
     try:
@@ -165,8 +201,9 @@ def obtener_contexto_para_ia(user_id):
     texto_resumen = (
         f"- Nombre/Apodo: {contexto['nombre']}\n"
         f"- Estado de cuenta: {contexto['estado']}\n"
-        f"- Consultas de texto hoy: {contexto['consultas_texto_hoy']}/20 (Límite diario)\n"
-        f"- Fotos enviadas hoy: {contexto['fotos_hoy']}/10 (Límite diario)\n"
+        f"- Plan activo: {contexto['plan_activo'].upper()}\n"
+        f"- Consultas de texto hoy: {contexto['consultas_texto_hoy']}/{contexto['limite_textos']} (Límite diario)\n"
+        f"- Fotos enviadas hoy: {contexto['fotos_hoy']}/{contexto['limite_fotos']} (Límite diario)\n"
         f"- Calorías registradas hoy: {contexto['calorias_hoy']:.0f} kcal (Tope antispam 6000 kcal)\n"
         f"- Peso del mes actual cargado: {'Sí' if contexto['peso_mes_actual_cargado'] else 'No (Pendiente)'}\n"
         f"- Días con registros en el mes actual: {contexto['dias_registrados_mes']} días (Mínimo 10 para manual, 20 para automático)\n"
@@ -174,29 +211,73 @@ def obtener_contexto_para_ia(user_id):
         f"- Vencimiento de suscripción: {contexto['vencimiento_suscripcion']}"
     )
     return texto_resumen
-
-
+    
 # ==========================================
 # ACTUALIZACIÓN DE SOLICITUD A IA CON CONTEXTO
 # ==========================================
-def solicitar_ai_rest(consulta, lang='es', contexto_usuario=""):
+
+def solicitar_ai_rest(consulta, lang='es', contexto_usuario="", user_id=None):
     """
     Intenta responder primero con Groq incorporando el contexto técnico del usuario.
-    Si falla, pasa automáticamente a Gemini REST.
+    Si el usuario figura en la tabla Profesionales, habilita también profesional.md.
+    Si falla Groq, pasa automáticamente a Gemini REST.
     """
-    manual_texto = leer_manual_md()
-    
+    es_prof = False
+    especialidad_prof = ""
+
+    if user_id:
+        uid_str = str(user_id).split('.')[0].strip()
+        if not contexto_usuario:
+            contexto_usuario = obtener_contexto_para_ia(uid_str)
+
+        conn_p = None
+        cur_p = None
+        try:
+            conn_p, cur_p = _asegurar_tabla_y_conectar("Profesionales", tipo_tabla="profesionales")
+            cur_p.execute('SELECT "User ID", "Especialidad" FROM "Profesionales"')
+            for fila in cur_p.fetchall():
+                if str(fila[0] or "").split('.')[0].strip() == uid_str:
+                    es_prof = True
+                    especialidad_prof = str(fila[1] or "General").strip()
+                    break
+        except Exception as e_p:
+            logger.error(f"Error verificando si {uid_str} es profesional en ayuda.py: {e_p}")
+        finally:
+            if cur_p:
+                try: cur_p.close()
+                except Exception: pass
+            if conn_p:
+                try: conn_p.close()
+                except Exception: pass
+
+    manual_texto = leer_manual_md(es_profesional=es_prof)
+
+    bloque_rol = ""
+
+    if es_prof:
+        bloque_tono_y_rol = (
+            f"**ROL DEL USUARIO:** Estás hablando con un PROFESIONAL DE LA SALUD registrado (Especialidad: {especialidad_prof}).\n"
+            "**TONO:** Adoptá un tono profesional, técnico, preciso, ejecutivo y respetuoso (tratándolo de 'usted' o con un 'vos' profesional y cordial, sin exceso de informalidad). "
+            "Tenés habilitado el Manual Exclusivo para Profesionales además del Manual de Usuario para responderle dudas sobre "
+            "gestión de pacientes, alertas, valores clínicos, informes, notas, anuncios y epicrisis.\n\n"
+        )
+    else:
+        bloque_tono_y_rol = (
+            "**ROL DEL USUARIO:** Estás hablando con un paciente/usuario final.\n"
+            "**TONO:** Adoptá un tono empático, cálido, resolutivo y usá el 'vos' argentino (cercano y amigable).\n\n"
+        )
+
     system_instruction = (
         "Sos el asistente de soporte técnico oficial de IA NutriBot. "
         f"REGLA DE IDIOMA ESTRICTA: El usuario habla el idioma con código ISO '{lang}'. "
-        f"DEBES responder y traducir toda tu explicación ÚNICAMENTE al idioma '{lang}'.\n"
-        "Adoptá un tono empático, cálido, resolutivo y usá el 'vos' argentino (cercano y amigable).\n\n"
+        f"DEBES responder y traducir toda tu explicación ÚNICAMENTE al idioma '{lang}'.\n\n"
+        f"{bloque_tono_y_rol}"
         "**DATOS Y ESTADO TÉCNICO ACTUAL DEL USUARIO:**\n"
         f"{contexto_usuario}\n\n"
-        "**REGLA DE PERSONALIDAD Y PROACTIVIDAD:** Saludá siempre al usuario por su nombre de forma cálida. "
+        "**REGLA DE PERSONALIDAD Y PROACTIVIDAD:** Saludá siempre al usuario por su nombre. "
         "Si detectás que su problema o bloqueo está directamente relacionado con sus datos actuales (ej: límite diario de fotos alcanzado, "
         "falta de carga de peso mensual, cuenta suspendida en Estado 3, o exceso calórico diario), explicaselo proactivamente diciendo "
-        "'Estuve revisando tu ficha y noté que...'. No menciones estos datos internos si no tienen relación directa con su consulta.\n\n"
+        "'Estuve revisando tu ficha y noté que...' (o adaptado al tono profesional si corresponde). No menciones estos datos internos si no tienen relación directa con su consulta.\n\n"
         "Tu única tarea es responder la consulta basándote en el manual y este contexto técnico. "
         "Sé claro, conciso y terminá tu respuesta directamente con la información técnica sin despedidas genéricas.\n\n"
         f"MANUAL OFICIAL:\n{manual_texto}"
@@ -240,16 +321,26 @@ def solicitar_ai_rest(consulta, lang='es', contexto_usuario=""):
 
     raise Exception("No se pudo responder ni con Groq ni con Gemini (verificar API Keys).")
 
-
 # ==========================================
 # ACTUALIZACIÓN DE PROCESAR AUDIO/MENSAJE AYUDA
 # ==========================================
+
 async def procesar_audio_ayuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Recibe el audio (o texto) de ayuda, recopila el contexto del usuario y responde con voz y texto.
     """
     user_id = update.effective_user.id
+    
+    # --- AGREGAR ESTE CONTROL ---
+    from bot8a import verificar_limite_diario_ia
+    permitido, msg_limite = verificar_limite_diario_ia(user_id, tipo="texto")
+    if not permitido:
+        await update.message.reply_text(msg_limite, parse_mode="Markdown")
+        return
+    # ----------------------------
+
     lang = obtener_idioma_usuario(user_id) or 'es'
+
     traducciones = obtener_traducciones_db(lang) or {}
 
     msg_espera_txt = traducciones.get("09_ayuda_escuchando", "🎧 Escuchando tu consulta y revisando tu ficha...")
@@ -272,7 +363,8 @@ async def procesar_audio_ayuda(update: Update, context: ContextTypes.DEFAULT_TYP
         contexto_usuario = await asyncio.to_thread(obtener_contexto_para_ia, user_id)
 
         # 2. Consultamos la IA pasándole tanto la consulta como el contexto del usuario
-        respuesta_ia = await asyncio.to_thread(solicitar_ai_rest, consulta_texto, lang, contexto_usuario)
+        
+        respuesta_ia = await asyncio.to_thread(solicitar_ai_rest, consulta_texto, lang, contexto_usuario, user_id)
         
         etiqueta_consulta = traducciones.get("09_ayuda_etiqueta_consulta", "Tu consulta")
         txt_cierre = traducciones.get("09_ayuda_cierre_h", "\n\n💡 *Para realizar otra consulta, volvé a enviar el comando /h o /soporte.*")
@@ -321,7 +413,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `/dia`: Ingestas seleccionando por teclado y PDF.\n"
         "• `/eliminar`: Borra ingestas y actividades.\n"
         "• `/mes`: Reporte mensual de calorías y PDF.\n"
-        "• `/pago`: Elegir el plan o promoción de pago vigente.\n"
+        "• `/planes`: Elegir el plan o promoción de pago vigente.\n"
         "• `/perfil`: Actualización de datos biométricos.\n"
         "• `/presi`: Registro y consulta de presión arterial.\n"
         "• `/receta`: Calculadora Web para registrar comidas.\n"

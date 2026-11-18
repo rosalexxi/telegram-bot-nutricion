@@ -433,6 +433,8 @@ HTML_CALCULADORA_RECETAS = """
 
             <button class="calc-btn" onclick="calcularReceta()"><span data-var="_02_btn_calcular">✨ Calcular Fila con IA</span></button>
 
+            <button class="calc-btn" style="background: var(--text-muted); margin-top: 10px;" onclick="habilitarIngresoManual()"><span>✍️ Ingreso Manual de Totales (Sin IA)</span></button>
+
             <div id="loading">
                 <div class="spinner"></div><br>
                 <span class="loading-text" data-var="_02_loading_ia">Calculando macronutrientes con IA...</span>
@@ -767,6 +769,37 @@ HTML_CALCULADORA_RECETAS = """
             document.getElementById('loading').style.display = 'none';
         }
     }
+
+    function habilitarIngresoManual() {
+        const codigo = document.getElementById('codigo').value.trim();
+        const descripcion = document.getElementById('descripcion').value.trim();
+        
+        if (!codigo || !descripcion) {
+            Swal.fire({ icon: 'info', title: t('_02_title_vacios', 'Campos Vacíos'), text: "Por favor completa el código y la descripción antes de ingresar los valores." });
+            return;
+        }
+        
+        // Creamos un único ítem con valores en cero para que el usuario los llene a mano
+        itemsDesglosadosGlobal = [{
+            alimento: descripcion,
+            peso: 0,
+            calorias: 0,
+            proteinas: 0,
+            grasas: 0,
+            carbohidratos: 0,
+            fibras: 0
+        }];
+        
+        // Renderizamos la tabla editable y la mostramos
+        renderizarTablaEditable();
+        document.getElementById('resultado-section').style.display = 'block';
+        
+        // Hacemos scroll hacia abajo para que vea la tabla
+        document.getElementById('resultado-section').scrollIntoView({ behavior: 'smooth' });
+    }
+
+
+
 
     function renderizarTablaEditable() {
         const tbody = document.querySelector('#tablaNutricional tbody');

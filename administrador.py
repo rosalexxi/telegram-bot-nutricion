@@ -100,7 +100,7 @@ async def cmd_desarmar_excel(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "/alta": "/register", "/barra": "/barcode", "/borracomida": "/delmeal",
             "/comidas": "/meals", "/dia": "/day", "/eliminar": "/delete",
             "/GET": "/get", "/inicio": "/start", "/ayuda": "/help",
-            "/mes": "/month", "/pago": "/pay", "/perfil": "/profile",
+            "/mes": "/month", "/planes": "/plans", "/perfil": "/profile",
             "/peso": "/weight", "/presi": "/pressure", "/receta": "/recipe",
             "/semana": "/week", "/x": "/exit", "/cancelar": "/cancel",
             "/pacientes": "/patients", "/informe": "/report", "/nota": "/note",
