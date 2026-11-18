@@ -1507,39 +1507,10 @@ def notificar_abuso_admin(user_id, motivo: str):
 _ALERTAS_MODELOS_HOY = set()
 
 def notificar_fallo_modelo_admin(proveedor: str, modelo_fallido: str, modulo: str, detalle_error: str = ""):
-    """Envía una alerta al Administrador (1 vez al día por modelo) cuando una IA se queda sin tokens o falla."""
-    if not ADMIN_USER_ID or not TELEGRAM_TOKEN:
-        return
-    try:
-        hoy_str = obtener_ahora_arg().strftime("%Y-%m-%d")
-        clave_alerta = f"{hoy_str}_{proveedor}_{modelo_fallido}_{modulo}"
-        
-        # Si ya te avisó hoy de este modelo en este módulo, no te vuelve a spamear
-        if clave_alerta in _ALERTAS_MODELOS_HOY:
-            return
-        _ALERTAS_MODELOS_HOY.add(clave_alerta)
-
-        ahora_str = obtener_ahora_arg().strftime("%Y-%m-%d %H:%M")
-        detalle_corto = str(detalle_error)[:180].replace("`", "'").replace("*", "")
-        
-        texto_alerta = (
-            f"⚠️ *AVISO DE MOTOR IA (CAMBIO A RESPALDO)*\n\n"
-            f"• 🛠️ *Módulo:* {modulo}\n"
-            f"• 🏢 *Proveedor:* {proveedor}\n"
-            f"• 🤖 *Modelo agotado/fallido:* `{modelo_fallido}`\n"
-            f"• 🔄 *Acción:* Saltando automáticamente al siguiente modelo de respaldo.\n"
-            f"• 🕒 *Hora:* `{ahora_str}`\n"
-            f"• 📋 *Detalle:* `{detalle_corto}`"
-        )
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        requests.post(
-            url, 
-            json={"chat_id": ADMIN_USER_ID, "text": texto_alerta, "parse_mode": "Markdown"}, 
-            timeout=4
-        )
-    except Exception as e:
-        logger.error(f"Error enviando alerta de fallo de modelo al admin: {e}")
-        
+    """Registra el fallo del modelo solo en los logs del servidor (sin enviar cartel por Telegram)."""
+    logger.warning(f"Cambio a respaldo IA | Módulo: {modulo} | {proveedor} ({modelo_fallido}): {str(detalle_error)[:180]}")
+    return
+            
 def verificar_limite_diario_ia(user_id, tipo="texto") -> tuple[bool, str]:
     if not user_id:
         return True, ""
