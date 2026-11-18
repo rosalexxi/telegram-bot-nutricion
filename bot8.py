@@ -47,7 +47,8 @@ from profesionales import (
     cmd_anuncio_general,      
     cmd_alertas_clinicas,     
     cmd_epicrisis_inicio,     
-    callback_generar_epicrisis
+    callback_generar_epicrisis,
+    cmd_registrar_profesional
 )
 
 from ayuda import (
@@ -5197,6 +5198,7 @@ def main():
         app_bot.add_handler(CommandHandler(["anuncio"], cmd_anuncio_general))
         app_bot.add_handler(CommandHandler(["alertas"], cmd_alertas_clinicas))
         app_bot.add_handler(CommandHandler(["epicrisis", "obrasocial"], cmd_epicrisis_inicio))
+        app_bot.add_handler(CommandHandler("registrar", cmd_registrar_profesional))
         app_bot.add_handler(CallbackQueryHandler(callback_generar_epicrisis, pattern="^epicsel_"))
        
         # =================================INGRESOS Y CONSULTAS MANUALES============================================

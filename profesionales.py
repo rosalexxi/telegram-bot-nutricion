@@ -24,9 +24,10 @@ from bot8a import (
     obtener_ultimo_peso,
     obtener_datos_usuario,
     obtener_datos_presion_db,
-     obtener_valores_clinicos_profesional,
+    obtener_valores_clinicos_profesional,
     calcular_metricas_mensuales,
-    procesar_y_enviar_informe_mensual
+    procesar_y_enviar_informe_mensual,
+    ADMIN_USER_ID as ADMIN_TELEGRAM_ID
 )
 
 logger = logging.getLogger(__name__)
@@ -358,9 +359,67 @@ def obtener_pacientes_por_medico(prof_id):
     except Exception as e:
         logger.error(f"Error en obtener_pacientes_por_medico para {prof_id}: {e}")
     return pacientes
-  
+
 # =======================================================================================================================================
 #                    FINAL                      FUNCIONES PROFESIONALES                            FINAL
+# =======================================================================================================================================
+
+# =======================================================================================================================================
+#                    INICIO                      COMANDO REGISTRAR                              INICIO
+# =======================================================================================================================================
+
+async def cmd_registrar_profesional(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Comando para que un profesional se dé de alta automáticamente en el sistema.
+    Uso en Telegram: /registrar Juan Carlos Perez
+    """
+    user = update.effective_user
+    user_id = user.id
+    
+    # Unimos todo el texto que mandó después del comando /registrar
+    texto_ingresado = " ".join(context.args).strip() if context.args else ""
+    
+    # Validación estricta: Mínimo 10 caracteres para asegurar nombre y apellido
+    if len(texto_ingresado) < 10:
+        await update.message.reply_text(
+            "⚠️ **Formato incorrecto.**\n\n"
+            "Por favor, ingresá tu nombre y apellido completo junto al comando.\n"
+            "Ejemplo: `/registrar Juan Carlos Perez`",
+            parse_mode="Markdown"
+        )
+        return
+
+    nombre_telegram = f"{user.first_name} {user.last_name or ''}".strip()
+    
+    # 1. Le respondemos al profesional confirmando la recepción
+    mensaje_usuario = (
+        f"✅ ¡Solicitud recibida, *{texto_ingresado}*!\n\n"
+        "Hemos enviado tus datos al administrador para autorizar tu cuenta en el panel de supervisión clínica. "
+        "A la brevedad quedará habilitado tu acceso."
+    )
+    await update.message.reply_text(mensaje_usuario, parse_mode="Markdown")
+    
+    # 2. Te reenviamos la alerta a VOS (el administrador) de forma automática
+    mensaje_admin = (
+        "🔔 **NUEVA SOLICITUD DE PROFESIONAL**\n\n"
+        f"• Profesional: *{texto_ingresado}*\n"
+        f"• Perfil de Telegram: {nombre_telegram}\n"
+        f"• ID de Telegram: `{user_id}`\n\n"
+        "*(Copia este ID para vincularlo a tu base de datos de profesionales).* "
+    )
+    
+    try:
+        await context.bot.send_message(
+            chat_id=int(ADMIN_TELEGRAM_ID),
+            text=mensaje_admin,
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error(f"Error al notificar al administrador sobre la solicitud de profesional: {e}")
+
+  
+# =======================================================================================================================================
+#                    FINAL                      COMANDO REGISTRAR                            FINAL
 # =======================================================================================================================================
 
 # =============================================================================================================================================
@@ -992,10 +1051,6 @@ async def procesar_texto_nota_informe(update: Update, context: ContextTypes.DEFA
         logger.error(f"Error al enviar informe con nota desde el profesional {prof_id}: {e}")
         await update.message.reply_text(f"❌ Ocurrió un error al procesar el envío: {e}")
         return True
-
-
-
-
 
 async def cmd_enviar_nota_paciente(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """

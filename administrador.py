@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 #              INICIO                              FUNCIONES ADMINISTRADOR                           INICIO
 # =============================================================================================================================================
 
+
 # ---------------------------------------------------------------------------------------------------------------------------------------------
 # COMANDO DE TELEGRAM: /bloquear y /desbloquear (Suspende o rehabilita permanentemente a un usuario abusivo)
 # CÓMO SE USA EN TELEGRAM: /bloquear 123456789   o   /desbloquear 123456789
